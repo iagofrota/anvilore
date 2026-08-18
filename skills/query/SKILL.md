@@ -27,18 +27,25 @@ Não responda ainda. Não abra páginas da wiki ainda. Apenas pense em voz alta,
 Sem um indexador dedicado neste nível, a busca aqui é direta: primeiro `wiki/index.md`, depois `rg` para confirmar onde o termo aparece.
 
 ```bash
-rg -in "<termo-chave>" wiki/
+rg --no-ignore -in "<termo-chave>" wiki/
 ```
+
+O `--no-ignore` não é enfeite. O `.gitignore` deste repositório exclui
+`wiki/*` de propósito — o conteúdo é de quem usa, o repositório carrega só o
+método — e o `rg` respeita `.gitignore` por padrão. Sem a flag, a busca não
+acha nada a partir da primeira página que você ingerir, e o vazio é
+indistinguível de "a wiki não cobre isso". Falha silenciosa é o defeito que
+este repositório inteiro existe para evitar.
 
 Trate o resultado do `rg` como **os lugares onde vale olhar**, não como a resposta — ele aponta ocorrência de texto, não relevância. Ainda cabe a você ler as seções encontradas e decidir o que de fato responde à pergunta.
 
 - **A pergunta é sobre lacunas, pendências ou "o que falta confirmar"?** Não é busca por texto — procure diretamente pelos callouts:
 
   ```bash
-  rg -n '\[!gap\]|\[!contradiction\]' wiki/
+  rg --no-ignore -n '\[!gap\]|\[!contradiction\]' wiki/
   ```
 
-- **Precisa de um termo literal exato** (slug, ID, URL)? `rg` continua sendo a ferramenta certa.
+- **Precisa de um termo literal exato** (slug, ID, URL)? `rg --no-ignore` continua sendo a ferramenta certa.
 
 Identifique toda página provavelmente relevante para a pergunta. Liste antes de abrir qualquer uma:
 
