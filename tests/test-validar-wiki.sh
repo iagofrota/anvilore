@@ -79,9 +79,11 @@ echo "$saida" | grep -q "VALIDACAO: FAIL" \
   && echo "  ok: codigo 1 em diretorio inexistente" || { echo "  FALHA: codigo de saida errado"; falhas=$((falhas+1)); }
 
 mkdir -p "$tmp/vazio"
-saida="$(bash scripts/validar-wiki.sh "$tmp/vazio")"
+saida="$(bash scripts/validar-wiki.sh "$tmp/vazio")"; codigo=$?
 echo "$saida" | grep -q "VALIDACAO: FAIL" \
   && echo "  ok: reprova diretorio sem pagina" || { echo "  FALHA: diretorio vazio deu PASS"; falhas=$((falhas+1)); }
+[ "$codigo" -eq 1 ] \
+  && echo "  ok: codigo 1 em diretorio sem pagina" || { echo "  FALHA: codigo de saida errado"; falhas=$((falhas+1)); }
 
 # ...mas uma wiki recem-criada, que so tem index.md e log.md, continua valida
 mkdir -p "$tmp/nova"
