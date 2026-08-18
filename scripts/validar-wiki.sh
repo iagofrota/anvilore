@@ -7,9 +7,20 @@ source scripts/lib-anvilore.sh
 DIR="${1:-wiki}"
 TIPOS_VALIDOS="source concept entity"
 
-erros=0; gaps=0; contradicoes=0
+# Uma wiki que nao existe nao e uma wiki limpa. Sem esta checagem, um caminho
+# errado no comando faz o `find` falhar no stderr, o laco nunca roda e a saida
+# e "VALIDACAO: PASS" — o erro silencioso que este repositorio inteiro existe
+# para desencorajar.
+if [ ! -d "$DIR" ]; then
+  echo "ERRO: diretorio nao encontrado: $DIR"
+  echo "VALIDACAO: FAIL"
+  exit 1
+fi
+
+erros=0; gaps=0; contradicoes=0; paginas=0
 
 while IFS= read -r arquivo; do
+  paginas=$((paginas+1))
   nome="$(basename "$arquivo")"
   if [ "$nome" = "index.md" ] || [ "$nome" = "log.md" ]; then continue; fi
 
@@ -30,6 +41,14 @@ while IFS= read -r arquivo; do
   gaps=$((gaps + $(grep -c '\[!gap\]' "$arquivo" || true)))
   contradicoes=$((contradicoes + $(grep -c '\[!contradiction\]' "$arquivo" || true)))
 done < <(find "$DIR" -name '*.md' -type f | sort)
+
+# Conta index.md e log.md de proposito: uma wiki recem-criada so tem esses dois
+# e e valida. Zero arquivo, porem, significa diretorio errado ou wiki sumida.
+if [ "$paginas" -eq 0 ]; then
+  echo "ERRO: nenhuma pagina .md encontrada em: $DIR"
+  echo "VALIDACAO: FAIL"
+  exit 1
+fi
 
 echo "Divida: $gaps gaps, $contradicoes contradicoes"
 echo "Registrar uma contradicao nao e criar uma contradicao — e torna-la visivel."
