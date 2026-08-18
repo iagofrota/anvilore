@@ -161,3 +161,9 @@ No máximo uma sugestão. Não enrole.
 - **Nunca invente páginas da wiki.** Se você referenciar uma página que não existe em `wiki/index.md`, corrija-se.
 - **Se o índice for grande** (100+ páginas), não leia toda página — use as categorias do índice e os resumos de página para restringir antes de abrir arquivos.
 - **Se a pergunta for ambígua**, faça uma pergunta de esclarecimento antes de prosseguir para o Passo 2. Uma pergunta, não uma lista.
+
+---
+
+_Esta skill é obra derivada de [`wiki-wonka`](https://github.com/cooperacode/wiki-wonka)
+(Coopera Code, licença MIT), traduzida para português do Brasil e adaptada.
+Aviso de copyright original em `LICENSE`._

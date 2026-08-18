@@ -32,6 +32,15 @@ base de código.
 
 ## Crédito
 
+As skills `ingest` e `query`, e as convenções de `SCHEMA.md` (tipos de
+página, frontmatter, wikilinks e o sistema de callouts), são **obra derivada
+de [`wiki-wonka`](https://github.com/cooperacode/wiki-wonka)**, de Coopera
+Code, licenciado sob MIT. Aqui elas foram traduzidas para português do Brasil
+e adaptadas — o passo de despacho de subagentes, o validador
+`scripts/validar-wiki.sh` e o recorte reduzido do schema são acréscimos deste
+repositório. O aviso de copyright original está preservado no `LICENSE`,
+como a licença MIT exige.
+
 Este repositório implementa, sem alegação de ineditismo, um padrão descrito
 por **Andrej Karpathy** no gist
 [`llm-wiki.md`](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) —

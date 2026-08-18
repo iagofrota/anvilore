@@ -281,3 +281,9 @@ Tem algo que você quer que eu revise antes de continuarmos?
 - Nunca responda perguntas durante o ingest. Se o usuário perguntar algo no meio do fluxo, anote e diga que vai responder depois que o ingest terminar.
 - Se um passo produzir mais de ~20 mudanças de arquivo, pare e pergunte ao usuário se ele quer continuar ou reduzir o escopo.
 - Prefira atualizar páginas existentes a criar novas. Fragmentação é inimiga de uma wiki útil.
+
+---
+
+_Esta skill é obra derivada de [`wiki-wonka`](https://github.com/cooperacode/wiki-wonka)
+(Coopera Code, licença MIT), traduzida para português do Brasil e adaptada.
+Aviso de copyright original em `LICENSE`._
