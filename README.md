@@ -30,25 +30,34 @@ aplicar o mesmo fluxo de trabalho — instrução clara, contrato explícito,
 verificação automatizada — a uma coleção de conhecimento em vez de uma
 base de código.
 
-## Crédito
+## De onde isto veio
 
-As skills `ingest` e `query`, e as convenções de `SCHEMA.md` (tipos de
-página, frontmatter, wikilinks e o sistema de callouts), são **obra derivada
-de [`wiki-wonka`](https://github.com/cooperacode/wiki-wonka)**, de Coopera
-Code, licenciado sob MIT. Aqui elas foram traduzidas para português do Brasil
-e adaptadas — o passo de despacho de subagentes, o validador
-`scripts/validar-wiki.sh` e o recorte reduzido do schema são acréscimos deste
-repositório. O aviso de copyright original está preservado no `LICENSE`,
-como a licença MIT exige.
+Nada aqui nasceu do zero, e acho que vale contar a linhagem inteira — inclusive
+porque ela explica melhor o repositório do que qualquer descrição de features.
 
-Este repositório implementa, sem alegação de ineditismo, um padrão descrito
-por **Andrej Karpathy** no gist
-[`llm-wiki.md`](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) —
-que também está reproduzido na íntegra em `raw/exemplo/` deste repositório,
-como fonte de teste. A ideia de capturar, organizar, destilar e expressar
-conhecimento pessoal ao longo do tempo, que sustenta o método antes mesmo do
-agente entrar em cena, vem do **Segundo Cérebro** de
-[Tiago Forte](https://www.buildingasecondbrain.com/book).
+**O ponto de partida foi o [Segundo Cérebro](https://www.buildingasecondbrain.com/book),
+de Tiago Forte.** Capturar, organizar, destilar e expressar. A parte de capturar
+sempre foi fácil. Organizar e destilar é que nunca sobreviveu a duas semanas —
+é trabalho chato, repetitivo, e sem ele o resto não compõe.
+
+**Depois veio o gist [`llm-wiki.md`](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f),
+do Andrej Karpathy.** Ele descreve o padrão: em vez de perguntar a um LLM e
+jogar a resposta fora, deixe o agente manter uma wiki que sobrevive à conversa.
+O gist é deliberadamente abstrato — um padrão, não uma implementação. Está
+reproduzido na íntegra em `raw/exemplo/` deste repositório, como fonte de teste.
+
+**E a implementação que me mostrou que o padrão funcionava foi a
+[`wiki-wonka`](https://github.com/cooperacode/wiki-wonka), da Coopera Code.**
+Foi dela que saiu o desenho que está aqui: o fluxo de dois tempos do `ingest`
+(discutir antes de escrever), o `query` que só responde citando página, o
+frontmatter, os wikilinks e o sistema de callouts. As skills deste repositório
+são **obra derivada** dela — traduzidas para português do Brasil e adaptadas,
+sob a licença MIT, com o aviso de copyright original preservado no `LICENSE`.
+
+O que este repositório acrescenta por cima: o passo de despacho de subagentes
+no `ingest`, o validador `scripts/validar-wiki.sh` com testes, um schema
+deliberadamente menor, e a ideia de que a coisa cresce em níveis — você começa
+com duas skills e um contrato, e só adiciona estrutura quando a dor aparece.
 
 ## Começo em 5 minutos
 
