@@ -77,14 +77,14 @@ Escreva sua resposta. Regras:
 
 ```
 O self-attention permite que cada token preste atenção a todos os outros da
-sequência [[concepts/self-attention]], o que difere da abordagem recorrente
-usada em arquiteturas anteriores [[concepts/rnn]].
+sequência [[self-attention]], o que difere da abordagem recorrente
+usada em arquiteturas anteriores [[rnn]].
 ```
 
 **Traga contradições à tona explicitamente.** Se páginas da wiki discordam sobre algo relevante para a pergunta, diga isso. Não escolha um lado — relate as duas posições e cite as duas páginas.
 
 ```
-Nota: [[sources/paper-a]] e [[sources/paper-b]] discordam sobre se isso
+Nota: [[paper-a]] e [[paper-b]] discordam sobre se isso
 escala para sequências maiores que 4096 tokens. Essa é uma tensão em
 aberto na wiki.
 ```
@@ -110,7 +110,7 @@ Depois de responder, pergunte:
 Quer que eu salve isso como uma página da wiki?
 ```
 
-Se o usuário disser sim, pergunte um título se não for óbvio. Então crie `wiki/concepts/<slug>.md` usando o modelo de página de conceito de `skills/ingest/SKILL.md`. A página deve conter a resposta sintetizada, com todas as citações intactas, mais uma seção `## Pergunta de origem` no topo:
+Se o usuário disser sim, pergunte um título se não for óbvio. Então crie `wiki/concepts/<slug>.md` usando o modelo de página de conceito de `skills/ingest/SKILL.md`. O frontmatter tem que obedecer ao `SCHEMA.md` — é ele que `scripts/validar-wiki.sh` cobra. A página deve conter a resposta sintetizada, com todas as citações intactas, mais uma seção `## Pergunta de origem` no topo:
 
 ```markdown
 ## Pergunta de origem

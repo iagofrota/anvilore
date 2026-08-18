@@ -134,7 +134,7 @@ Escreva como se estivesse explicando para alguém que nunca vai ler o original.
 O que esta fonte confirma, contesta ou nuança? Referencie páginas existentes usando [[wikilinks]].
 Se ela contradiz uma página existente, sinalize explicitamente:
 
-> [!contradiction] Esta fonte contesta [[concepts/pagina-existente]] sobre X.
+> [!contradiction] Esta fonte contesta [[pagina-existente]] sobre X.
 
 ## Perguntas em aberto
 
@@ -181,8 +181,8 @@ Leia a página atual por inteiro. Depois:
 - Adicione a informação nova na seção apropriada.
 - Não apague conteúdo existente a menos que esteja factualmente errado. Se for o caso, substitua o trecho e explique por quê na mesma edição — este nível do schema só define os callouts `[!gap]` e `[!contradiction]`, então não invente outro para marcar a mudança.
 - Se a fonte contradiz algo na página, adicione um callout `> [!contradiction]` com link para a página da fonte.
-- Adicione `[[sources/slug]]` ao campo `related_sources` do frontmatter da página.
-- Adicione uma subseção `## A partir de [[sources/slug]]` se a fonte acrescenta conteúdo novo substancial.
+- Adicione `[[slug]]` ao campo `related_sources` do frontmatter da página.
+- Adicione uma subseção `## A partir de [[slug]]` se a fonte acrescenta conteúdo novo substancial.
 
 ### Criando uma página de entidade nova
 
@@ -194,7 +194,7 @@ title: "Nome da entidade"
 slug: slug-da-entidade
 type: entity
 tags: []
-related_sources: [sources/slug]
+related_sources: [slug]
 related_concepts: []
 ---
 ```
@@ -211,7 +211,7 @@ title: "Nome do conceito"
 slug: slug-do-conceito
 type: concept
 tags: []
-related_sources: [sources/slug]
+related_sources: [slug]
 related_concepts: []
 ---
 ```
