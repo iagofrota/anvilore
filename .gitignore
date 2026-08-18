@@ -1,0 +1,11 @@
+# O conteúdo é de quem usa. O repositório carrega só o método.
+# Um nível (`raw/*`), não `raw/**`: o git não desce em diretório excluído
+# por `**`, e `raw/exemplo/` nunca chegaria ao repositório.
+raw/*
+!raw/.gitkeep
+!raw/exemplo/
+wiki/*
+!wiki/index.md
+!wiki/log.md
+logs/
+.DS_Store
