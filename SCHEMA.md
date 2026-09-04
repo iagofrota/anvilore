@@ -47,6 +47,57 @@ Regras:
 - Listas são sempre array, mesmo vazias: `[]`.
 - Datas em ISO 8601: `AAAA-MM-DD`.
 
+## Perfil de proveniência (opcional)
+
+Qualquer tipo de página **pode** registrar de onde a informação veio, quem a
+gerou, quem a revisou e quando ela vence. Todos os campos são opcionais: uma
+página sem nenhum deles é válida, e o validador **nunca** reprova por ausência.
+Ele só reprova um campo que esteja **presente e malformado**.
+
+```yaml
+sources:
+  - id: reuniao-2026-08-30                    # chave estável para citação; opcional
+    resource: raw/exemplo/nome-do-arquivo.md  # obrigatório na entrada
+    title: "Título legível"                   # opcional
+    author: human:<id>                        # opcional, convenção de atores
+    last_modified: 2026-08-30T10:00:00-03:00  # opcional, ISO 8601 com offset
+
+generated:
+  by: process:<id>                            # obrigatório no bloco, convenção de atores
+  at: 2026-08-30T10:30:00-03:00               # opcional, ISO 8601 com offset
+
+verified:                                     # lista OU um único mapping (ambos válidos)
+  - by: human:<id>                            # convenção de atores
+    at: 2026-08-31T09:00:00-03:00             # ISO 8601 com offset
+
+stale_after: 2027-02-28T00:00:00-03:00        # instante absoluto, ISO 8601 com offset
+```
+
+**Convenção de atores** (`generated.by`, `verified[].by`, `sources[].author`):
+- `human:<id>` — uma pessoa.
+- `process:<id>` — um processo automatizado.
+- `<produtor>/<versão>` — um gerador com versão, ex.: `claude-opus/2026-09`.
+
+**Forma de `sources[].resource`** — três formas, e só uma é checada:
+- **URL** (tem esquema de URI, ex.: `https://…`, `ftp://…`, `mailto:…`) — referência
+  externa, nunca resolvida.
+- **caminho do vault** (tem `/` ou termina em extensão de arquivo) — tem de existir
+  dentro da raiz do repositório, como um wikilink que não pode apontar para o vazio.
+  `raw/` e `wiki/` são consequência dessa forma, não uma lista de prefixos consultada.
+- **descritor de escopo** (o resto: sem barra e sem extensão, ex.: `todas as sessões
+  de 2026`) — não resolve para arquivo nenhum e não é checado.
+
+  Espaço em branco no valor **não** decide a forma: um caminho com espaço no nome
+  continua sendo caminho e tem de existir.
+
+**Timestamps:** os campos novos (`generated.at`, `verified[].at`, `stale_after`,
+`sources[].last_modified`) usam ISO 8601 **com offset explícito**
+(`2026-09-03T10:30:00-03:00`). Os campos de data existentes (`date_ingested`)
+seguem `AAAA-MM-DD`, inalterados.
+
+**Métricas** (nunca reprovam, só informam): quantas páginas estão vencidas
+(`agora ≥ stale_after`) e quantas foram geradas depois da última verificação.
+
 ## Wikilinks
 
 Referencie outra página com `[[slug]]` — sem caminho, sem extensão. Na
