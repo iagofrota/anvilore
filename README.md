@@ -84,6 +84,12 @@ cd anvilore
    (gaps e contradições sinalizados, se houver — zero também é uma resposta
    válida).
 
+   > O validador é shell puro. A única checagem opcional que precisa de algo
+   > além disso é o [perfil de proveniência](SCHEMA.md#perfil-de-proveniência-opcional),
+   > que lê o frontmatter com **PyYAML** (`pip install pyyaml`). Sem ele, o
+   > validador pula esse perfil com uma linha `SKIP:` dizendo por quê e segue
+   > normalmente — nunca reprova por falta da dependência.
+
 Isso é o nível 02 completo. Não tem mais nada além disso rodando por trás.
 
 ## Os quatro níveis

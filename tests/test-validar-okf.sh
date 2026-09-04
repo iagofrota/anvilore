@@ -27,6 +27,19 @@
 #   Cenario: pagina vencida e reportada como metrica, nao como falha (A5)
 #     Dado stale_after ja no passado
 #     Entao codigo 0 e a metrica okf_stale a acusa. Vencer nao e falhar.
+#
+#   Cenario: PyYAML ausente pula o perfil com explicacao, sem reprovar (A10)
+#     Dado um host com python3 mas sem PyYAML
+#     Quando rodo scripts/validar-wiki.sh
+#     Entao a validacao segue seu curso (VALIDACAO: PASS, codigo 0) e uma linha
+#       diz por que o perfil OKF foi pulado (cita PyYAML). Nao pode dar FAIL sem
+#       explicacao.
+#
+#   Cenario: frontmatter com YAML invalido nao e pulado calado (A11)
+#     Dado uma pagina cujo frontmatter tem YAML sintaticamente invalido
+#     Quando rodo o validador
+#     Entao ele nao passa a pagina em silencio: reprova (codigo 1) e a mensagem
+#       nomeia o arquivo que nao conseguiu ler.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
@@ -135,6 +148,35 @@ saida="$(rodar)"; codigo=$?
   && echo "  ok: A5 pagina vencida nao reprova (codigo 0)" || { echo "  FALHA: A5 vencimento reprovou"; falhas=$((falhas+1)); }
 echo "$saida" | grep -q "okf_stale=1" \
   && echo "  ok: A5 vencimento reportado como metrica" || { echo "  FALHA: A5 metrica okf_stale nao acusou"; falhas=$((falhas+1)); }
+
+# --- A10: PyYAML ausente pula o perfil OKF com explicacao, sem reprovar ---
+# Simula a ausencia com um modulo yaml de fachada que estoura no import,
+# injetado via PYTHONPATH: bloqueia so o `import yaml`, o resto do stdlib
+# segue intacto. O perfil e opcional, entao a validacao nao pode reprovar por
+# nao conseguir checa-lo — mas tem de dizer por que pulou.
+FAKEYAML="$TMPROOT/fakeyaml"; mkdir -p "$FAKEYAML"
+printf 'raise ImportError("PyYAML bloqueado para o teste A10")\n' > "$FAKEYAML/yaml.py"
+pagina okf-sem-pyyaml 'sources:
+  - resource: https://example.com/x'
+saida="$(PYTHONPATH="$FAKEYAML" bash scripts/validar-wiki.sh "$WIKI" 2>&1)"; codigo=$?
+[ "$codigo" -eq 0 ] \
+  && echo "  ok: A10 sem PyYAML nao reprova (codigo 0)" || { echo "  FALHA: A10 sem PyYAML reprovou (codigo $codigo)"; falhas=$((falhas+1)); }
+echo "$saida" | grep -q "VALIDACAO: PASS" \
+  && echo "  ok: A10 validacao segue seu curso e passa" || { echo "  FALHA: A10 nao deu VALIDACAO: PASS"; falhas=$((falhas+1)); }
+echo "$saida" | grep -qi "PyYAML" \
+  && echo "  ok: A10 explica por que pulou (cita PyYAML)" || { echo "  FALHA: A10 pulou sem explicar"; falhas=$((falhas+1)); }
+
+# --- A11: frontmatter com YAML invalido nao e pulado calado; nomeia o arquivo ---
+# `sources: [nao-fecha` e uma sequencia de fluxo aberta — YAML sintaticamente
+# invalido. As checagens base de validar-wiki.sh (type/slug) passam, entao quem
+# tem de acusar e o validador OKF: pular calado deixaria a pagina PASS sem
+# checagem nenhuma do perfil.
+pagina okf-yaml-quebrado 'sources: [nao-fecha'
+saida="$(rodar)"; codigo=$?
+[ "$codigo" -eq 1 ] \
+  && echo "  ok: A11 YAML invalido reprova (codigo 1)" || { echo "  FALHA: A11 YAML invalido nao reprovou (codigo $codigo)"; falhas=$((falhas+1)); }
+echo "$saida" | grep -q "okf-yaml-quebrado.md" \
+  && echo "  ok: A11 mensagem nomeia o arquivo" || { echo "  FALHA: A11 nao nomeou o arquivo"; falhas=$((falhas+1)); }
 
 [ "$falhas" -eq 0 ] && echo "OK: validar-okf"
 exit "$falhas"

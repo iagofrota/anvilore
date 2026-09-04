@@ -55,14 +55,17 @@ echo "Registrar uma contradicao nao e criar uma contradicao — e torna-la visiv
 
 # Perfil de proveniencia OKF: campos opcionais que so reprovam quando presentes
 # e malformados. A ausencia nunca reprova. Metricas (paginas vencidas etc.) sao
-# reportadas, nunca contadas como violacao. Precisa de python3 + PyYAML; se python3
-# faltar, o perfil e simplesmente nao checado.
+# reportadas, nunca contadas como violacao. Precisa de python3 + PyYAML; se
+# python3 faltar, o perfil e simplesmente nao checado. Se python3 existe mas
+# PyYAML nao, o validador OKF emite uma linha SKIP: dizendo por que pulou e sai
+# 0 — a validacao segue seu curso, em vez de virar FAIL sem causa.
 if command -v python3 >/dev/null 2>&1; then
   okf_saida="$(python3 scripts/validar-okf.py "$DIR" 2>&1)"; okf_codigo=$?
   while IFS= read -r linha; do
     case "$linha" in
       FAIL:*)   echo "$linha"; erros=$((erros+1)) ;;
       METRIC:*) echo "$linha" ;;
+      SKIP:*)   echo "$linha" ;;
     esac
   done <<< "$okf_saida"
   # Uma saida diferente de 0 sem linha FAIL: (ex.: diretorio some entre o find e

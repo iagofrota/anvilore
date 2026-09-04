@@ -21,7 +21,19 @@ from typing import Any
 
 import re
 
-import yaml
+# PyYAML e a unica dependencia fora do stdlib. Este repositorio e shell/markdown
+# puro: quem clona pode nao ter PyYAML, e o perfil OKF e opcional. Sem ela, o
+# perfil e pulado com uma explicacao (ver main) em vez de estourar um traceback
+# que viraria FAIL sem causa — o erro silencioso que o repo existe para evitar.
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+
+class FrontmatterInvalido(Exception):
+    """Frontmatter delimitado, mas com YAML que nao pode ser lido."""
+
 
 ATOR_RE = re.compile(r'^(human:[a-z0-9_-]+|process:[a-z0-9_-]+|[a-z0-9_-]+/[a-z0-9._-]+)$', re.I)
 ISO8601_OFFSET_RE = re.compile(r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$')
@@ -52,8 +64,12 @@ def extrair_frontmatter(texto: str) -> dict[str, Any] | None:
         return None
     try:
         return yaml.safe_load('\n'.join(linhas[1:fim]))
-    except yaml.YAMLError:
-        return None
+    except yaml.YAMLError as exc:
+        # Frontmatter existe (esta delimitado) mas o YAML nao le. Nao e uma
+        # pagina sem perfil — e uma pagina cujo frontmatter nao pode ser
+        # confiado. Sinaliza para main nomear o arquivo, em vez de devolver
+        # None (que a trataria como "sem OKF" e a passaria calada).
+        raise FrontmatterInvalido(str(exc)) from exc
 
 
 def validar_ator(valor: str, campo: str, caminho: str) -> str | None:
@@ -222,6 +238,14 @@ def main() -> int:
     parser.add_argument('wiki', nargs='?', default='wiki', help='Caminho do diretorio da wiki')
     args = parser.parse_args()
 
+    # Sem PyYAML nao ha como ler o frontmatter. O perfil e opcional: pula com uma
+    # linha dizendo por que, e devolve 0 para a validacao seguir seu curso. A
+    # linha SKIP: e ecoada por validar-wiki.sh; nunca vira violacao.
+    if yaml is None:
+        print("SKIP: perfil OKF nao checado — PyYAML ausente. "
+              "Instale com 'pip install pyyaml' para ativar a checagem de proveniencia.")
+        return 0
+
     raiz_wiki = Path(args.wiki)
     if not raiz_wiki.is_dir():
         print(f"FAIL: diretorio da wiki nao encontrado: {args.wiki}", file=sys.stderr)
@@ -235,8 +259,17 @@ def main() -> int:
         rel = caminho_md.relative_to(raiz_wiki)
 
         texto = caminho_md.read_text(encoding='utf-8')
-        fm = extrair_frontmatter(texto)
+        try:
+            fm = extrair_frontmatter(texto)
+        except FrontmatterInvalido:
+            # Falha aberto e nomeia o arquivo: um frontmatter que nao le nao
+            # pode sair PASS com o perfil inteiro sem checagem.
+            todos_erros.append(f"FAIL: frontmatter YAML invalido, nao foi possivel ler: {rel}")
+            continue
         if fm is None:
+            continue
+        if not isinstance(fm, dict):
+            # Frontmatter que le, mas nao e um mapping: nao carrega campos OKF.
             continue
 
         erros, metricas = validar_pagina(fm, str(rel), raiz_wiki)

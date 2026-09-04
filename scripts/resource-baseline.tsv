@@ -84,7 +84,7 @@ pass	file:///etc/passwd	esquema vence a checagem de raiz; fixa a precedencia ent
 pass	https://example.com/a b.md	URL com espaco continua externa: o espaco saiu da regra
 pass	C:\notas.md	quirk conhecido: letra de unidade casa ^[a-zA-Z][...]*: e vira externo
 # --- Fora da raiz do repositorio — apertado na rodada 2 da j-20260903-08 ---
-fail	/etc/passwd	cenario A10; dava VALIDATION: PASS antes da correcao
+fail	/etc/passwd	cenario A10; dava VALIDACAO: PASS antes da correcao
 fail	../README.md	cenario A11
 fail	/etc	absoluto que existe em qualquer host: reprova por conter, nao por existir
 fail	raw/../../etc/passwd	relativo que sobe acima da raiz depois de descer

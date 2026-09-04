@@ -16,8 +16,10 @@ test-first (RED → GREEN) sobre a suíte shell existente.
 
 **Language/Version**: Bash + Python 3.12 (PyYAML 6.0.1 presente no host)
 
-**Primary Dependencies**: `python3` + `yaml` (guardado por `command -v python3`);
-`awk`, `find`, `grep`. Sem framework, sem build, sem runtime.
+**Primary Dependencies**: `awk`, `find`, `grep` (shell puro). O perfil OKF,
+opcional, usa `python3` + `yaml` (PyYAML): `command -v python3` guarda a ausência
+de `python3`, e o próprio `validar-okf.py` degrada com uma linha `SKIP:` quando o
+`import yaml` falha. Sem framework, sem build, sem runtime obrigatório.
 
 **Storage**: N/A — arquivos markdown em `wiki/`, evidência em `raw/`.
 
@@ -101,7 +103,15 @@ tabela valor a valor); `shellcheck` + `py_compile`. Commit, push, PR.
 
 ## Risks
 
-- **PyYAML ausente** faria o wiring OKF quebrar suítes existentes — mitigado pelo
-  guard `command -v python3` e confirmado presente no host.
+- **PyYAML ausente** faria o wiring OKF quebrar suítes existentes. O guard
+  `command -v python3` **não** cobre isto: num host com `python3` e sem PyYAML, o
+  `import yaml` estourava um traceback que virava `VALIDACAO: FAIL` sem causa e
+  levava a suíte pré-existente de 13/13 a 4 falhas (achado da rodada 1 do gate).
+  Mitigado na rodada 2: `validar-okf.py` guarda o `import yaml`; sem a
+  dependência, emite uma linha `SKIP:` dizendo por que pulou e sai 0 — a validação
+  segue seu curso, o perfil OKF (opcional) fica não checado, e a suíte
+  pré-existente permanece 13/13. A dependência também é declarada no README.
+  Exercitado por A10 em `tests/test-validar-okf.sh` com um `yaml` de fachada que
+  estoura no import.
 - **Vazamento fora do piso de palavras** — mitigado por leitura valor a valor da
   tabela e varredura ampliada (atores, emails, caminhos de máquina).
