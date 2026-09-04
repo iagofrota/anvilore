@@ -53,6 +53,23 @@ fi
 echo "Divida: $gaps gaps, $contradicoes contradicoes"
 echo "Registrar uma contradicao nao e criar uma contradicao — e torna-la visivel."
 
+# Perfil de proveniencia OKF: campos opcionais que so reprovam quando presentes
+# e malformados. A ausencia nunca reprova. Metricas (paginas vencidas etc.) sao
+# reportadas, nunca contadas como violacao. Precisa de python3 + PyYAML; se python3
+# faltar, o perfil e simplesmente nao checado.
+if command -v python3 >/dev/null 2>&1; then
+  okf_saida="$(python3 scripts/validar-okf.py "$DIR" 2>&1)"; okf_codigo=$?
+  while IFS= read -r linha; do
+    case "$linha" in
+      FAIL:*)   echo "$linha"; erros=$((erros+1)) ;;
+      METRIC:*) echo "$linha" ;;
+    esac
+  done <<< "$okf_saida"
+  # Uma saida diferente de 0 sem linha FAIL: (ex.: diretorio some entre o find e
+  # aqui) tambem reprova — medicao nao erra em silencio.
+  [ "$okf_codigo" -ne 0 ] && [ "$erros" -eq 0 ] && erros=$((erros+1))
+fi
+
 if [ "$erros" -gt 0 ]; then
   echo "VALIDACAO: FAIL ($erros violacoes de invariante)"; exit 1
 fi
