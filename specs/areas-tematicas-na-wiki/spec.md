@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-05
 
-**Status**: Delivered — rodada 2 (após o primeiro gate)
+**Status**: Delivered — rodada 3 (rebaseada sobre a main remota; mérito aprovado na rodada 2)
 
 **Input**: Ensinar áreas ao que já existe, sem trocar o runtime de nada. O `SCHEMA.md`
 ganha o campo `area`; o validador em bash passa a entender a estrutura de áreas; a
@@ -146,3 +146,9 @@ do diretório?
   README ficam fora desta tarefa (ondas seguintes).
 - Migrar conteúdo está fora de escopo: o repositório carrega o método; o conteúdo é de
   quem usa e fica fora do git.
+- Rebase da rodada 3: a entrega convive com o perfil de proveniência OKF já gateado na
+  Fase 1. No `SCHEMA.md`, as seções "Áreas (opcional)" e "Perfil de proveniência
+  (opcional)" são independentes e ambas opcionais; no `validar-wiki.sh`, a checagem de
+  área (no laço) e a de proveniência (após o laço) não se cruzam. Nenhum requisito
+  funcional desta spec muda com o rebase — só passam a ser verificados sobre o repositório
+  inteiro, com as suítes `test-validar-okf.sh` e `test-resource-baseline.sh` também verdes.

@@ -3,6 +3,7 @@
 # coerente com as paginas versionadas, e o README honesto sobre o proprio clone.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
+source scripts/lib-anvilore.sh
 
 falhas=0
 
@@ -39,8 +40,11 @@ fi
 while IFS= read -r pag; do
   case "$pag" in
     wiki/index.md|wiki/log.md) continue ;;
-    wiki/_meta/*|wiki/log/*)   continue ;;
   esac
+  # Diretorios reservados nao guardam pagina de wiki, entao nao se espera que
+  # estejam no indice. A lista de reservados tem um dono so — a lib —, e este
+  # teste pergunta a ela em vez de repetir 'wiki/_meta/*|wiki/log/*'.
+  em_dir_reservado wiki "$pag" && continue
   slug="$(basename "$pag" .md)"
   if grep -q "\[\[$slug\]\]" wiki/index.md || grep -qF "$slug" wiki/index.md; then
     echo "  ok: indexada $pag"

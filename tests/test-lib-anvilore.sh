@@ -54,5 +54,15 @@ em_dir_reservado "$tmp" "$tmp/exemplo/concepts/x.md" \
 em_dir_reservado "$tmp" "$tmp/solta.md" \
   && { echo "  FALHA: tratou pagina solta como reservada"; falhas=$((falhas+1)); } || echo "  ok: pagina solta nao e reservada"
 
+# nome_reservado: o dono unico da lista de diretorios reservados. area_do_diretorio,
+# em_dir_reservado e o teste do esqueleto delegam a ela — a lista '_meta|log' mora
+# aqui e so aqui, para que acrescentar/renomear um reservado seja uma edicao so.
+nome_reservado _meta \
+  && echo "  ok: nome_reservado _meta" || { echo "  FALHA: _meta deveria ser reservado"; falhas=$((falhas+1)); }
+nome_reservado log \
+  && echo "  ok: nome_reservado log" || { echo "  FALHA: log deveria ser reservado"; falhas=$((falhas+1)); }
+nome_reservado exemplo \
+  && { echo "  FALHA: nome comum tratado como reservado"; falhas=$((falhas+1)); } || echo "  ok: nome comum nao e reservado"
+
 [ "$falhas" -eq 0 ] && echo "OK: lib-anvilore"
 exit "$falhas"

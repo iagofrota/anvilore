@@ -89,9 +89,13 @@ SCHEMA.md                # + seção "Áreas (opcional)"
 ```
 
 **Structure Decision**: A tarefa cresce as peças existentes da Fase 1 no lugar em que
-já vivem, sem introduzir novas camadas. A única função nova (`area_do_diretorio`) mora
-na lib porque é determinística e testável isoladamente — o determinístico vira função
-testada, não inferência repetida no validador.
+já vivem, sem introduzir novas camadas. As funções novas moram na lib porque são
+determinísticas e testáveis isoladamente — o determinístico vira função testada, não
+inferência repetida no validador. Além de `area_do_diretorio`, a rodada 2 acrescentou
+`em_dir_reservado` e a rodada 3 extraiu `nome_reservado`, o **dono único** da lista de
+diretórios reservados (`_meta`, `log`): o literal `_meta|log` mora só nela, e
+`area_do_diretorio`, `em_dir_reservado` e o teste de esqueleto delegam a essa função em
+vez de repetir a lista.
 
 ### Build order (test-first)
 
@@ -101,7 +105,7 @@ testada, não inferência repetida no validador.
    áreas no `SCHEMA.md`; diretórios do esqueleto + `.gitkeep` + página de exemplo;
    `.gitignore` com a fronteira "esqueleto entra, conteúdo do usuário fica fora".
 3. **Verify** — suíte verde; validador exercitado à mão para cada critério de aceite
-   (A1–A8); clone raso para a fronteira do git; `shellcheck`; varredura dos blobs por
+   (A1–A11); clone raso para a fronteira do git; `shellcheck`; varredura dos blobs por
    conteúdo pessoal e ferramental.
 
 ## Rodada 2 — correções após o primeiro gate
@@ -128,6 +132,41 @@ correções, cada uma com o teste que a defende:
    plano afirma o contrário. Diretório renomeado para `areas-tematicas-na-wiki` e
    cabeçalhos corrigidos. O identificador no ledger permanece (é a chave do pareamento
    com o veredito do gate).
+
+## Rodada 3 — rebase sobre a main remota
+
+Na rodada 2 o gate confirmou os onze critérios e as seis correções (com prova de
+mutação): o mérito ficou aprovado. A reprovação foi de integração, não de conteúdo. A
+branch nasceu de uma cópia local da main que estava cinco commits atrás da remota, e a
+remota já entregava o porte OKF da Fase 1 (perfil de proveniência e a régua de baseline
+versionado). A entrega precisava, então, ser rebaseada e reconfirmada sobre o repositório
+inteiro — não sobre o menor que a branch enxergava.
+
+O que a rodada 3 fez, sem refazer o mérito:
+
+1. **Rebase sobre `origin/main`.** Quatro arquivos eram tocados pelos dois lados;
+   `.gitignore`, `README.md` e `validar-wiki.sh` auto-mesclaram (regiões distintas). Só o
+   `SCHEMA.md` conflitou, e a resolução **mantém os dois lados**: a seção "Perfil de
+   proveniência (opcional)" da Fase 1 (que sustenta a régua OKF e não pode sumir) e a
+   seção "Áreas (opcional)" desta tarefa (que sustenta A8). Tomar um lado só apagaria uma
+   entrega gateada.
+2. **Suíte reconfirmada sobre a árvore rebaseada.** As cinco suítes — as três desta
+   tarefa mais `test-validar-okf.sh` e `test-resource-baseline.sh`, que a branch não tinha
+   — passam verdes. No validador rebaseado, as checagens de área desta tarefa (dentro do
+   laço) convivem com o bloco de proveniência OKF (após o laço), e A9 continua valendo: um
+   markdown comum em `_meta/` e `log/` aprova mesmo com o validador OKF encadeado.
+3. **A11 reconferido sobre o README novo.** A main acrescentou uma nota sobre PyYAML no
+   começo rápido; ela e o parágrafo de níveis corrigido na rodada 2 convivem em regiões
+   distintas do arquivo, e nenhuma afirmação sobre o clone ficou falsa. O limite se
+   mantém: só aquele parágrafo; a reescrita é da Onda 5.
+4. **Dois achados menores do gate.** (a) A lista de diretórios reservados aparecia como
+   literal em três pontos (`area_do_diretorio`, `em_dir_reservado`, o teste de esqueleto);
+   virou o dono único `nome_reservado`, com teste próprio. (b) Este documento dizia
+   "A1–A8" no passo Verify enquanto descrevia A9–A11 logo abaixo — corrigido, e a spec e o
+   plano atualizados para a rodada 3.
+
+O merge em si não é desta entrega: a autoridade é do PE, e o nome da branch exige
+mensagem de merge escrita à mão.
 
 ## Complexity Tracking
 

@@ -22,9 +22,22 @@ tem_frontmatter() {
   [ "$(head -1 "$1")" = "---" ]
 }
 
+# Dono unico da lista de diretorios reservados. Um diretorio reservado guarda
+# infra da wiki — indices gerados (_meta) e o log fatiado por dia (log) —, nao
+# paginas tematicas. Todo lugar que precise decidir se um nome de diretorio de
+# topo e reservado pergunta AQUI, para que acrescentar ou renomear um reservado
+# seja uma edicao unica em vez de "lembrar de N pontos".
+# 0 se o nome dado for de um diretorio reservado.
+nome_reservado() {
+  case "$1" in
+    _meta|log) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Imprime a area de uma pagina, derivada de onde ela mora relativa a raiz da wiki.
 # Vazio quando a pagina esta solta na raiz (wiki plana) ou num diretorio
-# reservado (_meta, log) — esses nao sao areas tematicas.
+# reservado (ver nome_reservado) — esses nao sao areas tematicas.
 area_do_diretorio() {
   local raiz="${1%/}" arquivo="$2" rel topo
   rel="${arquivo#"$raiz"/}"
@@ -33,15 +46,13 @@ area_do_diretorio() {
     *) return 0 ;;   # sem barra: pagina solta na raiz, sem area
   esac
   topo="${rel%%/*}"
-  case "$topo" in
-    _meta|log) return 0 ;;
-  esac
+  nome_reservado "$topo" && return 0
   printf '%s\n' "$topo"
 }
 
-# 0 se a pagina mora num diretorio reservado (_meta, log). O SCHEMA descreve esses
-# dois como infra — indices gerados e log fatiado por dia —, nao como pagina de
-# wiki, entao o validador nao lhes cobra frontmatter/type/slug.
+# 0 se a pagina mora num diretorio reservado (ver nome_reservado). O SCHEMA
+# descreve esses diretorios como infra — indices gerados e log fatiado por dia —,
+# nao como pagina de wiki, entao o validador nao lhes cobra frontmatter/type/slug.
 em_dir_reservado() {
   local raiz="${1%/}" arquivo="$2" rel topo
   rel="${arquivo#"$raiz"/}"
@@ -50,8 +61,5 @@ em_dir_reservado() {
     *) return 1 ;;   # sem barra: solta na raiz, nao e reservada
   esac
   topo="${rel%%/*}"
-  case "$topo" in
-    _meta|log) return 0 ;;
-  esac
-  return 1
+  nome_reservado "$topo"
 }
