@@ -98,6 +98,39 @@ seguem `AAAA-MM-DD`, inalterados.
 **Métricas** (nunca reprovam, só informam): quantas páginas estão vencidas
 (`agora ≥ stale_after`) e quantas foram geradas depois da última verificação.
 
+## Áreas (opcional)
+
+Uma wiki pequena vive plana: as páginas soltas em `wiki/`, sem áreas. Isso é
+válido e continua sendo. Quando o volume cresce, as páginas podem ser agrupadas
+por assunto dentro de `wiki/<área>/`, cada área com os três tipos:
+
+```
+wiki/
+  <área>/
+    sources/
+    entities/
+    concepts/
+  _meta/     # índices gerados; não é uma área
+  log/       # log fatiado por dia; não é uma área
+```
+
+O campo `area` no frontmatter declara a que área a página pertence:
+
+```yaml
+area: nome-da-area
+```
+
+- **É opcional.** Uma página sem `area` é válida — é assim que a wiki plana
+  funciona. Se o campo faltar, o validador não cobra nada dele.
+- **Se estiver presente numa página guardada dentro de uma área**, precisa bater
+  com o diretório: uma página em `wiki/marketing/concepts/` com `area: vendas`
+  está guardada na área errada. O validador **reprova**, nomeando o arquivo e as
+  duas áreas em conflito, para que dê para corrigir sem abrir o validador.
+- **Numa página solta na raiz** (`wiki/pagina.md`), o campo `area` não é
+  cobrado contra o diretório — não há área de diretório com que comparar.
+
+Os diretórios `_meta/` e `log/` são reservados e não são áreas temáticas.
+
 ## Wikilinks
 
 Referencie outra página com `[[slug]]` — sem caminho, sem extensão. Na

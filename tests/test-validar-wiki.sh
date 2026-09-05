@@ -93,5 +93,79 @@ saida="$(bash scripts/validar-wiki.sh "$tmp/nova")"
 echo "$saida" | grep -q "VALIDACAO: PASS" \
   && echo "  ok: wiki recem-criada passa" || { echo "  FALHA: wiki nova reprovada"; falhas=$((falhas+1)); }
 
+# --- Areas ---
+# uma pagina cuja area do frontmatter bate com o diretorio da area passa
+mkdir -p "$tmp/aw/exemplo/concepts"
+printf '# Indice\n' > "$tmp/aw/index.md"
+cat > "$tmp/aw/exemplo/concepts/certa.md" <<'EOF'
+---
+title: "Certa"
+slug: certa
+type: concept
+area: exemplo
+tags: [teste]
+---
+EOF
+saida="$(bash scripts/validar-wiki.sh "$tmp/aw")"; codigo=$?
+echo "$saida" | grep -q "VALIDACAO: PASS" \
+  && echo "  ok: area coerente com o diretorio passa" || { echo "  FALHA: area coerente reprovou"; falhas=$((falhas+1)); }
+[ "$codigo" -eq 0 ] \
+  && echo "  ok: codigo 0 com area coerente" || { echo "  FALHA: codigo!=0 com area coerente"; falhas=$((falhas+1)); }
+
+# uma pagina cuja area diverge do diretorio reprova, e a mensagem nomeia
+# o arquivo e as duas areas em conflito (para corrigir sem abrir o validador)
+cat > "$tmp/aw/exemplo/concepts/divergente.md" <<'EOF'
+---
+title: "Divergente"
+slug: divergente
+type: concept
+area: outra
+tags: [teste]
+---
+EOF
+saida="$(bash scripts/validar-wiki.sh "$tmp/aw")"; codigo=$?
+echo "$saida" | grep -q "VALIDACAO: FAIL" \
+  && echo "  ok: area divergente reprova" || { echo "  FALHA: area divergente passou"; falhas=$((falhas+1)); }
+[ "$codigo" -ne 0 ] \
+  && echo "  ok: codigo!=0 em area divergente" || { echo "  FALHA: codigo 0 em divergencia"; falhas=$((falhas+1)); }
+msg="$(echo "$saida" | grep 'divergente.md')"
+{ echo "$msg" | grep -q 'exemplo' && echo "$msg" | grep -q 'outra' && echo "$msg" | grep -q 'divergente.md'; } \
+  && echo "  ok: mensagem nomeia o arquivo e as duas areas" \
+  || { echo "  FALHA: mensagem nao nomeia arquivo+areas ('$msg')"; falhas=$((falhas+1)); }
+rm -f "$tmp/aw/exemplo/concepts/divergente.md"
+
+# uma wiki plana: pagina com campo area mas solta na raiz nao dispara divergencia
+# (e o cenario de quem move as paginas das areas de volta para a raiz)
+cat > "$tmp/aw/solta-com-area.md" <<'EOF'
+---
+title: "Solta com area"
+slug: solta-com-area
+type: concept
+area: exemplo
+tags: [teste]
+---
+EOF
+saida="$(bash scripts/validar-wiki.sh "$tmp/aw")"
+echo "$saida" | grep -q "VALIDACAO: PASS" \
+  && echo "  ok: campo area em pagina solta nao reprova (wiki plana)" \
+  || { echo "  FALHA: pagina plana com campo area reprovou"; falhas=$((falhas+1)); }
+rm -f "$tmp/aw/solta-com-area.md"
+
+# determinismo: duas execucoes byte-identicas em stdout, stderr e codigo
+o1="$(bash scripts/validar-wiki.sh "$tmp/aw" 2>"$tmp/e1")"; c1=$?
+o2="$(bash scripts/validar-wiki.sh "$tmp/aw" 2>"$tmp/e2")"; c2=$?
+{ [ "$o1" = "$o2" ] && [ "$c1" = "$c2" ] && diff -q "$tmp/e1" "$tmp/e2" >/dev/null; } \
+  && echo "  ok: saida deterministica em duas execucoes" \
+  || { echo "  FALHA: saida divergiu entre execucoes"; falhas=$((falhas+1)); }
+
+# a wiki versionada no proprio repositorio valida, informa a divida e sai com 0
+saida="$(bash scripts/validar-wiki.sh wiki)"; codigo=$?
+echo "$saida" | grep -q "VALIDACAO: PASS" \
+  && echo "  ok: wiki do repositorio valida" || { echo "  FALHA: wiki do repositorio reprovou"; falhas=$((falhas+1)); }
+echo "$saida" | grep -q "Divida:" \
+  && echo "  ok: informa a divida de conhecimento" || { echo "  FALHA: nao informou a divida"; falhas=$((falhas+1)); }
+[ "$codigo" -eq 0 ] \
+  && echo "  ok: codigo 0 na wiki do repositorio" || { echo "  FALHA: codigo!=0 na wiki do repositorio"; falhas=$((falhas+1)); }
+
 [ "$falhas" -eq 0 ] && echo "OK: validar-wiki"
 exit "$falhas"

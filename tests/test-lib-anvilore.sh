@@ -35,5 +35,13 @@ tem_frontmatter "$tmp/pagina.md" && echo "  ok: tem_frontmatter positivo" \
 tem_frontmatter "$tmp/solta.md" && { echo "  FALHA: tem_frontmatter aceitou arquivo sem frontmatter"; falhas=$((falhas+1)); } \
   || echo "  ok: tem_frontmatter negativo"
 
+# area_do_diretorio: deriva a area a partir de onde a pagina mora, relativa a raiz.
+# Determinismo puro — mesma entrada, mesma saida — logo mora na lib com teste.
+checar "area_do_diretorio: pagina em area"        "$(area_do_diretorio "$tmp" "$tmp/exemplo/concepts/x.md")"     'exemplo'
+checar "area_do_diretorio: pagina solta na raiz"  "$(area_do_diretorio "$tmp" "$tmp/x.md")"                      ''
+checar "area_do_diretorio: reservado _meta"       "$(area_do_diretorio "$tmp" "$tmp/_meta/i.md")"                ''
+checar "area_do_diretorio: reservado log"         "$(area_do_diretorio "$tmp" "$tmp/log/2026-09-05.md")"         ''
+checar "area_do_diretorio: raiz com barra final"  "$(area_do_diretorio "$tmp/" "$tmp/exemplo/sources/y.md")"     'exemplo'
+
 [ "$falhas" -eq 0 ] && echo "OK: lib-anvilore"
 exit "$falhas"

@@ -38,6 +38,16 @@ while IFS= read -r arquivo; do
     echo "ERRO: slug '$slug' nao bate com o nome do arquivo: $arquivo"; erros=$((erros+1))
   fi
 
+  # Area e opcional (wiki plana continua valida). Mas se a pagina mora numa
+  # area e declara 'area' no frontmatter, os dois precisam bater — senao a
+  # pagina esta guardada na area errada, e isso reprova nomeando a divergencia.
+  area_dir="$(area_do_diretorio "$DIR" "$arquivo")"
+  area_fm="$(extrair_campo "$arquivo" area)"
+  if [ -n "$area_dir" ] && [ -n "$area_fm" ] && [ "$area_dir" != "$area_fm" ]; then
+    echo "ERRO: area '$area_fm' do frontmatter diverge do diretorio '$area_dir': $arquivo"
+    erros=$((erros+1))
+  fi
+
   gaps=$((gaps + $(grep -c '\[!gap\]' "$arquivo" || true)))
   contradicoes=$((contradicoes + $(grep -c '\[!contradiction\]' "$arquivo" || true)))
 done < <(find "$DIR" -name '*.md' -type f | sort)
