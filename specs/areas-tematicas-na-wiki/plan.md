@@ -1,8 +1,8 @@
 # Implementation Plan: Áreas temáticas na wiki
 
-**Branch**: `fundacao-python-e-areas` | **Date**: 2026-09-05 | **Spec**: [spec.md](./spec.md)
+**Branch**: `areas-tematicas-na-wiki` | **Date**: 2026-09-05 | **Spec**: [spec.md](./spec.md)
 
-**Input**: Feature specification from `specs/fundacao-python-e-areas/spec.md`
+**Input**: Feature specification from `specs/areas-tematicas-na-wiki/spec.md`
 
 ## Summary
 
@@ -56,7 +56,7 @@ Não há `constitution.md` neste repositório. Os princípios que valem como gat
 ### Documentation (this feature)
 
 ```text
-specs/fundacao-python-e-areas/
+specs/areas-tematicas-na-wiki/
 ├── plan.md              # Este arquivo
 └── spec.md              # Especificação da feature
 ```
@@ -103,6 +103,31 @@ testada, não inferência repetida no validador.
 3. **Verify** — suíte verde; validador exercitado à mão para cada critério de aceite
    (A1–A8); clone raso para a fronteira do git; `shellcheck`; varredura dos blobs por
    conteúdo pessoal e ferramental.
+
+## Rodada 2 — correções após o primeiro gate
+
+O gate independente aprovou os oito critérios originais, a varredura de conteúdo pessoal
+e a autoria, e reprovou por seis achados. O PE emendou o task-spec (agora A1–A11). As
+correções, cada uma com o teste que a defende:
+
+1. **A9 — reservados isentos das checagens de página.** `em_dir_reservado` na lib
+   (determinística, testada); o validador pula `_meta/` e `log/` antes de cobrar
+   frontmatter/type/slug. Antes, um markdown nesses diretórios reprovava — o código
+   proibia a estrutura que o SCHEMA descreve, e era armadilha para a Onda 2.
+2. **A10 — página versionada dentro do índice.** A página de exemplo entrou no
+   `wiki/index.md`, na categoria correta. Teste: toda página de wiki versionada (fora
+   index/log e dos reservados) aparece no índice.
+3. **A11 — README honesto.** Corrigido só o parágrafo que descrevia o clone como plano;
+   a tabela dos níveis e o resto do README ficam para a Onda 5. Teste: o README não
+   afirma clone plano e menciona o esqueleto de áreas.
+4. **Comentário enganoso** em `lib-anvilore.sh` (ramo `*/*)` do case) corrigido.
+5. **Asserção que não podia falhar:** `git check-ignore` nunca reporta arquivo rastreado
+   como ignorado. Trocado por `git ls-files --error-unmatch` na página de exemplo — o
+   mesmo instrumento já usado para os `.gitkeep`.
+6. **Nome do diretório e cabeçalhos diziam "python"** num repositório público enquanto o
+   plano afirma o contrário. Diretório renomeado para `areas-tematicas-na-wiki` e
+   cabeçalhos corrigidos. O identificador no ledger permanece (é a chave do pareamento
+   com o veredito do gate).
 
 ## Complexity Tracking
 

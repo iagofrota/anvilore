@@ -43,5 +43,16 @@ checar "area_do_diretorio: reservado _meta"       "$(area_do_diretorio "$tmp" "$
 checar "area_do_diretorio: reservado log"         "$(area_do_diretorio "$tmp" "$tmp/log/2026-09-05.md")"         ''
 checar "area_do_diretorio: raiz com barra final"  "$(area_do_diretorio "$tmp/" "$tmp/exemplo/sources/y.md")"     'exemplo'
 
+# em_dir_reservado: 0 quando a pagina mora num diretorio reservado (_meta, log),
+# que o SCHEMA descreve como infra (indices/log), nao como pagina de wiki.
+em_dir_reservado "$tmp" "$tmp/_meta/lacunas.md" \
+  && echo "  ok: em_dir_reservado _meta" || { echo "  FALHA: nao reconheceu _meta"; falhas=$((falhas+1)); }
+em_dir_reservado "$tmp" "$tmp/log/2026-09-05.md" \
+  && echo "  ok: em_dir_reservado log" || { echo "  FALHA: nao reconheceu log"; falhas=$((falhas+1)); }
+em_dir_reservado "$tmp" "$tmp/exemplo/concepts/x.md" \
+  && { echo "  FALHA: tratou area comum como reservada"; falhas=$((falhas+1)); } || echo "  ok: area comum nao e reservada"
+em_dir_reservado "$tmp" "$tmp/solta.md" \
+  && { echo "  FALHA: tratou pagina solta como reservada"; falhas=$((falhas+1)); } || echo "  ok: pagina solta nao e reservada"
+
 [ "$falhas" -eq 0 ] && echo "OK: lib-anvilore"
 exit "$falhas"

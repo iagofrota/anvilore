@@ -29,12 +29,29 @@ area_do_diretorio() {
   local raiz="${1%/}" arquivo="$2" rel topo
   rel="${arquivo#"$raiz"/}"
   case "$rel" in
-    */*) ;;          # nao ha barra: pagina solta na raiz, sem area
-    *) return 0 ;;
+    */*) ;;          # ha barra: pagina aninhada, o topo pode ser uma area
+    *) return 0 ;;   # sem barra: pagina solta na raiz, sem area
   esac
   topo="${rel%%/*}"
   case "$topo" in
     _meta|log) return 0 ;;
   esac
   printf '%s\n' "$topo"
+}
+
+# 0 se a pagina mora num diretorio reservado (_meta, log). O SCHEMA descreve esses
+# dois como infra — indices gerados e log fatiado por dia —, nao como pagina de
+# wiki, entao o validador nao lhes cobra frontmatter/type/slug.
+em_dir_reservado() {
+  local raiz="${1%/}" arquivo="$2" rel topo
+  rel="${arquivo#"$raiz"/}"
+  case "$rel" in
+    */*) ;;
+    *) return 1 ;;   # sem barra: solta na raiz, nao e reservada
+  esac
+  topo="${rel%%/*}"
+  case "$topo" in
+    _meta|log) return 0 ;;
+  esac
+  return 1
 }

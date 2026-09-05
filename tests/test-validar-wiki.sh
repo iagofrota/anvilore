@@ -158,6 +158,37 @@ o2="$(bash scripts/validar-wiki.sh "$tmp/aw" 2>"$tmp/e2")"; c2=$?
   && echo "  ok: saida deterministica em duas execucoes" \
   || { echo "  FALHA: saida divergiu entre execucoes"; falhas=$((falhas+1)); }
 
+# A9: diretorios reservados (_meta, log) aceitam o markdown que o SCHEMA diz que
+# eles guardam — sem cobrar frontmatter/type/slug como se fosse pagina de wiki.
+mkdir -p "$tmp/aw/_meta" "$tmp/aw/log"
+printf '# Lacunas\n\nqualquer conteudo comum\n' > "$tmp/aw/_meta/lacunas.md"
+printf '# 2026-09-05\n\nlog do dia\n'          > "$tmp/aw/log/2026-09-05.md"
+saida="$(bash scripts/validar-wiki.sh "$tmp/aw")"; codigo=$?
+echo "$saida" | grep -q "VALIDACAO: PASS" \
+  && echo "  ok: reservados com markdown comum passam" || { echo "  FALHA: reservado reprovou (markdown comum)"; falhas=$((falhas+1)); }
+[ "$codigo" -eq 0 ] \
+  && echo "  ok: codigo 0 com reservados (comum)" || { echo "  FALHA: codigo!=0 com reservados (comum)"; falhas=$((falhas+1)); }
+# a isencao nao depende de ter ou nao frontmatter: com frontmatter e type: index
+# (que reprovaria numa pagina de wiki) tambem passa
+cat > "$tmp/aw/_meta/lacunas.md" <<'EOF'
+---
+title: "Indice de lacunas"
+type: index
+---
+EOF
+cat > "$tmp/aw/log/2026-09-05.md" <<'EOF'
+---
+title: "Log 2026-09-05"
+type: index
+---
+EOF
+saida="$(bash scripts/validar-wiki.sh "$tmp/aw")"; codigo=$?
+echo "$saida" | grep -q "VALIDACAO: PASS" \
+  && echo "  ok: reservados com frontmatter/type index passam" || { echo "  FALHA: reservado reprovou (frontmatter)"; falhas=$((falhas+1)); }
+[ "$codigo" -eq 0 ] \
+  && echo "  ok: codigo 0 com reservados (frontmatter)" || { echo "  FALHA: codigo!=0 com reservados (frontmatter)"; falhas=$((falhas+1)); }
+rm -rf "$tmp/aw/_meta" "$tmp/aw/log"
+
 # a wiki versionada no proprio repositorio valida, informa a divida e sai com 0
 saida="$(bash scripts/validar-wiki.sh wiki)"; codigo=$?
 echo "$saida" | grep -q "VALIDACAO: PASS" \

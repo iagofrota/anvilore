@@ -105,15 +105,17 @@ próximo quando sentir a dor que ele resolve.
 | 03 | governança | `skills/lint`, `hooks/`, testes | a wiki cresce além do que cabe no contexto de uma sessão só |
 | 04 | escala | índice de busca, backup, automação | (fora deste kit — ver abaixo) |
 
-**Este repositório entrega os níveis 01 e 02.** É deliberadamente mínimo: o
-esqueleto de `wiki/` que você acabou de clonar é plano — só `wiki/index.md`
-e `wiki/log.md`, sem `wiki/<área>/` nem campo `area` no `SCHEMA.md`. Isso não
-é uma peça esquecida. Organizar um punhado de páginas em áreas temáticas é
+**Este repositório entrega os níveis 01 e 02.** É deliberadamente mínimo. O
+esqueleto de `wiki/` que você acabou de clonar já traz a *forma* das áreas:
+uma área de exemplo neutra (`wiki/exemplo/{sources,entities,concepts}`), os
+diretórios reservados `wiki/_meta/` e `wiki/log/`, e o campo opcional `area`
+documentado no `SCHEMA.md`. Mas a estrutura de áreas é oferecida, não exigida:
+uma wiki plana, com as páginas soltas na raiz de `wiki/`, continua válida e
+continua validando. Organizar um punhado de páginas em áreas temáticas é
 cerimônia que ninguém sente falta com 20 páginas; organizar centenas sem
-nenhuma estrutura é inviável. Precisar de áreas — e de tudo que vem junto,
-como lint automatizado para pegar o que a disciplina manual deixa passar — é
-justamente uma das dores que empurram para o nível 03. Ele chega quando
-chegar essa dor, não antes.
+nenhuma estrutura é inviável. A governança que fecha o nível 03 — lint
+automatizado para pegar o que a disciplina manual deixa passar, e os hooks —
+chega quando a dor chegar, não antes.
 
 O nível 04 (índice de busca dedicado, backup, automação de manutenção) não
 está empacotado aqui de propósito: ele só faz sentido depois que uma wiki

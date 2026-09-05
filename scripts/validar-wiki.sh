@@ -24,6 +24,12 @@ while IFS= read -r arquivo; do
   nome="$(basename "$arquivo")"
   if [ "$nome" = "index.md" ] || [ "$nome" = "log.md" ]; then continue; fi
 
+  # Diretorios reservados (_meta/, log/) guardam indices gerados e o log fatiado,
+  # nao paginas de wiki. O SCHEMA os declara reservados; cobrar frontmatter/type
+  # deles seria proibir no codigo a estrutura que o contrato descreve — e a
+  # armadilha para a Onda 2, que produz exatamente esses arquivos.
+  if em_dir_reservado "$DIR" "$arquivo"; then continue; fi
+
   if ! tem_frontmatter "$arquivo"; then
     echo "ERRO: sem frontmatter: $arquivo"; erros=$((erros+1)); continue
   fi

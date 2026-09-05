@@ -1,10 +1,10 @@
 # Feature Specification: Áreas temáticas na wiki
 
-**Feature Branch**: `fundacao-python-e-areas`
+**Feature Branch**: `areas-tematicas-na-wiki`
 
 **Created**: 2026-09-05
 
-**Status**: Delivered
+**Status**: Delivered — rodada 2 (após o primeiro gate)
 
 **Input**: Ensinar áreas ao que já existe, sem trocar o runtime de nada. O `SCHEMA.md`
 ganha o campo `area`; o validador em bash passa a entender a estrutura de áreas; a
@@ -105,6 +105,16 @@ do diretório?
   de exemplo, com nome neutro.
 - **FR-009**: Nada da Fase 1 MUST ser reescrito em outra linguagem — `validar-wiki.sh` e
   `lib-anvilore.sh` continuam em bash.
+- **FR-010** *(rodada 2, A9)*: Os diretórios reservados `wiki/_meta/` e `wiki/log/` — que
+  o SCHEMA descreve como infra (índices gerados, log fatiado) — MUST aceitar markdown,
+  com ou sem frontmatter, sem serem cobrados como página de wiki. O que o schema descreve
+  o código não pode proibir.
+- **FR-011** *(rodada 2, A10)*: Nenhuma página de wiki versionada MUST ficar fora do
+  `wiki/index.md`; caso contrário a skill de consulta declara a wiki vazia enquanto ela
+  não está. A página de exemplo é indexada na categoria correta.
+- **FR-012** *(rodada 2, A11)*: Nenhuma afirmação do `README.md` sobre a estrutura que vem
+  no clone MUST ser falsa. Corrige-se apenas o parágrafo que descrevia o esqueleto como
+  plano; a reescrita do README é da Onda 5.
 
 ### Key Entities
 

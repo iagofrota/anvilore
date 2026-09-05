@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Verifica o esqueleto de areas versionado e a fronteira do .gitignore:
-# o metodo entra no git, o conteudo de quem usa fica de fora.
+# Verifica o esqueleto de areas versionado, a fronteira do .gitignore, o indice
+# coerente com as paginas versionadas, e o README honesto sobre o proprio clone.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
@@ -16,6 +16,7 @@ for d in wiki/exemplo/sources wiki/exemplo/entities wiki/exemplo/concepts wiki/_
 done
 
 # A7 — conteudo novo dentro de uma area e ignorado pelo git (fica com quem usa).
+# check-ignore tem dentes aqui porque o caminho e nao-rastreado.
 nova="wiki/exemplo/concepts/pagina-de-conteudo-do-usuario.md"
 if git check-ignore -q "$nova"; then
   echo "  ok: conteudo novo em area e ignorado"
@@ -23,11 +24,43 @@ else
   echo "  FALHA: git nao ignora conteudo novo em area ($nova)"; falhas=$((falhas+1))
 fi
 
-# ...mas a pagina de exemplo do esqueleto NAO e ignorada — ela e o metodo.
-if git check-ignore -q wiki/exemplo/concepts/area-tematica.md; then
-  echo "  FALHA: a pagina de exemplo foi ignorada pelo git"; falhas=$((falhas+1))
+# ...mas a pagina de exemplo do esqueleto e versionada. Instrumento correto para
+# arquivo rastreado e ls-files --error-unmatch — check-ignore nunca reporta
+# rastreado como ignorado, entao nao serviria como asercao.
+if git ls-files --error-unmatch wiki/exemplo/concepts/area-tematica.md >/dev/null 2>&1; then
+  echo "  ok: pagina de exemplo versionada"
 else
-  echo "  ok: pagina de exemplo versionada (nao ignorada)"
+  echo "  FALHA: pagina de exemplo nao esta versionada"; falhas=$((falhas+1))
+fi
+
+# A10 — toda pagina de wiki versionada (fora index/log e fora dos reservados) esta
+# listada no indice. Uma pagina versionada fora do indice faz o kit se contradizer:
+# a skill de consulta declara a wiki vazia enquanto ela nao esta.
+while IFS= read -r pag; do
+  case "$pag" in
+    wiki/index.md|wiki/log.md) continue ;;
+    wiki/_meta/*|wiki/log/*)   continue ;;
+  esac
+  slug="$(basename "$pag" .md)"
+  if grep -q "\[\[$slug\]\]" wiki/index.md || grep -qF "$slug" wiki/index.md; then
+    echo "  ok: indexada $pag"
+  else
+    echo "  FALHA: pagina versionada fora do indice: $pag"; falhas=$((falhas+1))
+  fi
+done < <(git ls-files -- wiki/ | grep -E '\.md$')
+
+# A11 — o README nao afirma nada falso sobre o esqueleto que vem no clone.
+# As crases sao literais do texto do README, nao expansao de comando (SC2016).
+# shellcheck disable=SC2016
+if grep -qE 'clonar é plano|só `wiki/index\.md`|sem `wiki/<área>/`' README.md; then
+  echo "  FALHA: README ainda afirma que o clone e plano/sem areas"; falhas=$((falhas+1))
+else
+  echo "  ok: README nao afirma clone plano"
+fi
+if grep -q 'wiki/exemplo' README.md; then
+  echo "  ok: README descreve a area de exemplo do clone"
+else
+  echo "  FALHA: README nao menciona o esqueleto de areas presente no clone"; falhas=$((falhas+1))
 fi
 
 [ "$falhas" -eq 0 ] && echo "OK: esqueleto"
