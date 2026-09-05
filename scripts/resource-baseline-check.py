@@ -20,9 +20,9 @@ Duas fases, ambas obrigatorias:
   derivar em silencio em direcao nenhuma.
 
   **Fase 2 — canario de mutacao.** O mesmo detector roda sobre o validador com o
-  defeito da rodada 1 da j-20260903-08 reintroduzido em memoria (espaco em branco
-  decidindo antes da forma de caminho). Ele **tem de** acusar os quatro valores
-  que de fato regrediram naquela rodada. Sem esta fase, uma tabela esvaziada, um
+  defeito da rodada 1 de uma revisao anterior reintroduzido em memoria (espaco em
+  branco decidindo antes da forma de caminho). Ele **tem de** acusar os quatro
+  valores que de fato regrediram naquela rodada. Sem esta fase, uma tabela esvaziada, um
   detector quebrado ou um comparador invertido passariam calados — que e
   exatamente o modo de falha ("teste que nunca mais reprova") que esta unidade
   existe para fechar.
@@ -52,8 +52,8 @@ sys.dont_write_bytecode = True
 BASELINE_PADRAO = Path(__file__).resolve().with_name('resource-baseline.tsv')
 VALIDADOR_PADRAO = Path(__file__).resolve().with_name('validar-okf.py')
 
-# Os quatro valores que a rodada 1 da j-20260903-08 afrouxou de fato — medidos,
-# nao presumidos. Moram AQUI, no codigo, e nao na tabela de dados, de proposito:
+# Os quatro valores que a rodada 1 de uma revisao anterior afrouxou de fato —
+# medidos, nao presumidos. Moram AQUI, no codigo, e nao na tabela de dados, de proposito:
 # apagar uma linha da tabela para calar uma reprovacao exigiria tambem editar este
 # arquivo, num segundo diff, mais alto.
 CANARIOS = (
@@ -63,7 +63,7 @@ CANARIOS = (
     'raw/notas do dia',
 )
 
-# O harness de /tmp da j-20260903-08 cobria 26 valores. A tabela versionada e um
+# O harness de /tmp de uma revisao anterior cobria 26 valores. A tabela versionada e um
 # superconjunto dele; encolher abaixo disso e regressao de cobertura e reprova.
 MIN_VALORES = 26
 
@@ -132,7 +132,7 @@ def validar_estrutura(entradas: list[Entrada], caminho: Path) -> list[str]:
     if len(entradas) < MIN_VALORES:
         problemas.append(
             f'ESTRUTURA: a tabela tem {len(entradas)} valores, abaixo do minimo {MIN_VALORES} '
-            f'(cobertura do harness da j-20260903-08). Encolher a tabela e regressao de cobertura.')
+            f'(cobertura do harness de uma revisao anterior). Encolher a tabela e regressao de cobertura.')
     por_valor = {e.valor: e for e in entradas}
     for canario in CANARIOS:
         entrada = por_valor.get(canario)
@@ -182,7 +182,7 @@ def veredito(mod: ModuleType, valor: str, raiz_wiki: Path) -> str:
 
 
 def afrouxar_por_espaco(mod: ModuleType) -> None:
-    """Reintroduz, em memoria, o defeito da rodada 1 da j-20260903-08.
+    """Reintroduz, em memoria, o defeito da rodada 1 de uma revisao anterior.
 
     Ordem daquela versao: esquema de URI, depois **espaco em branco**, depois a
     forma do caminho. Qualquer resource com espaco virava descritor e saia da

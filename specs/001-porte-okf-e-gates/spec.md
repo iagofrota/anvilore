@@ -1,16 +1,15 @@
 # Feature Specification: Perfil de proveniência OKF e régua de baseline versionado
 
-**Feature Branch**: `aipe/j-20260904-14/alice`
+**Feature Branch**: `001-porte-okf-e-gates`
 
 **Created**: 2026-09-04
 
 **Status**: Implemented
 
-**Input**: Task-spec aprovado do coordenador em
-`.aipe/journeys/j-20260904-14/task-specs/anvilore.md` — portar do `wiki-wonka`
-(privado) para o `anvilore` (público, MIT) o perfil de proveniência opcional e o
-harness que impede a checagem de `sources[].resource` de ser afrouxada em silêncio,
-**sem trazer nenhum dado do vault pessoal**.
+**Input**: Task-spec aprovado pelo coordenador do contexto multi-repo, para portar
+do `wiki-wonka` (privado) para o `anvilore` (público, MIT) o perfil de proveniência
+opcional e o harness que impede a checagem de `sources[].resource` de ser afrouxada
+em silêncio, **sem trazer nenhum dado do vault pessoal**.
 
 ## User Scenarios & Testing *(mandatory)*
 
