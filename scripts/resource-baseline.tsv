@@ -30,7 +30,7 @@
 # valores passa a custar o mesmo que afrouxar um, e o diff deixa de dizer quanto
 # a regua andou.
 #
-# Os quatro valores que regrediram de fato na rodada 1 da j-20260903-08 sao
+# Os quatro valores que regrediram de fato na rodada 1 de uma revisao anterior sao
 # canarios e estao fixados em CANARIOS, dentro de resource-baseline-check.py:
 # apaga-los daqui reprova o script.
 
@@ -42,29 +42,29 @@
 @fixture	dir	raw/dir-existente
 
 # --- Caminhos sob prefixo conhecido, inexistentes — o que o validador sempre reprovou ---
-fail	raw/x.md	harness j-20260903-08; checagem original da lista de prefixos
-fail	wiki/nao/existe.md	harness j-20260903-08; checagem original da lista de prefixos
-fail	raw/meetings/notas de reuniao.md	CANARIO — afrouxado na rodada 1 da j-20260903-08; cenario A8
-fail	wiki/_meta/arquivo com espaco.md	CANARIO — afrouxado na rodada 1 da j-20260903-08; cenario A8b
-fail	raw/2026 Q3/notas.md	CANARIO — afrouxado na rodada 1 da j-20260903-08; cenario A8b
-fail	raw/notas do dia	CANARIO — afrouxado na rodada 1 da j-20260903-08; cenario A8b
+fail	raw/x.md	harness de revisao anterior; checagem original da lista de prefixos
+fail	wiki/nao/existe.md	harness de revisao anterior; checagem original da lista de prefixos
+fail	raw/meetings/notas de reuniao.md	CANARIO — afrouxado numa rodada anterior de revisao; cenario A8
+fail	wiki/_meta/arquivo com espaco.md	CANARIO — afrouxado numa rodada anterior de revisao; cenario A8b
+fail	raw/2026 Q3/notas.md	CANARIO — afrouxado numa rodada anterior de revisao; cenario A8b
+fail	raw/notas do dia	CANARIO — afrouxado numa rodada anterior de revisao; cenario A8b
 fail	raw/agents/documento de exemplo com espaco.md	sintetico: caminho sob raw/ com espaco no nome, inexistente; fecha a classe de arquivo que raw/ guarda com espaco
 
-# --- Typos de prefixo — o defeito que a j-20260903-08 corrigiu (alternativa A) ---
-fail	rw/meetings/x.md	laudo j-20260903-x6; cenario A1 da regra de classificacao
-fail	raws/notas.md	laudo j-20260903-x6; typo de prefixo
-fail	sources/foo.md	laudo j-20260903-x6; prefixo plausivel fora da lista
-fail	rw/notas do dia.md	harness j-20260903-08; typo de prefixo COM espaco
+# --- Typos de prefixo — o defeito que uma revisao anterior corrigiu (alternativa A) ---
+fail	rw/meetings/x.md	laudo de revisao anterior; cenario A1 da regra de classificacao
+fail	raws/notas.md	laudo de revisao anterior; typo de prefixo
+fail	sources/foo.md	laudo de revisao anterior; prefixo plausivel fora da lista
+fail	rw/notas do dia.md	harness de revisao anterior; typo de prefixo COM espaco
 fail	rw2/notas.md	o proximo typo que uma lista de prefixos deixaria escapar
 fail	meetings/notas.md	prefixo de subpasta escrito sem raw/
 
 # --- Sem barra: a extensao decide se ha caminho a checar ---
 fail	notas-que-nao-existem.md	cenario A1b da regra de classificacao
-fail	notas.md	harness j-20260903-08; APERTOU em relacao a lista de prefixos, que ignorava
+fail	notas.md	harness de revisao anterior; APERTOU em relacao a lista de prefixos, que ignorava
 fail	rw meetings x.md	extensao sem barra e com espaco; fixa a classificacao observada
 pass	rw meetings x	sem barra e sem extensao: descritor
-pass	slack	harness j-20260903-08; descritor de escopo de uma palavra
-pass	2026	harness j-20260903-08; descritor numerico
+pass	slack	harness de revisao anterior; descritor de escopo de uma palavra
+pass	2026	harness de revisao anterior; descritor numerico
 pass	v2.0	extensao tem de comecar por letra, senao v2.0 viraria caminho
 
 # --- Descritores de escopo — a terceira forma do perfil OKF ---
@@ -77,13 +77,13 @@ fail	todas/as sessoes de 2026	o caso que a alternativa F protegeria e a regra es
 
 # --- Externos — esquema de URI vence a forma de caminho, e nada e resolvido ---
 pass	https://example.com/doc.pdf	cenario A3 da regra de classificacao
-pass	http://x.y/z	harness j-20260903-08
+pass	http://x.y/z	harness de revisao anterior
 pass	ftp://example.com/doc.pdf	cenario A3b: esquema generico, nao http(s) literal
-pass	mailto:a@b.c	harness j-20260903-08; esquema sem //
+pass	mailto:a@b.c	harness de revisao anterior; esquema sem //
 pass	file:///etc/passwd	esquema vence a checagem de raiz; fixa a precedencia entre as duas regras
 pass	https://example.com/a b.md	URL com espaco continua externa: o espaco saiu da regra
 pass	C:\notas.md	quirk conhecido: letra de unidade casa ^[a-zA-Z][...]*: e vira externo
-# --- Fora da raiz do repositorio — apertado na rodada 2 da j-20260903-08 ---
+# --- Fora da raiz do repositorio — apertado na rodada 2 de uma revisao anterior ---
 fail	/etc/passwd	cenario A10; dava VALIDACAO: PASS antes da correcao
 fail	../README.md	cenario A11
 fail	/etc	absoluto que existe em qualquer host: reprova por conter, nao por existir

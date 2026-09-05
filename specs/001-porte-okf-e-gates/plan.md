@@ -1,6 +1,6 @@
 # Implementation Plan: Perfil de proveniência OKF e régua de baseline versionado
 
-**Branch**: `aipe/j-20260904-14/alice` | **Date**: 2026-09-04 | **Spec**: [spec.md](./spec.md)
+**Branch**: `001-porte-okf-e-gates` | **Date**: 2026-09-04 | **Spec**: [spec.md](./spec.md)
 
 **Input**: Feature specification from `specs/001-porte-okf-e-gates/spec.md`
 

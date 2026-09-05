@@ -9,3 +9,5 @@ wiki/*
 !wiki/log.md
 logs/
 .DS_Store
+__pycache__/
+*.pyc
