@@ -1,0 +1,31 @@
+# Fronteira da wiki: o esqueleto versionado entra; o conteúdo que quem usa
+# escrever fica de fora. Este arquivo mora DENTRO de `wiki/` de propósito — um
+# `.gitignore` ancorado aqui, com `*` e caminhos relativos, é respeitado do mesmo
+# jeito por git e por ripgrep. A alternativa (uma regra `wiki/*` na raiz) fazia o
+# ripgrep parar de descer nos diretórios-neto e esconder o esqueleto que o git
+# rastreia — a página de exemplo sumia de `rg --files wiki/`.
+#
+# Padrão: ignore tudo (`*`), depois reabra o próprio `.gitignore`, o índice, o
+# log, os diretórios reservados (`_meta/`, `log/`) e a área de exemplo com seus
+# três tipos, marcador a marcador. Uma página nova dentro de qualquer diretório
+# cai no `*` e fica ignorada; só o que está reaberto abaixo é versionado.
+*
+!.gitignore
+!index.md
+!log.md
+
+# Diretórios globais do esqueleto (índices gerados e log fatiado): só o marcador.
+!_meta/
+!_meta/.gitkeep
+!log/
+!log/.gitkeep
+
+# Área de exemplo: o esqueleto dos três tipos e a página de exemplo.
+!exemplo/
+!exemplo/sources/
+!exemplo/sources/.gitkeep
+!exemplo/entities/
+!exemplo/entities/.gitkeep
+!exemplo/concepts/
+!exemplo/concepts/.gitkeep
+!exemplo/concepts/area-tematica.md

@@ -24,6 +24,12 @@ while IFS= read -r arquivo; do
   nome="$(basename "$arquivo")"
   if [ "$nome" = "index.md" ] || [ "$nome" = "log.md" ]; then continue; fi
 
+  # Diretorios reservados (_meta/, log/) guardam indices gerados e o log fatiado,
+  # nao paginas de wiki. O SCHEMA os declara reservados; cobrar frontmatter/type
+  # deles seria proibir no codigo a estrutura que o contrato descreve — e a
+  # armadilha para a Onda 2, que produz exatamente esses arquivos.
+  if em_dir_reservado "$DIR" "$arquivo"; then continue; fi
+
   if ! tem_frontmatter "$arquivo"; then
     echo "ERRO: sem frontmatter: $arquivo"; erros=$((erros+1)); continue
   fi
@@ -36,6 +42,16 @@ while IFS= read -r arquivo; do
   slug="$(extrair_campo "$arquivo" slug)"
   if [ "$slug" != "$(slug_de "$arquivo")" ]; then
     echo "ERRO: slug '$slug' nao bate com o nome do arquivo: $arquivo"; erros=$((erros+1))
+  fi
+
+  # Area e opcional (wiki plana continua valida). Mas se a pagina mora numa
+  # area e declara 'area' no frontmatter, os dois precisam bater — senao a
+  # pagina esta guardada na area errada, e isso reprova nomeando a divergencia.
+  area_dir="$(area_do_diretorio "$DIR" "$arquivo")"
+  area_fm="$(extrair_campo "$arquivo" area)"
+  if [ -n "$area_dir" ] && [ -n "$area_fm" ] && [ "$area_dir" != "$area_fm" ]; then
+    echo "ERRO: area '$area_fm' do frontmatter diverge do diretorio '$area_dir': $arquivo"
+    erros=$((erros+1))
   fi
 
   gaps=$((gaps + $(grep -c '\[!gap\]' "$arquivo" || true)))
