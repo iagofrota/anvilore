@@ -100,9 +100,13 @@ seguem `AAAA-MM-DD`, inalterados.
 
 ## Áreas (opcional)
 
-Uma wiki pequena vive plana: as páginas soltas em `wiki/`, sem áreas. Isso é
-válido e continua sendo. Quando o volume cresce, as páginas podem ser agrupadas
-por assunto dentro de `wiki/<área>/`, cada área com os três tipos:
+Uma wiki pequena vive **plana**, de duas formas — ambas válidas e sem áreas: as
+páginas soltas direto em `wiki/`, ou agrupadas por tipo em `wiki/sources/`,
+`wiki/concepts/` e `wiki/entities/`, que é o layout que as skills `ingest` e
+`query` criam. Nesse layout plano, `sources/`, `concepts/` e `entities/` no topo
+são diretórios de **tipo**, não áreas — o validador não os toma como área. Quando
+o volume cresce, as páginas podem ser agrupadas por assunto dentro de
+`wiki/<área>/`, cada área com os três tipos:
 
 ```
 wiki/
@@ -126,8 +130,11 @@ area: nome-da-area
   com o diretório: uma página em `wiki/marketing/concepts/` com `area: vendas`
   está guardada na área errada. O validador **reprova**, nomeando o arquivo e as
   duas áreas em conflito, para que dê para corrigir sem abrir o validador.
-- **Numa página solta na raiz** (`wiki/pagina.md`), o campo `area` não é
-  cobrado contra o diretório — não há área de diretório com que comparar.
+- **Numa wiki plana** — página solta na raiz (`wiki/pagina.md`) ou sob um
+  diretório de tipo (`wiki/sources/pagina.md`, `wiki/concepts/…`,
+  `wiki/entities/…`) — o campo `area` não é cobrado contra o diretório: não há
+  diretório de área com que comparar. A wiki plana valida com ou sem `area`
+  preenchido, nas duas formas.
 
 Os diretórios `_meta/` e `log/` são reservados e não são áreas temáticas.
 

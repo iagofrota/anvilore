@@ -5,36 +5,11 @@ raw/*
 !raw/.gitkeep
 !raw/exemplo/
 
-# A wiki: o índice, o log e o esqueleto de áreas entram; o resto — as páginas
-# que quem usa vier a escrever — fica de fora. O padrão é sempre "deixe descer
-# no diretório (!dir/), depois ignore o conteúdo dele (dir/*), e reabra só os
-# marcadores e as páginas de exemplo". Página de conteúdo nova dentro de uma
-# área cai em `área/<sub>/*` e é ignorada; o esqueleto, não.
-wiki/*
-!wiki/index.md
-!wiki/log.md
-
-# Diretórios globais do esqueleto (índices e log fatiado): só o marcador.
-!wiki/_meta/
-wiki/_meta/*
-!wiki/_meta/.gitkeep
-!wiki/log/
-wiki/log/*
-!wiki/log/.gitkeep
-
-# Área de exemplo: o esqueleto dos três tipos e as páginas de exemplo.
-!wiki/exemplo/
-wiki/exemplo/*
-!wiki/exemplo/sources/
-wiki/exemplo/sources/*
-!wiki/exemplo/sources/.gitkeep
-!wiki/exemplo/entities/
-wiki/exemplo/entities/*
-!wiki/exemplo/entities/.gitkeep
-!wiki/exemplo/concepts/
-wiki/exemplo/concepts/*
-!wiki/exemplo/concepts/.gitkeep
-!wiki/exemplo/concepts/area-tematica.md
+# A fronteira da wiki (esqueleto versionado × conteúdo de quem usa) mora em
+# `wiki/.gitignore`, não aqui. Motivo: uma regra `wiki/*` na raiz faz o ripgrep
+# deixar de descer nos diretórios-neto da wiki e esconder o esqueleto que o git
+# rastreia; um `.gitignore` ancorado dentro de `wiki/`, com `*` e reinclusões
+# relativas, é respeitado igual por git e por ripgrep. Ver `wiki/.gitignore`.
 
 logs/
 .DS_Store

@@ -35,9 +35,25 @@ nome_reservado() {
   esac
 }
 
+# Dono unico dos nomes de diretorio de TIPO do layout plano que as skills de
+# ingestao e consulta criam: wiki/sources/, wiki/concepts/, wiki/entities/. Nesse
+# layout o primeiro segmento do caminho e um tipo de pagina, nao uma area — logo
+# nao ha area a comparar com o frontmatter. (Numa wiki organizada por area esses
+# mesmos nomes aparecem como SEGUNDO segmento, sob wiki/<area>/, e ai o primeiro
+# segmento e a area.) Todo lugar que precise saber se um nome de topo e um
+# diretorio de tipo pergunta AQUI, para que a lista more num ponto so.
+# 0 se o nome dado for de um diretorio de tipo do layout plano.
+nome_tipo_diretorio() {
+  case "$1" in
+    sources|concepts|entities) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Imprime a area de uma pagina, derivada de onde ela mora relativa a raiz da wiki.
-# Vazio quando a pagina esta solta na raiz (wiki plana) ou num diretorio
-# reservado (ver nome_reservado) — esses nao sao areas tematicas.
+# Vazio quando a pagina esta solta na raiz (wiki plana), num diretorio reservado
+# (ver nome_reservado), ou sob um diretorio de tipo do layout plano das skills
+# (ver nome_tipo_diretorio) — nenhum desses e uma area tematica.
 area_do_diretorio() {
   local raiz="${1%/}" arquivo="$2" rel topo
   rel="${arquivo#"$raiz"/}"
@@ -47,6 +63,7 @@ area_do_diretorio() {
   esac
   topo="${rel%%/*}"
   nome_reservado "$topo" && return 0
+  nome_tipo_diretorio "$topo" && return 0
   printf '%s\n' "$topo"
 }
 

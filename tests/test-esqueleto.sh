@@ -34,6 +34,21 @@ else
   echo "  FALHA: pagina de exemplo nao esta versionada"; falhas=$((falhas+1))
 fi
 
+# A7 (visibilidade) — o esqueleto versionado tem de aparecer numa busca que
+# respeita o .gitignore, SEM --no-ignore. O ripgrep nao reincluia um arquivo cujo
+# diretorio-avo o `.gitignore` da raiz excluia com wiki/*, entao escondia a pagina
+# que o git rastreia — e quem usa o kit nao a encontrava. (Requer rg; sem ele,
+# nao ha o que checar.)
+if command -v rg >/dev/null 2>&1; then
+  if rg --files wiki/ | grep -qx 'wiki/exemplo/concepts/area-tematica.md'; then
+    echo "  ok: rg --files enxerga a pagina de exemplo versionada"
+  else
+    echo "  FALHA: rg --files nao lista a pagina de exemplo (esqueleto invisivel a busca)"; falhas=$((falhas+1))
+  fi
+else
+  echo "  skip: rg ausente — visibilidade nao checada"
+fi
+
 # A10 — toda pagina de wiki versionada (fora index/log e fora dos reservados) esta
 # listada no indice. Uma pagina versionada fora do indice faz o kit se contradizer:
 # a skill de consulta declara a wiki vazia enquanto ela nao esta.

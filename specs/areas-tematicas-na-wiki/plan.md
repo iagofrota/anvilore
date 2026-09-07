@@ -105,14 +105,14 @@ vez de repetir a lista.
    áreas no `SCHEMA.md`; diretórios do esqueleto + `.gitkeep` + página de exemplo;
    `.gitignore` com a fronteira "esqueleto entra, conteúdo do usuário fica fora".
 3. **Verify** — suíte verde; validador exercitado à mão para cada critério de aceite
-   (A1–A11); clone raso para a fronteira do git; `shellcheck`; varredura dos blobs por
-   conteúdo pessoal e ferramental.
+   (A1–A14); clone raso para a fronteira do git; `shellcheck`; varredura dos blobs por
+   conteúdo pessoal e ferramental, incluindo os metadados de identidade dos commits.
 
 ## Rodada 2 — correções após o primeiro gate
 
 O gate independente aprovou os oito critérios originais, a varredura de conteúdo pessoal
-e a autoria, e reprovou por seis achados. O PE emendou o task-spec (agora A1–A11). As
-correções, cada uma com o teste que a defende:
+e a autoria, e reprovou por seis achados. O PE emendou o task-spec (à época, onze
+critérios). As correções, cada uma com o teste que a defende:
 
 1. **A9 — reservados isentos das checagens de página.** `em_dir_reservado` na lib
    (determinística, testada); o validador pula `_meta/` e `log/` antes de cobrar
@@ -161,12 +161,44 @@ O que a rodada 3 fez, sem refazer o mérito:
    mantém: só aquele parágrafo; a reescrita é da Onda 5.
 4. **Dois achados menores do gate.** (a) A lista de diretórios reservados aparecia como
    literal em três pontos (`area_do_diretorio`, `em_dir_reservado`, o teste de esqueleto);
-   virou o dono único `nome_reservado`, com teste próprio. (b) Este documento dizia
-   "A1–A8" no passo Verify enquanto descrevia A9–A11 logo abaixo — corrigido, e a spec e o
-   plano atualizados para a rodada 3.
+   virou o dono único `nome_reservado`, com teste próprio. (b) O passo Verify citava uma
+   faixa de critérios menor (parava em A8) do que a lista que o próprio documento descrevia
+   logo abaixo (ia até A11) — corrigido, e a spec e o plano atualizados para a rodada 3.
 
 O merge em si não é desta entrega: a autoridade é do PE, e o nome da branch exige
 mensagem de merge escrita à mão.
+
+## Rodada 4 — correções após o terceiro gate
+
+O terceiro gate passou doze dos catorze critérios (o task-spec cresceu para A1–A14) e
+reprovou por dois achados importantes e três menores. Cada correção com o teste que a
+defende:
+
+1. **A3 (layout das skills) — o validador reprovava a wiki plana que as próprias skills
+   criam.** `area_do_diretorio` tomava o primeiro segmento do caminho como área; no layout
+   `wiki/sources/`, `wiki/concepts/`, `wiki/entities/` (o que `ingest` e `query` produzem)
+   esse segmento é um **tipo**, não uma área, e uma página com `area` preenchido reprovava
+   nomeando uma área inexistente. Novo dono único `nome_tipo_diretorio` na lib (irmão de
+   `nome_reservado`); `area_do_diretorio` delega a ele e devolve vazio nesse layout. O
+   `SCHEMA.md` passa a descrever o layout de tipos como a forma plana — antes dizia só
+   "páginas soltas em `wiki/`". Teste: layout das skills valida com e sem `area`, exit 0.
+2. **A7 (visibilidade) — o ripgrep escondia o esqueleto que o git rastreia.** Uma regra
+   `wiki/*` na raiz fazia o `ignore` crate do ripgrep parar de descer nos diretórios-neto
+   da wiki, e `rg --files wiki/` não listava a página de exemplo versionada (git a
+   rastreava). A fronteira migrou para um `wiki/.gitignore` ancorado, com `*` e reinclusões
+   relativas, respeitado igual por git e por ripgrep. Teste: `rg --files wiki/` sem
+   `--no-ignore` lista `wiki/exemplo/concepts/area-tematica.md`.
+3. **A14 — o passo Verify citava uma faixa menor do que o task-spec, que hoje vai a A14.**
+   O passo Verify passa a cobrir toda a faixa (A1–A14); as menções históricas às faixas
+   anteriores foram reescritas em palavras para não se confundirem com a faixa corrente.
+4. **Identidade dos commits (author E committer o PE).** Os quatro commits da branch tinham
+   author = PE mas committer = identificador de ferramental. A rodada reescreve os commits
+   localmente para que author e committer sejam ambos o PE. O **push forçado é do PE** — o
+   classificador o bloqueia nesta sessão, e é assim que deve ser; a especialista entrega a
+   história reescrita localmente.
+5. **Nome da branch remota.** Carrega o identificador de jornada, que a mensagem de merge
+   padrão carimbaria na `main`. É mitigação do PE no merge (mensagem escrita à mão); a
+   especialista apenas registra.
 
 ## Complexity Tracking
 

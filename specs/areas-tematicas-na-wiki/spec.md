@@ -115,6 +115,15 @@ do diretório?
 - **FR-012** *(rodada 2, A11)*: Nenhuma afirmação do `README.md` sobre a estrutura que vem
   no clone MUST ser falsa. Corrige-se apenas o parágrafo que descrevia o esqueleto como
   plano; a reescrita do README é da Onda 5.
+- **FR-013** *(rodada 4, A3 layout das skills)*: Uma wiki no layout plano que as skills
+  `ingest`/`query` criam — páginas em `wiki/sources/`, `wiki/concepts/` e `wiki/entities/`,
+  sem diretório de área — MUST validar com ou sem o campo `area` preenchido. Esses
+  diretórios de topo são de **tipo**, não áreas: o validador não os cobra como área, e o
+  `SCHEMA.md` descreve esse layout como a forma plana.
+- **FR-014** *(rodada 4, A7 visibilidade)*: O esqueleto versionado da wiki MUST aparecer
+  numa busca que respeita o `.gitignore` (`rg --files wiki/`, sem `--no-ignore`); o
+  conteúdo novo de quem usa continua ignorado. A fronteira mora em `wiki/.gitignore`,
+  ancorado, para ser respeitada igual por git e por ripgrep.
 
 ### Key Entities
 

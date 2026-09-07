@@ -43,6 +43,17 @@ checar "area_do_diretorio: reservado _meta"       "$(area_do_diretorio "$tmp" "$
 checar "area_do_diretorio: reservado log"         "$(area_do_diretorio "$tmp" "$tmp/log/2026-09-05.md")"         ''
 checar "area_do_diretorio: raiz com barra final"  "$(area_do_diretorio "$tmp/" "$tmp/exemplo/sources/y.md")"     'exemplo'
 
+# Layout plano das skills: ingest/query criam wiki/sources|concepts|entities/,
+# sem diretorio de area. Nesse layout o primeiro segmento e um TIPO de pagina,
+# nao uma area — logo nao ha area a derivar (antes, 'sources' virava area e uma
+# pagina com 'area' preenchido reprovava nomeando uma area inexistente).
+checar "area_do_diretorio: plano sources"   "$(area_do_diretorio "$tmp" "$tmp/sources/a.md")"    ''
+checar "area_do_diretorio: plano concepts"  "$(area_do_diretorio "$tmp" "$tmp/concepts/b.md")"   ''
+checar "area_do_diretorio: plano entities"  "$(area_do_diretorio "$tmp" "$tmp/entities/c.md")"   ''
+# ...mas sob uma area esses mesmos nomes sao o SEGUNDO segmento, e o primeiro
+# continua sendo a area — o layout por area nao regride.
+checar "area_do_diretorio: tipo sob area"   "$(area_do_diretorio "$tmp" "$tmp/exemplo/concepts/d.md")" 'exemplo'
+
 # em_dir_reservado: 0 quando a pagina mora num diretorio reservado (_meta, log),
 # que o SCHEMA descreve como infra (indices/log), nao como pagina de wiki.
 em_dir_reservado "$tmp" "$tmp/_meta/lacunas.md" \
@@ -63,6 +74,18 @@ nome_reservado log \
   && echo "  ok: nome_reservado log" || { echo "  FALHA: log deveria ser reservado"; falhas=$((falhas+1)); }
 nome_reservado exemplo \
   && { echo "  FALHA: nome comum tratado como reservado"; falhas=$((falhas+1)); } || echo "  ok: nome comum nao e reservado"
+
+# nome_tipo_diretorio: o dono unico dos nomes de diretorio de tipo do layout
+# plano (sources, concepts, entities). area_do_diretorio delega a ela para saber
+# que, no layout das skills, o primeiro segmento e um tipo e nao uma area.
+nome_tipo_diretorio sources \
+  && echo "  ok: nome_tipo_diretorio sources" || { echo "  FALHA: sources deveria ser tipo"; falhas=$((falhas+1)); }
+nome_tipo_diretorio concepts \
+  && echo "  ok: nome_tipo_diretorio concepts" || { echo "  FALHA: concepts deveria ser tipo"; falhas=$((falhas+1)); }
+nome_tipo_diretorio entities \
+  && echo "  ok: nome_tipo_diretorio entities" || { echo "  FALHA: entities deveria ser tipo"; falhas=$((falhas+1)); }
+nome_tipo_diretorio exemplo \
+  && { echo "  FALHA: nome de area tratado como tipo"; falhas=$((falhas+1)); } || echo "  ok: area comum nao e tipo"
 
 [ "$falhas" -eq 0 ] && echo "OK: lib-anvilore"
 exit "$falhas"

@@ -189,6 +189,31 @@ echo "$saida" | grep -q "VALIDACAO: PASS" \
   && echo "  ok: codigo 0 com reservados (frontmatter)" || { echo "  FALHA: codigo!=0 com reservados (frontmatter)"; falhas=$((falhas+1)); }
 rm -rf "$tmp/aw/_meta" "$tmp/aw/log"
 
+# A3 (layout das skills): a wiki plana que ingest/query criam usa diretorios de
+# TIPO no topo — wiki/sources/, wiki/concepts/, wiki/entities/ — sem area. Antes,
+# o validador tomava 'sources' como area e uma pagina com 'area' preenchido
+# reprovava nomeando uma area que nao existe. Deve passar com e sem 'area'.
+escrever_layout_skills() {  # $1 = 1 para incluir 'area', 0 para omitir
+  local com_area="$1" extra=""
+  [ "$com_area" -eq 1 ] && extra=$'area: minha-area\n'
+  mkdir -p "$tmp/sk/sources" "$tmp/sk/concepts" "$tmp/sk/entities"
+  printf '# Indice\n' > "$tmp/sk/index.md"
+  printf -- '---\ntitle: "Fonte X"\nslug: fonte-x\ntype: source\n%stags: [t]\n---\n'    "$extra" > "$tmp/sk/sources/fonte-x.md"
+  printf -- '---\ntitle: "Conceito Y"\nslug: conceito-y\ntype: concept\n%stags: [t]\n---\n' "$extra" > "$tmp/sk/concepts/conceito-y.md"
+  printf -- '---\ntitle: "Entidade Z"\nslug: entidade-z\ntype: entity\n%stags: [t]\n---\n'  "$extra" > "$tmp/sk/entities/entidade-z.md"
+}
+rm -rf "$tmp/sk"; escrever_layout_skills 0
+saida="$(bash scripts/validar-wiki.sh "$tmp/sk")"; codigo=$?
+{ echo "$saida" | grep -q "VALIDACAO: PASS" && [ "$codigo" -eq 0 ]; } \
+  && echo "  ok: layout das skills valida sem area" \
+  || { echo "  FALHA: layout das skills reprovou sem area ('$saida')"; falhas=$((falhas+1)); }
+rm -rf "$tmp/sk"; escrever_layout_skills 1
+saida="$(bash scripts/validar-wiki.sh "$tmp/sk")"; codigo=$?
+{ echo "$saida" | grep -q "VALIDACAO: PASS" && [ "$codigo" -eq 0 ]; } \
+  && echo "  ok: layout das skills valida com area preenchido" \
+  || { echo "  FALHA: layout das skills reprovou com area ('$saida')"; falhas=$((falhas+1)); }
+rm -rf "$tmp/sk"
+
 # a wiki versionada no proprio repositorio valida, informa a divida e sai com 0
 saida="$(bash scripts/validar-wiki.sh wiki)"; codigo=$?
 echo "$saida" | grep -q "VALIDACAO: PASS" \
