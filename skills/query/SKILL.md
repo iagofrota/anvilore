@@ -30,12 +30,14 @@ Sem um indexador dedicado neste nível, a busca aqui é direta: primeiro `wiki/i
 rg --no-ignore -in "<termo-chave>" wiki/
 ```
 
-O `--no-ignore` não é enfeite. O `.gitignore` deste repositório exclui
-`wiki/*` de propósito — o conteúdo é de quem usa, o repositório carrega só o
-método — e o `rg` respeita `.gitignore` por padrão. Sem a flag, a busca não
-acha nada a partir da primeira página que você ingerir, e o vazio é
-indistinguível de "a wiki não cobre isso". Falha silenciosa é o defeito que
-este repositório inteiro existe para evitar.
+O `--no-ignore` não é enfeite. A fronteira entre o esqueleto versionado e o
+conteúdo de quem usa mora em `wiki/.gitignore`, que ignora tudo (`*`) e reabre
+só o esqueleto — de propósito: o conteúdo é de quem usa, o repositório carrega
+só o método. Como o `rg` respeita `.gitignore` por padrão, toda página que você
+ingerir cai nesse `*` e fica invisível para a busca. Sem a flag, o resultado vem
+vazio a partir da primeira página ingerida, e o vazio é indistinguível de "a
+wiki não cobre isso". Falha silenciosa é o defeito que este repositório inteiro
+existe para evitar.
 
 Trate o resultado do `rg` como **os lugares onde vale olhar**, não como a resposta — ele aponta ocorrência de texto, não relevância. Ainda cabe a você ler as seções encontradas e decidir o que de fato responde à pergunta.
 
