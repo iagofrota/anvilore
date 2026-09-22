@@ -379,6 +379,96 @@ else
 fi
 
 # ============================================================================
+# DESTINO != FONTE — o link tem de RESOLVER, nao so ser criado
+# ============================================================================
+# `--help` promete escolher "em qual clone do anvilore instalar", entao fonte !=
+# destino e cenario suportado, nao hipotese. Todo o resto desta suite instala
+# "para si mesmo" (destino == fonte), e nesse caso um alvo de link calculado a
+# partir do destino acerta por coincidencia: as duas arvores sao a mesma.
+#
+# A asercao aqui NAO e "o instalador saiu 0" nem "o link existe". Link orfao
+# existe, tem nome bonito no relato ("liga: ...") e nao aponta para arquivo
+# nenhum. A asercao e que `readlink -f` chegue num arquivo que EXISTE e cujo
+# conteudo e o da FONTE.
+fonte="$TMP/fonte"; clone_de_teste "$fonte"
+destino="$TMP/destino"; clone_de_teste "$destino"
+
+# Duas divergencias plantadas, cada uma para um modo de falha diferente:
+#
+#   skills/nova  — so existe na FONTE. E o caso do clone-destino mais velho:
+#                  um alvo relativo ao destino nao resolve para nada.
+#   skills/lint  — existe nas DUAS, com conteudos diferentes. E o caso pior,
+#                  porque um alvo errado aqui resolve para um arquivo de
+#                  verdade, so que o arquivo errado — e nada fica vermelho.
+mkdir -p "$fonte/skills/nova"
+printf -- '---\nname: nova\ndescription: "skill que so a fonte tem"\n---\n\nMARCA-DA-FONTE\n' \
+  > "$fonte/skills/nova/SKILL.md"
+printf -- '\nMARCA-DA-FONTE\n' >> "$fonte/skills/lint/SKILL.md"
+printf -- '\nMARCA-DO-DESTINO\n' >> "$destino/skills/lint/SKILL.md"
+
+saida="$(HOME="$LAR_FALSO" bash "$fonte/instalar.sh" --destino "$destino" --alvo claude,codex,copilot 2>&1)"; c=$?
+[ "$c" -eq 0 ] && ok "fonte != destino: a instalacao termina com exit 0" \
+               || falha "fonte != destino: a instalacao saiu $c: $(printf '%s' "$saida" | tail -3 | tr '\n' ' ')"
+
+# GRUPO DE CONTROLE: o destino tem de ter sido tocado. Sem isto, "os links
+# resolvem" seria indistinguivel de "nao instalou nada e nao ha link para
+# quebrar".
+[ -e "$destino/.claude/settings.json" ] && ok "fonte != destino (controle): o destino foi mesmo instalado" \
+                                        || falha "fonte != destino (controle): nada foi instalado no destino"
+
+# Os tres alvos que instalam skill por link simbolico. Para cada um: o caminho
+# instalado, e o arquivo de skill que se espera alcancar atraves dele.
+LIGADOS=(
+  ".claude/skills/nova/SKILL.md"
+  ".claude/skills/lint/SKILL.md"
+  ".agents/skills/nova/SKILL.md"
+  ".agents/skills/lint/SKILL.md"
+  ".github/agents/nova.agent.md"
+  ".github/agents/lint.agent.md"
+)
+orfaos=0
+errados=0
+for rel in "${LIGADOS[@]}"; do
+  caminho="$destino/$rel"
+  if [ ! -e "$caminho" ]; then
+    falha "fonte != destino: link orfao, nao resolve para arquivo nenhum: $rel -> $(readlink "${caminho%/SKILL.md}" 2>/dev/null || readlink "$caminho" 2>/dev/null)"
+    orfaos=$((orfaos+1)); continue
+  fi
+  if ! grep -qF 'MARCA-DA-FONTE' "$caminho"; then
+    falha "fonte != destino: o link resolve, mas para o arquivo ERRADO (nao e o da fonte): $rel"
+    errados=$((errados+1)); continue
+  fi
+  if grep -qF 'MARCA-DO-DESTINO' "$caminho"; then
+    falha "fonte != destino: o link caiu na copia do destino: $rel"
+    errados=$((errados+1))
+  fi
+done
+[ "$orfaos" -eq 0 ]  && ok "fonte != destino: nenhum link ficou orfao (readlink -f chega num arquivo real)"
+[ "$errados" -eq 0 ] && ok "fonte != destino: todo link resolve para o arquivo da FONTE, nao para a copia do destino"
+
+# E a prova de que a varredura acima tem dentes: um link montado do jeito
+# ANTIGO — relativo ao destino — TEM de ser pego por ela.
+ln -s "../../skills/nova" "$destino/.claude/skills/nova-antiga"
+if [ -e "$destino/.claude/skills/nova-antiga/SKILL.md" ]; then
+  falha "fonte != destino: a verificacao nao tem dentes — o alvo antigo resolveu"
+else
+  ok "fonte != destino: a verificacao tem dentes — o alvo relativo ao destino NAO resolve"
+fi
+rm -f "$destino/.claude/skills/nova-antiga"
+
+# Nada disso pode ter custado o caso comum: com destino == fonte, o alvo do
+# link continua sendo exatamente o mesmo `../../skills/<nome>` de antes.
+alvo="$TMP/mesma-arvore"; clone_de_teste "$alvo"
+instalador "$alvo" --alvo claude,codex,copilot >/dev/null
+esperados=0
+[ "$(readlink "$alvo/.claude/skills/lint")" = "../../skills/lint" ] || esperados=1
+[ "$(readlink "$alvo/.agents/skills/lint")" = "../../skills/lint" ] || esperados=1
+[ "$(readlink "$alvo/.github/agents/lint.agent.md")" = "../../skills/lint/SKILL.md" ] || esperados=1
+[ "$esperados" -eq 0 ] \
+  && ok "destino == fonte: o alvo do link continua relativo e inalterado" \
+  || falha "destino == fonte: o alvo do link mudou — $(readlink "$alvo/.claude/skills/lint")"
+
+# ============================================================================
 # D11 — nada pessoal, e nada do ferramental, nos arquivos novos
 # ============================================================================
 # Mesma tecnica estrutural da Onda 3: cada termo com a ultima letra escrita como

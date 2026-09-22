@@ -63,6 +63,18 @@ OPÇÕES
                     deste diretório — nunca em $HOME, nunca na configuração
                     global da sua máquina.
 
+                    Quando o destino NÃO é o diretório deste script, as skills
+                    instaladas por link (claude, codex, copilot) apontam para a
+                    árvore DESTE clone — a fonte —, e não para a cópia do
+                    destino, que pode estar mais velha ou nem ter a skill.
+
+                    Duas coisas continuam sendo resolvidas pelo diretório de
+                    trabalho do agente, ou seja, caem no DESTINO e não na fonte:
+                    o caminho `./hooks/proteger-raw.sh` nas configurações de
+                    hook, e o `skills/<nome>/SKILL.md` citado no comando do
+                    gemini. Para o gemini, portanto, fonte ≠ destino só funciona
+                    quando o destino já tem a skill.
+
   --simular         Só relata o que faria. Não cria, não altera e não remove
                     nenhum arquivo.
 
@@ -144,6 +156,34 @@ garantir_link() {
   fi
   mudanca "liga: $(curto "$link") -> $aponta"
   [ "$MODO_SIMULACAO" -eq 1 ] || { rm -f "$link"; ln -s "$aponta" "$link"; }
+}
+
+# caminho_relativo <diretório-de-partida> <caminho-de-chegada>
+# O caminho de chegada visto de dentro do diretório de partida. Puramente
+# lexical: não resolve link simbólico e não exige que a chegada já exista —
+# `realpath --relative-to` faz as duas coisas, e aqui o alvo pode ser uma skill
+# que só existe na árvore-fonte.
+caminho_relativo() {
+  python3 -c 'import os, sys; print(os.path.relpath(sys.argv[2], sys.argv[1]))' "$1" "$2"
+}
+
+# garantir_link_para_fonte <caminho-do-link> <caminho-relativo-dentro-da-fonte>
+#
+# O alvo do link é calculado a partir de `RAIZ_FONTE`, nunca do destino. Fonte e
+# destino são a mesma árvore no caso comum — instalar "para si mesmo" —, e aí
+# isto dá exatamente o mesmo `../../skills/<nome>` de sempre. Mas `--destino`
+# existe justamente para o caso em que não são: instalando de um clone para
+# outro, `../../skills/<nome>` apontaria para a cópia do DESTINO, que pode estar
+# mais velha, ou nem existir — e o link ficaria órfão sem ninguém reclamar.
+#
+# O link continua RELATIVO, e não absoluto, de propósito: no caso comum ele
+# sobrevive a mover ou renomear o clone inteiro, coisa que um caminho absoluto
+# não faria. O preço é que, com fonte ≠ destino, mover qualquer uma das duas
+# árvores quebra o link — e é o preço certo, porque a instalação é entre dois
+# caminhos que quem roda escolheu e conhece.
+garantir_link_para_fonte() {
+  local link="$1" rel_na_fonte="$2"
+  garantir_link "$link" "$(caminho_relativo "$(dirname "$link")" "$RAIZ_FONTE/$rel_na_fonte")"
 }
 
 # garantir_json <arquivo> <fragmento-json>
@@ -307,7 +347,7 @@ instalar_claude() {
   garantir_diretorio "$DESTINO/.claude/skills"
   local nome
   for nome in $(nomes_de_skill); do
-    garantir_link "$DESTINO/.claude/skills/$nome" "../../skills/$nome"
+    garantir_link_para_fonte "$DESTINO/.claude/skills/$nome" "skills/$nome"
   done
   garantir_json "$DESTINO/.claude/settings.json" "$(cat "$RAIZ_FONTE/hooks/hooks.json")"
   relatar "contrato: CLAUDE.md já aponta para AGENTS.md — nada a instalar"
@@ -324,7 +364,7 @@ instalar_codex() {
   garantir_diretorio "$DESTINO/.agents/skills"
   local nome
   for nome in $(nomes_de_skill); do
-    garantir_link "$DESTINO/.agents/skills/$nome" "../../skills/$nome"
+    garantir_link_para_fonte "$DESTINO/.agents/skills/$nome" "skills/$nome"
   done
   garantir_diretorio "$DESTINO/.codex"
   garantir_bloco "$DESTINO/.codex/config.toml" "anvilore" "$(cat <<'TOML'
@@ -407,7 +447,7 @@ instalar_copilot() {
   garantir_diretorio "$DESTINO/.github/agents"
   local nome
   for nome in $(nomes_de_skill); do
-    garantir_link "$DESTINO/.github/agents/$nome.agent.md" "../../skills/$nome/SKILL.md"
+    garantir_link_para_fonte "$DESTINO/.github/agents/$nome.agent.md" "skills/$nome/SKILL.md"
   done
   garantir_diretorio "$DESTINO/.github/copilot"
   # Sem `matcher`: este evento não tem um. O script decide pelo caminho e sai 0

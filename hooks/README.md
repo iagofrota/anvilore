@@ -43,6 +43,33 @@ printf '{"tool_input":{"patch":"*** Update File: raw/exemplo/x.md"}}'  | bash ho
 printf '{"tool_input":{"patch":"*** Update File: wiki/exemplo/x.md"}}' | bash hooks/proteger-raw.sh; echo $?  # 0
 ```
 
+### Como saber que o hook rodou — `ANVILORE_LOG_HOOK`
+
+Bloquear e nunca ser chamado deixam **o mesmo disco**: nos dois casos o arquivo
+não aparece em `raw/`. Quem afirma "o hook bloqueou" a partir de "o arquivo não
+está lá" está inferindo, não medindo — e a diferença importa, porque um agente
+que leu o `AGENTS.md` e se recusou sozinho produz exatamente a mesma ausência,
+sem o hook ter rodado uma vez.
+
+Por isso o script aceita `ANVILORE_LOG_HOOK`. Quando essa variável aponta para
+um arquivo, cada invocação deixa uma linha `<epoch>\t<veredito>\t<alvo>`, com
+`BLOQUEADO` ou `PASSOU`:
+
+```bash
+export ANVILORE_LOG_HOOK=/tmp/rastro.log
+printf '{"tool_input":{"file_path":"raw/exemplo/x.md"}}'  | bash hooks/proteger-raw.sh
+printf '{"tool_input":{"file_path":"wiki/exemplo/x.md"}}' | bash hooks/proteger-raw.sh
+cat "$ANVILORE_LOG_HOOK"
+# 1790000000	BLOQUEADO	caminho dentro de raw/: raw/exemplo/x.md
+# 1790000000	PASSOU	wiki/exemplo/x.md
+```
+
+Sem a variável, nada é escrito: isto é **affordance de verificação** para quem
+testa, não instrumentação de produção. O rastro observa a decisão e não
+participa dela — ligá-lo não muda código de saída nenhum, e falha ao escrever o
+rastro nunca altera o veredito. É sobre essa linha, e não sobre a ausência de um
+arquivo, que `tests/test-instalar-agente-real.sh` assenta a asserção de D5.
+
 ## As formas por agente
 
 Este repositório versiona uma forma pronta (a de `hooks.json`) e **documenta** o
@@ -138,8 +165,11 @@ Instalar essas formas na máquina de quem clona é trabalho de `instalar.sh`, e
 referenciando o script por caminho em vez de reimplementar a decisão.
 
 **Só a forma do Claude Code foi exercitada de ponta a ponta com um agente de
-verdade** — sessão real, skill invocada, escrita em `raw/` recusada (ver
-`tests/test-instalar-agente-real.sh`). Codex, Gemini e Copilot estão instalados
+verdade** — sessão real, skill invocada, escrita em `raw/` recusada, e a recusa
+provada pelo rastro do próprio hook (`ANVILORE_LOG_HOOK`) em vez de inferida da
+ausência do arquivo, com o contrato em prosa removido do destino de teste para
+que o agente não tivesse motivo textual para se recusar antes de chamar a
+ferramenta (ver `tests/test-instalar-agente-real.sh`). Codex, Gemini e Copilot estão instalados
 na forma que a documentação oficial de cada um descreve, com a fonte citada
 acima, mas **nenhum dos três foi executado**. É menos do que prova por execução,
 e está dito aqui para não ser confundido com ela.
