@@ -11,6 +11,17 @@ raw/*
 # rastreia; um `.gitignore` ancorado dentro de `wiki/`, com `*` e reinclusões
 # relativas, é respeitado igual por git e por ripgrep. Ver `wiki/.gitignore`.
 
+# O que `instalar.sh` põe no clone é configuração DAQUELA máquina — qual agente
+# a pessoa usa, quais CLIs ela tem. Versionar isso obrigaria todo mundo a
+# carregar a escolha de agente de quem commitou primeiro. O método é
+# versionado; a instalação dele, não.
+.claude/
+.agents/
+.codex/
+.gemini/
+.github/agents/
+.github/copilot/
+
 logs/
 .DS_Store
 __pycache__/

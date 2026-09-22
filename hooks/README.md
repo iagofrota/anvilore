@@ -51,21 +51,28 @@ assunto, e ainda não está feito aqui.
 
 | Agente | Arquivo de configuração | Evento | Estado |
 |---|---|---|---|
-| Claude Code | `hooks/hooks.json` (referenciado do `settings.json` do projeto) | `PreToolUse`, matcher `Write\|Edit\|NotebookEdit` | **versionado aqui** |
-| Codex CLI | `config.toml` | `[[hooks.PreToolUse]]` com `matcher` | forma documentada abaixo |
-| Gemini CLI | `.gemini/settings.json` | `hooks.BeforeTool`, matcher `write_file\|replace` | forma documentada abaixo |
-| Copilot CLI | `settings.json` | `hooks.toolCall`, fase `before` | forma documentada abaixo |
+| Claude Code | `hooks/hooks.json` (fundido no `.claude/settings.json` do projeto) | `PreToolUse`, matcher `Write\|Edit\|NotebookEdit` | **versionado aqui**, instalado por `instalar.sh` |
+| Codex CLI | `.codex/config.toml` | `[[hooks.PreToolUse]]`, matcher `apply_patch\|Edit\|Write` | instalado por `instalar.sh` |
+| Gemini CLI | `.gemini/settings.json` | `hooks.BeforeTool`, matcher `write_file\|replace` | instalado por `instalar.sh` |
+| Copilot CLI | `.github/copilot/settings.json` | `hooks.preToolUse` | instalado por `instalar.sh` |
 
-### Codex CLI — `config.toml`
+Cada forma abaixo traz a fonte da convenção. Formato sem referência é palpite, e
+quem vier depois não tem como saber se pode confiar nele.
+
+### Codex CLI — `.codex/config.toml`
 
 ```toml
 [[hooks.PreToolUse]]
-matcher = "apply_patch"
+matcher = "apply_patch|Edit|Write"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
 command = "./hooks/proteger-raw.sh"
 ```
+
+Fonte: <https://learn.chatgpt.com/docs/hooks> (acesso em 2026-09-22). O matcher
+de edição de arquivo aceita `apply_patch`, `Edit` e `Write`; os três entram,
+porque o mesmo agente edita por mais de um caminho.
 
 ### Gemini CLI — `.gemini/settings.json`
 
@@ -84,33 +91,58 @@ command = "./hooks/proteger-raw.sh"
 }
 ```
 
-### Copilot CLI — `settings.json`
+Fonte: <https://geminicli.com/docs/hooks/reference/> (acesso em 2026-09-22) para
+o evento e a forma; <https://geminicli.com/docs/reference/tools/> (mesmo acesso)
+para os nomes `write_file` e `replace`, que são as duas ferramentas de escrita.
+
+### Copilot CLI — `.github/copilot/settings.json`
 
 ```json
 {
   "hooks": {
-    "toolCall": { "command": "./hooks/proteger-raw.sh", "shell": "bash" }
+    "preToolUse": [
+      { "type": "command", "bash": "./hooks/proteger-raw.sh" }
+    ]
   }
 }
 ```
 
-O evento `toolCall` dispara antes **e** depois da ferramenta; o payload traz
-`"phase": "before"` na primeira passagem. Como o script decide pelo caminho e
-sai `0` quando ele não é de `raw/`, a passagem de depois é inofensiva — mas
-filtrar pela fase é o que se espera de uma instalação caprichada.
+Fonte: <https://docs.github.com/en/copilot/reference/hooks-reference> (acesso em
+2026-09-22).
 
-## O que ainda não foi verificado
+> **Correção.** Até a onda anterior este documento descrevia, para o Copilot CLI,
+> um evento `hooks.toolCall` com um campo `"phase": "before"` no payload. **Isso
+> não existe.** A referência oficial não traz evento `toolCall` nem campo
+> `phase`: o evento que roda antes da ferramenta chama-se `preToolUse` (com
+> `PreToolUse` aceito por compatibilidade), e a entrada é
+> `{ "type": "command", "bash": ... }`. A forma antiga foi escrita a partir de
+> documentação lida de segunda mão e nunca exercitada — exatamente o risco que
+> a seção abaixo anunciava. Ficou registrada aqui, e não apagada, porque quem
+> tiver copiado a forma errada precisa saber que ela era errada.
+>
+> Este evento **não tem `matcher`**: ele roda em toda chamada de ferramenta.
+> Como `proteger-raw.sh` decide pelo caminho e sai `0` quando ele não é de
+> `raw/`, rodar sempre é inofensivo.
 
-As três formas acima foram escritas a partir da documentação de cada agente e
-**não foram executadas de ponta a ponta** neste repositório. O que está provado
-por teste (`tests/test-proteger-raw.sh`) é o script: que ele bloqueia `raw/`,
-que ele **não** bloqueia `wiki/` na mesma execução, que um payload sem chave de
-caminho reconhecida citando `raw/` também é bloqueado (com o controle fora de
-`raw/` passando na mesma execução), e que desativar a condição de decisão faz o
-bloqueio desaparecer — sem essa última prova, o teste não estaria medindo nada.
+## O que está verificado, e o que não está
 
-Instalar essas formas na máquina de quem clona o repositório é trabalho do
-instalador, que ainda não existe.
+O que está provado por teste (`tests/test-proteger-raw.sh`) é o **script**: que
+ele bloqueia `raw/`, que ele **não** bloqueia `wiki/` na mesma execução, que um
+payload sem chave de caminho reconhecida citando `raw/` também é bloqueado (com
+o controle fora de `raw/` passando na mesma execução), e que desativar a
+condição de decisão faz o bloqueio desaparecer — sem essa última prova, o teste
+não estaria medindo nada.
+
+Instalar essas formas na máquina de quem clona é trabalho de `instalar.sh`, e
+`tests/test-instalar.sh` prova que cada uma chega ao disco no arquivo certo,
+referenciando o script por caminho em vez de reimplementar a decisão.
+
+**Só a forma do Claude Code foi exercitada de ponta a ponta com um agente de
+verdade** — sessão real, skill invocada, escrita em `raw/` recusada (ver
+`tests/test-instalar-agente-real.sh`). Codex, Gemini e Copilot estão instalados
+na forma que a documentação oficial de cada um descreve, com a fonte citada
+acima, mas **nenhum dos três foi executado**. É menos do que prova por execução,
+e está dito aqui para não ser confundido com ela.
 
 ---
 
