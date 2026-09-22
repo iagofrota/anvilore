@@ -30,7 +30,18 @@ printf '{"tool_input":{"file_path":"wiki/exemplo/teste.md"}}' | bash hooks/prote
 O script aceita mais de uma grafia de chave (`file_path`, `filePath`, `path`,
 …) e procura em qualquer profundidade do payload, porque a decisão é sobre o
 caminho e não sobre o formato de um agente específico. Se não houver como
-interpretar o payload, ele **falha fechado**: recusa em vez de deixar passar.
+isolar o caminho, ele **falha fechado**: recusa em vez de deixar passar. Isso
+vale para os três casos em que o caminho não sai do payload — JSON inválido,
+máquina sem leitor de JSON, e JSON válido em que **nenhuma** chave reconhecida
+aparece. O terceiro não é hipotético: é a forma do Codex CLI abaixo, que
+carrega o caminho alvo dentro do corpo do patch. Nesses casos a decisão passa a
+ser sobre o texto inteiro do payload — grosseira, podendo recusar demais, que é
+o lado certo de errar num hook de proteção:
+
+```bash
+printf '{"tool_input":{"patch":"*** Update File: raw/exemplo/x.md"}}'  | bash hooks/proteger-raw.sh; echo $?  # 2
+printf '{"tool_input":{"patch":"*** Update File: wiki/exemplo/x.md"}}' | bash hooks/proteger-raw.sh; echo $?  # 0
+```
 
 ## As formas por agente
 
@@ -93,9 +104,10 @@ filtrar pela fase é o que se espera de uma instalação caprichada.
 As três formas acima foram escritas a partir da documentação de cada agente e
 **não foram executadas de ponta a ponta** neste repositório. O que está provado
 por teste (`tests/test-proteger-raw.sh`) é o script: que ele bloqueia `raw/`,
-que ele **não** bloqueia `wiki/` na mesma execução, e que desativar a condição
-de decisão faz o bloqueio desaparecer — sem essa última prova, o teste não
-estaria medindo nada.
+que ele **não** bloqueia `wiki/` na mesma execução, que um payload sem chave de
+caminho reconhecida citando `raw/` também é bloqueado (com o controle fora de
+`raw/` passando na mesma execução), e que desativar a condição de decisão faz o
+bloqueio desaparecer — sem essa última prova, o teste não estaria medindo nada.
 
 Instalar essas formas na máquina de quem clona o repositório é trabalho do
 instalador, que ainda não existe.

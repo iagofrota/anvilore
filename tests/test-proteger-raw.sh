@@ -85,6 +85,26 @@ c="$(printf '%s' '{"tool_input": {"file_path": "raw/x.md"' | bash "$HOOK" >/dev/
 [ "$c" -ne 0 ] && ok "payload malformado citando raw/ falha fechado" \
                || falha "payload malformado citando raw/ passou"
 
+# JSON VALIDO, mas sem nenhuma chave de caminho reconhecida — a forma
+# documentada do Codex CLI em `hooks/README.md` e exatamente esta: matcher
+# `apply_patch`, com o caminho alvo embutido no corpo do patch. "Nao achei
+# caminho" nao pode virar "pode passar": sem caminho para decidir, o caso cai na
+# mesma varredura grosseira do payload inparseavel. Fechar so quando o JSON
+# quebra e uma protecao que parece ativa e nao e.
+patch_payload() {
+  printf '{"tool_name":"apply_patch","tool_input":{"patch":"*** Update File: %s"}}' "$1"
+}
+c="$(codigo "$HOOK" "$(patch_payload 'raw/exemplo/teste.md')")"
+[ "$c" -ne 0 ] && ok "payload sem chave de caminho reconhecida citando raw/ falha fechado (saida $c)" \
+               || falha "payload sem chave de caminho reconhecida citando raw/ passou (saida 0)"
+
+# GRUPO DE CONTROLE do caso acima, na mesma execucao: mesmo formato de payload,
+# caminho fora de raw/. Sem ele, "bloqueou" seria indistinguivel de "passou a
+# recusar todo payload que nao entende".
+c="$(codigo "$HOOK" "$(patch_payload 'wiki/exemplo/teste.md')")"
+[ "$c" -eq 0 ] && ok "payload sem chave de caminho reconhecida fora de raw/ passa (grupo de controle)" \
+               || falha "payload sem chave de caminho reconhecida fora de raw/ foi bloqueado (saida $c)"
+
 # ============================================================================
 # PROVA POR MUTACAO — numa copia, nunca no original
 # ============================================================================

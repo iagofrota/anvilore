@@ -79,7 +79,7 @@ bloquear() {
 
 PAYLOAD="$(cat)"
 
-if CAMINHOS="$(extrair_caminhos "$PAYLOAD")"; then
+if CAMINHOS="$(extrair_caminhos "$PAYLOAD")" && [ -n "$CAMINHOS" ]; then
   while IFS= read -r alvo; do
     [ -n "$alvo" ] || continue
     escreve_em_raw "$alvo" && bloquear "caminho dentro de raw/: $alvo"
@@ -87,13 +87,17 @@ if CAMINHOS="$(extrair_caminhos "$PAYLOAD")"; then
   exit 0
 fi
 
-# Chegou aqui: não há leitor de JSON na máquina, ou o payload não é JSON válido.
-# Sem conseguir isolar o caminho, a decisão passa a ser sobre o texto inteiro —
-# grosseira, e podendo recusar demais. É o lado certo de errar: um hook de
-# proteção que falha ABERTO não protege nada, e falharia em silêncio, que é
-# exatamente o defeito que este repositório existe para desencorajar.
+# Chegou aqui por um de três caminhos: não há leitor de JSON na máquina; o
+# payload não é JSON válido; ou o payload é JSON válido mas nenhuma das chaves
+# reconhecidas aparece nele — é o caso da forma documentada do Codex CLI
+# (`apply_patch`), que leva o caminho alvo dentro do corpo do patch e não numa
+# chave própria. Os três têm o mesmo desfecho: sem caminho isolado, a decisão
+# passa a ser sobre o texto inteiro — grosseira, e podendo recusar demais. É o
+# lado certo de errar: um hook de proteção que falha ABERTO não protege nada, e
+# falharia em silêncio, que é exatamente o defeito que este repositório existe
+# para desencorajar. "Não achei caminho" nunca vira "pode passar".
 if printf '%s' "$PAYLOAD" | grep -qF 'raw/'; then
-  bloquear 'payload não interpretável que cita raw/ (falha fechado)'
+  bloquear 'payload sem caminho isolável que cita raw/ (falha fechado)'
 fi
 exit 0
 

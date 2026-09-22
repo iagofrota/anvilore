@@ -165,10 +165,14 @@ for f in "${NOVOS[@]}"; do
 done
 [ "$sujos" -eq 0 ] && ok "C10a: nada do vault privado nos arquivos novos"
 
-# O ferramental de coordenacao que produziu este porte nao e parte do produto:
-# nome de orquestrador, de jornada e de persona nao entram em arquivo
-# versionado. Mesma tecnica de ultima-letra-em-classe.
-FERRAMENTAL='\bai?p[e]\b|j-2026[0-9]{4}|\balic[e]\b|marcu[s].?aur|\bbrun[o]\b|worktree[s]/'
+# O ferramental de coordenacao que produziu este porte nao e parte do produto e
+# nao entra em arquivo versionado. A varredura procura as FORMAS estruturais
+# desses identificadores — id de jornada e diretorio de worktree —, nunca os
+# nomes proprios por tras deles: um scanner que enumera nomes publica
+# exatamente o que veio impedir que vazasse, e nenhuma ofuscacao resolve isso,
+# porque quem le o arquivo nao e um grep. Ultima letra como classe de um
+# caractere so pelo motivo de sempre: ESTE arquivo tambem entra na varredura.
+FERRAMENTAL='j-[0-9]{8}-[a-z0-9]{2}|\.worktree[s]/'
 sujos=0
 for f in "${NOVOS[@]}"; do
   achado="$(grep -inE "$FERRAMENTAL" "$f" || true)"
@@ -179,10 +183,16 @@ for f in "${NOVOS[@]}"; do
 done
 [ "$sujos" -eq 0 ] && ok "C10a: nenhum identificador do ferramental nos arquivos novos"
 
+# PROVA DE DENTES, com isca sintetica: id de jornada e caminho de worktree em
+# forma valida, sem ser de jornada nenhuma que exista.
 isca="$(mktemp)"
-printf 'Despachado pelo %s na jornada %s.\n' "aip""e" "j-2026""0905-4v" > "$isca"
+printf 'Escrito em %s durante a jornada %s.\n' ".worktree""s/exemplo" "j-1970""0101-zz" > "$isca"
 grep -qinE "$FERRAMENTAL" "$isca" && ok "C10a: a varredura de ferramental tem dentes" \
                                   || falha "C10a: a varredura de ferramental nao pegou a isca"
+# Controle: caminho e nome comuns do repositorio nao podem acusar.
+printf -- 'Rode bash tests/test-porte-onda-3.sh sobre wiki/exemplo/nota.md.\n' > "$isca"
+grep -qinE "$FERRAMENTAL" "$isca" && falha "C10a: a varredura de ferramental acusou caminho neutro (falso positivo)" \
+                                  || ok "C10a: a varredura de ferramental nao acusa caminho neutro"
 
 area_isca="pesso""al"
 printf 'type: concept\narea: %s\n' "$area_isca" > "$isca"
