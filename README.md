@@ -7,68 +7,63 @@ de páginas markdown interligadas — sem RAG, sem banco vetorial, sem infra.
 ## O que é
 
 `anvilore` não é um produto nem um serviço. É um **método empacotado como
-repositório**: três pastas (`raw/`, `wiki/`, `SCHEMA.md`), duas skills
-(`ingest`, `query`) e um validador. Clone, aponte seu agente de código
-(Claude Code, Codex, ou equivalente) para `AGENTS.md`, e comece a acumular
-conhecimento a partir da primeira fonte que você jogar em `raw/`.
+repositório**:
+
+| Peça | O que é |
+|---|---|
+| `raw/` | as fontes que você acumula. O agente lê; nunca escreve. |
+| `wiki/` | as páginas markdown que o agente mantém e interliga |
+| `SCHEMA.md` | o contrato de formato das páginas: tipos, frontmatter, wikilinks e callouts |
+| `AGENTS.md` | o contrato do agente: o que ele faz, o que não faz |
+| `skills/ingest`, `skills/query`, `skills/lint` | ingerir uma fonte; responder citando página; varrer a wiki atrás de problemas estruturais |
+| `scripts/` | o validador `validar-wiki.sh` e os scripts de manutenção (índice, log, lacunas, áreas) |
+| `hooks/` | a regra "`raw/` é imutável" na forma de hook, com a decisão num script só (`hooks/proteger-raw.sh`) |
+| `instalar.sh` | configura um clone para o agente que você usa: Claude Code, Codex, Gemini ou Copilot |
+| `tests/` | os testes que provam os scripts, o hook e o instalador |
 
 O repositório carrega só o método. O conteúdo — as fontes que você ingere,
 as páginas que o agente escreve — é seu, fica de fora do git por padrão
 (veja `.gitignore`), e nunca sai da sua máquina a menos que você decida
 publicar.
 
-## A quem serve
+Serve a quem quer manter uma base de conhecimento pessoal sem fazer à mão a
+parte de organizar, cruzar referências e manter tudo atualizado.
 
-Quem já tentou manter uma base de conhecimento pessoal — Obsidian, Notion,
-uma pasta de markdown — e abandonou porque a parte de organizar, cruzar
-referências e manter tudo atualizado é chata e ninguém sustenta por mais de
-duas semanas. A proposta aqui é delegar exatamente essa parte chata a um
-agente, mantendo curadoria e autoridade sobre o que é verdade com você.
-
-Serve também a quem programa com um agente de código no dia a dia e quer
-aplicar o mesmo fluxo de trabalho — instrução clara, contrato explícito,
-verificação automatizada — a uma coleção de conhecimento em vez de uma
-base de código.
-
-## De onde isto veio
-
-Nada aqui nasceu do zero, e acho que vale contar a linhagem inteira — inclusive
-porque ela explica melhor o repositório do que qualquer descrição de features.
-
-**O ponto de partida foi o [Segundo Cérebro](https://www.buildingasecondbrain.com/book),
-de Tiago Forte.** Capturar, organizar, destilar e expressar. A parte de capturar
-sempre foi fácil. Organizar e destilar é que nunca sobreviveu a duas semanas —
-é trabalho chato, repetitivo, e sem ele o resto não compõe.
-
-**Depois veio o gist [`llm-wiki.md`](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f),
-do Andrej Karpathy.** Ele descreve o padrão: em vez de perguntar a um LLM e
-jogar a resposta fora, deixe o agente manter uma wiki que sobrevive à conversa.
-O gist é deliberadamente abstrato — um padrão, não uma implementação. Está
-reproduzido na íntegra em `raw/exemplo/` deste repositório, como fonte de teste.
-
-**E a implementação que me mostrou que o padrão funcionava foi a
-[`wiki-wonka`](https://github.com/cooperacode/wiki-wonka), da Coopera Code.**
-Foi dela que saiu o desenho que está aqui: o fluxo de dois tempos do `ingest`
-(discutir antes de escrever), o `query` que só responde citando página, o
-frontmatter, os wikilinks e o sistema de callouts. As skills deste repositório
-são **obra derivada** dela — traduzidas para português do Brasil e adaptadas,
-sob a licença MIT, com o aviso de copyright original preservado no `LICENSE`.
-
-O que este repositório acrescenta por cima: o passo de despacho de subagentes
-no `ingest`, o validador `scripts/validar-wiki.sh` com testes, um schema
-deliberadamente menor, e a ideia de que a coisa cresce em níveis — você começa
-com duas skills e um contrato, e só adiciona estrutura quando a dor aparece.
+**Por que ele é assim** — a fronteira rígida entre `raw/` e `wiki/`, a
+curadoria humana como não-opcional, o crescimento por níveis, a ausência
+deliberada de RAG e a neutralidade de provedor de agente — está em
+[`FILOSOFIA.md`](./FILOSOFIA.md), junto com a linhagem de onde isto veio.
 
 ## Começo em 5 minutos
 
+Linux. Não há suporte a Windows nem a macOS.
+
 ```bash
-git clone <este-repositório>
+git clone https://github.com/iagofrota/anvilore.git
 cd anvilore
+bash instalar.sh --simular
 ```
 
-1. Abra o repositório com seu agente de código de preferência. `CLAUDE.md`
-   aponta para `AGENTS.md` — é o contrato que ele precisa ler antes de tocar
-   em qualquer arquivo.
+`--simular` só relata o que o instalador faria; não cria, não altera e não
+remove nenhum arquivo. Quando a lista estiver do seu agrado, instale de
+verdade:
+
+```bash
+bash instalar.sh --alvo claude
+```
+
+`--alvo` aceita `claude`, `codex`, `gemini`, `copilot` — separados por
+vírgula — ou `todos`, que é o padrão. Alvo cuja CLI não estiver no `PATH` é
+relatado e pulado, e a execução termina com sucesso. Para instalar em outro
+clone que não o deste script, use `--destino <dir>`: o instalador escreve
+exclusivamente dentro desse diretório. `bash instalar.sh --help` descreve,
+por agente, o que cada alvo instala.
+
+Com o clone configurado:
+
+1. Abra o repositório com seu agente de código. `CLAUDE.md` aponta para
+   `AGENTS.md` — é o contrato que ele precisa ler antes de tocar em qualquer
+   arquivo.
 2. Peça ao agente para seguir `skills/ingest/SKILL.md` e ingerir
    `raw/exemplo/llm-wiki.md` — o próprio texto que originou este padrão.
 3. Depois de ingerido, peça para ele seguir `skills/query/SKILL.md` e
@@ -90,7 +85,9 @@ cd anvilore
    > validador pula esse perfil com uma linha `SKIP:` dizendo por quê e segue
    > normalmente — nunca reprova por falta da dependência.
 
-Isso é o nível 02 completo. Não tem mais nada além disso rodando por trás.
+Quando a wiki crescer, `skills/lint/SKILL.md` faz a varredura de manutenção:
+o que está estruturalmente quebrado, o que virou dívida de conhecimento e o
+que ficou invisível na navegação.
 
 ## Os quatro níveis
 
@@ -105,24 +102,26 @@ próximo quando sentir a dor que ele resolve.
 | 03 | governança | `skills/lint`, `hooks/`, testes | a wiki cresce além do que cabe no contexto de uma sessão só |
 | 04 | escala | índice de busca, backup, automação | (fora deste kit — ver abaixo) |
 
-**Este repositório entrega os níveis 01 e 02.** É deliberadamente mínimo. O
-esqueleto de `wiki/` que você acabou de clonar já traz a *forma* das áreas:
-uma área de exemplo neutra (`wiki/exemplo/{sources,entities,concepts}`), os
-diretórios reservados `wiki/_meta/` e `wiki/log/`, e o campo opcional `area`
-documentado no `SCHEMA.md`. Mas a estrutura de áreas é oferecida, não exigida:
-uma wiki plana, com as páginas soltas na raiz de `wiki/`, continua válida e
-continua validando. Organizar um punhado de páginas em áreas temáticas é
-cerimônia que ninguém sente falta com 20 páginas; organizar centenas sem
-nenhuma estrutura é inviável. A governança que fecha o nível 03 — lint
-automatizado para pegar o que a disciplina manual deixa passar, e os hooks —
-chega quando a dor chegar, não antes.
+**Este repositório entrega os níveis 01, 02 e 03.** O esqueleto de `wiki/`
+que você acabou de clonar já traz a *forma* das áreas: uma área de exemplo
+neutra (`wiki/exemplo/{sources,entities,concepts}`), os diretórios
+reservados `wiki/_meta/` e `wiki/log/`, e o campo opcional `area`
+documentado no `SCHEMA.md`. Mas a estrutura de áreas é oferecida, não
+exigida: uma wiki plana, com as páginas soltas na raiz de `wiki/`, continua
+válida e continua validando.
+
+A governança do nível 03 está no repositório: `skills/lint` varre a wiki e
+separa o que dá para corrigir sem julgamento do que precisa de quem cura;
+`hooks/proteger-raw.sh` recusa qualquer escrita dentro de `raw/`, na forma
+de configuração de cada agente; e `tests/` prova os scripts, o hook e o
+instalador.
 
 O nível 04 (índice de busca dedicado, backup, automação de manutenção) não
 está empacotado aqui de propósito: ele só faz sentido depois que uma wiki
 real ultrapassa o que um índice markdown e um agente conseguem varrer numa
-sessão, e nesse ponto as escolhas certas dependem tanto do seu volume de
-dados e do seu agente que empacotar uma resposta genérica seria entregar
-complexidade que você ainda não conquistou.
+sessão. Nesse ponto as escolhas certas dependem tanto do seu volume de dados
+e do seu agente que uma resposta genérica entregaria complexidade que você
+ainda não conquistou.
 
 ## Licença
 
