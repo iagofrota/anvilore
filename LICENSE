@@ -25,15 +25,17 @@ SOFTWARE.
 ## Aviso de terceiros / Third-party notice
 
 Partes deste repositório — em especial `skills/ingest/SKILL.md`,
-`skills/query/SKILL.md` e as convenções de `SCHEMA.md` (tipos de página,
-frontmatter, wikilinks e o sistema de callouts) — são obra derivada de
+`skills/query/SKILL.md`, `skills/lint/SKILL.md` e as convenções de
+`SCHEMA.md` (tipos de página, frontmatter, wikilinks e o sistema de
+callouts) — são obra derivada de
 `wiki-wonka` (https://github.com/cooperacode/wiki-wonka), traduzida para
 português do Brasil e adaptada. O aviso de copyright original é preservado
 abaixo, conforme exigido pela licença MIT daquele projeto.
 
 Portions of this repository — notably `skills/ingest/SKILL.md`,
-`skills/query/SKILL.md` and the `SCHEMA.md` conventions (page types,
-frontmatter, wikilinks and the callout system) — are derivative works of
+`skills/query/SKILL.md`, `skills/lint/SKILL.md` and the `SCHEMA.md`
+conventions (page types, frontmatter, wikilinks and the callout system) —
+are derivative works of
 `wiki-wonka` (https://github.com/cooperacode/wiki-wonka), translated into
 Brazilian Portuguese and adapted. The original copyright notice is preserved
 below, as required by that project's MIT license.
