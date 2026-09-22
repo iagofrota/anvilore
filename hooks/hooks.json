@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "description": "Recusa qualquer escrita em raw/ — a camada de fontes é imutável para o agente. A decisão mora em hooks/proteger-raw.sh; esta forma só aponta para lá.",
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/hooks/proteger-raw.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
