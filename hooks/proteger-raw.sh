@@ -71,10 +71,35 @@ extrair_caminhos() {
   return 1
 }
 
+# ----------------------------------------------------------------------------
+# Rastro de verificação — inerte por padrão
+# ----------------------------------------------------------------------------
+# Um hook que bloqueou e um hook que nunca foi chamado deixam o MESMO disco: o
+# arquivo simplesmente não aparece em `raw/`. Sem rastro, "`raw/` continuou
+# vazio" não distingue "o hook barrou" de "o agente leu o contrato em prosa e se
+# recusou antes de chamar a ferramenta" — e um teste que afirma o primeiro a
+# partir do segundo está medindo outra coisa.
+#
+# Quando `ANVILORE_LOG_HOOK` aponta para um arquivo, cada invocação deixa uma
+# linha `<epoch>\t<veredito>\t<alvo>`. Sem a variável, nada é escrito: isto é
+# affordance de verificação para quem testa, não instrumentação de produção.
+# Falha ao escrever o rastro NUNCA altera o veredito — o log observa a decisão,
+# não participa dela.
+registrar() {
+  [ -n "${ANVILORE_LOG_HOOK:-}" ] || return 0
+  printf '%s\t%s\t%s\n' "$(date +%s)" "$1" "$2" >> "$ANVILORE_LOG_HOOK" 2>/dev/null || true
+}
+
 bloquear() {
+  registrar BLOQUEADO "$1"
   printf '%s\n' "$MENSAGEM" >&2
   printf 'Motivo: %s\n' "$1" >&2
   exit 2
+}
+
+liberar() {
+  registrar PASSOU "$1"
+  exit 0
 }
 
 PAYLOAD="$(cat)"
@@ -84,7 +109,7 @@ if CAMINHOS="$(extrair_caminhos "$PAYLOAD")" && [ -n "$CAMINHOS" ]; then
     [ -n "$alvo" ] || continue
     escreve_em_raw "$alvo" && bloquear "caminho dentro de raw/: $alvo"
   done <<< "$CAMINHOS"
-  exit 0
+  liberar "$(printf '%s' "$CAMINHOS" | tr '\n' ' ')"
 fi
 
 # Chegou aqui por um de três caminhos: não há leitor de JSON na máquina; o
@@ -99,7 +124,7 @@ fi
 if printf '%s' "$PAYLOAD" | grep -qF 'raw/'; then
   bloquear 'payload sem caminho isolável que cita raw/ (falha fechado)'
 fi
-exit 0
+liberar 'payload sem caminho isolável, sem citação a raw/'
 
 # Este script é obra derivada de `wiki-wonka`
 # (https://github.com/cooperacode/wiki-wonka) (Coopera Code, licença MIT),

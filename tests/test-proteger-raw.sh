@@ -106,6 +106,53 @@ c="$(codigo "$HOOK" "$(patch_payload 'wiki/exemplo/teste.md')")"
                || falha "payload sem chave de caminho reconhecida fora de raw/ foi bloqueado (saida $c)"
 
 # ============================================================================
+# RASTRO DE VERIFICACAO — inerte por padrao, e discriminante quando ligado
+# ============================================================================
+# Existe porque bloquear e nunca ser chamado deixam o mesmo disco: o arquivo
+# nao aparece em `raw/` nos dois casos. Quem afirma "o hook bloqueou" a partir
+# de "o arquivo nao esta la" esta inferindo, nao medindo — ver
+# `tests/test-instalar-agente-real.sh`.
+#
+# Tres asercoes, e as tres sao necessarias: sem a de inercia, o rastro seria
+# instrumentacao de producao acrescentada de contrabando; sem a de PASSOU, um
+# rastro que carimbasse tudo como BLOQUEADO passaria por bom.
+RASTRO="$TMP/rastro.log"
+
+antes_do_rastro="$(ls -A "$TMP" | sort)"
+printf '%s' "$(payload 'raw/exemplo/teste.md')" | bash "$HOOK" >/dev/null 2>&1
+[ ! -e "$RASTRO" ] && ok "sem ANVILORE_LOG_HOOK, nenhum rastro e escrito (inerte por padrao)" \
+                   || falha "o hook escreveu rastro sem a variavel pedir"
+
+printf '%s' "$(payload 'raw/exemplo/teste.md')" \
+  | ANVILORE_LOG_HOOK="$RASTRO" bash "$HOOK" >/dev/null 2>&1
+grep -qE 'BLOQUEADO.*raw/exemplo/teste\.md' "$RASTRO" 2>/dev/null \
+  && ok "com a variavel, o bloqueio de raw/ deixa rastro nomeando o caminho" \
+  || falha "o bloqueio de raw/ nao deixou rastro: $(head -1 "$RASTRO" 2>/dev/null)"
+
+# GRUPO DE CONTROLE do rastro: o mesmo mecanismo tem de registrar o caso que
+# PASSA, e registrar diferente.
+printf '%s' "$(payload 'wiki/exemplo/teste.md')" \
+  | ANVILORE_LOG_HOOK="$RASTRO" bash "$HOOK" >/dev/null 2>&1
+grep -qE 'PASSOU.*wiki/exemplo/teste\.md' "$RASTRO" 2>/dev/null \
+  && ok "o rastro distingue PASSOU de BLOQUEADO (grupo de controle)" \
+  || falha "o rastro nao registrou PASSOU para wiki/ — carimba tudo igual"
+
+# O rastro OBSERVA a decisao, nao participa dela: ligar a variavel nao pode
+# mudar codigo de saida nenhum.
+c_sem="$(codigo "$HOOK" "$(payload 'raw/exemplo/teste.md')")"
+printf '%s' "$(payload 'raw/exemplo/teste.md')" \
+  | ANVILORE_LOG_HOOK="$RASTRO" bash "$HOOK" >/dev/null 2>&1
+c_com=$?
+[ "$c_sem" = "$c_com" ] && ok "ligar o rastro nao muda o veredito (saida $c_sem nos dois casos)" \
+                        || falha "o rastro mudou o codigo de saida: sem=$c_sem com=$c_com"
+
+# E nao pode escrever em lugar nenhum alem do arquivo que lhe foi apontado.
+novos="$(comm -13 <(printf '%s\n' "$antes_do_rastro") <(ls -A "$TMP" | sort))"
+[ "$novos" = "rastro.log" ] \
+  && ok "o rastro escreve so no arquivo apontado, em lugar nenhum mais" \
+  || falha "o rastro criou arquivo fora do caminho apontado: $(printf '%s' "$novos" | tr '\n' ' ')"
+
+# ============================================================================
 # PROVA POR MUTACAO — numa copia, nunca no original
 # ============================================================================
 MUTANTE="$TMP/mutante.sh"
