@@ -286,6 +286,65 @@ describe("checarDocs: referências", () => {
   });
 });
 
+describe("checarDocs: R48, escapes na sintaxe de link", () => {
+  test("Dado um colchete de abertura escapado Quando checo Então o exemplo literal não é um link quebrado", () => {
+    kb("README.md", String.raw`\[exemplo](missing.md)`);
+    expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+  });
+
+  test("Dado barras pares e ímpares antes do colchete Quando checo Então só os pares abrem links reais", () => {
+    kb("README.md", String.raw`\\[x](nao-existe.md)` + "\n" + String.raw`\\\[literal](missing.md)`);
+    const r = checarDocs(raiz);
+    expect(r.ok).toBe(false);
+    expect(r.problemas).toHaveLength(1);
+    expect(r.problemas[0]).toContain("nao-existe.md");
+    expect(r.problemas[0]).toContain("linha 1");
+  });
+
+  test("Dado abertura escapada antes de link real aninhado Quando checo Então confere o link e conserva sua linha", () => {
+    kb("README.md", String.raw`\[a [b](nao-existe.md)` + "\n\n" + String.raw`\[a` + "\n[b](outro-ausente.md)\n");
+    const r = checarDocs(raiz);
+    expect(r.ok).toBe(false);
+    expect(r.problemas).toHaveLength(2);
+    expect(r.problemas[0]).toContain("nao-existe.md");
+    expect(r.problemas[0]).toContain("linha 1");
+    expect(r.problemas[1]).toContain("outro-ausente.md");
+    expect(r.problemas[1]).toContain("linha 4");
+  });
+
+  test("Dado colchete de fechamento escapado no texto Quando checo Então confere o destino ausente e aceita o existente", () => {
+    kb("existe.md", "# Existe\n");
+    kb("README.md", String.raw`[a\]b](nao-existe.md) [a\]b](existe.md)`);
+    const r = checarDocs(raiz);
+    expect(r.ok).toBe(false);
+    expect(r.problemas).toHaveLength(1);
+    expect(r.problemas[0]).toContain("nao-existe.md");
+    kb("README.md", String.raw`[a\]b](existe.md)`);
+    expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+  });
+
+  test("Dado parêntese escapado no destino Quando checo Então resolve o nome completo e aponta só o arquivo ausente", () => {
+    kb("a)b.md", "# Existe\n");
+    kb("README.md", String.raw`[x](a\)b.md) [y](outro\)ausente.md)`);
+    const r = checarDocs(raiz);
+    expect(r.ok).toBe(false);
+    expect(r.problemas).toHaveLength(1);
+    expect(r.problemas[0]).toContain("outro)ausente.md");
+    kb("README.md", String.raw`[x](a\)b.md)`);
+    expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+  });
+
+  test("Dado imagem com abertura escapada e exclamação literal Quando checo Então ignora a imagem literal e confere o link real", () => {
+    kb("README.md", String.raw`!\[x](missing.png)`);
+    expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+    kb("README.md", String.raw`\![x](nao-existe.md)`);
+    const r = checarDocs(raiz);
+    expect(r.ok).toBe(false);
+    expect(r.problemas).toHaveLength(1);
+    expect(r.problemas[0]).toContain("nao-existe.md");
+  });
+});
+
 describe("checarDocs: a própria knowledge base", () => {
   test("Dado um repositório sem docs/knowledge_base, Quando checo, Então reprova e não imprime PASS calado", () => {
     const r = checarDocs(raiz);

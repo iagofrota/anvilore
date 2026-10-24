@@ -7,8 +7,10 @@ import { acharCodigosEmLinha, linhasVisiveis, mascararCodigoEmLinha } from "../l
 export type ResultadoDocs = { ok: boolean; problemas: string[] };
 
 // `[texto](alvo)` ou `![texto](alvo)`, com título opcional entre aspas duplas ou simples. O texto pode
-// atravessar linhas, mas não um parágrafo (linha em branco). O alvo não tem espaço nem `)`.
-const LINK = /!?\[(?:[^\]\n]|\n(?!\s*\n))*\]\(([^)\s]+)(?:\s+(?:"[^"]*"|'[^']*'))?\)/g;
+// atravessar linhas, mas não um parágrafo (linha em branco). Escapes são mascarados antes do match.
+const LINK = /!?\[(?:[^\]\n]|\n(?!\s*\n))*\]\(([^)\s]+)(?:\s+(?:"[^"]*"|'[^']*'))?\)/gd;
+// No CommonMark a barra escapa pontuação ASCII; pares de barras escapam uma à outra.
+const ESCAPE_DE_MARKDOWN = /\\([!-/:-@[-`{-~])/g;
 const ESQUEMA = /^[a-z][a-z0-9+.-]+:/i;
 // Lista fechada, em minúsculas: `Bun.YAML` e `process.env` não são arquivos.
 const EXTENSOES = new Set(["md", "ts", "js", "mjs", "json", "sh", "py", "yml", "yaml", "toml", "lock", "tsv", "txt"]);
@@ -65,10 +67,14 @@ function conferirPagina(raiz: string, pasta: string, pagina: string): string[] {
   }
 
   // Link markdown resolve a partir da página (ou da raiz, se começa com `/`).
-  const texto = mascararCodigoEmLinha(completo);
+  // Neutraliza a pontuação escapada sem mudar comprimento: um `\[` literal não pode engolir
+  // um link real que vem depois, e um `\]` no rótulo não fecha o link antes da hora.
+  const texto = mascararCodigoEmLinha(completo).replace(ESCAPE_DE_MARKDOWN, "\\\0");
   const vistos = new Set<string>();
   for (const achado of texto.matchAll(LINK)) {
-    const alvo = semAncora(achado[1]!);
+    const inicioDoAlvo = achado.indices![1]![0];
+    const alvo = completo.slice(inicioDoAlvo, inicioDoAlvo + semAncora(achado[1]!).length)
+      .replace(ESCAPE_DE_MARKDOWN, "$1");
     if (alvo === "" || ehUrl(alvo)) continue;
     const base = alvo.startsWith("/") ? raiz : dirDaPagina;
     const caminho = resolve(base, decodificar(alvo.replace(/^\/+/, "")));

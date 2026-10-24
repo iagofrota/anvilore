@@ -77,6 +77,11 @@ Versionamento Semântico.
   para fora da raiz do repositório reprovam, mesmo que o arquivo exista na máquina. O texto de um
   link pode atravessar linhas; o problema aponta a linha onde o link começa. Veja o código em
   `src/comandos/checar-docs.ts`.
+- Escapes por barra invertida seguem a pontuação ASCII do CommonMark: colchete de abertura
+  escapado é texto, enquanto duas barras antes do colchete permitem um link real. Colchete
+  escapado dentro do rótulo e parêntese escapado no destino não encerram o link. A pontuação é
+  neutralizada antes da busca, preservando posições e linhas; o destino recupera seus caracteres
+  literais antes da conferência (`src/comandos/checar-docs.ts`; `tests/checar-docs.test.ts`).
 - **Nome hipotético ou relativo a outra pasta, entre crases, reprova como falso positivo.** Se a
   menção parece caminho e não existe a partir da raiz, o `checar-docs` não sabe que era um
   exemplo ou que o arquivo mora em outra pasta. Há duas saídas: escrever o caminho a partir da raiz

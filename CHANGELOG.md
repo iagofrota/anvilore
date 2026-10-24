@@ -43,6 +43,8 @@ antigos em bash e Python: eles continuam sendo o que valida a wiki e protege o `
 
 ### Fixed
 
+- `checar-docs` respeita escapes nos links: colchete escapado é texto literal, e links reais
+  com `\]` no texto ou `\)` no destino continuam sendo conferidos.
 - `checar-docs` e `checar-release` não perdem mais o resto da página quando ela cita `<!--` entre
   crases (código em linha): antes, esse trecho era lido como início de comentário HTML e escondia
   as linhas seguintes, e um link quebrado depois dele passava sem aviso.
