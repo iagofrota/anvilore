@@ -97,15 +97,25 @@ export async function ligarArquivo(origem: string, link: string): Promise<Estado
   return ligarPublicamente(origem, link, false);
 }
 
-// `|| exit 2`: se o Bun faltar ou o comando quebrar, o agente recebe bloqueio em vez de seguir sem proteção (sh, cmd e
-// PowerShell 7). O PowerShell 5.1 não tem `||`: o Copilot ganha o campo `powershell`; Claude fixa `shell: "bash"` e
-// `onFailure: "block"`; Codex e Gemini não documentam o shell do Windows — limite registrado em plataformas.md.
+// `|| exit 2` fecha o hook quando o Bun falta, em sh e cmd. Claude fixa `shell: "bash"` e `onFailure: "block"`; o Copilot ganha o
+// campo `powershell` (o `||` não existe no PowerShell 5.1). Codex e Gemini (R65) não levam `||`: em PowerShell o `|| exit 2` faz o
+// bloqueio (saída 2 do bun) virar saída 1, que o Gemini trata como aviso, e a chamada pura também (`-Command` devolve 1). Levam o
+// caminho absoluto do clone e `; exit $LASTEXITCODE`, que devolve o código do bun em sh, PowerShell e (como argumentos ignorados pelo
+// subcomando) cmd. O custo, declarado em plataformas.md e governanca.md, é que bun ausente deixa esses dois sem hook; o
+// `anvilore doctor` trata o bun como pré-requisito.
 const COMANDO_HOOK = "bun ./src/cli.ts hook proteger-raw || exit 2";
 const COMANDO_POWERSHELL = "bun ./src/cli.ts hook proteger-raw; if ($LASTEXITCODE -ne 0) { exit 2 }";
 const HOOK_ANTIGO = "hooks/proteger-raw.sh";
 
 // A decisão mora em `anvilore hook proteger-raw`; estas formas só apontam para lá.
-export async function configuracaoDoHook(alvo: Alvo): Promise<Fragmento & { arquivo: string }> {
+function comandoSemOperador(destino: string): string {
+  if (/["$`%\r\n]/.test(destino)) {
+    throw new Error(`o caminho do clone tem caractere que o shell interpretaria ($, crase, aspas, % ou quebra de linha): ${destino}`);
+  }
+  return `bun "${join(destino, "src", "cli.ts")}" hook proteger-raw; exit $LASTEXITCODE`;
+}
+
+export async function configuracaoDoHook(alvo: Alvo, destino: string): Promise<Fragmento & { arquivo: string }> {
   switch (alvo) {
     case "claude":
       return { arquivo: ".claude/settings.json", json: JSON.parse(await readFile(join(fonte, "hooks/hooks.json"), "utf8")) };
@@ -119,7 +129,7 @@ matcher = "apply_patch|Edit|Write|Bash"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = "${COMANDO_HOOK}"`,
+command = ${JSON.stringify(comandoSemOperador(destino))}`,
       };
     case "gemini":
       return {
@@ -129,7 +139,7 @@ command = "${COMANDO_HOOK}"`,
           hooks: {
             BeforeTool: [{
               matcher: "write_file|replace|run_shell_command",
-              hooks: [{ name: "proteger-raw", type: "command", command: COMANDO_HOOK }],
+              hooks: [{ name: "proteger-raw", type: "command", command: comandoSemOperador(destino) }],
             }],
           },
         },
@@ -362,7 +372,7 @@ export async function instalar(opcoes: OpcoesInstalacao): Promise<RelatorioInsta
     }
     const errosAntes = relatorio.erros;
     try {
-      const config = await configuracaoDoHook(alvo);
+      const config = await configuracaoDoHook(alvo, destino);
       await configurar(contexto, config.arquivo, config);
       await instalarSkills(contexto, alvo, await listarSkills());
       if (relatorio.erros === errosAntes) relatorio.instalados.push(alvo);

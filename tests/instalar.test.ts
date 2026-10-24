@@ -12,6 +12,8 @@ let tmp: string, destino: string, lar: string;
 let consoleCapturado: ReturnType<typeof capturarConsole>;
 const ambiente = { ...process.env };
 const comandoRelativo = "bun ./src/cli.ts hook proteger-raw || exit 2";
+// R65: Codex e Gemini chamam o bun pelo caminho absoluto do clone e propagam o código com `; exit $LASTEXITCODE` (sem `||`).
+const comandoAbsoluto = () => `bun "${join(real(destino), "src", "cli.ts")}" hook proteger-raw; exit $LASTEXITCODE`;
 const comandoPowershell = "bun ./src/cli.ts hook proteger-raw; if ($LASTEXITCODE -ne 0) { exit 2 }";
 const pathOriginal = valorDoPath(ambiente);
 const real = (caminho: string) => realpathSync.native(caminho);
@@ -344,14 +346,14 @@ test("Dado configuração Claude Quando instalo Então aponta para o hook único
 test("Dado configuração Gemini Quando instalo Então aponta para o hook único", async () => {
   await rodar(["gemini"]);
   const config = JSON.parse(readFileSync(join(destino, ".gemini/settings.json"), "utf8"));
-  expect(config.hooks.BeforeTool[0].hooks[0].command).toBe(comandoRelativo);
+  expect(config.hooks.BeforeTool[0].hooks[0].command).toBe(comandoAbsoluto());
   expect(config.hooks.BeforeTool[0].matcher).toBe("write_file|replace|run_shell_command");
 });
 
 test("Dado configuração Codex Quando instalo Então aponta para o hook único", async () => {
   await rodar(["codex"]);
   const config = Bun.TOML.parse(readFileSync(join(destino, ".codex/config.toml"), "utf8"));
-  expect(config).toHaveProperty("hooks.PreToolUse.0.hooks.0.command", comandoRelativo);
+  expect(config).toHaveProperty("hooks.PreToolUse.0.hooks.0.command", comandoAbsoluto());
   expect(config).toHaveProperty("hooks.PreToolUse.0.matcher", "apply_patch|Edit|Write|Bash");
 });
 
@@ -503,7 +505,7 @@ for (const alvo of ["claude", "gemini", "copilot"] as const) {
     const config = lerConfig(antigas[alvo]);
     const lista = alvo === "claude" ? config.hooks.PreToolUse : alvo === "gemini" ? config.hooks.BeforeTool : config.hooks.preToolUse;
     expect(lista).toHaveLength(1);
-    expect(texto.split("|| exit 2").length - 1).toBe(1);
+    expect(texto.split("|| exit 2").length - 1).toBe(alvo === "gemini" ? 0 : 1);
     const antes = captura(destino);
     expect((await rodar([alvo])).veredito).toBe("INALTERADO");
     expect(captura(destino)).toEqual(antes);
@@ -531,7 +533,7 @@ test("Dado bloco antigo do Codex Quando reinstalo Então o bloco é trocado inte
   const texto = readFileSync(join(destino, ".codex/config.toml"), "utf8");
   expect(texto).toContain("model = 'meu'"); expect(texto).not.toContain("hooks/proteger-raw.sh");
   expect(texto.split("[[hooks.PreToolUse]]").length - 1).toBe(1);
-  expect(texto).toContain(comandoRelativo);
+  expect((Bun.TOML.parse(texto) as any).hooks.PreToolUse[0].hooks[0].command).toBe(comandoAbsoluto());
 });
 
 test("Dado configuração antiga e simulação Quando instalo Então nada é escrito e o veredito é MUDOU", async () => {
@@ -589,4 +591,44 @@ test("Dado entrada do hook já atual no meio da lista Quando reinstalo Então n�
   gravarConfig(antigas.copilot, config);
   const antes = captura(destino);
   expect((await rodar(["copilot"])).veredito).toBe("INALTERADO"); expect(captura(destino)).toEqual(antes);
+});
+
+// R65 — Codex e Gemini: só a chamada ao bun, caminho absoluto, sem `||`.
+test("Dado Codex e Gemini Quando instalo Então o comando usa o caminho absoluto, propaga o código e não tem ||", async () => {
+  await rodar(["codex", "gemini"]);
+  const gemini = lerConfig(".gemini/settings.json").hooks.BeforeTool[0].hooks[0].command as string;
+  const codex = (Bun.TOML.parse(readFileSync(join(destino, ".codex/config.toml"), "utf8")) as any).hooks.PreToolUse[0].hooks[0].command as string;
+  for (const comando of [gemini, codex]) {
+    expect(comando).toBe(comandoAbsoluto());
+    expect(comando).not.toMatch(/\|\||&&/); expect(comando.endsWith("; exit $LASTEXITCODE")).toBe(true);
+    expect(comando).toContain("clone com espaço");
+  }
+});
+
+test("Dado forma anterior de Gemini e Codex com || exit 2 Quando reinstalo Então troca por uma só entrada sem acumular", async () => {
+  gravarConfig(".gemini/settings.json", { context: { fileName: ["AGENTS.md", "GEMINI.md"] }, hooks: { BeforeTool: [{ matcher: "write_file|replace|run_shell_command", hooks: [{ name: "proteger-raw", type: "command", command: comandoRelativo }] }] } });
+  mkdirSync(join(destino, ".codex"));
+  writeFileSync(join(destino, ".codex/config.toml"), `# <<< anvilore\n[[hooks.PreToolUse]]\nmatcher = "apply_patch|Edit|Write|Bash"\n\n[[hooks.PreToolUse.hooks]]\ntype = "command"\ncommand = "${comandoRelativo}"\n# >>> anvilore\n`);
+  expect((await rodar(["gemini", "codex"])).codigo).toBe(0);
+  const gemini = lerConfig(".gemini/settings.json").hooks.BeforeTool;
+  expect(gemini).toHaveLength(1); expect(gemini[0].hooks[0].command).toBe(comandoAbsoluto());
+  const texto = readFileSync(join(destino, ".codex/config.toml"), "utf8");
+  expect(texto).not.toContain("|| exit 2"); expect(texto.split("[[hooks.PreToolUse]]").length - 1).toBe(1);
+  const antes = captura(destino);
+  expect((await rodar(["gemini", "codex"])).veredito).toBe("INALTERADO"); expect(captura(destino)).toEqual(antes);
+});
+
+test("Dado clone movido para outro caminho Quando reinstalo Então a entrada do caminho antigo é trocada", async () => {
+  gravarConfig(".gemini/settings.json", { context: { fileName: ["AGENTS.md", "GEMINI.md"] }, hooks: { BeforeTool: [{ matcher: "write_file|replace|run_shell_command", hooks: [{ name: "proteger-raw", type: "command", command: 'bun "/outro/lugar/src/cli.ts" hook proteger-raw' }] }] } });
+  expect((await rodar(["gemini"])).codigo).toBe(0);
+  const lista = lerConfig(".gemini/settings.json").hooks.BeforeTool;
+  expect(lista).toHaveLength(1); expect(lista[0].hooks[0].command).toBe(comandoAbsoluto());
+});
+
+test("Dado destino com caractere que o shell interpretaria Quando instalo Codex ou Gemini Então recusa explicando o caminho", async () => {
+  const estranho = join(tmp, "a$b"); mkdirSync(estranho); mkdirSync(join(estranho, "skills")); mkdirSync(join(estranho, "src"));
+  writeFileSync(join(estranho, "AGENTS.md"), "x"); writeFileSync(join(estranho, "src/cli.ts"), "cli");
+  const r = await instalar({ alvos: ["gemini"], destino: estranho, simular: false });
+  expect(r.codigo).toBe(4); expect(r.mensagens.join("\n")).toContain("caractere que o shell interpretaria");
+  expect(existsSync(join(estranho, ".gemini/settings.json"))).toBe(false);
 });

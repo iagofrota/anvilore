@@ -322,8 +322,17 @@ export async function executarProtecao(payload: string): Promise<number> {
   return 2;
 }
 
+// A forma de Codex e Gemini termina em `; exit $LASTEXITCODE`: no sh e no PowerShell isso é outro comando; no cmd chega aqui como
+// argumentos (`proteger-raw;`, `exit`, `$LASTEXITCODE`) e é ignorado. Qualquer outro argumento continua sendo erro de uso.
+function argumentosValidos(args: string[]): boolean {
+  const [primeiro, ...resto] = args;
+  const sufixo = (itens: string[]) => itens.length === 2 && itens[0] === "exit" && itens[1] === "$LASTEXITCODE";
+  if (primeiro === "proteger-raw") return resto.length === 0 || (resto[0] === ";" && sufixo(resto.slice(1)));
+  return primeiro === "proteger-raw;" && sufixo(resto);
+}
+
 export async function comandoHook(args: string[]): Promise<number> {
-  if (args.length !== 1 || args[0] !== "proteger-raw") {
+  if (!argumentosValidos(args)) {
     console.error("Uso: anvilore hook proteger-raw (payload JSON na entrada padrão)");
     return 2;
   }

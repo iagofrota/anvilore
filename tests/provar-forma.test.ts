@@ -32,7 +32,9 @@ test("Dado as formas instaladas Quando as executo no shell real deste sistema En
     if (codigo !== 0) throw new Error(`a prova da forma instalada reprovou no bash:\n${saida}`);
     expect(saida).toContain("bash");
     expect(saida).toMatch(/claude\.command.*escrita em raw.*saída 2/);
-    expect(saida).toMatch(/gemini\.command.*sem bun.*saída 2/);
+    expect(saida).toMatch(/gemini\.command em bash: escrita em raw.*saída 2/);
+    expect(saida).toMatch(/INFO: gemini\.command em bash: sem bun/);
+    expect(saida).toMatch(/copilot\.bash.*sem bun.*saída 2/);
     expect(saida).not.toContain("FALHA");
   } finally { consoleCapturado.restaurar(); }
 });
@@ -70,15 +72,17 @@ test("Dado o CI Quando chega à prova da forma instalada Então a etapa roda sem
   expect(prova?.run).toBe("bun scripts/provar-forma-instalada.ts");
 });
 
-test("Dado as formas do Codex e do Gemini Quando extraio Então o PowerShell é só informativo e o Copilot o exige", async () => {
+test("Dado as formas do Codex e do Gemini Quando extraio Então propagam o código sem ||, exigidas em todos os shells e sem bun é informativo", async () => {
   const { tmp, clone } = await prepararClone();
   const formas = await extrairFormas(clone).finally(() => rmSync(tmp, { recursive: true, force: true }));
   for (const agente of ["codex", "gemini"]) {
     const f = formas.find(x => x.agente === agente && x.campo === "command")!;
-    expect(f.shells).not.toContain("pwsh"); expect(f.informativos).toContain("pwsh");
+    expect(f.comando).not.toMatch(/\|\||&&/); expect(f.comando).toContain("; exit $LASTEXITCODE");
+    expect(f.shells).toContain("bash"); expect(f.shells).toContain("pwsh");
+    expect(f.informativos ?? []).toEqual([]); expect(f.semBunInformativo).toBe(true);
   }
   const ps = formas.find(x => x.agente === "copilot" && x.campo === "powershell")!;
-  expect(ps.shells).toContain("pwsh"); expect(ps.informativos ?? []).not.toContain("pwsh");
+  expect(ps.shells).toContain("pwsh"); expect(ps.semBunInformativo).toBeUndefined();
 });
 
 test("Dado uma falha da prova Quando ela é impressa Então traz shell, comando, saída, stdout e stderr", async () => {

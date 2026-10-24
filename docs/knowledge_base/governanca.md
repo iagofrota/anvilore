@@ -44,11 +44,14 @@ está dito.
 - O hook é o subcomando `anvilore hook proteger-raw` (`src/comandos/hook-proteger-raw.ts`). O Claude
   Code o liga para `Write|Edit|NotebookEdit|Bash` (`hooks/hooks.json`, linha 6); o Codex usa
   `apply_patch|Edit|Write|Bash` e o Gemini `write_file|replace|run_shell_command`
-  (`src/comandos/instalar.ts`, função `configuracaoDoHook`, linha 108). O evento do Copilot não tem
+  (`src/comandos/instalar.ts`, função `configuracaoDoHook`, linha 118). O evento do Copilot não tem
   `matcher` e roda em toda chamada de ferramenta. A forma instalada fecha quando o comando falha
-  (`src/comandos/instalar.ts`, linhas 99 a 104): `|| exit 2` no Claude, Codex, Gemini e no campo `bash` do Copilot;
-  campo `powershell` no Copilot; `shell: "bash"` e `onFailure: "block"` no Claude. O que isso garante em cada
-  sistema, e o que o CI prova, está em [plataformas.md](plataformas.md).
+  (`src/comandos/instalar.ts`, linhas 99 a 112): `|| exit 2` no Claude e no campo `bash` do Copilot; campo
+  `powershell` no Copilot; `shell: "bash"` e `onFailure: "block"` no Claude. Codex e Gemini (R65) levam o caminho absoluto
+  do clone e `; exit $LASTEXITCODE`, **sem `||`**: com `|| exit 2` o PowerShell devolve 1 no lugar do 2 do bun, e o Gemini
+  trata 1 como aviso. **Limite declarado:** com o `bun` ausente, Codex e Gemini ficam sem o hook (o shell devolve 127, 1 ou 0,
+  nunca 2); a mitigação é o `anvilore doctor`, que trata o `bun` como pré-requisito e sai 1 se faltar. O que isso garante em
+  cada sistema, e o que o CI prova, está em [plataformas.md](plataformas.md).
 - Para o terminal, o hook lê o comando (`src/comandos/hook-proteger-raw.ts`, `segmentoEscreve` e
   `terminalEscreve`, linhas 171 a 268). Bloqueia redirecionamento `>`/`>>`, `tee`, `mv`, `cp` com destino em
   `raw/`, `rm`, `rmdir`, `sed -i` (e `sed` com comando `w`/`e`), `perl` com qualquer script, `truncate`,

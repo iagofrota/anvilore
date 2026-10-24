@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { fundirBloco } from "../lib/fundir-bloco";
@@ -30,7 +30,7 @@ function comandoInstalar(raiz: string, alvo: Alvo): string {
 // Lê a configuração do agente do mesmo jeito que o `instalar` a escreve: o hook está ligado quando a fusão não teria o que acrescentar.
 async function protecaoDoRaw(raiz: string, alvo: Alvo, path: string | undefined): Promise<Trava> {
   const trava: Trava = { nome: `Proteção do raw/ no ${AGENTES[alvo]}`, ligada: false, comoLigar: comandoInstalar(raiz, alvo) };
-  const esperado = await configuracaoDoHook(alvo);
+  const esperado = await configuracaoDoHook(alvo, await realpath(raiz));
   // R63: só cobra o agente presente — CLI no PATH ou pasta de configuração já criada no destino.
   const pasta = await stat(join(raiz, dirname(esperado.arquivo))).then(info => info.isDirectory(), () => false);
   if (Bun.which(alvo, { PATH: path ?? "" }) === null && !pasta) return { ...trava, opcional: true, naoInstalado: true };

@@ -17,9 +17,10 @@ ferramenta, decide e sai com código `0` (segue) ou `2` (bloqueado). O motivo va
 para o stderr, que é o canal que os agentes devolvem ao modelo. Não precisa de
 `jq` nem de Python: só do Bun, que o resto do kit já exige.
 
-Toda forma de configuração abaixo **chama esse subcomando** e termina em
-`|| exit 2`: se o Bun faltar ou o processo quebrar, o agente recebe bloqueio em
-vez de seguir sem proteção (um hook que falha com outro código não bloqueia). Nenhuma
+Toda forma de configuração abaixo **chama esse subcomando**. Claude e Copilot fecham quando o comando falha
+(`|| exit 2`, `onFailure: "block"`, campo `powershell`); Codex e Gemini levam o caminho absoluto do clone e
+`; exit $LASTEXITCODE`, sem `||` (ver [plataformas.md](../docs/knowledge_base/plataformas.md)): se o Bun faltar, esses dois
+ficam sem o hook, e o `anvilore doctor` cobra o `bun` como pré-requisito. Nenhuma
 reimplementa a regra, e é isso que faz de `raw/` uma fronteira com um dono só:
 mudar a decisão é editar um arquivo, não lembrar de quatro.
 
@@ -134,7 +135,7 @@ matcher = "apply_patch|Edit|Write|Bash"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = "bun ./src/cli.ts hook proteger-raw || exit 2"
+command = "bun \"<raiz do clone>/src/cli.ts\" hook proteger-raw; exit $LASTEXITCODE"
 ```
 
 Fonte: <https://learn.chatgpt.com/docs/hooks> (acesso em 2026-09-22). O matcher
@@ -158,7 +159,7 @@ mais novo, e a página não diz o que versões anteriores fazem com a chave). Se
       {
         "matcher": "write_file|replace|run_shell_command",
         "hooks": [
-          { "name": "proteger-raw", "type": "command", "command": "bun ./src/cli.ts hook proteger-raw || exit 2" }
+          { "name": "proteger-raw", "type": "command", "command": "bun \"<raiz do clone>/src/cli.ts\" hook proteger-raw; exit $LASTEXITCODE" }
         ]
       }
     ]

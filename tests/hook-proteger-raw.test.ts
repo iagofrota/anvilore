@@ -402,3 +402,14 @@ test("Dado apply_patch do Codex Quando uma página da wiki ganha original_file c
   const semRaw = "*** Begin Patch\n*** Update File: wiki/a.md\n+texto novo\n*** End Patch";
   expect(decidir(JSON.stringify({ tool_name: "apply_patch", tool_input: { command: semRaw } })).acao).toBe("liberar");
 });
+
+// R65: no cmd o sufixo `; exit $LASTEXITCODE` chega ao bun como argumentos; o subcomando o ignora, mas só ele.
+test("Dado o sufixo de saída que o cmd repassa como argumentos Quando chamo o hook Então decide normalmente e outros argumentos continuam recusados", () => {
+  expect(cli(arquivo("raw/a.md"), ["hook", "proteger-raw;", "exit", "$LASTEXITCODE"]).exitCode).toBe(2);
+  expect(cli(arquivo("wiki/a.md"), ["hook", "proteger-raw;", "exit", "$LASTEXITCODE"]).exitCode).toBe(0);
+  expect(cli(arquivo("wiki/a.md"), ["hook", "proteger-raw", ";", "exit", "$LASTEXITCODE"]).exitCode).toBe(0);
+  expect(cli(arquivo("raw/a.md"), ["hook", "proteger-raw", ";", "exit", "$LASTEXITCODE"]).exitCode).toBe(2);
+  for (const args of [["hook", "proteger-raw", "exit"], ["hook", "proteger-raw;x"], ["hook", "proteger-raw", "; rm"], ["hook", "proteger-raw;", "rm", "raw/a"]]) {
+    expect(cli(arquivo("wiki/a.md"), args).exitCode).toBe(2);
+  }
+});
