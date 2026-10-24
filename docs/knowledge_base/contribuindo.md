@@ -98,14 +98,16 @@ Versionamento Semântico.
 ## Como a release é travada
 
 1. A seção `## [x.y.z]` do `CHANGELOG.md` precisa existir e ter pelo menos um item entregue.
-2. Toda página de `docs/knowledge_base/` precisa de `verified: AAAA-MM-DD`.
+2. Toda página de `docs/knowledge_base/` precisa de `verified: AAAA-MM-DD`, uma data de calendário
+   real (`2026-02-29` e `2026-13-01` reprovam).
 3. `bun src/cli.ts checar-release x.y.z` confere os dois pontos
    (`src/comandos/checar-release.ts`). Ele reprova também a pasta `docs/knowledge_base/` ausente,
    que seja arquivo ou sem nenhuma página `.md`: KB vazia não conta como revisada. O CI o roda em
    qualquer tag (`.github/workflows/ci.yml`, última etapa).
 
-A tag é `vX.Y.Z` ou `X.Y.Z`: o CI tira o `v` da frente e o resto precisa ser SemVer. Qualquer outra
-forma (`release-1`, `v1.0`) faz a etapa reprovar.
+A tag é `vX.Y.Z` ou `X.Y.Z`: o CI tira o `v` da frente e o resto precisa ser SemVer 2.0.0 (sem zero
+à esquerda em `1.02.3` ou `1.2.3-01`; pré-release `-rc.1` e metadados `+build.7` aceitos). Qualquer
+outra forma (`release-1`, `v1.0`) faz a etapa reprovar.
 
 A trava roda depois que a tag existe, então ela sinaliza mas não impede. Por isso o procedimento
 tem esta ordem:

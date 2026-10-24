@@ -264,6 +264,24 @@ describe("checarRelease: knowledge base", () => {
     },
   );
 
+  test.each(["2026-02-29", "2026-13-01", "2026-04-31", "2026-99-99", "2026-00-10", "2026-10-00", "2100-02-29", "2026-06-31", "2026-11-31"])(
+    "Dado verified %p que não existe no calendário, Quando checo, Então reprova",
+    (valor) => {
+      gravar("docs/knowledge_base/a.md", pagina(`generated: 2026-10-23\nverified: ${valor}`));
+      const r = checarRelease(raiz, "0.1.0");
+      expect(r.ok).toBe(false);
+      expect(r.problemas[0]).toContain("a.md");
+    },
+  );
+
+  test.each(["2028-02-29", "2000-02-29", "2026-02-28", "2026-04-30", "2026-12-31", "2026-01-31"])(
+    "Dado verified %p que existe no calendário, Quando checo, Então passa",
+    (valor) => {
+      gravar("docs/knowledge_base/a.md", pagina(`verified: ${valor}`));
+      expect(checarRelease(raiz, "0.1.0").ok).toBe(true);
+    },
+  );
+
   test("Dado verified com data entre aspas, Quando checo, Então passa", () => {
     gravar("docs/knowledge_base/a.md", pagina('verified: "2026-10-24"'));
     expect(checarRelease(raiz, "0.1.0").ok).toBe(true);
@@ -313,6 +331,51 @@ describe("subcomando checar-release", () => {
         err.mockRestore();
       });
   }
+
+  test.each([
+    "01.2.3",
+    "1.02.3",
+    "1.2.03",
+    "1.2.3-01",
+    "1.2.3-rc.01",
+    "1.2.3-",
+    "1.2.3-.",
+    "1.2.3-rc..1",
+    "1.2.3-rc.",
+    "1.2.3+",
+    "1.2.3+a..b",
+    "1.2.3+.a",
+    "1.2.3-rc+",
+    "1.2.3-rc_1",
+    "1.2.3+a_b",
+    "1.2.3.4",
+    "1.2",
+    "-1.2.3",
+  ])("Dado a versão %p que quebra a gramática SemVer 2.0.0, Quando rodo checar-release, Então devolve 2", async (versao) => {
+    const r = await capturar(() => comandoChecarRelease([versao], raiz));
+    expect(r.codigo).toBe(2);
+    expect(r.erro.join("\n")).toContain("SemVer");
+  });
+
+  test.each([
+    "0.0.0",
+    "10.20.30",
+    "1.2.3-0",
+    "1.2.3-rc.1",
+    "1.2.3-alpha-1",
+    "1.2.3-0a",
+    "1.2.3-x.7.z.92",
+    "1.2.3+build.7",
+    "1.2.3+001",
+    "1.2.3-rc.1+build.7",
+    "1.2.3--",
+  ])("Dado a versão %p válida pela gramática SemVer 2.0.0, Quando rodo checar-release, Então ela passa da validação de formato", async (versao) => {
+    gravar("CHANGELOG.md", changelog(`## [${versao}]\n\n- item\n`));
+    kbRevisada();
+    const r = await capturar(() => comandoChecarRelease([versao], raiz));
+    expect(r.erro).toEqual([]);
+    expect(r.codigo).toBe(0);
+  });
 
   test.each(["Unreleased", "v0.1.0", "0.1", "abc", "1.0.0 "])(
     "Dado a versão %p que não é SemVer, Quando rodo checar-release, Então devolve 2 com mensagem",

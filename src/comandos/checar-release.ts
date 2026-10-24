@@ -11,10 +11,35 @@ const TITULO_DE_VERSAO = /^##\s+\[([^\]]*)\]/;
 // Só `###` exato alterna a subseção; `####` e mais fundo herdam a de cima.
 const SUBSECAO = /^###\s+(.*)$/;
 const NAO_RESOLVIDO = /^n[aã]o resolvido/i;
-const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
-const DATA = /^\d{4}-\d{2}-\d{2}$/;
+// Gramática da SemVer 2.0.0: núcleo e identificador numérico de pré-release sem zero à esquerda,
+// identificador nunca vazio, metadados de build (`+...`) aceitos.
+const NUMERICO = "(?:0|[1-9]\\d*)";
+const IDENTIFICADOR_DE_PRE = `(?:${NUMERICO}|\\d*[A-Za-z-][0-9A-Za-z-]*)`;
+const IDENTIFICADOR_DE_BUILD = "[0-9A-Za-z-]+";
+const SEMVER = new RegExp(
+  `^${NUMERICO}\\.${NUMERICO}\\.${NUMERICO}` +
+    `(?:-${IDENTIFICADOR_DE_PRE}(?:\\.${IDENTIFICADOR_DE_PRE})*)?` +
+    `(?:\\+${IDENTIFICADOR_DE_BUILD}(?:\\.${IDENTIFICADOR_DE_BUILD})*)?$`,
+);
+const DATA = /^(\d{4})-(\d{2})-(\d{2})$/;
 // Texto de item que é só marcador: não diz que algo foi entregue.
 const SEM_CONTEUDO = new Set(["nada", "nada ainda", "todo", "tbd", "n/a"]);
+
+function anoBissexto(ano: number): boolean {
+  return (ano % 4 === 0 && ano % 100 !== 0) || ano % 400 === 0;
+}
+
+// Data de calendário real, conferida na mão: `new Date` rolaria 2026-02-30 para março.
+function ehDataReal(texto: string): boolean {
+  const partes = DATA.exec(texto);
+  if (partes === null) return false;
+  const ano = Number(partes[1]);
+  const mes = Number(partes[2]);
+  const dia = Number(partes[3]);
+  if (mes < 1 || mes > 12 || dia < 1) return false;
+  const diasDoMes = [31, anoBissexto(ano) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return dia <= diasDoMes[mes - 1]!;
+}
 
 function itemTemConteudo(texto: string): boolean {
   const normalizado = texto.trim().toLowerCase().replace(/\.$/, "").trim();
@@ -64,7 +89,7 @@ function checarKnowledgeBase(raiz: string): string[] {
     try {
       const campos = lerFrontmatter(readFileSync(join(pasta, pagina), "utf8"));
       const verified = campos?.verified;
-      if (verified === undefined || verified === null || !DATA.test(String(verified).trim())) {
+      if (verified === undefined || verified === null || !ehDataReal(String(verified).trim())) {
         problemas.push(`${nome} falta revisão humana com data (verified: AAAA-MM-DD)`);
       }
     } catch (erro) {
