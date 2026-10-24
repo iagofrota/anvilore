@@ -33,7 +33,7 @@ Peças que existem hoje no repositório:
   `src/comandos/instalar.ts`, com fusão em `src/lib/fundir-json.ts` e `src/lib/fundir-bloco.ts`.
 - Os comandos TypeScript no Bun estão em `src/cli.ts` (tabela de subcomandos) e `src/comandos/`, com a biblioteca em `src/lib/`:
   `checar-docs`, `checar-release`, `validar`, `instalar`, `init`, `doctor`, `hook`, `fatiar-log`, `indexar-log`,
-  `sincronizar-indice`, `migrar-areas`, `listar-lacunas`, `auditar` e `rejuntar-linhas`.
+  `sincronizar-indice`, `migrar-areas`, `listar-lacunas`, `auditar`, `rejuntar-linhas` e `fechar`.
   O `sincronizar-indice` atualiza só a linha 3 dos índices de área; `--checar` detecta defasagem sem escrever
   (`src/comandos/sincronizar-indice.ts` e `tests/sincronizar-indice.test.ts`).
 

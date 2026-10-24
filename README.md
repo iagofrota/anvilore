@@ -17,7 +17,8 @@ repositório**:
 | `AGENTS.md` | o contrato do agente: o que ele faz, o que não faz |
 | `skills/ingest`, `skills/query`, `skills/lint` | ingerir uma fonte; responder citando página; varrer a wiki atrás de problemas estruturais |
 | `src/` | o comando `anvilore` em TypeScript, que roda no [Bun](https://bun.sh); traz validação, instalação, áreas, proteção de fontes e manutenção (índice, log, lacunas, auditoria e rejunção de linhas) |
-| `scripts/` | o fechamento da wiki em bash, sua biblioteca e as medições em TypeScript |
+| `scripts/` | a biblioteca do legado e as medições em TypeScript |
+| `anvilore fechar` | sincroniza índices, reconstrói o log, valida a wiki e cobra o log do dia |
 | `hooks/` | a regra "`raw/` é imutável" na forma de hook; a decisão mora num subcomando só (`anvilore hook proteger-raw`, em `src/comandos/hook-proteger-raw.ts`) |
 | `anvilore instalar` | configura um clone para o agente que você usa: Claude Code, Codex, Gemini ou Copilot |
 | `anvilore doctor` | diz, em linguagem simples, quais travas estão ligadas (proteção do `raw/`, validação, CI) e como ligar as que faltam |
