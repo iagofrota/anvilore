@@ -9,6 +9,12 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Fixed
+
+- A checagem de documentação mantém links visíveis depois de crases escapadas, comentários
+  sem fecho no meio da linha e comentários dentro de código em linha que atravessa linhas.
+  Remover um comentário não cria uma abertura de bloco de código cercado.
+
 ## [0.1.0] - 2026-10-24
 
 Primeira versão da base nova do Anvilore, em TypeScript no Bun. Ela ainda não troca os scripts

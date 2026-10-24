@@ -77,6 +77,10 @@ Versionamento Semântico.
   para fora da raiz do repositório reprovam, mesmo que o arquivo exista na máquina. O texto de um
   link pode atravessar linhas; o problema aponta a linha onde o link começa. Veja o código em
   `src/comandos/checar-docs.ts`.
+- Comentários HTML sem fecho só escondem o restante da página quando abrem no início da linha
+  (até três espaços antes). No meio da linha são texto. Comentários dentro de código em linha
+  são literais, inclusive quando o código atravessa linhas; remover um comentário não cria
+  uma cerca de código (`src/lib/markdown.ts`).
 - Escapes por barra invertida seguem a pontuação ASCII do CommonMark: colchete de abertura
   escapado é texto, enquanto duas barras antes do colchete permitem um link real. Colchete
   escapado dentro do rótulo e parêntese escapado no destino não encerram o link. A pontuação é

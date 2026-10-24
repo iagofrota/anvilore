@@ -25,6 +25,19 @@ function kb(pagina: string, conteudo: string): void {
 }
 
 describe("checarDocs: referências", () => {
+  for (const [caso, entrada] of [
+    ["M6 crase escapada", "\\`<!--\n[x](sonda.md)"],
+    ["M7 cerca depois de comentário", "<!-- c --> ~~~\n[x](sonda.md)\n~~~"],
+    ["M8 comentário em span multilinha", "`codigo\ntexto <!--`\n[x](sonda.md)"],
+    ["M9 comentário inline sem fecho", "texto <!-- aberto\n[x](sonda.md)"],
+  ]) {
+    test(`Dado ${caso} Quando checo Então o link quebrado real reprova`, () => {
+      kb("README.md", entrada!);
+      const r = checarDocs(raiz);
+      expect(r.ok).toBe(false);
+      expect(r.problemas.join("\n")).toContain("sonda.md");
+    });
+  }
   test("Dado uma página que cita um arquivo inexistente, Quando checo, Então reprova nomeando a página e o arquivo", () => {
     kb("governanca.md", "# Governança\n\nVeja `src/nao-existe.ts`.\n");
     const r = checarDocs(raiz);

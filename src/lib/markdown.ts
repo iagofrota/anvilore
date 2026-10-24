@@ -23,7 +23,15 @@ export type CodigoEmLinha = { inicio: number; fim: number; conteudo: string };
 function fimDoParagrafo(texto: string, de: number): number {
   const linhaEmBranco = /\n[ \t]*\n/g;
   linhaEmBranco.lastIndex = de;
-  return linhaEmBranco.exec(texto)?.index ?? texto.length;
+  const limite = linhaEmBranco.exec(texto)?.index ?? texto.length;
+  let inicio = texto.indexOf("\n", de);
+  while (inicio !== -1 && inicio < limite) {
+    const fim = texto.indexOf("\n", inicio + 1);
+    const linha = texto.slice(inicio + 1, fim === -1 ? texto.length : fim);
+    if (abreCerca(linha) !== null || /^ {0,3}<!--/.test(linha)) return inicio;
+    inicio = fim;
+  }
+  return limite;
 }
 
 // Único reconhecedor de código em linha (regra de code span do CommonMark): em `i` há uma crase; uma
@@ -91,63 +99,54 @@ function fimDoComentario(linha: string, i: number): number {
   return fim === -1 ? -1 : fim + 3;
 }
 
-// Tira os comentários HTML da linha lendo da esquerda para a direita, para que `<!--` dentro de código
-// em linha não abra comentário. Aqui o código em linha só é visto dentro da linha (o comentário é
-// removido linha a linha); o conteúdo do código é mantido, porque quem lê as menções entre crases
-// precisa dele. Dentro de comentário não existe código em linha: o `-->` fecha mesmo entre crases.
-function tirarComentarios(linha: string, emComentario: boolean): { texto: string; emComentario: boolean } {
-  let i = 0;
-  if (emComentario) {
-    const fim = linha.indexOf("-->");
-    if (fim === -1) return { texto: "", emComentario: true };
-    i = fim + 3;
-  }
-  let texto = "";
-  while (i < linha.length) {
-    if (linha[i] === "\\") {
-      texto += linha.slice(i, i + 2);
-      i += 2;
-    } else if (linha[i] === "`") {
-      const { fim } = lerCrases(linha, i);
-      texto += linha.slice(i, fim);
-      i = fim;
-    } else if (linha.startsWith("<!--", i)) {
-      const fim = fimDoComentario(linha, i);
-      if (fim === -1) return { texto, emComentario: true };
-      i = fim;
-    } else {
-      texto += linha[i];
-      i++;
-    }
-  }
-  return { texto, emComentario: false };
-}
-
 // Esvazia o que o Markdown não renderiza como texto (bloco de código cercado e
 // comentário HTML), mantendo o número de linhas.
 export function linhasVisiveis(linhas: string[]): string[] {
+  const completo = linhas.join("\n");
   let cerca: Cerca | null = null;
-  let emComentario = false;
+  let comentarioAte = 0;
+  let codigoAte = 0;
+  let posicao = 0;
   return linhas.map((original) => {
+    const inicio = posicao;
+    posicao += original.length + 1;
     if (cerca !== null) {
       if (fechaCerca(original, cerca)) cerca = null;
       return "";
     }
-    // A linha de abertura de cerca não é HTML: o `<!--` no texto de informação não abre comentário.
-    const abertura = emComentario ? null : abreCerca(original);
+    const abertura = comentarioAte > inicio || codigoAte > inicio ? null : abreCerca(original);
     if (abertura !== null) {
       cerca = abertura;
       return "";
     }
-    const limpa = tirarComentarios(original, emComentario);
-    emComentario = limpa.emComentario;
-    const aberta = abreCerca(limpa.texto);
-    if (aberta !== null) {
-      cerca = aberta;
-      // O `<!--` que sobrou no texto de informação desta linha não abre comentário.
-      emComentario = false;
-      return "";
+    let texto = "";
+    let i = inicio;
+    const limite = inicio + original.length;
+    while (i < limite) {
+      if (i < comentarioAte) {
+        i = Math.min(comentarioAte, limite);
+      } else if (i < codigoAte) {
+        const fim = Math.min(codigoAte, limite);
+        texto += completo.slice(i, fim);
+        i = fim;
+      } else if (completo[i] === "\\") {
+        texto += completo.slice(i, Math.min(i + 2, limite));
+        i += 2;
+      } else if (completo[i] === "`") {
+        codigoAte = lerCrases(completo, i).fim;
+      } else if (completo.startsWith("<!--", i)) {
+        const fim = fimDoComentario(completo, i);
+        // Só um comentário em início de linha pode consumir a página sem fecho.
+        const bloco = /^ {0,3}$/.test(completo.slice(inicio, i));
+        if (fim !== -1 || bloco) {
+          comentarioAte = fim === -1 ? completo.length : fim;
+        } else {
+          texto += completo[i++];
+        }
+      } else {
+        texto += completo[i++];
+      }
     }
-    return limpa.texto;
+    return texto;
   });
 }
