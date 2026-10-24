@@ -288,7 +288,7 @@ Contradições sinalizadas: 1 (ver sources/slug)
 ### 7.a — Rodar o fechamento
 
 ```bash
-bash scripts/fechar-wiki.sh wiki
+bun src/cli.ts fechar wiki
 ```
 
 Ele sincroniza a contagem dos índices, regenera `wiki/log.md` a partir do log do dia, valida a wiki e cobra a entrada do dia no log. Ele para no primeiro passo que falha. **Não diga que o ingest está concluído se o fechamento reprovou por outro motivo que não seja a aprovação humana:** leia a mensagem, corrija (wikilink quebrado, página fora do índice, log do dia ausente...) e rode de novo.
@@ -314,7 +314,7 @@ verified:
   - by: human:<seu-id>
     at: <hora atual com offset, depois de generated.at>
 
-Depois disso, rode `bash scripts/fechar-wiki.sh wiki` de novo para fechar o ciclo.
+Depois disso, rode `bun src/cli.ts fechar wiki` de novo para fechar o ciclo.
 Tem algo que você quer que eu revise antes?
 ```
 
