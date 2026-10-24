@@ -28,7 +28,7 @@ Peças que existem hoje no repositório:
 - Instalador para Claude Code, Codex, Gemini e Copilot: `instalar.sh`.
 - O porte para TypeScript no Bun, em andamento: `src/cli.ts` (tabela de subcomandos), a biblioteca
   em `src/lib/` e os subcomandos `checar-docs`, `checar-release`, `fatiar-log`, `indexar-log`, `listar-lacunas`,
-  `migrar-areas` e `sincronizar-indice`, em `src/comandos/`. O `sincronizar-indice` atualiza só a linha 3 dos índices de área;
+  `migrar-areas`, `rejuntar-linhas` e `sincronizar-indice`, em `src/comandos/`. O `sincronizar-indice` atualiza só a linha 3 dos índices de área;
   `--checar` detecta defasagem sem escrever (`src/comandos/sincronizar-indice.ts` e
   `tests/sincronizar-indice.test.ts`). Os demais scripts, o hook e o instalador acima ainda não foram substituídos.
 
