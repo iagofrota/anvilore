@@ -19,7 +19,7 @@ const LEITURAS_TERMINAL = new Set([
   "get-content", "gc", "type", "dir", "get-childitem", "gci", "select-string", "sls", "get-item", "gi", "get-filehash",
 ]);
 // Verbos que executam outro comando: o que importa é o comando de dentro (as opções de cada um estão em OPCOES_ENVOLVEDOR).
-const ENVOLVEDORES = new Set(["xargs", "parallel", "env", "nice", "nohup", "time", "sudo", "doas", "command", "builtin", "exec", "timeout", "stdbuf", "ionice", "setsid"]);
+const ENVOLVEDORES = new Set(["busybox", "xargs", "parallel", "env", "nice", "nohup", "time", "sudo", "doas", "command", "builtin", "exec", "timeout", "stdbuf", "ionice", "setsid"]);
 // Opções de cada envolvedor que levam argumento próprio, e quantos posicionais vêm antes do comando (timeout: a duração).
 const OPCOES_ENVOLVEDOR: Record<string, { valor: string[]; posicionais?: number }> = {
   env: { valor: ["-u", "--unset", "-C", "--chdir", "-S", "--split-string"] },
@@ -142,25 +142,44 @@ function analisarGit(args: string[]): { subcomando?: string; globais: string[] }
   return { globais };
 }
 
-// R64: alvos que contêm raw/ sem citá-lo — o diretório de trabalho, um ancestral dele ou o conjunto de tudo (`.`, `*`).
-function ancestralDeRaw(alvo: string, cwd: string): boolean {
-  const limpo = posix.normalize(alvo.replaceAll("\\", "/").toLowerCase()).replace(/\/+$/, "");
-  const raizAbsoluta = /^(?:[a-z]:)?$/.test(limpo);
-  if (raizAbsoluta && /^(?:[a-z]:)?[\\/]+$/i.test(alvo.trim())) return true;
-  const atual = posix.normalize(cwd.replaceAll("\\", "/").toLowerCase()).replace(/\/+$/, "");
+// R64/R66: alvos que contêm raw/ sem citá-lo. `raiz` é o diretório de trabalho do payload (a raiz provável do projeto): o alvo é
+// ancestral quando é a própria raiz ou um diretório que a contém. Caminho relativo é resolvido contra o cwd atual (que pode ter
+// mudado com `cd`). Sem cwd absoluto, vale a heurística de `.`, `..` e `*`.
+function ancestralDeRaw(alvo: string, cwd: string, raiz: string): boolean {
+  const normal = (texto: string) => posix.normalize(texto.replaceAll("\\", "/").toLowerCase()).replace(/\/+$/, "");
   const absoluto = (texto: string) => /^(?:[a-z]:)?\//.test(texto);
-  if (absoluto(limpo)) return absoluto(atual) && (atual === limpo || atual.startsWith(`${limpo}/`));
-  if (!/^(?:\.\.\/)*(?:\.\.|\.|\*)$/.test(limpo)) return false;
+  if (/^(?:[a-z]:)?[\\/]+$/i.test(alvo.trim())) return true;
+  const atual = normal(cwd), base = normal(raiz);
+  const todos = /(?:^|\/)\*\*?$/.test(alvo.replaceAll("\\", "/"));
+  const limpo = normal(todos ? posix.dirname(alvo.replaceAll("\\", "/")) : alvo);
+  const resolvido = absoluto(limpo) ? limpo : absoluto(atual) ? posix.normalize(`${atual}/${limpo}`) : undefined;
+  if (resolvido !== undefined && absoluto(base)) return base === resolvido || base.startsWith(`${resolvido}/`);
+  if (!/^(?:\.\.\/)*(?:\.\.|\.)$/.test(limpo)) return false;
   const subdiretorio = atual !== "" && atual !== "." && !absoluto(atual) && !atual.startsWith("..");
   return !subdiretorio || limpo.startsWith("..");
 }
 
-function apagaAncestral(verbo: string, args: string[], cwd: string): boolean {
-  const opcao = (arg: string) => arg.startsWith("-") || /^\/[a-z]$/i.test(arg);
+// Diretórios que uma listagem recursiva (`Get-ChildItem -Recurse`, `ls -R`) percorre: os argumentos que não são opção nem valor de filtro.
+function listagemRecursivaAncestral(verbo: string, args: string[], cwd: string, raiz: string): boolean {
+  if (!["get-childitem", "gci", "ls", "dir"].includes(verbo)) return false;
+  if (!args.some(arg => /^-r(?:ecurse)?$/i.test(arg) || (verbo === "ls" && /^-[A-Za-z]*R/.test(arg)))) return false;
+  const caminhos: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (/^-(?:filter|include|exclude|depth|name|attributes|f|i|e|d|n)$/i.test(arg)) i++;
+    else if (/^-path$/i.test(arg)) caminhos.push(args[++i] ?? "");
+    else if (!arg.startsWith("-")) caminhos.push(arg);
+  }
+  return (caminhos.length ? caminhos : ["."]).some(alvo => ancestralDeRaw(alvo, cwd, raiz));
+}
+
+function apagaAncestral(verbo: string, args: string[], cwd: string, raiz: string): boolean {
+  const verbosDoCmd = ["rd", "rmdir", "del", "erase"];
+  const opcao = (arg: string) => arg.startsWith("-") || (verbosDoCmd.includes(verbo) && /^\/[a-z]$/i.test(arg));
   if (VERBOS_APAGAR.has(verbo)) {
     const recursivo = verbo === "rmdir" || verbo === "rd"
-      || args.some(arg => /^-[a-zA-Z]*[rR][a-zA-Z]*$/.test(arg) || arg === "--recursive" || /^-recurse$/i.test(arg) || /^\/s$/i.test(arg));
-    return recursivo && args.filter(arg => !opcao(arg)).some(alvo => ancestralDeRaw(alvo, cwd));
+      || args.some(arg => /^-[a-zA-Z]*[rR][a-zA-Z]*$/.test(arg) || arg === "--recursive" || /^-recurse$/i.test(arg) || (verbosDoCmd.includes(verbo) && /^\/s$/i.test(arg)));
+    return recursivo && args.filter(arg => !opcao(arg)).some(alvo => ancestralDeRaw(alvo, cwd, raiz));
   }
   if (verbo === "find") {
     let inicio = 0;
@@ -169,8 +188,8 @@ function apagaAncestral(verbo: string, args: string[], cwd: string): boolean {
     const fim = sem.findIndex(arg => /^[-!(]/.test(arg));
     const caminhos = fim < 0 ? sem : sem.slice(0, fim);
     if (!caminhos.length) caminhos.push(".");
-    const apaga = args.some((arg, i) => arg === "-delete" || (/^-(?:exec|execdir|ok|okdir)$/.test(arg) && VERBOS_APAGAR.has((args[i + 1] ?? "").split("/").pop()!)));
-    return apaga && caminhos.some(alvo => ancestralDeRaw(alvo, cwd));
+    const apaga = args.some((arg, i) => arg === "-delete" || (/^-(?:exec|execdir|ok|okdir)$/.test(arg) && escritaDeShell(args.slice(i + 1))));
+    return apaga && caminhos.some(alvo => ancestralDeRaw(alvo, cwd, raiz));
   }
   if (verbo === "git") return analisarGit(args).subcomando === "clean" && args.some(arg => /^-[a-zA-Z]*[xX]/.test(arg) && !arg.startsWith("--"));
   return false;
@@ -195,7 +214,9 @@ function desembrulhar(verbo: string, args: string[]): string[] {
 
 // `doPipe`: um segmento anterior do mesmo pipe citou raw/, então o caminho chega pela entrada padrão. Só um comando
 // executado por envolvedor (xargs, parallel...) ou um shell lendo a entrada age sobre ele; `forcar` vale dentro do envolvedor.
-function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar = false, ambienteDoEnvolvedor = false): boolean {
+type Contexto = { raiz: string; doPipe?: boolean; forcar?: boolean; ambienteDoEnvolvedor?: boolean };
+function segmentoEscreve(palavras: string[], cwd: string, contexto: Contexto): boolean {
+  const { raiz, doPipe = false, forcar = false, ambienteDoEnvolvedor = false } = contexto;
   const inicio = palavras.findIndex(palavra => !/^[A-Za-z_]\w*=/.test(palavra));
   if (inicio < 0) return false;
   const comando = palavras.slice(inicio);
@@ -208,18 +229,19 @@ function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar
     // Sem comando, só o xargs é inofensivo (repete a entrada); `parallel`, `sudo -s` e `env` lendo raw/ pelo pipe não são.
     if (!resto.length) return doPipe && verbo !== "xargs";
     const descartados = args.slice(0, args.length - resto.length);
-    return segmentoEscreve(resto, cwd, doPipe, forcar || doPipe, ambienteDoEnvolvedor || descartados.some(ambienteInseguro));
+    return segmentoEscreve(resto, cwd, { raiz, doPipe, forcar: forcar || doPipe, ambienteDoEnvolvedor: ambienteDoEnvolvedor || descartados.some(ambienteInseguro) });
   }
-  if (doPipe && SHELLS.has(verbo)) return true;
+  if (doPipe && (SHELLS.has(verbo) || verbo === "source" || verbo === ".")) return true;
   if (SHELLS.has(verbo)) {
-    const marca = args.findIndex(arg => /^-[a-zA-Z]*c$/.test(arg) || /^-command$/i.test(arg));
-    const script = marca < 0 ? undefined : args[marca + 1];
+    const marca = args.findIndex(arg => /^-[a-zA-Z]*c$/.test(arg) || /^-command$/i.test(arg) || (verbo === "cmd" && /^\/[ck]$/i.test(arg)));
+    // No cmd o script é tudo que vem depois de /c; nos demais, o argumento seguinte.
+    const script = marca < 0 ? undefined : verbo === "cmd" ? args.slice(marca + 1).join(" ") : args[marca + 1];
     if (script !== undefined) {
       // Os argumentos depois do script chegam a ele como $0, $1, $@: se citam raw/, o script pode agir sobre eles.
-      return terminalEscreve(script, cwd) || args.slice(marca + 2).some(arg => escreveEmRaw(arg, cwd) || citaRaw(arg));
+      return terminalEscreve(script, cwd, raiz) || (verbo !== "cmd" && args.slice(marca + 2).some(arg => escreveEmRaw(arg, cwd) || citaRaw(arg)));
     }
   }
-  if (apagaAncestral(verbo, args, cwd)) return true;
+  if (apagaAncestral(verbo, args, cwd, raiz)) return true;
   if (verbo === "cp") {
     const alvos = args.flatMap((arg, i) => {
       if (arg.startsWith("--target-directory=")) return [arg.slice(19)];
@@ -277,10 +299,11 @@ function citaRawSegmento(palavras: string[], cwd: string): boolean {
   return palavras.slice(1).some(palavra => escreveEmRaw(palavra, cwd) || citaRaw(palavra));
 }
 
-function terminalEscreve(comando: unknown, cwdInicial: string): boolean {
+function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cwdInicial): boolean {
   let cwd = cwdInicial;
   let palavras: string[] = [];
   let doPipe = false;
+  let listagemAncestral = false;
   const segmentos: string[][] = [];
   let anterior: string | undefined;
   const tokens = tokensDoComando(comando);
@@ -297,7 +320,7 @@ function terminalEscreve(comando: unknown, cwdInicial: string): boolean {
       palavras = [];
       return false;
     }
-    const escreve = segmentoEscreve(palavras, cwd, doPipe);
+    const escreve = segmentoEscreve(palavras, cwd, { raiz, doPipe }) || (listagemAncestral && escritaDeShell(palavras));
     segmentos.push(palavras);
     palavras = [];
     return escreve;
@@ -314,8 +337,10 @@ function terminalEscreve(comando: unknown, cwdInicial: string): boolean {
       if (alvo !== undefined && !alvo.operador && escreveEmRaw(alvo.texto, cwd)) return true;
     } else if ([";", "|", "||", "&&", "&"].includes(token.texto)) {
       const citou = citaRawSegmento(palavras, cwd);
+      const recursiva = palavras.length > 0 && listagemRecursivaAncestral(verboNormalizado(palavras[0]!), palavras.slice(1), cwd, raiz);
       if (fechar()) return true;
       doPipe = token.texto === "|" && (doPipe || citou);
+      listagemAncestral = token.texto === "|" && (listagemAncestral || recursiva);
     }
   }
   if (fechar()) return true;

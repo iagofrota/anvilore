@@ -442,3 +442,44 @@ for (const comando of ["env -i cat raw/a.md", "env -u FOO cat raw/a.md", "timeou
     expect(decidir(terminal(comando)).acao).toBe("liberar");
   });
 }
+
+// R66 parte 2 — ancestral resolvido contra o cwd (RI2), edição em massa por find/exec e pipeline recursiva do PowerShell (RI5).
+test("Dado cwd absoluto Quando o alvo relativo sobe até a raiz do projeto Então bloqueia e irmãos e filhos passam", () => {
+  const proj = "/srv/equipe/proj";
+  for (const comando of ["rm -rf ../proj", "cd .. && rm -rf proj", "rm -rf ../", "rm -rf ../*", "rm -rf ./*", "rm -rf *", "cd wiki && rm -rf ..", "cd .. && rm -rf ./proj/", "rm -rf /srv", "rm -rf /srv/equipe", "find .. -name proj -exec rm -rf {} +"]) {
+    expect(decidir(comCwd(comando, proj)).acao).toBe("bloquear");
+  }
+  for (const comando of ["rm -rf ../outro", "rm -rf wiki/*", "rm -rf wiki/sources", "cd wiki && rm -rf .", "cd wiki && rm -rf ./*", "rm -rf /srv/outra/pasta", "cd .. && rm -rf outro", "find wiki -exec sed -i s/a/b/ {} +"]) {
+    expect(decidir(comCwd(comando, proj)).acao).toBe("liberar");
+  }
+});
+test("Dado find com -exec de escrita Quando o diretório é ancestral de raw Então bloqueia e leitura passa", () => {
+  for (const comando of ["find . -name '*.md' -exec sed -i 's/a/b/' {} +", "find . -type f -exec chmod 600 {} +", "find . -execdir mv {} /tmp/ \\;", "find . -ok rm {} \\;", "find . -exec python3 -c 'x' {} +", "find . -exec sudo rm {} +"]) {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  }
+  for (const comando of ["find . -exec cat {} +", "find . -exec grep -l x {} +", "find wiki -exec sed -i s/a/b/ {} +", "find . -exec sed -n 1p {} +"]) {
+    expect(decidir(terminal(comando)).acao).toBe("liberar");
+  }
+});
+test("Dado Get-ChildItem recursivo no diretório do projeto Quando a pipeline escreve ou remove Então bloqueia", () => {
+  for (const comando of ["Get-ChildItem -Recurse | Remove-Item", "gci -r -Filter *.tmp | Remove-Item -Force", "Get-ChildItem . -Recurse | Move-Item -Destination x", "ls -Recurse | rm", "dir -Recurse | Rename-Item -NewName y", "Get-ChildItem -Recurse | Select-Object -First 1 | Remove-Item", "Get-ChildItem -Path * -Recurse | Set-Content x"]) {
+    expect(decidir(terminal(comando, "powershell")).acao).toBe("bloquear");
+  }
+  for (const comando of ["Get-ChildItem wiki -Recurse | Remove-Item", "gci . -Recurse | Select-Object Name", "Get-ChildItem | Remove-Item", "gci -Recurse | Measure-Object", "gci wiki | Remove-Item"]) {
+    expect(decidir(terminal(comando, "powershell")).acao).toBe("liberar");
+  }
+});
+test("Dado pasta de uma letra na raiz Quando apaga recursivamente Então /p não é lido como opção do cmd", () => {
+  expect(decidir(comCwd("rm -rf /p/proj", "/p/proj")).acao).toBe("bloquear");
+  expect(decidir(comCwd("rm -rf /p", "/p/proj")).acao).toBe("bloquear");
+  expect(decidir(comCwd("rd /s /q /p", "/p/proj")).acao).toBe("liberar");
+  expect(decidir(comCwd("rd /s /q C:\\p", "C:\\p\\proj")).acao).toBe("bloquear");
+});
+test("Dado cmd /c, busybox e source de stdin Quando escondem apagamento amplo Então bloqueia e os leitores passam", () => {
+  for (const comando of ["cmd /c rd /s /q .", "cmd /c \"rd /s /q .\"", "cmd /k del /s /q *", "busybox rm -rf .", "busybox rm raw/a", "cat raw/a.md | source /dev/stdin", "cat raw/a.md | . /dev/stdin"]) {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  }
+  for (const comando of ["cmd /c dir", "cmd /c type raw\\a.md", "busybox cat raw/a.md", "source wiki/env.sh"]) {
+    expect(decidir(terminal(comando)).acao).toBe("liberar");
+  }
+});
