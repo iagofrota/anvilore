@@ -110,6 +110,26 @@ describe("checarRelease: CHANGELOG", () => {
     expect(checarRelease(raiz, "0.1.0").ok).toBe(false);
   });
 
+  test("Dado um exemplo dentro de cerca de 4 crases com 3 crases no meio, Quando checo, Então reprova (não há entrega fora do bloco)", () => {
+    gravar("CHANGELOG.md", changelog("## [0.1.0]\n````markdown\n```\n- Exemplo, não entrega.\n````\n"));
+    expect(checarRelease(raiz, "0.1.0").ok).toBe(false);
+  });
+
+  test("Dado o mesmo exemplo em cerca de 4 tils com 3 tils no meio, Quando checo, Então reprova", () => {
+    gravar("CHANGELOG.md", changelog("## [0.1.0]\n~~~~\n~~~\n- Exemplo, não entrega.\n~~~~\n"));
+    expect(checarRelease(raiz, "0.1.0").ok).toBe(false);
+  });
+
+  test("Dado um fechamento com texto depois e um item real só depois da cerca de verdade, Quando checo, Então passa", () => {
+    gravar("CHANGELOG.md", changelog("## [0.1.0]\n```\n``` texto\n- dentro\n```\n- real\n"));
+    expect(checarRelease(raiz, "0.1.0").ok).toBe(true);
+  });
+
+  test("Dado um item real depois de uma cerca de 4 crases com 3 no meio, Quando checo, Então passa", () => {
+    gravar("CHANGELOG.md", changelog("## [0.1.0]\n````markdown\n```\n````\n- real\n"));
+    expect(checarRelease(raiz, "0.1.0").ok).toBe(true);
+  });
+
   test("Dado um item só dentro de comentário HTML, Quando checo, Então reprova", () => {
     gravar("CHANGELOG.md", changelog("## [0.1.0]\n\n<!--\n- escondido\n-->\n<!-- - aqui também -->\n"));
     expect(checarRelease(raiz, "0.1.0").ok).toBe(false);

@@ -162,6 +162,28 @@ describe("checarDocs: referências", () => {
     expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
   });
 
+  test("Dado uma cerca de 4 crases com 3 crases dentro e um link quebrado depois, Quando checo, Então o link fora do bloco reprova", () => {
+    kb("README.md", "# Controle\n````markdown\n```\n````\n[x](inexistente.md)\n");
+    const r = checarDocs(raiz);
+    expect(r.ok).toBe(false);
+    expect(r.problemas.join("\n")).toContain("inexistente.md");
+  });
+
+  test("Dado uma cerca de 4 tils com 3 tils dentro e um link quebrado depois, Quando checo, Então o link fora do bloco reprova", () => {
+    kb("README.md", "~~~~\n~~~\n~~~~\n[x](inexistente.md)\n");
+    expect(checarDocs(raiz).ok).toBe(false);
+  });
+
+  test("Dado um link quebrado dentro de cerca de 4 crases com 3 crases no meio, Quando checo, Então ele segue ignorado", () => {
+    kb("README.md", "````markdown\n```\n[x](inexistente.md)\n```\n````\n");
+    expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+  });
+
+  test("Dado um fechamento com texto depois, Quando checo, Então a cerca continua aberta e o link seguinte é ignorado", () => {
+    kb("README.md", "```\n``` texto\n[x](inexistente.md)\n```\n");
+    expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+  });
+
   test("Dado uma menção que não parece caminho, Quando checo, Então é ignorada", () => {
     kb(
       "README.md",
