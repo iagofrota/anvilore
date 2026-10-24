@@ -13,6 +13,7 @@ let consoleCapturado: ReturnType<typeof capturarConsole>;
 const ambiente = { ...process.env };
 const comandoRelativo = "bun ./src/cli.ts hook proteger-raw || exit 2";
 // R65: Codex e Gemini chamam o bun pelo caminho absoluto do clone e propagam o código com `; exit $LASTEXITCODE` (sem `||`).
+const comandoWindowsCodex = () => `bun "${join(real(destino), "src", "cli.ts")}" hook proteger-raw; if ($LASTEXITCODE -ne 0) { exit 2 }`;
 const comandoAbsoluto = () => `bun "${join(real(destino), "src", "cli.ts")}" hook proteger-raw; exit $LASTEXITCODE`;
 const comandoPowershell = "bun ./src/cli.ts hook proteger-raw; if ($LASTEXITCODE -ne 0) { exit 2 }";
 const pathOriginal = valorDoPath(ambiente);
@@ -631,4 +632,23 @@ test("Dado destino com caractere que o shell interpretaria Quando instalo Codex 
   const r = await instalar({ alvos: ["gemini"], destino: estranho, simular: false });
   expect(r.codigo).toBe(4); expect(r.mensagens.join("\n")).toContain("caractere que o shell interpretaria");
   expect(existsSync(join(estranho, ".gemini/settings.json"))).toBe(false);
+});
+
+// R66 parte 3 — Codex: `command_windows` com a forma PowerShell que fecha (cita learn.chatgpt.com/docs/hooks: commandWindows).
+test("Dado Codex Quando instalo Então o hook traz command_windows em PowerShell que mapeia qualquer falha para 2", async () => {
+  await rodar(["codex"]);
+  const gancho = (Bun.TOML.parse(readFileSync(join(destino, ".codex/config.toml"), "utf8")) as any).hooks.PreToolUse[0].hooks[0];
+  expect(gancho.command).toBe(comandoAbsoluto());
+  expect(gancho.command_windows).toBe(comandoWindowsCodex());
+});
+
+test("Dado bloco do Codex sem command_windows Quando reinstalo Então o bloco é trocado e fica idempotente", async () => {
+  mkdirSync(join(destino, ".codex"));
+  writeFileSync(join(destino, ".codex/config.toml"), `model = 'meu'\n\n# <<< anvilore\n[[hooks.PreToolUse]]\nmatcher = "apply_patch|Edit|Write|Bash"\n\n[[hooks.PreToolUse.hooks]]\ntype = "command"\ncommand = ${JSON.stringify(comandoAbsoluto())}\n# >>> anvilore\n`);
+  expect((await rodar(["codex"])).codigo).toBe(0);
+  const texto = readFileSync(join(destino, ".codex/config.toml"), "utf8");
+  expect(texto).toContain("model = 'meu'"); expect(texto).toContain("command_windows");
+  expect(texto.split("[[hooks.PreToolUse]]").length - 1).toBe(1);
+  const antes = captura(destino);
+  expect((await rodar(["codex"])).veredito).toBe("INALTERADO"); expect(captura(destino)).toEqual(antes);
 });

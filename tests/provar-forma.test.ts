@@ -10,7 +10,7 @@ test("Dado o instalador num destino temporário Quando extraio as formas Então 
   const { tmp, clone } = await prepararClone();
   const formas = await extrairFormas(clone).finally(() => rmSync(tmp, { recursive: true, force: true }));
   const nomes = formas.map(f => `${f.agente}.${f.campo}`).sort();
-  expect(nomes).toEqual(["claude.command", "codex.command", "copilot.bash", "copilot.powershell", "gemini.command"]);
+  expect(nomes).toEqual(["claude.command", "codex.command", "codex.command_windows", "copilot.bash", "copilot.powershell", "gemini.command"]);
   const gravada = JSON.parse(readFileSync(join(raiz, "hooks/hooks.json"), "utf8")).hooks.PreToolUse[0].hooks[0].command;
   expect(formas.find(f => f.agente === "claude")?.comando).toBe(gravada);
   expect(formas.every(f => f.comando.includes("hook proteger-raw"))).toBe(true);
@@ -142,4 +142,20 @@ test("Dado fora do GitHub Actions Quando um caso falha Então não emite comando
     if (antes !== undefined) process.env.GITHUB_ACTIONS = antes;
     consoleCapturado.restaurar();
   }
+});
+
+test("Dado a forma do Codex para Windows Quando extraio Então é exigida em PowerShell, inclusive sem bun, com o código exato 2", async () => {
+  const { tmp, clone } = await prepararClone();
+  const formas = await extrairFormas(clone).finally(() => rmSync(tmp, { recursive: true, force: true }));
+  const f = formas.find(x => x.agente === "codex" && x.campo === "command_windows")!;
+  expect(f.comando).toContain("$LASTEXITCODE -ne 0"); expect(f.shells).toContain("pwsh"); expect(f.semBunInformativo).toBeUndefined();
+});
+
+test("Dado uma forma que sem bun sai 1 Quando a prova roda Então reprova porque só o 2 bloqueia", async () => {
+  const consoleCapturado = capturarConsole();
+  try {
+    const f: Forma = { agente: "falso", campo: "command", comando: "if [ -n \"$ANVILORE_X\" ]; then exit 2; fi; if command -v bun >/dev/null; then bun ./src/cli.ts hook proteger-raw; else exit 1; fi", shells: ["bash"] };
+    expect(await rodarCenarios([f], raiz)).toBe(1);
+    expect(consoleCapturado.saida.join("\n")).toMatch(/FALHA: falso\.command em bash: sem bun no PATH → saída 1 \(esperado 2\)/);
+  } finally { consoleCapturado.restaurar(); }
 });

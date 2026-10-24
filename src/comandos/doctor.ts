@@ -59,6 +59,23 @@ async function protecaoDoRaw(raiz: string, alvo: Alvo, path: string | undefined)
   return { ...trava, detalhe: `${esperado.arquivo} não traz o hook atual` };
 }
 
+// `onFailure` do hook do Claude Code só existe a partir da 2.1.295 (https://code.claude.com/docs/en/hooks); antes, a chave pode ser ignorada.
+async function versaoDoClaude(path: string | undefined): Promise<Trava | undefined> {
+  const exe = Bun.which("claude", { PATH: path ?? "" });
+  if (exe === null) return undefined;
+  const nome = "Versão do Claude Code (o hook usa onFailure)";
+  let saida = "";
+  try {
+    saida = Bun.spawnSync([exe, "--version"], { stdout: "pipe", stderr: "pipe" }).stdout.toString();
+  } catch { /* cai no aviso de versão ilegível */ }
+  const achada = /(\d+)\.(\d+)\.(\d+)/.exec(saida);
+  if (!achada) return { nome, ligada: false, opcional: true, comoLigar: "rode `claude --version` e confira que é a 2.1.295 ou mais nova", detalhe: "não consegui ler a versão" };
+  const [maior, menor, correcao] = [Number(achada[1]), Number(achada[2]), Number(achada[3])];
+  const antiga = maior < 2 || (maior === 2 && (menor < 1 || (menor === 1 && correcao < 295)));
+  if (!antiga) return { nome, ligada: true };
+  return { nome, ligada: false, comoLigar: "atualize o Claude Code para a 2.1.295 ou mais nova (o onFailure do hook não existe antes)", detalhe: `versão encontrada: ${achada[0]}` };
+}
+
 async function validacaoNoFechamento(raiz: string): Promise<Trava> {
   const nome = "Validação no fechamento da wiki";
   const texto = await ler(join(raiz, "scripts/fechar-wiki.sh")).catch(() => undefined);
@@ -99,6 +116,8 @@ export async function diagnosticar(raiz: string, ambiente: Record<string, string
   const travas: Trava[] = [];
   const path = valorDoPath(ambiente);
   for (const alvo of alvosConhecidos) travas.push(await protecaoDoRaw(raiz, alvo, path));
+  const versao = await versaoDoClaude(path);
+  if (versao) travas.push(versao);
   travas.push(await validacaoNoFechamento(raiz), await checagemAntesDeAceitar(raiz), await perfilDaEmpresa(raiz));
   const prerequisitos = ["bun", "git"].map(nome => ({ nome, presente: Bun.which(nome, { PATH: path ?? "" }) !== null }));
   return { travas, prerequisitos };

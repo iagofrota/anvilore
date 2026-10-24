@@ -240,3 +240,35 @@ test("Dado agente com CLI no PATH e sem configuração Quando diagnostico Então
   expect((await travas())[protecao("Codex")]?.opcional).toBeUndefined();
   expect(await comandoDoctor([clone])).toBe(1);
 });
+
+// R66 parte 3 (RI6): o onFailure do hook do Claude pede a 2.1.295.
+function claudeComVersao(texto: string) {
+  const arq = join(bin, process.platform === "win32" ? "claude.cmd" : "claude");
+  writeFileSync(arq, process.platform === "win32" ? `@echo ${texto}\r\n` : `#!/bin/sh\necho "${texto}"\n`, { mode: 0o755 });
+}
+const VERSAO = "Versão do Claude Code (o hook usa onFailure)";
+
+test("Dado Claude Code anterior à 2.1.295 Quando rodo o doctor Então avisa para atualizar e devolve 1", async () => {
+  await instalarTudo(); completar(); claudeComVersao("2.1.200 (Claude Code)");
+  const t = (await travas())[VERSAO];
+  expect(t).toMatchObject({ ligada: false }); expect(t?.comoLigar).toContain("atualize o Claude Code"); expect(t?.detalhe).toContain("2.1.200");
+  expect(await comandoDoctor([clone])).toBe(1);
+  expect(consoleCapturado.saida.join("\n")).toContain(`${VERSAO}: desligada — para ligar: atualize o Claude Code`);
+});
+
+test("Dado Claude Code na 2.1.295 ou mais novo Quando rodo o doctor Então a versão conta como ligada", async () => {
+  await instalarTudo(); completar();
+  for (const versao of ["2.1.295 (Claude Code)", "2.1.310 (Claude Code)", "2.2.0", "3.0.0 (Claude Code)"]) {
+    claudeComVersao(versao);
+    expect((await travas())[VERSAO]?.ligada).toBe(true);
+  }
+  expect(await comandoDoctor([clone])).toBe(0);
+});
+
+test("Dado versão ilegível ou Claude ausente Quando diagnostico Então avisa sem reprovar e não inventa a trava", async () => {
+  await instalarTudo(); completar();
+  expect((await travas())[VERSAO]).toMatchObject({ ligada: false, opcional: true });
+  expect(await comandoDoctor([clone])).toBe(0);
+  semCli("claude");
+  expect((await travas())[VERSAO]).toBeUndefined();
+});

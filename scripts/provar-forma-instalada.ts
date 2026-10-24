@@ -48,6 +48,8 @@ export async function extrairFormas(clone: string): Promise<Forma[]> {
   return [
     { agente: "claude", campo: "command", comando: claude.command, shells: ["bash"] },
     { agente: "codex", campo: "command", comando: codex.command, shells: todos, semBunInformativo: true },
+    // `command_windows` do Codex: forma PowerShell que mapeia qualquer falha (inclusive bun ausente) para 2.
+    { agente: "codex", campo: "command_windows", comando: codex.command_windows, shells: ["pwsh", ...(windows ? ["powershell"] : [])] },
     { agente: "gemini", campo: "command", comando: gemini.command, shells: todos, semBunInformativo: true },
     { agente: "copilot", campo: "bash", comando: copilot.bash, shells: ["bash"] },
     { agente: "copilot", campo: "powershell", comando: copilot.powershell, shells: ["pwsh", ...(windows ? ["powershell"] : [])] },
@@ -84,7 +86,8 @@ function resolverShell(nome: string): { exe: string; args: (comando: string) => 
   return undefined;
 }
 
-// Cenários: raw bloqueia (2), wiki libera (0) e, sem o bun no PATH, a forma NÃO pode liberar (saída diferente de 0).
+// Cenários: raw bloqueia (2), wiki libera (0) e, sem o bun no PATH, a forma tem de dar 2: é o único código que Claude, Gemini e
+// Copilot tratam como bloqueio (qualquer outro não-zero é aviso ou erro que segue). Para Codex e Gemini `command` isso é só medição.
 export async function rodarCenarios(formas: Forma[], cwd: string = raiz): Promise<number> {
   const dirBun = dirname(Bun.which("bun") ?? process.execPath);
   let falhas = 0;
@@ -122,20 +125,20 @@ export async function rodarCenarios(formas: Forma[], cwd: string = raiz): Promis
         });
         return { codigo: r.exitCode, stdout: r.stdout.toString(), stderr: r.stderr.toString() };
       };
-      const casos: Array<[string, number | undefined, string, Ambiente]> = [
+      const casos: Array<[string, number, string, Ambiente]> = [
         ["escrita em raw", 2, PAYLOADS["escrita em raw"], process.env],
         ["escrita em wiki", 0, PAYLOADS["escrita em wiki"], process.env],
-        ["sem bun no PATH", forma.semBunInformativo ? 2 : undefined, PAYLOADS["escrita em raw"], ambienteSemBun(process.env, dirBun)],
+        ["sem bun no PATH", 2, PAYLOADS["escrita em raw"], ambienteSemBun(process.env, dirBun)],
       ];
       for (const [cenario, esperado, payload, env] of casos) {
         const r = rodar(payload, env);
-        const falhou = esperado === undefined ? r.codigo === 0 : r.codigo !== esperado;
-        relatar(`${rotulo} em ${nome}: ${cenario} → saída ${r.codigo} (esperado ${esperado ?? "diferente de 0"})`, falhou, informativo || (cenario === "sem bun no PATH" && forma.semBunInformativo === true), [
+        const falhou = r.codigo !== esperado;
+        relatar(`${rotulo} em ${nome}: ${cenario} → saída ${r.codigo} (esperado ${esperado})`, falhou, informativo || (cenario === "sem bun no PATH" && forma.semBunInformativo === true), [
           `shell: ${shell.exe} ${shell.args("<comando>").slice(0, -1).join(" ")}`, `comando: ${forma.comando}`, `cwd: ${cwd}`,
           `saída: ${r.codigo}`, `stdout: ${recorte(r.stdout)}`, `stderr: ${recorte(r.stderr)}`,
         ], {
           titulo: `${rotulo}/${nome}`,
-          mensagem: `${cenario}: esperado ${esperado ?? "diferente de 0"} obtido ${r.codigo}; stdout=${recorte(r.stdout)}; stderr=${recorte(r.stderr)}`,
+          mensagem: `${cenario}: esperado ${esperado} obtido ${r.codigo}; stdout=${recorte(r.stdout)}; stderr=${recorte(r.stderr)}`,
         });
       }
     }

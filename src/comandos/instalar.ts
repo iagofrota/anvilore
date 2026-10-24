@@ -108,12 +108,15 @@ const COMANDO_POWERSHELL = "bun ./src/cli.ts hook proteger-raw; if ($LASTEXITCOD
 const HOOK_ANTIGO = "hooks/proteger-raw.sh";
 
 // A decisão mora em `anvilore hook proteger-raw`; estas formas só apontam para lá.
-function comandoSemOperador(destino: string): string {
+function chamadaAbsoluta(destino: string): string {
   if (/["$`%\r\n]/.test(destino)) {
     throw new Error(`o caminho do clone tem caractere que o shell interpretaria ($, crase, aspas, % ou quebra de linha): ${destino}`);
   }
-  return `bun "${join(destino, "src", "cli.ts")}" hook proteger-raw; exit $LASTEXITCODE`;
+  return `bun "${join(destino, "src", "cli.ts")}" hook proteger-raw`;
 }
+const comandoSemOperador = (destino: string) => `${chamadaAbsoluta(destino)}; exit $LASTEXITCODE`;
+// Codex tem `commandWindows` (https://learn.chatgpt.com/docs/hooks): no Windows vale a forma PowerShell, que também fecha sem o bun.
+const comandoPowershellAbsoluto = (destino: string) => `${chamadaAbsoluta(destino)}; if ($LASTEXITCODE -ne 0) { exit 2 }`;
 
 export async function configuracaoDoHook(alvo: Alvo, destino: string): Promise<Fragmento & { arquivo: string }> {
   switch (alvo) {
@@ -129,7 +132,8 @@ matcher = "apply_patch|Edit|Write|Bash"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = ${JSON.stringify(comandoSemOperador(destino))}`,
+command = ${JSON.stringify(comandoSemOperador(destino))}
+command_windows = ${JSON.stringify(comandoPowershellAbsoluto(destino))}`,
       };
     case "gemini":
       return {
