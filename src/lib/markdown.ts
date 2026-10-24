@@ -90,6 +90,95 @@ export function mascararCodigoEmLinha(texto: string): string {
   return saida + texto.slice(ate);
 }
 
+const PONTUACAO = /[!-/:-@[-`{-~]/;
+const ESCAPE = /\\([!-/:-@[-`{-~])/g;
+type Destino = { alvo: string; fim: number };
+export type LinkMarkdown = Destino & { inicio: number };
+
+function pularEspacos(texto: string, i: number, limite: number): number {
+  while (i < limite && /[ \t\n]/.test(texto[i]!)) i++;
+  return i;
+}
+
+function lerDestino(texto: string, i: number, limite: number): Destino | null {
+  const angular = texto[i] === "<";
+  const inicio = angular ? ++i : i;
+  let profundidade = 0;
+  while (i < limite) {
+    const c = texto[i]!;
+    if (c === "\\" && i + 1 < limite && PONTUACAO.test(texto[i + 1]!)) {
+      i += 2;
+      continue;
+    }
+    if (angular && c === ">") return { alvo: texto.slice(inicio, i).replace(ESCAPE, "$1"), fim: i + 1 };
+    if (c === "<" || (angular && c === "\n")) return null;
+    if (!angular) {
+      if (/[\x00-\x20\x7f]/.test(c) || (c === ")" && profundidade === 0)) break;
+      if (c === "(") profundidade++;
+      if (c === ")") profundidade--;
+    }
+    i++;
+  }
+  if (angular || profundidade !== 0) return null;
+  return { alvo: texto.slice(inicio, i).replace(ESCAPE, "$1"), fim: i };
+}
+
+function lerTitulo(texto: string, i: number, limite: number): number | null {
+  const abertura = texto[i];
+  if (abertura !== '"' && abertura !== "'" && abertura !== "(") return null;
+  const fecho = abertura === "(" ? ")" : abertura;
+  for (i++; i < limite; i++) {
+    if (texto[i] === "\\" && i + 1 < limite && PONTUACAO.test(texto[i + 1]!)) i++;
+    else if (texto[i] === fecho) return i + 1;
+    else if (abertura === "(" && texto[i] === "(") return null;
+  }
+  return null;
+}
+
+function lerLinkInline(texto: string, i: number, limite: number): Destino | null {
+  if (texto[i] !== "(") return null;
+  i = pularEspacos(texto, i + 1, limite);
+  const destino = lerDestino(texto, i, limite);
+  if (destino === null) return null;
+  i = pularEspacos(texto, destino.fim, limite);
+  if (i > destino.fim && texto[i] !== ")") {
+    const fim = lerTitulo(texto, i, limite);
+    if (fim === null) return null;
+    i = pularEspacos(texto, fim, limite);
+  }
+  return texto[i] === ")" && i < limite ? { alvo: destino.alvo, fim: i + 1 } : null;
+}
+
+// Pilha de colchetes: colchetes literais podem aninhar; um link interno desativa
+// o link externo, enquanto uma imagem pode fazer parte do texto de outro link.
+export function acharLinks(texto: string): LinkMarkdown[] {
+  const links: LinkMarkdown[] = [];
+  const abertos: { inicio: number; imagem: boolean; ativo: boolean }[] = [];
+  let i = 0;
+  let limite = fimDoParagrafo(texto, 0);
+  while (i < texto.length) {
+    if (i >= limite) {
+      abertos.length = 0;
+      limite = fimDoParagrafo(texto, i + 1);
+    }
+    if (texto[i] === "\\" && PONTUACAO.test(texto[i + 1] ?? "")) i += 2;
+    else if (texto[i] === "`") i = lerCrases(texto, i).fim;
+    else if (texto[i] === "[") {
+      abertos.push({ inicio: i, imagem: texto[i - 1] === "!" && (i < 2 || texto[i - 2] !== "\\"), ativo: true });
+      i++;
+    } else if (texto[i] === "]") {
+      const aberto = abertos.pop();
+      const destino = aberto?.ativo ? lerLinkInline(texto, i + 1, limite) : null;
+      if (destino !== null) {
+        links.push({ inicio: aberto!.inicio, ...destino });
+        if (!aberto!.imagem) for (const anterior of abertos) if (!anterior.imagem) anterior.ativo = false;
+        i = destino.fim;
+      } else i++;
+    } else i++;
+  }
+  return links;
+}
+
 // Fim (exclusivo) do comentário HTML que abre em `i`: `<!-->` e `<!--->` já são comentários completos
 // (CommonMark 0.31); senão fecha no próximo `-->`. -1 se não fecha na linha.
 function fimDoComentario(linha: string, i: number): number {

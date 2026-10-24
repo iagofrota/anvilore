@@ -358,6 +358,52 @@ describe("checarDocs: R48, escapes na sintaxe de link", () => {
   });
 });
 
+describe("checarDocs: links inline CommonMark", () => {
+  const casos = [
+    ["parênteses balanceados", "[Guide](guide(v2).md)", "guide(v2).md"],
+    ["ângulos e espaço", "[x](<meu arquivo.md>)", "meu arquivo.md"],
+    ["título duplo", '[x](alvo.md "título")', "alvo.md"],
+    ["título simples", "[x](alvo.md 'título')", "alvo.md"],
+    ["título entre parênteses", "[x](alvo.md (título))", "alvo.md"],
+    ["colchetes balanceados", "[a [b] c](d.md)", "d.md"],
+    ["imagem", "![alt](x.png)", "x.png"],
+    ["destino e título em outras linhas", '[x](\nalvo.md\n"título"\n)', "alvo.md"],
+    ["título com escape", String.raw`[x](alvo.md "um \"título\"")`, "alvo.md"],
+  ] as const;
+  for (const [caso, texto, alvo] of casos) {
+    test(`Dado ${caso} Quando o alvo existe Então o link aprova sem truncar o destino`, () => {
+      gravar(`docs/knowledge_base/${alvo}`, "");
+      kb("README.md", texto);
+      expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+    });
+    test(`Dado ${caso} Quando o alvo falta Então o link reprova pelo destino completo`, () => {
+      kb("README.md", texto);
+      const r = checarDocs(raiz);
+      expect(r.problemas).toHaveLength(1);
+      expect(r.problemas[0]).toContain(`link para ${alvo} quebrado (linha 1)`);
+    });
+    test(`Dado ${caso} com alvo existente Quando há link quebrado ao lado Então a sonda reprova`, () => {
+      gravar(`docs/knowledge_base/${alvo}`, "");
+      kb("README.md", `${texto}\n[sonda](sonda.md)`);
+      expect(checarDocs(raiz).problemas).toEqual([
+        `docs/knowledge_base/README.md: link para sonda.md quebrado (linha ${texto.split("\n").length + 1})`,
+      ]);
+    });
+  }
+  for (const texto of [
+    "[x](a(b.md)", "[x](<sem-fecho.md)",
+    "[x](<a\nb.md>)", '[x](alvo.md "título sem fecho)', "[x](alvo.md (título (aninhado)))",
+    "[x](alvo.md lixo)", "[x](\n\nalvo.md)", "[x\n\ny](alvo.md)",
+  ]) {
+    test(`Dado sintaxe inválida ${JSON.stringify(texto)} Quando checo Então ela é texto e a sonda real reprova`, () => {
+      kb("README.md", `${texto}\n\n[sonda](sonda.md)`);
+      const r = checarDocs(raiz);
+      expect(r.problemas).toHaveLength(1);
+      expect(r.problemas[0]).toContain("link para sonda.md quebrado");
+    });
+  }
+});
+
 describe("checarDocs: a própria knowledge base", () => {
   test("Dado um repositório sem docs/knowledge_base, Quando checo, Então reprova e não imprime PASS calado", () => {
     const r = checarDocs(raiz);

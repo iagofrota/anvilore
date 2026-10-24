@@ -84,15 +84,17 @@ Versionamento Semântico.
 - Escapes por barra invertida seguem a pontuação ASCII do CommonMark: colchete de abertura
   escapado é texto, enquanto duas barras antes do colchete permitem um link real. Colchete
   escapado dentro do rótulo e parêntese escapado no destino não encerram o link. A pontuação é
-  neutralizada antes da busca, preservando posições e linhas; o destino recupera seus caracteres
-  literais antes da conferência (`src/comandos/checar-docs.ts`; `tests/checar-docs.test.ts`).
+  lida pelo reconhecedor de links, preservando posições e linhas; o destino recupera seus caracteres
+  literais antes da conferência (`src/lib/markdown.ts`; `tests/checar-docs.test.ts`).
+- Links inline e imagens aceitam parênteses balanceados no destino, destino entre ângulos
+  (inclusive com espaços), colchetes balanceados no texto e título entre aspas duplas, simples
+  ou parênteses. Uma linha em branco encerra o link (`src/lib/markdown.ts`).
 - **Nome hipotético ou relativo a outra pasta, entre crases, reprova como falso positivo.** Se a
   menção parece caminho e não existe a partir da raiz, o `checar-docs` não sabe que era um
   exemplo ou que o arquivo mora em outra pasta. Há duas saídas: escrever o caminho a partir da raiz
   (com a pasta, em vez do nome solto do arquivo, como `docs/knowledge_base/decisoes.md`) ou escrever o nome sem crases.
 - **O que o `checar-docs` não confere** (não é suportado hoje; não conte com ele): link de
-  referência (`[texto][ref]` com `[ref]: alvo`), alvo entre `<...>` (`<a b.md>`), texto de link
-  com colchete dentro (`[a [b] c](x.md)`), e menção a dotfile ou a nome sem extensão e sem barra
+  referência (`[texto][ref]` com `[ref]: alvo`), autolinks, links em HTML cru e menção a dotfile ou a nome sem extensão e sem barra
   (`.gitignore`, `LICENSE`). Para esses, a conferência é da revisão por pessoa. Uma extensão fora da
   lista fechada de `src/comandos/checar-docs.ts` também não conta.
 - **A caixa do nome só é conferida no Linux.** No macOS e no Windows o disco não diferencia
