@@ -9,26 +9,32 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-24
+
+Primeira versão da base nova do Anvilore, em TypeScript no Bun. Ela ainda não troca os scripts
+antigos em bash e Python: eles continuam sendo o que valida a wiki e protege o `raw/`.
+
 ### Added
 
 - Projeto em TypeScript rodando no Bun, com verificação de tipos e testes que exigem pelo menos
   80% de cobertura.
 - Verificação automática (CI) que roda os testes em Linux, Windows e macOS a cada envio de
   código, sempre com a mesma versão do Bun.
-- Biblioteca compartilhada para ler e validar páginas da wiki, que funciona igual em Windows,
-  macOS e Linux, inclusive para arquivos salvos no Windows e para caminhos escritos no estilo
-  do Windows.
-- Comando `anvilore checar-release <versao>`: impede a release se a seção da versão no
-  `CHANGELOG.md` estiver ausente ou sem nenhum item entregue, ou se alguma página de
-  `docs/knowledge_base/` não tiver a data em que uma pessoa a revisou (`verified`). No CI, roda
-  só quando uma tag de versão é criada.
-- Documentação do próprio Anvilore em `docs/knowledge_base/`, escrita para agentes que desenvolvem o
-  projeto ou respondem dúvidas sobre ele, e uma seção no `AGENTS.md` que aponta para ela. As
+- Biblioteca compartilhada para ler e validar páginas da wiki. Ela funciona igual em Windows,
+  macOS e Linux, inclusive com arquivos salvos no Windows e caminhos escritos no estilo do
+  Windows.
+- Comando `anvilore checar-release <versao>`. Ele impede a release se a seção da versão neste
+  arquivo estiver ausente ou sem item entregue. Também impede se alguma página de
+  `docs/knowledge_base/` não tiver a data em que uma pessoa a revisou (`verified`). No CI, roda só
+  quando uma tag de versão é criada. Por isso ele avisa, mas não impede: rode-o na sua máquina
+  antes de criar a tag.
+- Documentação do próprio Anvilore em `docs/knowledge_base/`, escrita para agentes que desenvolvem
+  o projeto ou respondem dúvidas sobre ele, e uma seção no `AGENTS.md` que aponta para ela. As
   páginas ainda esperam a revisão de uma pessoa.
-- Comando `anvilore checar-docs`: reprova link quebrado e menção a arquivo inexistente nas páginas
-  de `docs/knowledge_base/`, inclusive o link cujo texto passa para a linha seguinte e o que aponta
-  para fora do repositório. Recusa argumento extra. Roda no CI em Linux, Windows e macOS a cada
-  envio de código.
+- Comando `anvilore checar-docs`. Ele reprova link quebrado e menção a arquivo inexistente nas
+  páginas de `docs/knowledge_base/`, inclusive o link cujo texto passa para a linha seguinte e o
+  que aponta para fora do repositório. Recusa argumento extra. Roda no CI em Linux, Windows e
+  macOS a cada envio de código.
 
 ### Não resolvido nesta versão
 
@@ -37,3 +43,15 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   de terminal ainda não é barrada. Nada impede que o conteúdo de uma wiki seja copiado, enviado
   a um serviço externo ou lido por quem não deveria. Não use o Anvilore, nesta versão, como
   garantia de sigilo.
+- O hook que protege o `raw/` só vigia as ferramentas de edição de arquivo (`Write`, `Edit` e
+  `NotebookEdit`, no Claude Code). Não vigia comando de terminal. A frase "recusa qualquer
+  escrita" em alguns textos do projeto vale só para essas ferramentas.
+- A regra de que a pessoa dá o aval antes de uma ingestão gravar na wiki existe só como
+  instrução escrita na skill. Nenhum script ou teste confere se o aval aconteceu.
+- O validador da wiki não reprova link `[[...]]` quebrado nem página que ficou fora do índice.
+  Isso só aparece na auditoria da skill de lint, que ninguém roda sozinha.
+- A checagem de proveniência é pulada sem nenhum aviso se o `python3` não estiver instalado. Se
+  faltar só o PyYAML, ela avisa, mas não reprova.
+- Os scripts que de fato validam a wiki e protegem o `raw/` ainda são bash e Python, e só
+  funcionam em Linux. A meta de 95% de cobertura para validação e proteção do `raw/` ainda não é
+  imposta: o que roda é o mínimo de 80% no geral.

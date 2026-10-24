@@ -26,7 +26,7 @@ bun run checar
 - Os testes antigos em bash continuam em `tests/test-*.sh`, para o código que ainda é bash. Rode
   cada um com `bash tests/test-validar-wiki.sh`, por exemplo. O alvo deles é Linux: o instalador
   declara isso (`instalar.sh`, linhas 21 e 22) e `tests/test-instalar.sh` confere que o `--help`
-  diz Linux e não promete Windows nem macOS (linhas 96 a 100).
+  diz Linux e não promete Windows nem macOS (linhas 96 a 107).
 
 O CI roda `bun run checar` e `checar-docs` em Ubuntu, Windows e macOS a cada push e pull request
 (`.github/workflows/ci.yml`). Uma mudança que passa só no seu sistema não está pronta.
@@ -75,6 +75,10 @@ Versionamento Semântico.
   para fora da raiz do repositório reprovam, mesmo que o arquivo exista na máquina. O texto de um
   link pode atravessar linhas; o problema aponta a linha onde o link começa. Veja o código em
   `src/comandos/checar-docs.ts`.
+- **Nome hipotético ou relativo a outra pasta, entre crases, reprova como falso positivo.** Se a
+  menção parece caminho e não existe a partir da raiz, o `checar-docs` não sabe que era um
+  exemplo ou que o arquivo mora em outra pasta. Há duas saídas: escrever o caminho a partir da raiz
+  (com a pasta, em vez do nome solto do arquivo, como `docs/knowledge_base/decisoes.md`) ou escrever o nome sem crases.
 - **O que o `checar-docs` não confere** (não é suportado hoje; não conte com ele): link de
   referência (`[texto][ref]` com `[ref]: alvo`), alvo entre `<...>` (`<a b.md>`), texto de link
   com colchete dentro (`[a [b] c](x.md)`), e menção a dotfile ou a nome sem extensão e sem barra
@@ -94,12 +98,20 @@ Versionamento Semântico.
    (`src/comandos/checar-release.ts`). O CI o roda só quando a tag de versão é criada
    (`.github/workflows/ci.yml`, última etapa).
 
-A trava roda depois que a tag existe, então ela sinaliza mas não impede. Rode `checar-release`
-localmente **antes** de criar a tag.
+A trava roda depois que a tag existe, então ela sinaliza mas não impede. Por isso o procedimento
+tem esta ordem:
 
-Hoje `checar-release 0.1.0` reprova, porque a seção `[0.1.0]` ainda não existe e nenhuma página
-desta pasta foi revisada por pessoa. Isso é o comportamento esperado, e não deve ser contornado
-acrescentando `verified` sem revisão.
+1. Passe o conteúdo de `[Unreleased]` para a seção `## [x.y.z] - AAAA-MM-DD` do `CHANGELOG.md`, com
+   o que foi entregue e o que não foi resolvido, e deixe `[Unreleased]` vazio acima dela.
+2. Rode `bun run checar` e `bun src/cli.ts checar-docs`. Os dois devem sair com 0.
+3. Rode `bun src/cli.ts checar-release x.y.z` **na sua máquina, antes de criar a tag**. Ele deve
+   sair com 0. Se reprovar, corrija antes de seguir; não crie a tag para ver o que o CI diz.
+4. Só então peça a aprovação do dono do projeto. A tag e a release saem apenas com o "sim"
+   explícito dele.
+
+A seção `[0.1.0]` já está preenchida. Enquanto nenhuma página desta pasta tiver sido revisada por
+pessoa, `checar-release 0.1.0` reprova, e o motivo é só a falta de `verified`. Isso é o
+comportamento esperado, e não deve ser contornado acrescentando `verified` sem revisão.
 
 **Publicar exige aprovação explícita do dono do projeto, a cada vez** (decisão do dono do projeto
 em 2026-10-23): criar tag, publicar pacote, abrir release no GitHub e enviar mudança de workflow.
