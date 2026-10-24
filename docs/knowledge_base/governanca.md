@@ -57,7 +57,8 @@ está dito.
 - **Custo:** falso positivo em comando complexo ou de verbo desconhecido que cite `raw/` (por exemplo
   `python ler.py raw/a.md`). O dono escolheu esse lado de propósito.
 - **Limites, não tratados:** o hook não executa nem expande shell. Variável (`d=raw; rm $d/a`), glob
-  que monte o nome (`rm r*/a`), subshell, script externo (`bash limpa.sh`), `sed -e` com script
+  que monte o nome (`rm r*/a`), subshell, script externo (`bash limpa.sh`), `sed` com script em arquivo (`-f`) ou delimitador diferente de `/` na flag `w`, `cp` com `--` e nome de
+  arquivo igual a `-t`, `sed -e` com script
   montado por pedaços, `git -c alias...` e `git reset`/`stash`/`merge` sem citar `raw/` passam. Comando
   ilegível (aspas abertas, `$(...)`, crase) bloqueia só se citar `raw/`; bloquear todos tornaria o
   terminal inutilizável. O hook cobre o erro do agente, não um agente hostil; garantia contra isso
