@@ -30,6 +30,10 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   quebrado gera um `AVISO:` em vez de sumir em silêncio.
 - `listar-lacunas` agora roda em TypeScript no Bun; a consulta de callouts continua sem escrever
   `_meta/`, e a geração atualiza o índice de lacunas.
+- `rejuntar-linhas` passou de Python para TypeScript: `bun src/cli.ts rejuntar-linhas <arquivo-ou-diretório> [--simular] [--diff]`.
+  O `scripts/rejuntar-linhas.py` foi removido. Arquivo com BOM agora mantém o frontmatter e o título
+  intactos, link simbólico quebrado dá `AVISO:` em vez de erro, e arquivo que não é UTF-8 reprova a
+  rodada inteira antes de escrever qualquer coisa.
 
 ## [0.1.0] - 2026-10-24
 

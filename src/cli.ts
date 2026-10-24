@@ -7,6 +7,7 @@ import { comandoSincronizarIndice } from "./comandos/sincronizar-indice";
 import { comandoMigrarAreas } from "./comandos/migrar-areas";
 import { comandoIndexarLog } from "./comandos/indexar-log";
 import { comandoListarLacunas } from "./comandos/listar-lacunas";
+import { comandoRejuntarLinhas } from "./comandos/rejuntar-linhas";
 
 export type Subcomando = (args: string[]) => Promise<number>;
 export type TabelaDeSubcomandos = Record<string, Subcomando>;
@@ -20,6 +21,7 @@ export const subcomandos: TabelaDeSubcomandos = {
   "migrar-areas": comandoMigrarAreas,
   "indexar-log": comandoIndexarLog,
   "listar-lacunas": comandoListarLacunas,
+  "rejuntar-linhas": comandoRejuntarLinhas,
 };
 
 function listar(tabela: TabelaDeSubcomandos): string {
