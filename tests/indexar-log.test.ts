@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import * as fsp from "node:fs/promises";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -199,6 +200,24 @@ test("Dado erro de escrita em log.md, Quando indexo pelo comando, Então saio 1 
   expect(r.erro.join("\n")).toContain("FAIL:");
   expect(r.erro.join("\n")).toContain(join(wiki, "log.md"));
   expect(r.erro.join("\n")).not.toContain("at ");
+});
+
+test("Dado um erro de escrita cujo path aponta para a pasta (como no Windows), Quando indexo pelo comando, Então a mensagem nomeia o log.md e não o path do erro", async () => {
+  dia("2026-09-01", "## [2026-09-01] nota | x\n");
+  const escrita = spyOn(fsp, "writeFile").mockRejectedValue(
+    Object.assign(new Error("EISDIR: illegal operation on a directory, write"), {
+      code: "EISDIR",
+      syscall: "write",
+      path: wiki,
+    }),
+  );
+  try {
+    const r = await capturar(() => comandoIndexarLog([wiki]));
+    expect(r.codigo).toBe(1);
+    expect(r.erro).toEqual([`FAIL: ${join(wiki, "log.md")}: EISDIR: illegal operation on a directory, write`]);
+  } finally {
+    escrita.mockRestore();
+  }
 });
 
 const semLink = process.platform === "win32";

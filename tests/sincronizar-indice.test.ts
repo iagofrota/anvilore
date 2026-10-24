@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -268,4 +269,21 @@ test("Dado índice com CRLF e prosa extra, Quando sincronizo, Então só a linha
   expect(depois.split("\r\n").filter((_, i) => i !== 2)).toEqual(texto.split("\r\n").filter((_, i) => i !== 2));
   expect(depois).not.toMatch(/(?<!\r)\n/);
   expect(depois.endsWith("\n")).toBe(false);
+});
+
+test("Dado um erro de escrita cujo path aponta para a pasta (como no Windows), Quando sincronizo, Então a mensagem nomeia o index.md alvo", async () => {
+  const escrita = spyOn(fs, "writeFileSync").mockImplementation(() => {
+    throw Object.assign(new Error("EISDIR: illegal operation on a directory, write"), {
+      code: "EISDIR",
+      syscall: "write",
+      path: dirname(indice),
+    });
+  });
+  try {
+    const r = await capturar(() => comandoSincronizarIndice([wiki]));
+    expect(r.valor).toBe(1);
+    expect(r.saida).toContain(`FAIL: ${indice}: EISDIR: illegal operation on a directory, write`);
+  } finally {
+    escrita.mockRestore();
+  }
 });

@@ -141,8 +141,13 @@ export async function listarLacunas(wiki: string, opcoes: Opcoes = {}): Promise<
   const relatorio = render(achados, dataLocal());
   if (opcoes.stdout) return [relatorio];
   const destino = join(wiki, DIR_META, "lacunas.md");
-  await mkdir(join(wiki, DIR_META), { recursive: true });
-  await writeFile(destino, relatorio, "utf8");
+  try {
+    await mkdir(join(wiki, DIR_META), { recursive: true });
+    await writeFile(destino, relatorio, "utf8");
+  } catch (erro) {
+    // O `path` do erro varia por sistema (no Windows pode ser a pasta): a mensagem nomeia o alvo.
+    throw new Error(`erro: não foi possível escrever ${destino}: ${(erro as Error).message}`);
+  }
   return [`${destino}: ${achados.length} callout(s) em ${new Set(achados.map((a) => a.rel)).size} página(s)`];
 }
 

@@ -1,6 +1,9 @@
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+// Erro ao gravar `log.md`: a mensagem nomeia o arquivo alvo, não o `path` do erro (no Windows ele traz a pasta).
+class ErroDeEscrita extends Error {}
+
 export type ResultadoIndexarLog = { escreveu: boolean; saida: string; avisos: string[] };
 
 // Arquivo de dia que é symlink é seguido com `stat` (regra R58 do porte; o script antigo usava `find -type f` e
@@ -92,7 +95,12 @@ export async function indexarLog(wiki: string, opcoes: { stdout?: boolean } = {}
   }
   const conteudo = `${linhas.join("\n")}\n`;
   if (opcoes.stdout) return { escreveu: false, saida: conteudo, avisos };
-  await writeFile(join(wiki, "log.md"), conteudo);
+  const destino = join(wiki, "log.md");
+  try {
+    await writeFile(destino, conteudo);
+  } catch (erro) {
+    throw new ErroDeEscrita(`${destino}: ${(erro as Error).message}`);
+  }
   return { escreveu: true, saida: `LOG: ${total} entradas em ${dias.length} dias → ${join(wiki, "log.md")}`, avisos };
 }
 
@@ -118,8 +126,7 @@ export async function comandoIndexarLog(args: string[]): Promise<number> {
       console.log(`LOG: nada a indexar — ${join(wiki, "log")} sem arquivo log-*.md; ${join(wiki, "log.md")} preservado`);
       return 0;
     }
-    const caminho = falha.path ?? wiki;
-    console.error(`FAIL: ${caminho}: ${falha.message}`);
+    console.error(`FAIL: ${erro instanceof ErroDeEscrita ? falha.message : `${falha.path ?? wiki}: ${falha.message}`}`);
     return 1;
   }
 }

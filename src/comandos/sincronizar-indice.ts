@@ -103,7 +103,12 @@ export async function sincronizarIndice(wiki: string, opcoes: { checar?: boolean
       console.log(`FAIL: header (${entrada.name}) defasado: ${header}`);
       defasadas.push(entrada.name);
     } else {
-      writeFileSync(indice, texto.slice(0, inicio) + novo + texto.slice(fim));
+      try {
+        writeFileSync(indice, texto.slice(0, inicio) + novo + texto.slice(fim));
+      } catch (erro) {
+        // O `path` do erro varia por sistema (no Windows pode ser a pasta): a mensagem nomeia o alvo.
+        throw new Error(`${indice}: ${(erro as Error).message}`);
+      }
       console.log(`SYNC (${entrada.name}): ${novo}`);
       reescritas.push(entrada.name);
     }

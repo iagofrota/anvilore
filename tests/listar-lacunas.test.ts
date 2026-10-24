@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import * as fsp from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -278,4 +279,23 @@ test("Dado --help, Quando executo, Então mostro o uso sem ler a wiki", async ()
   expect(r.codigo).toBe(0);
   expect(r.erro).toEqual([]);
   expect(r.saida.join("\n")).toContain("Uso: anvilore listar-lacunas");
+});
+
+test("Dado um erro de escrita cujo path aponta para a pasta (como no Windows), Quando gero o índice, Então a mensagem nomeia o lacunas.md alvo", async () => {
+  const escrita = spyOn(fsp, "writeFile").mockRejectedValue(
+    Object.assign(new Error("EISDIR: illegal operation on a directory, write"), {
+      code: "EISDIR",
+      syscall: "write",
+      path: join(wiki, "_meta"),
+    }),
+  );
+  try {
+    const r = await capturar(() => comandoListarLacunas([wiki]));
+    expect(r.codigo).toBe(2);
+    expect(r.erro).toEqual([
+      `erro: não foi possível escrever ${join(wiki, "_meta", "lacunas.md")}: EISDIR: illegal operation on a directory, write`,
+    ]);
+  } finally {
+    escrita.mockRestore();
+  }
 });
