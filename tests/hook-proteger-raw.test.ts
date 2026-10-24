@@ -290,3 +290,15 @@ test("Dado ferramenta com caminho fora de raw e destino em outra chave Quando o 
     expect(decidir(JSON.stringify({ tool_name: "mcp_mover", tool_input: { path: "wiki/a", [chave]: "wiki/b" } })).acao).toBe("liberar");
   }
 });
+
+// Grupo C — git: só os subcomandos de leitura passam quando citam raw (I3).
+for (const comando of ["git clone https://x/y.git raw/y", "git -C raw init", "git worktree add raw/x", "git submodule add https://x/y raw/s", "git archive -o raw/a.tar HEAD", "git format-patch -o raw/ HEAD~1", "git diff --output=raw/a.patch", "git log --output raw/log.txt", "git show --output=raw/s.txt HEAD", "git stash push raw/a.md", "git apply raw/a.patch", "git mv wiki/a raw/a", "git reflog expire --all raw", "git switch raw/x", "git cherry-pick raw", "git -c alias.x='!rm' x raw/a", "git init raw", "git checkout raw/a.md", "git clean -fd raw", "git restore raw/a.md"]) {
+  test(`Dado git que não é leitura ${comando} Quando cita raw Então bloqueia`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  });
+}
+for (const comando of ["git commit -m 'ingere raw/a'", "git add raw/a", "git status raw/", "git log -- raw/a.md", "git show HEAD:raw/a.md", "git diff raw/", "git blame raw/a.md", "git grep palavra -- raw/", "git ls-files raw", "git ls-tree HEAD raw/", "git -C raw status", "git rev-parse raw", "git cat-file -p HEAD:raw/a", "git describe --tags raw", "git shortlog -- raw/", "git reflog show raw", "git branch raw/x", "git tag raw-v1", "git rev-list HEAD -- raw/", "git -C . log -- raw/a.md", "git"]) {
+  test(`Dado git de leitura ${comando} Quando cita raw Então libera`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("liberar");
+  });
+}

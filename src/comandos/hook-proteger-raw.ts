@@ -22,7 +22,11 @@ const LEITURAS_TERMINAL = new Set([
 const ENVOLVEDORES = new Set(["xargs", "parallel", "env", "nice", "nohup", "time", "sudo", "doas", "command", "builtin", "exec", "timeout", "stdbuf", "ionice", "setsid"]);
 const OPCOES_COM_VALOR = new Set(["-I", "-n", "-P", "-L", "-d", "-E", "-s", "-a", "-u", "-g", "-C", "-i", "-l", "-S", "-k"]);
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd"]);
-const GIT_ESCREVE = new Set(["rm", "mv", "checkout", "restore", "clean", "apply"]);
+// Em git vale a lista de leitura (e de operações que não tocam arquivos de trabalho): o resto que cita raw/ bloqueia.
+const GIT_LEITURA = new Set([
+  "log", "show", "diff", "status", "blame", "grep", "ls-files", "ls-tree", "rev-parse", "cat-file", "describe", "shortlog",
+  "reflog", "rev-list", "add", "commit", "branch", "tag",
+]);
 const FIND_ESCREVE = /^-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/;
 // Comando w/W/e de sed no começo, depois de ; ou { e com endereço opcional, ou flag w de s///.
 const SED_ESCREVE = /(?:^|[;{}\n])\s*(?:[0-9$]+(?:,[0-9$]+)?|\/[^/]*\/)?\s*[wWe]\s+\S|\/[gpiImMx0-9]*w\s*\S/;
@@ -147,7 +151,11 @@ function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar
   // Interpretadores com script próprio escrevem onde quiserem: citando raw/, só passa sed sem -i e sem comando w/e.
   if (verbo === "perl") return true;
   if (verbo === "sed") return args.some(arg => /^--in-place(?:=|$)/.test(arg) || /^-[a-z]*i/.test(arg) || SED_ESCREVE.test(arg));
-  if (verbo === "git") return GIT_ESCREVE.has(subcomandoGit(args) ?? "");
+  if (verbo === "git") {
+    const subcomando = subcomandoGit(args);
+    if (subcomando === undefined) return false;
+    return !GIT_LEITURA.has(subcomando) || args.some(arg => /^--output(?:=|$)/.test(arg) || (subcomando === "reflog" && /^(?:expire|delete)$/.test(arg)));
+  }
   if (verbo === "find") return args.some(arg => FIND_ESCREVE.test(arg));
   return !LEITURAS_TERMINAL.has(verbo);
 }
