@@ -3,7 +3,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, re
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { instalar, ligarDiretorio, comandoInstalar, pecaDoEsqueleto, type Alvo } from "../src/comandos/instalar";
+import { instalar, ligarDiretorio, comandoInstalar, pecaDoEsqueleto, valorDoPath, type Alvo } from "../src/comandos/instalar";
 import { executar } from "../src/cli";
 import { capturarConsole } from "./apoio/console";
 
@@ -11,6 +11,9 @@ const raiz = resolve(import.meta.dir, "..");
 let tmp: string, destino: string, lar: string;
 let consoleCapturado: ReturnType<typeof capturarConsole>;
 const ambiente = { ...process.env };
+const pathOriginal = valorDoPath(ambiente);
+const real = (caminho: string) => realpathSync.native(caminho);
+const comBarras = (texto: string) => texto.replaceAll("\\", "/");
 beforeEach(() => {
   consoleCapturado = capturarConsole();
   tmp = mkdtempSync(join(tmpdir(), "instalar-"));
@@ -58,7 +61,7 @@ test("Dado destino com espaço Quando instalo quatro agentes e repito Então INA
   expect((await rodar(["claude", "codex", "gemini", "copilot"])).veredito).toBe("INALTERADO");
   expect(captura(destino)).toEqual(antes); expect(readdirSync(lar)).toEqual([]);
   for (const rel of [".claude/skills/lint/SKILL.md", ".agents/skills/lint/SKILL.md", ".github/agents/lint.agent.md"]) {
-    expect(realpathSync(join(destino, rel))).toBe(realpathSync(join(raiz, "skills/lint/SKILL.md")));
+    expect(real(join(destino, rel))).toBe(real(join(raiz, "skills/lint/SKILL.md")));
   }
   expect(readFileSync(join(destino, ".gemini/commands/lint.toml"), "utf8")).toContain("skills/lint/SKILL.md");
 });
@@ -115,7 +118,7 @@ test("Dado página pessoal Quando recrio esqueleto e repito Então preserva cont
   mkdirSync(join(destino, "wiki/exemplo/concepts"), { recursive: true });
   writeFileSync(join(destino, "wiki/exemplo/concepts/pessoal.md"), "PESSOAL");
   await rodar();
-  const git = Bun.which("git", { PATH: ambiente.PATH }); expect(git).not.toBeNull();
+  const git = Bun.which("git", { PATH: pathOriginal }); expect(git).not.toBeNull();
   const lista = Bun.spawnSync([git!, "-C", raiz, "ls-files", "--", "wiki/"], { env: ambiente });
   expect(lista.exitCode).toBe(0);
   const esperados = lista.stdout.toString().trim().split(/\r?\n/).sort();
@@ -124,7 +127,7 @@ test("Dado página pessoal Quando recrio esqueleto e repito Então preserva cont
 });
 
 test("Dado esqueleto versionado Quando recrio a wiki Então o conjunto criado é exatamente o git ls-files", async () => {
-  const git = Bun.which("git", { PATH: ambiente.PATH }); expect(git).not.toBeNull();
+  const git = Bun.which("git", { PATH: pathOriginal }); expect(git).not.toBeNull();
   const lista = Bun.spawnSync([git!, "-C", raiz, "ls-files", "--", "wiki/"], { env: ambiente });
   expect(lista.exitCode).toBe(0);
   const esperados = lista.stdout.toString().trim().split(/\r?\n/).sort();
@@ -140,7 +143,7 @@ test("Dado link antigo e diretório pessoal Quando instalo Então corrige link e
   const r = await rodar();
   expect(r.mensagens.join("\n")).toContain("preservado");
   expect(readFileSync(join(destino, ".claude/skills/lint/meu"), "utf8")).toBe("meu");
-  expect(realpathSync(join(destino, ".claude/skills/query"))).toBe(realpathSync(join(raiz, "skills/query")));
+  expect(real(join(destino, ".claude/skills/query"))).toBe(real(join(raiz, "skills/query")));
 });
 
 test("Dado diretório fonte Quando ligo e repito Então usa link ou junção sem copiar", async () => {
@@ -165,7 +168,7 @@ test("Dado destino inválido ou HOME Quando executo Então recusa sem escrever",
 
 test("Dado argumentos de instalar Quando comando é despachado Então valida alvos opções e ambiente", async () => {
   expect(await executar(["instalar", "--destino", destino, "--alvo", "claude"])).toBe(0);
-  expect(consoleCapturado.saida.join("\n")).toContain(`destino: ${realpathSync(destino)}`);
+  expect(consoleCapturado.saida.join("\n")).toContain(`destino: ${real(destino)}`);
   expect(await comandoInstalar(["--help"])).toBe(0);
   for (const args of [["--alvo", "outro"], ["--alvo"], ["--destino"], ["--ruim"], ["extra"]]) expect(await comandoInstalar(args)).toBe(1);
   expect(consoleCapturado.erros.join("\n")).toContain("alvo desconhecido");
@@ -178,7 +181,7 @@ function copiarFonte() {
   writeFileSync(join(copia, "AGENTS.md"), "contrato");
   return copia;
 }
-function executarCopia(copia: string, caminho = `${join(tmp, "bin")}${delimiter}${ambiente.PATH}`, args = ["--destino", destino, "--alvo", "claude,codex,copilot"]) {
+function executarCopia(copia: string, caminho = `${join(tmp, "bin")}${delimiter}${pathOriginal}`, args = ["--destino", destino, "--alvo", "claude,codex,copilot"]) {
   return Bun.spawnSync([process.execPath, join(copia, "src/cli.ts"), "instalar", ...args], {
     env: { ...process.env, PATH: caminho }, stdout: "pipe", stderr: "pipe",
   });
@@ -199,7 +202,7 @@ test("Dado fonte distinta com skill nova Quando instalo Então links apontam à 
 
 test("Dado wiki apagada na fonte Quando instalo Então recupera do último commit ou falha explicitamente sem git", async () => {
   const copia = copiarFonte();
-  const git = Bun.which("git", { PATH: ambiente.PATH }); expect(git).not.toBeNull();
+  const git = Bun.which("git", { PATH: pathOriginal }); expect(git).not.toBeNull();
   for (const args of [["init", "-q"], ["add", "wiki"], ["-c", "user.name=Teste", "-c", "user.email=teste@exemplo", "commit", "-qm", "fixture"]]) {
     expect(Bun.spawnSync([git!, "-C", copia, ...args], { env: { ...ambiente, HOME: lar, USERPROFILE: lar } }).exitCode).toBe(0);
   }
@@ -207,7 +210,7 @@ test("Dado wiki apagada na fonte Quando instalo Então recupera do último commi
   const semGit = executarCopia(copia, join(tmp, "bin"));
   expect(semGit.exitCode).toBe(4); expect(semGit.stdout.toString()).toContain("git ausente");
   await expect(pecaDoEsqueleto("wiki/index.md", copia)).rejects.toThrow("git ausente");
-  process.env.PATH = `${join(tmp, "bin")}${delimiter}${ambiente.PATH}`;
+  process.env.PATH = `${join(tmp, "bin")}${delimiter}${pathOriginal}`;
   expect(await pecaDoEsqueleto("wiki/index.md", copia)).toBe(readFileSync(join(raiz, "wiki/index.md"), "utf8"));
   await expect(pecaDoEsqueleto("wiki/ausente.md", copia)).rejects.toThrow("último commit");
   await expect(pecaDoEsqueleto("skills", copia)).rejects.toThrow();
@@ -301,7 +304,7 @@ test("Dado falha na instalação de links Quando termino Então o agente não ap
   mkdirSync(join(destino, ".claude")); writeFileSync(join(destino, ".claude/skills"), "arquivo pessoal");
   const r = await rodar();
   expect(r.codigo).toBe(4); expect(r.instalados).toEqual([]);
-  expect(r.mensagens.join("\n")).toContain(".claude/skills");
+  expect(comBarras(r.mensagens.join("\n"))).toContain(".claude/skills");
   expect(consoleCapturado.avisos).toEqual([]);
 });
 
@@ -389,7 +392,7 @@ test("Dado instalação na própria fonte Quando ligo skills Então os três alv
   const copia = copiarFonte();
   const r = executarCopia(copia, process.env.PATH, ["--destino", copia, "--alvo", "claude,codex,copilot"]);
   expect(r.exitCode).toBe(0);
-  for (const rel of [".claude/skills/lint/SKILL.md", ".agents/skills/lint/SKILL.md", ".github/agents/lint.agent.md"]) expect(realpathSync(join(copia, rel))).toBe(realpathSync(join(copia, "skills/lint/SKILL.md")));
+  for (const rel of [".claude/skills/lint/SKILL.md", ".agents/skills/lint/SKILL.md", ".github/agents/lint.agent.md"]) expect(real(join(copia, rel))).toBe(real(join(copia, "skills/lint/SKILL.md")));
   if (process.platform !== "win32") {
     expect(readlinkSync(join(copia, ".claude/skills/lint"))).toBe("../../skills/lint");
     expect(readlinkSync(join(copia, ".agents/skills/lint"))).toBe("../../skills/lint");
@@ -457,4 +460,12 @@ process.exit(await medirLigacoes());
   expect(r.stdout.toString()).toContain(process.platform === "win32" ? "junção: falhou" : "link simbólico: falhou");
   expect(r.stdout.toString()).toContain("link de arquivo: falhou");
   expect(r.stderr.toString()).toContain("Nenhuma cópia");
+});
+
+test("Dado ambiente com PATH em qualquer caixa Quando leio o valor Então devolve o PATH exato antes de procurar outra caixa", () => {
+  expect(valorDoPath({ PATH: "a" })).toBe("a");
+  expect(valorDoPath({ Path: "b" })).toBe("b");
+  expect(valorDoPath({ PATH: "a", Path: "b" })).toBe("a");
+  expect(valorDoPath({ path: "c", OUTRA: "x" })).toBe("c");
+  expect(valorDoPath({ OUTRA: "x" })).toBeUndefined();
 });

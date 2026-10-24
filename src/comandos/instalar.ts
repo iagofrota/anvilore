@@ -135,13 +135,18 @@ command = "./hooks/proteger-raw.sh"`,
   }
 }
 
+export function valorDoPath(ambiente: Record<string, string | undefined> = process.env): string | undefined {
+  if (ambiente.PATH !== undefined) return ambiente.PATH;
+  return Object.entries(ambiente).find(([chave]) => chave.toUpperCase() === "PATH")?.[1];
+}
+
 export async function pecaDoEsqueleto(rel: string, raizFonte: string = fonte): Promise<string> {
   try {
     return await readFile(join(raizFonte, rel), "utf8");
   } catch (erro) {
     if ((erro as NodeJS.ErrnoException).code !== "ENOENT") throw erro;
   }
-  const git = Bun.which("git", { PATH: process.env.PATH });
+  const git = Bun.which("git", { PATH: valorDoPath() });
   if (!git) throw new Error(`fonte sem ${rel} e git ausente do PATH — esqueleto não recuperado`);
   const processo = Bun.spawn([git, "-C", raizFonte, "show", `HEAD:${rel}`], { stdout: "pipe", stderr: "pipe" });
   const [texto, erro, codigo] = await Promise.all([
@@ -306,7 +311,7 @@ export async function instalar(opcoes: OpcoesInstalacao): Promise<RelatorioInsta
     registrarErro(contexto, motivo(erro));
   }
   for (const alvo of alvos) {
-    if (!Bun.which(alvo, { PATH: process.env.PATH })) {
+    if (!Bun.which(alvo, { PATH: valorDoPath() })) {
       relatorio.ausentes.push(alvo);
       relatorio.mensagens.push(`${alvo}: CLI ausente do PATH — alvo pulado (isto não é uma falha)`);
       continue;
