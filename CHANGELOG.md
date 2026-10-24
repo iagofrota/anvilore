@@ -41,6 +41,12 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - O fechamento da wiki (`scripts/fechar-wiki.sh`) passa a chamar o novo validador e exige o Bun.
 - O teste da tabela de vereditos de `sources[].resource` virou `tests/okf-baseline.test.ts`.
 
+### Fixed
+
+- O instalador ignora arquivos soltos e pastas ocultas em skills, segue para os demais agentes
+  após um erro e entrega o resumo com as causas das falhas. A descrição do Gemini vem só do
+  frontmatter; os testes de isolamento e paridade voltaram a conferir o que o instalador faz.
+
 ### Removed
 
 - `scripts/validar-wiki.sh`, `scripts/validar-okf.py`, `scripts/resource-baseline-check.py` e os

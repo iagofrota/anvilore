@@ -30,6 +30,9 @@ bun run checar
   destino temporário; nunca instale na configuração real de um agente para verificar uma mudança.
   O ensaio com agente real em `tests/test-instalar-agente-real.sh` é separado e só roda quando
   explicitamente pedido; não faz parte da suíte automática.
+- A suíte do instalador captura e confere os diagnósticos de casos esperados, sem despejar logs
+  de instalação na saída dos testes. A etapa de medição do CI executa `scripts/medir-ligacoes.ts`
+  para imprimir os resultados de diretório e arquivo; não repete a suíte de junções.
 
 O CI está configurado para rodar `bun run checar` e `checar-docs` em Ubuntu, Windows e macOS a
 cada push e pull request (`.github/workflows/ci.yml`). Ele ainda não rodou: o workflow não foi

@@ -60,7 +60,7 @@ vírgula — ou `todos`, que é o padrão. Alvo cuja CLI não estiver no `PATH` 
 relatado e pulado, e a execução termina com sucesso. Para instalar em outro
 clone que não o deste kit, use `--destino <dir>`: o instalador escreve
 exclusivamente dentro desse diretório. `bun src/cli.ts instalar --help` descreve
-as opções de instalação.
+o que cada agente recebe e os limites quando fonte e destino são clones diferentes.
 
 Com o clone configurado:
 
