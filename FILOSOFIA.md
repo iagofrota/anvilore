@@ -84,8 +84,9 @@ dados e de agente — coisas que não existem antes de a wiki existir.
 A wiki é um diretório de markdown. O validador (`scripts/validar-wiki.sh`) é
 shell puro; a única checagem que pede mais que isso é o perfil de
 proveniência, opcional, e mesmo ele **pula com uma linha `SKIP:`** quando
-falta a dependência, em vez de reprovar. Os scripts de manutenção são shell e
-Python de biblioteca padrão. Não há servidor, índice binário nem processo
+falta a dependência, em vez de reprovar. Parte da manutenção usa shell e
+Python de biblioteca padrão; `sincronizar-indice` roda em TypeScript no Bun.
+Não há servidor, índice binário nem processo
 rodando por trás.
 
 **Por quê:** na escala de uma wiki pessoal, um agente que lê `wiki/index.md`

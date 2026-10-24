@@ -14,6 +14,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - O fatiamento do `wiki/log.md` em um arquivo por dia agora é o comando `bun src/cli.ts fatiar-log [WIKI]`
   (antes, `scripts/fatiar-log.py`). Mesmo comportamento: migração única que recusa rodar se algum arquivo
   de destino já existir e relata em voz alta o preâmbulo que não vai para nenhum arquivo de dia.
+- A contagem dos índices de área agora é sincronizada pelo comando TypeScript
+  `anvilore sincronizar-indice`, com modo `--checar` que não escreve.
 
 ## [0.1.0] - 2026-10-24
 

@@ -7,7 +7,7 @@
 #   ANVILORE_PULAR_GATE_LOG=1   pula o gate do log do dia (escape explicito).
 #
 # Passos, nesta ordem — PARA no primeiro que falhar:
-#   1. sincronizar-indice.sh   contagem do header a partir do disco
+#   1. sincronizar-indice      contagem do header a partir do disco
 #   2. indexar-log.sh          reconstroi <WIKI>/log.md
 #   3. validar-wiki.sh         validacao estrutural
 #   4. gate do log do dia      pagina curada alterada hoje exige entrada no log
@@ -42,7 +42,7 @@ HOJE="$(date +%F)"
 passo() { echo; echo "── $* ──"; }
 
 passo "1/4 sincronizar-indice"
-bash "$AQUI/sincronizar-indice.sh" "$WIKI" \
+bun "$AQUI/../src/cli.ts" sincronizar-indice "$WIKI" \
   || { echo "FECHAMENTO: FAIL no passo sincronizar-indice"; exit 1; }
 
 passo "2/4 indexar-log"

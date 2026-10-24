@@ -16,7 +16,8 @@ repositório**:
 | `SCHEMA.md` | o contrato de formato das páginas: tipos, frontmatter, wikilinks e callouts |
 | `AGENTS.md` | o contrato do agente: o que ele faz, o que não faz |
 | `skills/ingest`, `skills/query`, `skills/lint` | ingerir uma fonte; responder citando página; varrer a wiki atrás de problemas estruturais |
-| `scripts/` | o validador `validar-wiki.sh` e os scripts de manutenção (índice, log, lacunas, áreas) |
+| `scripts/` | o validador `validar-wiki.sh` e os scripts de manutenção ainda em shell e Python |
+| `src/cli.ts` | comandos em TypeScript no Bun, incluindo `sincronizar-indice` para atualizar a contagem dos índices de área |
 | `hooks/` | a regra "`raw/` é imutável" na forma de hook, com a decisão num script só (`hooks/proteger-raw.sh`) |
 | `instalar.sh` | configura um clone para o agente que você usa: Claude Code, Codex, Gemini ou Copilot |
 | `tests/` | os testes que provam os scripts, o hook e o instalador |
@@ -89,6 +90,10 @@ Com o clone configurado:
 Quando a wiki crescer, `skills/lint/SKILL.md` faz a varredura de manutenção:
 o que está estruturalmente quebrado, o que virou dívida de conhecimento e o
 que ficou invisível na navegação.
+
+Para conferir as contagens dos índices de área sem escrever, rode
+`bun src/cli.ts sincronizar-indice wiki --checar`. Sem `--checar`, o comando
+atualiza a linha de contagem; uma área sem index.md é ignorada.
 
 ## Os quatro níveis
 

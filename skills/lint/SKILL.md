@@ -292,6 +292,9 @@ Ele sincroniza a contagem dos índices, regenera o log a partir do log fatiado
 o lint não terminou** — leia o passo que falhou e resolva antes de dizer ao
 usuário que acabou.
 
+Para conferir só a contagem dos índices sem escrever, rode
+`bun src/cli.ts sincronizar-indice wiki --checar`.
+
 ---
 
 ## Regras

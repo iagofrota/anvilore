@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # B8-B11 — criterios que valem para o porte inteiro, nao para um script so:
-#   B8  rodape de atribuicao ao wiki-wonka nos 6 scripts
+#   B8  rodape de atribuicao ao wiki-wonka nos scripts restantes
 #   B9  nenhum conteudo pessoal nos scripts nem nos testes
-#   B10 runtime preservado: 4 bash + 2 Python 3
+#   B10 runtime preservado nos scripts restantes: 3 bash + 2 Python 3
 #   B11 os dois scripts do nivel 04 NAO foram portados
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
@@ -12,7 +12,6 @@ ok()    { echo "  ok: $*"; }
 falha() { echo "  FALHA: $*"; falhas=$((falhas+1)); }
 
 BASH_PORTADOS=(
-  scripts/sincronizar-indice.sh
   scripts/indexar-log.sh
   scripts/migrar-areas.sh
   scripts/fechar-wiki.sh
@@ -23,7 +22,7 @@ PY_PORTADOS=(
 )
 PORTADOS=("${BASH_PORTADOS[@]}" "${PY_PORTADOS[@]}")
 TESTES_NOVOS=(
-  tests/test-sincronizar-indice.sh
+  tests/sincronizar-indice.test.ts
   tests/test-listar-lacunas.sh
   tests/test-indexar-log.sh
   tests/test-rejuntar-linhas.sh
@@ -31,6 +30,7 @@ TESTES_NOVOS=(
   tests/test-fechar-wiki.sh
   tests/test-porte-onda-2.sh
 )
+MODULOS_NOVOS=(src/comandos/sincronizar-indice.ts)
 
 # ============================================================================
 # B8 — rodape de atribuicao, no mesmo formato das skills
@@ -56,7 +56,7 @@ done
 for elemento in "${ELEMENTOS[@]}"; do
   sem_rodape="$(grep -LF -- "$elemento" "${PORTADOS[@]}")"
   if [ -z "$sem_rodape" ]; then
-    ok "todos os 6 scripts citam '$elemento'"
+    ok "todos os scripts restantes citam '$elemento'"
   else
     falha "scripts sem '$elemento': $(echo "$sem_rodape" | tr '\n' ' ')"
   fi
@@ -111,12 +111,14 @@ for f in "${PORTADOS[@]}" "${TESTES_NOVOS[@]}" "${TS_PORTADOS[@]}"; do
     sujos=$((sujos+1))
   fi
 done
-[ "$sujos" -eq 0 ] && ok "varredura: nada do vault privado nos 6 scripts, nos testes novos e em src/ e tests/*.test.ts"
+[ "$sujos" -eq 0 ] && ok "varredura: nada do vault privado nos scripts restantes, nos testes novos e em src/ e tests/*.test.ts"
 
 # PROVA DE DENTES da varredura: uma varredura que nunca acusa nada pode estar
 # acusando nada porque o regex esta quebrado. Um arquivo-isca sintetico, com um
 # nome de area do vault privado em posicao de campo, TEM de ser pego.
-isca="$(mktemp)"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+isca="$TMP/isca"
 # O nome da area e montado em pedacos pelo mesmo motivo do regex acima: escrito
 # por extenso, ele faria este arquivo acusar a si mesmo.
 area_isca="pesso""al"
@@ -133,7 +135,6 @@ if grep -qinE "$DISTINTIVOS|$GENERICOS" "$isca"; then
 else
   ok "a varredura nao acusa area neutra"
 fi
-rm -f "$isca"
 [ "$nao_rastreados" -gt 0 ] && echo "  nota: $nao_rastreados arquivo(s) ainda nao rastreado(s) — varridos na arvore de trabalho"
 
 # Nenhuma fixture de teste escreve dentro do wiki/ versionado: os testes que
@@ -147,7 +148,7 @@ for f in tests/test-migrar-areas.sh; do
 done
 
 # ============================================================================
-# B10 — runtime preservado: 4 bash, 2 Python 3
+# B10 — runtime preservado: 3 bash, 2 Python 3
 # ============================================================================
 for s in "${BASH_PORTADOS[@]}"; do
   if [ "$(head -1 "$s")" = "#!/usr/bin/env bash" ]; then
@@ -163,10 +164,6 @@ for s in "${PY_PORTADOS[@]}"; do
     falha "$(basename "$s"): shebang '$(head -1 "$s")' (esperado python3)"
   fi
 done
-[ "${#BASH_PORTADOS[@]}" -eq 4 ] && ok "4 scripts bash" || falha "${#BASH_PORTADOS[@]} scripts bash (esperado 4)"
-[ "${#PY_PORTADOS[@]}" -eq 2 ]   && ok "2 scripts Python 3" || falha "${#PY_PORTADOS[@]} scripts Python 3 (esperado 2)"
-
-# Os 6 existem e sao executaveis.
 for s in "${PORTADOS[@]}"; do
   [ -f "$s" ] || { falha "$s nao existe"; continue; }
   [ -x "$s" ] && ok "$(basename "$s"): executavel" || falha "$(basename "$s"): sem bit de execucao"
@@ -177,9 +174,8 @@ for s in "${BASH_PORTADOS[@]}"; do
   bash -n "$s" 2>/dev/null && ok "$(basename "$s"): sintaxe bash ok" || falha "$(basename "$s"): erro de sintaxe bash"
 done
 for s in "${PY_PORTADOS[@]}"; do
-  python3 -m py_compile "$s" 2>/dev/null && ok "$(basename "$s"): compila em Python 3" || falha "$(basename "$s"): erro de sintaxe Python"
+  PYTHONPYCACHEPREFIX="$TMP/pycache" python3 -m py_compile "$s" 2>/dev/null && ok "$(basename "$s"): compila em Python 3" || falha "$(basename "$s"): erro de sintaxe Python"
 done
-rm -rf scripts/__pycache__
 
 # ============================================================================
 # B11 — o que fica de fora desta onda (nivel 04)
