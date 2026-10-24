@@ -12,6 +12,7 @@ let tmp: string, destino: string, lar: string;
 let consoleCapturado: ReturnType<typeof capturarConsole>;
 const ambiente = { ...process.env };
 const comandoRelativo = "bun ./src/cli.ts hook proteger-raw || exit 2";
+const comandoPowershell = "bun ./src/cli.ts hook proteger-raw; if ($LASTEXITCODE -ne 0) { exit 2 }";
 const pathOriginal = valorDoPath(ambiente);
 const real = (caminho: string) => realpathSync.native(caminho);
 const comBarras = (texto: string) => texto.replaceAll("\\", "/");
@@ -57,7 +58,7 @@ test("Dado destino com espaço Quando instalo quatro agentes e repito Então INA
   expect(JSON.parse(readFileSync(join(destino, ".claude/settings.json"), "utf8")).hooks.PreToolUse.length).toBe(1);
   expect(readFileSync(join(destino, ".codex/config.toml"), "utf8")).toContain('matcher = "apply_patch|Edit|Write|Bash"');
   expect(JSON.parse(readFileSync(join(destino, ".gemini/settings.json"), "utf8")).context.fileName).toEqual(["AGENTS.md", "GEMINI.md"]);
-  expect(JSON.parse(readFileSync(join(destino, ".github/copilot/settings.json"), "utf8")).hooks.preToolUse[0].bash).toBe(comandoRelativo);
+  expect(JSON.parse(readFileSync(join(destino, ".github/copilot/settings.json"), "utf8")).hooks.preToolUse[0]).toEqual({ type: "command", bash: comandoRelativo, powershell: comandoPowershell });
   const antes = captura(destino);
   expect((await rodar(["claude", "codex", "gemini", "copilot"])).veredito).toBe("INALTERADO");
   expect(captura(destino)).toEqual(antes); expect(readdirSync(lar)).toEqual([]);
@@ -337,6 +338,7 @@ test("Dado configuração Claude Quando instalo Então aponta para o hook único
   const config = JSON.parse(readFileSync(join(destino, ".claude/settings.json"), "utf8"));
   expect(config.hooks.PreToolUse[0].hooks[0].command).toBe('bun "$CLAUDE_PROJECT_DIR"/src/cli.ts hook proteger-raw || exit 2');
   expect(config.hooks.PreToolUse[0].matcher).toBe("Write|Edit|NotebookEdit|Bash");
+  expect(config.hooks.PreToolUse[0].hooks[0]).toMatchObject({ shell: "bash", onFailure: "block" });
 });
 
 test("Dado configuração Gemini Quando instalo Então aponta para o hook único", async () => {
@@ -548,6 +550,7 @@ test("Dado destino sem o comando do hook Quando instalo Então recusa dizendo qu
 test("Dado a forma versionada do Claude Quando leio hooks.json Então usa o subcomando e inclui o terminal no matcher", () => {
   const forma = JSON.parse(readFileSync(join(raiz, "hooks/hooks.json"), "utf8"));
   expect(forma.hooks.PreToolUse[0].matcher).toBe("Write|Edit|NotebookEdit|Bash");
+  expect(forma.hooks.PreToolUse[0].hooks[0]).toMatchObject({ shell: "bash", onFailure: "block" });
   expect(forma.hooks.PreToolUse[0].hooks[0].command).toBe('bun "$CLAUDE_PROJECT_DIR"/src/cli.ts hook proteger-raw || exit 2');
 });
 
@@ -557,4 +560,33 @@ test("Dado a forma versionada do Claude Quando leio hooks.json Então usa o subc
   expect(comando.endsWith("|| exit 2")).toBe(true);
   const r = Bun.spawnSync(["/bin/sh", "-c", comando.replace(/^bun /, "programa-que-nao-existe ")], { env: { ...process.env, CLAUDE_PROJECT_DIR: raiz }, stdout: "pipe", stderr: "pipe" });
   expect(r.exitCode).toBe(2);
+});
+
+// I8: formas da versão anterior desta mesma rodada (sem shell/onFailure/powershell) são trocadas, não acumuladas.
+test("Dado forma anterior do Claude sem onFailure Quando reinstalo Então troca por uma só entrada com falha fechada", async () => {
+  gravarConfig(antigas.claude, { hooks: { PreToolUse: [{ description: "v1", matcher: "Write|Edit|NotebookEdit|Bash", hooks: [{ type: "command", command: 'bun "$CLAUDE_PROJECT_DIR"/src/cli.ts hook proteger-raw || exit 2' }] }] } });
+  expect((await rodar(["claude"])).codigo).toBe(0);
+  const config = lerConfig(antigas.claude);
+  expect(config.hooks.PreToolUse).toHaveLength(1);
+  expect(config.hooks.PreToolUse[0].hooks[0]).toMatchObject({ shell: "bash", onFailure: "block" });
+  const antes = captura(destino);
+  expect((await rodar(["claude"])).veredito).toBe("INALTERADO"); expect(captura(destino)).toEqual(antes);
+});
+
+test("Dado forma anterior do Copilot sem powershell Quando reinstalo Então troca pela entrada com os dois shells", async () => {
+  gravarConfig(antigas.copilot, { hooks: { preToolUse: [{ type: "command", bash: comandoRelativo }, { type: "command", bash: "meu-hook.sh" }] } });
+  expect((await rodar(["copilot"])).codigo).toBe(0);
+  const lista = lerConfig(antigas.copilot).hooks.preToolUse;
+  expect(lista).toContainEqual({ type: "command", bash: "meu-hook.sh" });
+  expect(lista).toContainEqual({ type: "command", bash: comandoRelativo, powershell: comandoPowershell });
+  expect(lista).toHaveLength(2);
+});
+
+test("Dado entrada do hook já atual no meio da lista Quando reinstalo Então não muda a ordem nem o arquivo", async () => {
+  await rodar(["copilot"]);
+  const config = lerConfig(antigas.copilot);
+  config.hooks.preToolUse.push({ type: "command", bash: "depois.sh" });
+  gravarConfig(antigas.copilot, config);
+  const antes = captura(destino);
+  expect((await rodar(["copilot"])).veredito).toBe("INALTERADO"); expect(captura(destino)).toEqual(antes);
 });

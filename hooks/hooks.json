@@ -7,7 +7,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"$CLAUDE_PROJECT_DIR\"/src/cli.ts hook proteger-raw || exit 2"
+            "command": "bun \"$CLAUDE_PROJECT_DIR\"/src/cli.ts hook proteger-raw || exit 2",
+            "shell": "bash",
+            "onFailure": "block"
           }
         ]
       }

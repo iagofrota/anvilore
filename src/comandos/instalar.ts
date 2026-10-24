@@ -1,6 +1,6 @@
 import { lstat, mkdir, readFile, readdir, realpath, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import { parseArgs } from "node:util";
+import { isDeepStrictEqual, parseArgs } from "node:util";
 import { lerFrontmatter } from "../lib/frontmatter";
 import { fundirJson } from "../lib/fundir-json";
 import { fundirBloco } from "../lib/fundir-bloco";
@@ -97,8 +97,11 @@ export async function ligarArquivo(origem: string, link: string): Promise<Estado
   return ligarPublicamente(origem, link, false);
 }
 
-// `|| exit 2`: se o Bun faltar ou o comando quebrar, o agente recebe bloqueio em vez de seguir sem proteção.
+// `|| exit 2`: se o Bun faltar ou o comando quebrar, o agente recebe bloqueio em vez de seguir sem proteção (sh, cmd e
+// PowerShell 7). O PowerShell 5.1 não tem `||`: o Copilot ganha o campo `powershell`; Claude fixa `shell: "bash"` e
+// `onFailure: "block"`; Codex e Gemini não documentam o shell do Windows — limite registrado em plataformas.md.
 const COMANDO_HOOK = "bun ./src/cli.ts hook proteger-raw || exit 2";
+const COMANDO_POWERSHELL = "bun ./src/cli.ts hook proteger-raw; if ($LASTEXITCODE -ne 0) { exit 2 }";
 const HOOK_ANTIGO = "hooks/proteger-raw.sh";
 
 // A decisão mora em `anvilore hook proteger-raw`; estas formas só apontam para lá.
@@ -134,7 +137,7 @@ command = "${COMANDO_HOOK}"`,
     case "copilot":
       return {
         arquivo: ".github/copilot/settings.json",
-        json: { hooks: { preToolUse: [{ type: "command", bash: COMANDO_HOOK }] } },
+        json: { hooks: { preToolUse: [{ type: "command", bash: COMANDO_HOOK, powershell: COMANDO_POWERSHELL }] } },
       };
   }
 }
@@ -183,25 +186,36 @@ async function escrever(contexto: Contexto, rel: string, texto: string): Promise
   await writeFile(caminho, texto);
 }
 
-function apontaParaHookAntigo(valor: unknown): boolean {
-  return typeof valor === "string" && valor.includes(HOOK_ANTIGO);
+type ItemDeHook = { command?: unknown; bash?: unknown; powershell?: unknown; hooks?: unknown };
+
+function citaHook(item: ItemDeHook | null, trecho: string): boolean {
+  return [item?.command, item?.bash, item?.powershell].some(valor => typeof valor === "string" && valor.includes(trecho));
 }
 
-// R52: a fusão de listas só acrescenta, então a entrada que aponta para o script removido sai antes dela.
-export function tirarHookAntigo(config: unknown): unknown {
+// Itens (entrada e itens internos) que o fragmento esperado traz: a forma atual, que a reinstalação preserva.
+function itensEsperados(esperado: unknown): unknown[] {
+  const hooks = (esperado as { hooks?: Record<string, unknown> } | undefined)?.hooks ?? {};
+  return Object.values(hooks).flatMap(entradas => Array.isArray(entradas) ? entradas.flatMap(entrada => [entrada, ...(Array.isArray((entrada as ItemDeHook).hooks) ? (entrada as { hooks: unknown[] }).hooks : [])]) : []);
+}
+
+// R52: a fusão de listas só acrescenta, então sai antes dela a entrada que aponta para o script removido e, quando
+// `esperado` vem junto, a entrada de uma forma anterior de `hook proteger-raw` (sem shell, onFailure ou powershell).
+// A entrada atual fica onde está: reinstalar não muda a ordem. (A do anvilore passa para o fim na primeira migração.)
+export function tirarHookAntigo(config: unknown, esperado?: unknown): unknown {
   if (config === null || typeof config !== "object" || Array.isArray(config)) return config;
   const hooks = (config as { hooks?: unknown }).hooks;
   if (hooks === null || typeof hooks !== "object" || Array.isArray(hooks)) return config;
+  const atuais = esperado === undefined ? [] : itensEsperados(esperado);
+  const obsoleto = (item: ItemDeHook | null) => citaHook(item, HOOK_ANTIGO) || (esperado !== undefined && citaHook(item, "hook proteger-raw") && !atuais.some(atual => isDeepStrictEqual(atual, item)));
   const novos: Record<string, unknown> = {};
   for (const [evento, entradas] of Object.entries(hooks)) {
     if (!Array.isArray(entradas)) { novos[evento] = entradas; continue; }
     novos[evento] = entradas.flatMap((entrada: unknown) => {
       if (entrada === null || typeof entrada !== "object") return [entrada];
-      const { command, bash, hooks: internos } = entrada as { command?: unknown; bash?: unknown; hooks?: unknown };
-      if (apontaParaHookAntigo(command) || apontaParaHookAntigo(bash)) return [];
+      if (obsoleto(entrada as ItemDeHook)) return [];
+      const internos = (entrada as ItemDeHook).hooks;
       if (!Array.isArray(internos)) return [entrada];
-      const restantes = internos.filter((interno: { command?: unknown; bash?: unknown } | null) =>
-        !apontaParaHookAntigo(interno?.command) && !apontaParaHookAntigo(interno?.bash));
+      const restantes = internos.filter((interno: ItemDeHook | null) => !obsoleto(interno));
       if (restantes.length === internos.length) return [entrada];
       return restantes.length ? [{ ...entrada, hooks: restantes }] : [];
     });
@@ -219,7 +233,7 @@ async function configurar(contexto: Contexto, rel: string, fragmento: Fragmento)
     }
     const novo = fragmento.bloco !== undefined
       ? fundirBloco(atual ?? "", "anvilore", fragmento.bloco, "#").resultado
-      : JSON.stringify(fundirJson(atual === undefined ? {} : tirarHookAntigo(JSON.parse(atual)), fragmento.json).resultado, null, 2) + "\n";
+      : JSON.stringify(fundirJson(atual === undefined ? {} : tirarHookAntigo(JSON.parse(atual), fragmento.json), fragmento.json).resultado, null, 2) + "\n";
     if (atual === novo) contexto.relatorio.mensagens.push(`inalterado: ${rel}`);
     else await escrever(contexto, rel, novo);
   } catch (erro) {
