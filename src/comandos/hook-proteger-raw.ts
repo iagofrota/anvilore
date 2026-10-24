@@ -21,6 +21,7 @@ const LEITURAS_TERMINAL = new Set([
 // Verbos que executam outro comando: o que importa é o comando de dentro. `OPCOES_COM_VALOR` são as opções que levam argumento próprio.
 const ENVOLVEDORES = new Set(["xargs", "parallel", "env", "nice", "nohup", "time", "sudo", "doas", "command", "builtin", "exec", "timeout", "stdbuf", "ionice", "setsid"]);
 const OPCOES_COM_VALOR = new Set(["-I", "-n", "-P", "-L", "-d", "-E", "-s", "-a", "-u", "-g", "-C", "-i", "-l", "-S", "-k"]);
+const VERBOS_APAGAR = new Set(["rm", "rmdir", "rd", "del", "erase", "remove-item", "ri"]);
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd"]);
 // Em git vale a lista de leitura (e de operações que não tocam arquivos de trabalho): o resto que cita raw/ bloqueia.
 const GIT_LEITURA = new Set([
@@ -113,6 +114,36 @@ function subcomandoGit(args: string[]): string | undefined {
   return undefined;
 }
 
+// R64: alvos que contêm raw/ sem citá-lo — o diretório de trabalho, um ancestral dele ou o conjunto de tudo (`.`, `*`).
+function ancestralDeRaw(alvo: string, cwd: string): boolean {
+  const limpo = posix.normalize(alvo.replaceAll("\\", "/").toLowerCase()).replace(/\/+$/, "");
+  const raizAbsoluta = /^(?:[a-z]:)?$/.test(limpo);
+  if (raizAbsoluta && /^(?:[a-z]:)?[\\/]+$/i.test(alvo.trim())) return true;
+  const atual = posix.normalize(cwd.replaceAll("\\", "/").toLowerCase()).replace(/\/+$/, "");
+  const absoluto = (texto: string) => /^(?:[a-z]:)?\//.test(texto);
+  if (absoluto(limpo)) return absoluto(atual) && (atual === limpo || atual.startsWith(`${limpo}/`));
+  if (!/^(?:\.\.\/)*(?:\.\.|\.|\*)$/.test(limpo)) return false;
+  const subdiretorio = atual !== "" && atual !== "." && !absoluto(atual) && !atual.startsWith("..");
+  return !subdiretorio || limpo.startsWith("..");
+}
+
+function apagaAncestral(verbo: string, args: string[], cwd: string): boolean {
+  const opcao = (arg: string) => arg.startsWith("-") || /^\/[a-z]$/i.test(arg);
+  if (VERBOS_APAGAR.has(verbo)) {
+    const recursivo = verbo === "rmdir" || verbo === "rd"
+      || args.some(arg => /^-[a-zA-Z]*[rR][a-zA-Z]*$/.test(arg) || arg === "--recursive" || /^-recurse$/i.test(arg) || /^\/s$/i.test(arg));
+    return recursivo && args.filter(arg => !opcao(arg)).some(alvo => ancestralDeRaw(alvo, cwd));
+  }
+  if (verbo === "find") {
+    const fim = args.findIndex(arg => /^[-!(]/.test(arg));
+    const caminhos = fim < 0 ? args : args.slice(0, fim);
+    const apaga = args.some((arg, i) => arg === "-delete" || (/^-(?:exec|execdir|ok|okdir)$/.test(arg) && VERBOS_APAGAR.has((args[i + 1] ?? "").split("/").pop()!)));
+    return apaga && caminhos.some(alvo => ancestralDeRaw(alvo, cwd));
+  }
+  if (verbo === "git") return subcomandoGit(args) === "clean" && args.some(arg => /^-[a-zA-Z]*[xX]/.test(arg) && !arg.startsWith("--"));
+  return false;
+}
+
 function desembrulhar(args: string[]): string[] {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
@@ -137,6 +168,7 @@ function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar
     return resto.length ? segmentoEscreve(resto, cwd, doPipe, forcar || doPipe) : false;
   }
   if (doPipe && SHELLS.has(verbo)) return true;
+  if (apagaAncestral(verbo, args, cwd)) return true;
   if (verbo === "cp") {
     const alvos = args.flatMap((arg, i) => {
       if (arg.startsWith("--target-directory=")) return [arg.slice(19)];

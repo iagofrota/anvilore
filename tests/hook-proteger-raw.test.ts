@@ -302,3 +302,28 @@ for (const comando of ["git commit -m 'ingere raw/a'", "git add raw/a", "git sta
     expect(decidir(terminal(comando)).acao).toBe("liberar");
   });
 }
+
+// Grupo D — R64: apagar um ancestral de raw/ ou rodar git clean -x destrói raw/ sem citá-lo.
+const comCwd = (comando: string, cwd: string) => JSON.stringify({ tool_name: "Bash", cwd, tool_input: { command: comando } });
+for (const comando of ["git clean -fdx", "git clean -fdX", "git clean -xdf", "git clean -fd -x", "git -C . clean -fdx", "sudo git clean -fdx", "rm -rf .", "rm -rf ./", "rm -rf ..", "rm -rf ../..", "rm -rf *", "rm -rf ./*", "rm -r .", "rm -Rf .", "rm --recursive -f .", "rm -fr ../*", "rmdir .", "sudo rm -rf .", "find . -name '*.md' -delete", "find . -exec rm {} +", "find .. -delete", "find ./ -type f -exec rm -rf {} \\;", "find * -delete", "Remove-Item -Recurse -Force .", "rd /s /q .", "rm -rf /", "cd wiki && rm -rf .."]) {
+  test(`Dado comando que apaga ancestral de raw ${comando} Quando não cita raw Então bloqueia`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  });
+}
+test("Dado cwd absoluto Quando apaga a raiz do projeto ou um ancestral Então bloqueia e outros diretórios passam", () => {
+  const raiz = "/home/ana/proj";
+  for (const alvo of [raiz, `${raiz}/`, "/home/ana", "/home", "/"]) expect(decidir(comCwd(`rm -rf ${alvo}`, raiz)).acao).toBe("bloquear");
+  expect(decidir(comCwd(`rm -rf ${raiz}/wiki`, raiz)).acao).toBe("liberar");
+  expect(decidir(comCwd("rm -rf /home/ana/outro", raiz)).acao).toBe("liberar");
+  expect(decidir(comCwd("rm -rf /tmp/x", raiz)).acao).toBe("liberar");
+  expect(decidir(comCwd(`find ${raiz} -delete`, `${raiz}/wiki`)).acao).toBe("bloquear");
+  expect(decidir(comCwd("rm -rf C:\\proj", "C:\\proj")).acao).toBe("bloquear");
+  // o cwd absoluto pode ser a raiz do projeto: apagá-lo bloqueia, mesmo que seja uma subpasta.
+  expect(decidir(comCwd("rm -rf /home/ana/proj/wiki", "/home/ana/proj/wiki")).acao).toBe("bloquear");
+  expect(decidir(comCwd("rm -rf /home/ana/proj/wiki/tmp", "/home/ana/proj/wiki")).acao).toBe("liberar");
+});
+for (const comando of ["rm -rf wiki/tmp", "rm -f *.tmp", "rm -rf node_modules", "rm a.md", "rm -r wiki/x", "find wiki -name '*.tmp' -delete", "find . -name '*.md'", "find . -exec cat {} +", "git clean -fd", "git clean -n", "rm -rf $TMP/*", "rm -rf /tmp/x", "cd wiki && rm -rf .", "cd wiki && rm -rf ./*", "cd -- wiki/sub && rm -r *", "rmdir wiki/vazio", "Remove-Item -Force wiki/a.md", "rm -rf wiki/.", "ls -R ."]) {
+  test(`Dado limpeza restrita ${comando} Quando não cita raw Então libera (controle)`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("liberar");
+  });
+}
