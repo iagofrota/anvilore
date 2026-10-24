@@ -640,3 +640,25 @@ test("Dado script de sh -c ilegível ou envolvedor sem comando em comando que ci
   expect(decidir(terminal("cat raw/a.md; time")).acao).toBe("liberar");
   expect(decidir(terminal("cat raw/a.md; nice -n 5")).acao).toBe("liberar");
 });
+
+// Revisão automática (pós rodada 3): pdftotext sem saída grava ao lado da entrada; opções com valor; xargs -i/-l; env -S colado.
+test("Dado pdftotext sem arquivo de saída Quando a entrada está em raw Então bloqueia porque grava raw/a.txt", () => {
+  for (const comando of ["pdftotext raw/a.pdf", "pdftotext -layout raw/a.pdf", "pdftotext -f 1 -l 3 raw/a.pdf", "pdftotext wiki/a.pdf raw/a.txt", "pdftotext -f 1 wiki/a.pdf raw/a.txt", "pdftotext -opw senha wiki/a.pdf raw/a.txt"]) {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  }
+  for (const comando of ["pdftotext raw/a.pdf -", "pdftotext raw/a.pdf wiki/a.txt", "pdftotext -f 1 -l 3 raw/a.pdf wiki/a.txt", "pdftotext -opw raw wiki/a.pdf wiki/a.txt", "pdftotext -layout -nopgbrk raw/a.pdf -", "pdftotext wiki/a.pdf"]) {
+    expect(decidir(terminal(comando)).acao).toBe("liberar");
+  }
+});
+test("Dado xargs -i, -l ou --replace sem valor Quando o comando vem depois Então é aberto e bloqueia", () => {
+  for (const comando of ["cat raw/lista | xargs -i rm {}", "cat raw/lista | xargs -l rm", "cat raw/lista | xargs --replace rm {}", "cat raw/lista | xargs --eof rm", "cat raw/lista | xargs -i{} rm {}"]) {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  }
+  expect(decidir(terminal("cat raw/lista | xargs -i cat {}")).acao).toBe("liberar");
+});
+test("Dado env -S com valor colado ou abreviado Quando o texto apaga amplo Então bloqueia", () => {
+  for (const comando of ["env -Srm -rf .", "env --s 'rm -rf .'", "env --split='rm -rf .'", "env --split-string 'rm -rf .'"]) {
+    expect(decidir(comCwd(comando, "/srv/equipe/proj")).acao).toBe("bloquear");
+  }
+  expect(decidir(comCwd("env -Scat wiki/a.md", "/srv/equipe/proj")).acao).toBe("liberar");
+});

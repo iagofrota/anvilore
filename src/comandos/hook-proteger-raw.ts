@@ -30,7 +30,7 @@ const OPCOES_ENVOLVEDOR: Record<string, { valor: string[]; posicionais?: number 
   doas: { valor: ["-u", "-C"] },
   time: { valor: ["-o", "-f", "--output", "--format"] },
   stdbuf: { valor: ["-i", "-o", "-e"] },
-  xargs: { valor: ["-I", "-n", "-P", "-L", "-d", "-E", "-s", "-a", "-l", "-i", "--max-args", "--max-procs", "--max-lines", "--max-chars", "--delimiter", "--arg-file", "--replace", "--eof"] },
+  xargs: { valor: ["-I", "-n", "-P", "-L", "-d", "-E", "-s", "-a", "--max-args", "--max-procs", "--max-lines", "--max-chars", "--delimiter", "--arg-file"] },
   parallel: { valor: ["-j", "-S", "-a", "-N", "-n", "-L", "-I"] },
   exec: { valor: ["-a"] },
 };
@@ -55,6 +55,7 @@ const GRAVA_PELA_PIPELINE = new Set(["set-content", "sc", "add-content", "ac", "
 const PALAVRAS_DE_LACO = new Set(["do", "then", "else", "elif", "{", "!", "while", "until", "if"]);
 // sed edita no lugar com -i (agrupado, em qualquer caixa) ou com qualquer prefixo único de --in-place (--i, --in, --in-pl=.bak).
 const sedEmLugar = (args: string[]) => args.some(arg => /^-[a-zA-Z]*[iI]/.test(arg) || (arg.startsWith("--") && arg.length >= 3 && "--in-place".startsWith(arg.split("=")[0]!)));
+const VALOR_PDFTOTEXT = new Set(["-f", "-l", "-r", "-x", "-y", "-W", "-H", "-opw", "-upw", "-enc", "-eol", "-fixed"]);
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd"]);
 // Em git vale a lista de leitura (e de operações que não tocam arquivos de trabalho): o resto que cita raw/ bloqueia.
 const GIT_LEITURA = new Set([
@@ -264,9 +265,13 @@ function desembrulhar(verbo: string, args: string[]): { resto: string[]; descart
     if (/^[A-Za-z_]\w*=/.test(arg)) continue;
     if (arg === "--") return sai(i + 1);
     // `env -S 'rm -rf .'`: o valor é um comando inteiro.
-    if (verbo === "env" && (arg === "-S" || arg === "--split-string" || arg.startsWith("--split-string="))) {
-      const texto = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[i + 1] ?? "";
-      return { resto: [...texto.split(/\s+/).filter(Boolean), ...args.slice(arg.includes("=") ? i + 1 : i + 2)], descartados: args.slice(0, i) };
+    // O valor pode vir colado (`-Srm`) e a opção longa pode vir abreviada (`--s`, `--split=`).
+    const nomeLongo = arg.split("=")[0]!;
+    const ehS = verbo === "env" && ((arg.startsWith("-S") && !arg.startsWith("--")) || (nomeLongo.startsWith("--s") && "--split-string".startsWith(nomeLongo)));
+    if (ehS) {
+      const colado = arg.startsWith("--") ? (arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : undefined) : arg.slice(2) || undefined;
+      const texto = colado ?? args[i + 1] ?? "";
+      return { resto: [...texto.split(/\s+/).filter(Boolean), ...args.slice(colado !== undefined ? i + 1 : i + 2)], descartados: args.slice(0, i) };
     }
     if (arg.startsWith("-")) {
       if (valor.includes(arg)) i++;
@@ -308,8 +313,15 @@ function segmentoEscreve(palavras: string[], cwd: string, contexto: Contexto): b
   }
   if (apagaAncestral(verbo, args, cwd, raiz)) return true;
   if (verbo === "pdftotext") {
-    const posicionais = args.filter(arg => arg === "-" || !arg.startsWith("-"));
-    return posicionais.length > 1 && posicionais[1] !== "-" && (escreveEmRaw(posicionais[1]!, cwd) || citaRaw(posicionais[1]!));
+    // pdftotext entrada [saída]: sem saída grava ao lado da entrada (raw/a.pdf -> raw/a.txt); `-` é a saída padrão.
+    const posicionais: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+      if (VALOR_PDFTOTEXT.has(args[i]!)) i++;
+      else if (args[i] === "-" || !args[i]!.startsWith("-")) posicionais.push(args[i]!);
+    }
+    const [entrada = "", saida] = posicionais;
+    const emRaw = (caminho: string) => escreveEmRaw(caminho, cwd) || citaRaw(caminho);
+    return saida === undefined ? emRaw(entrada) : saida !== "-" && emRaw(saida);
   }
   if (DESTINO_JULGADO.has(verbo)) {
     const destinos = destinosDoCmdlet(verbo, args);
