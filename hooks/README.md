@@ -78,7 +78,7 @@ um verbo de escrita ou remoção, ou um cmdlet de escrita do PowerShell, bloquei
 Custo: `rm wiki/x.md; cat raw/y.md` também bloqueia.
 
 Limites, ditos de propósito: o hook não executa nem expande shell. Não são vistos, em sete classes: variável e expansão
-(`d=raw; rm $d/a`), script externo (`bash limpa.sh`), alias e configuração (`git -c`), codificação (`> r\aw/a`),
+(`d=r; rm ${d}aw/a`), script externo (`bash limpa.sh`), alias e configuração (`git -c`), codificação (`> r\aw/a`),
 interpretador com código vindo de arquivo (`python apaga.py`, `sed -f`), destino em chave de payload desconhecida e o que
 fica fora do R64 (`mv * ../x`). Quem precisa de garantia contra um agente hostil tem de usar permissão de sistema de
 arquivos; o hook cobre o erro do agente, não o adversário. Lista completa, com exemplos, a regra de parada da revisão e a
