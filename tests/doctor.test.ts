@@ -148,9 +148,9 @@ test("Dado CI ou pré-commit Quando diagnostico Então qualquer um dos dois liga
   const nome = "Checagem antes de aceitar a mudança";
   expect((await travas())[nome]?.ligada).toBe(false);
   expect((await travas())[nome]?.comoLigar).toContain("bun src/cli.ts checar-docs");
-  gravar(".github/workflows/outro.yaml", "run: echo\n");
+  gravar(".github/workflows/outro.yaml", "jobs:\n  t:\n    steps:\n      - run: echo\n");
   expect((await travas())[nome]?.ligada).toBe(false);
-  gravar(".github/workflows/ci.yml", "run: bun src/cli.ts checar-docs\n");
+  gravar(".github/workflows/ci.yml", "jobs:\n  t:\n    steps:\n      - run: bun src/cli.ts checar-docs\n");
   expect((await travas())[nome]?.ligada).toBe(true);
   rmSync(join(clone, ".github"), { recursive: true });
   gravar(".git/hooks/pre-commit", "#!/bin/sh\nbun src/cli.ts validar wiki\n");
@@ -271,4 +271,56 @@ test("Dado versão ilegível ou Claude ausente Quando diagnostico Então avisa s
   expect(await comandoDoctor([clone])).toBe(0);
   semCli("claude");
   expect((await travas())[VERSAO]).toBeUndefined();
+});
+
+// Revisão Codex da T10 (I1, I2): linha comentada ou etapa desativada não liga a trava.
+test("Dado chamada ao validador só comentada no fechar-wiki Quando diagnostico Então a validação está desligada", async () => {
+  const nome = "Validação no fechamento da wiki";
+  gravar("scripts/fechar-wiki.sh", '# bun "$AQUI/../src/cli.ts" validar "$WIKI"\n   #bun src/cli.ts validar wiki\n');
+  const t = (await travas())[nome];
+  expect(t?.ligada).toBe(false); expect(t?.detalhe).toContain("só aparece em comentário");
+  gravar("scripts/fechar-wiki.sh", '# bun src/cli.ts validar wiki\nbun "$AQUI/../src/cli.ts" validar "$WIKI" # valida\n');
+  expect((await travas())[nome]?.ligada).toBe(true);
+  gravar("scripts/fechar-wiki.sh", 'echo "nada" # bun src/cli.ts validar wiki\n');
+  expect((await travas())[nome]?.ligada).toBe(false);
+});
+
+test("Dado etapa de CI só comentada ou desativada Quando diagnostico Então a checagem está desligada", async () => {
+  const nome = "Checagem antes de aceitar a mudança";
+  const ci = (corpo: string) => gravar(".github/workflows/ci.yml", `jobs:\n  t:\n    steps:\n${corpo}`);
+  ci("      # - run: bun src/cli.ts checar-docs\n      - run: echo ok\n");
+  expect((await travas())[nome]?.ligada).toBe(false);
+  ci("      - run: echo ok # bun src/cli.ts checar-docs\n");
+  expect((await travas())[nome]?.ligada).toBe(false);
+  ci("      - if: false\n        run: bun src/cli.ts checar-docs\n");
+  expect((await travas())[nome]?.ligada).toBe(false);
+  ci("      - if: ${{ false }}\n        run: bun src/cli.ts checar-docs\n");
+  expect((await travas())[nome]?.ligada).toBe(false);
+  gravar(".github/workflows/ci.yml", "jobs:\n  t:\n    if: false\n    steps:\n      - run: bun src/cli.ts checar-docs\n");
+  expect((await travas())[nome]?.ligada).toBe(false);
+  ci("      - run: bun src/cli.ts checar-docs\n");
+  expect((await travas())[nome]?.ligada).toBe(true);
+  ci("      - name: x\n        if: always()\n        run: |\n          echo a\n          bun src/cli.ts validar wiki\n");
+  expect((await travas())[nome]?.ligada).toBe(true);
+});
+
+test("Dado YAML do workflow inválido ou pré-commit comentado Quando diagnostico Então não liga a trava e explica", async () => {
+  const nome = "Checagem antes de aceitar a mudança";
+  gravar(".github/workflows/ci.yml", "jobs: [\n");
+  expect((await travas())[nome]?.ligada).toBe(false);
+  rmSync(join(clone, ".github"), { recursive: true });
+  gravar(".git/hooks/pre-commit", "#!/bin/sh\n# bun src/cli.ts validar wiki\n");
+  expect((await travas())[nome]?.ligada).toBe(false);
+  gravar(".git/hooks/pre-commit", "#!/bin/sh\nbun src/cli.ts validar wiki\n");
+  expect((await travas())[nome]?.ligada).toBe(true);
+});
+
+test("Dado trava comentada Quando rodo o doctor Então não diz tudo ligado e devolve 1", async () => {
+  await instalarTudo();
+  gravar("scripts/fechar-wiki.sh", "# bun src/cli.ts validar wiki\n");
+  gravar(".github/workflows/ci.yml", "jobs:\n  t:\n    steps:\n      # - run: bun src/cli.ts checar-docs\n      - run: echo ok\n");
+  expect(await comandoDoctor([clone])).toBe(1);
+  const saida = consoleCapturado.saida.join("\n");
+  expect(saida).not.toContain("tudo ligado"); expect(saida).toContain("Validação no fechamento da wiki: desligada");
+  expect(saida).toContain("Checagem antes de aceitar a mudança: desligada");
 });

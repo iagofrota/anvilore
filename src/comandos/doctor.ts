@@ -76,27 +76,73 @@ async function versaoDoClaude(path: string | undefined): Promise<Trava | undefin
   return { nome, ligada: false, comoLigar: "atualize o Claude Code para a 2.1.295 ou mais nova (o onFailure do hook não existe antes)", detalhe: `versão encontrada: ${achada[0]}` };
 }
 
+// Tira os comentários de shell/YAML (linha inteira ou depois de ` #`), respeitando aspas: texto comentado não é chamada ativa.
+function semComentarios(texto: string): string {
+  return texto.split(/\r?\n/).map(linha => {
+    let aspas = "";
+    for (let i = 0; i < linha.length; i++) {
+      const c = linha[i]!;
+      if (aspas) { if (c === aspas) aspas = ""; }
+      else if (c === "'" || c === '"') aspas = c;
+      else if (c === "#" && (i === 0 || /\s/.test(linha[i - 1]!))) return linha.slice(0, i);
+    }
+    return linha;
+  }).join("\n");
+}
+
+const CHAMADA_DO_VALIDADOR = /cli\.ts"?\s+validar|anvilore validar/;
+const CHECAGEM_ATIVA = /checar-docs|cli\.ts"?\s+validar|anvilore validar/;
+const DESATIVADO = (condicao: unknown) => condicao === false || (typeof condicao === "string" && /^(?:false|\$\{\{\s*false\s*\}\})$/.test(condicao.trim()));
+
 async function validacaoNoFechamento(raiz: string): Promise<Trava> {
   const nome = "Validação no fechamento da wiki";
   const texto = await ler(join(raiz, "scripts/fechar-wiki.sh")).catch(() => undefined);
-  if (texto !== undefined && /cli\.ts"?\s+validar/.test(texto)) return { nome, ligada: true };
-  return { nome, ligada: false, comoLigar: "faça scripts/fechar-wiki.sh chamar: bun src/cli.ts validar wiki", detalhe: texto === undefined ? "scripts/fechar-wiki.sh não existe" : undefined };
+  if (texto !== undefined && /cli\.ts"?\s+validar/.test(semComentarios(texto))) return { nome, ligada: true };
+  const comentada = texto !== undefined && /cli\.ts"?\s+validar/.test(texto);
+  return {
+    nome, ligada: false, comoLigar: "faça scripts/fechar-wiki.sh chamar: bun src/cli.ts validar wiki",
+    detalhe: texto === undefined ? "scripts/fechar-wiki.sh não existe" : comentada ? "a chamada ao validador só aparece em comentário" : undefined,
+  };
+}
+
+// Etapas `run` ativas de um workflow: ignora comentário (o YAML já os descarta), job ou etapa com `if: false` e blocos `run` comentados por linha.
+function etapasAtivas(yaml: string): string[] {
+  const fluxo = Bun.YAML.parse(yaml) as { jobs?: Record<string, { if?: unknown; steps?: Array<{ if?: unknown; run?: unknown }> }> };
+  const comandos: string[] = [];
+  for (const job of Object.values(fluxo?.jobs ?? {})) {
+    if (DESATIVADO(job?.if)) continue;
+    for (const etapa of job?.steps ?? []) if (!DESATIVADO(etapa?.if) && typeof etapa?.run === "string") comandos.push(semComentarios(etapa.run));
+  }
+  return comandos;
 }
 
 async function checagemAntesDeAceitar(raiz: string): Promise<Trava> {
   const nome = "Checagem antes de aceitar a mudança";
-  const procurados: string[] = [];
+  const comoLigar = "acrescente ao CI (.github/workflows/ci.yml) ou ao pré-commit a etapa: bun src/cli.ts checar-docs";
+  const problemas: string[] = [];
+  let achouTexto = false;
   try {
     const dir = join(raiz, ".github/workflows");
-    for (const arquivo of await readdir(dir)) if (/\.ya?ml$/.test(arquivo)) procurados.push(join(dir, arquivo));
+    for (const arquivo of await readdir(dir)) {
+      if (!/\.ya?ml$/.test(arquivo)) continue;
+      const texto = await ler(join(dir, arquivo)).catch(() => "") ?? "";
+      achouTexto ||= CHECAGEM_ATIVA.test(texto);
+      try {
+        if (etapasAtivas(texto).some(comando => CHECAGEM_ATIVA.test(comando))) return { nome, ligada: true };
+      } catch {
+        problemas.push(`${arquivo} não é um YAML válido`);
+      }
+    }
   } catch (erro) {
     if ((erro as NodeJS.ErrnoException).code !== "ENOENT") throw erro;
   }
-  procurados.push(join(raiz, ".git/hooks/pre-commit"));
-  for (const caminho of procurados) {
-    if (/checar-docs|cli\.ts"?\s+validar|anvilore validar/.test(await ler(caminho).catch(() => "") ?? "")) return { nome, ligada: true };
+  const preCommit = await ler(join(raiz, ".git/hooks/pre-commit")).catch(() => undefined);
+  if (preCommit !== undefined) {
+    if (CHECAGEM_ATIVA.test(semComentarios(preCommit))) return { nome, ligada: true };
+    achouTexto ||= CHECAGEM_ATIVA.test(preCommit);
   }
-  return { nome, ligada: false, comoLigar: "acrescente ao CI (.github/workflows/ci.yml) ou ao pré-commit a etapa: bun src/cli.ts checar-docs" };
+  if (achouTexto) problemas.push("a checagem só aparece em comentário ou em etapa desativada");
+  return { nome, ligada: false, comoLigar, detalhe: problemas.length ? problemas.join("; ") : undefined };
 }
 
 async function perfilDaEmpresa(raiz: string): Promise<Trava> {
