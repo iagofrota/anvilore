@@ -106,6 +106,8 @@ for script in "src/cli.ts auditar" scripts/validar-wiki.sh "src/cli.ts listar-la
 done
 grep -qF "scripts/listar-lacunas.py" "$SKILL" && falha "a skill cita o caminho removido scripts/listar-lacunas.py" \
                                               || ok "a skill nao cita scripts/listar-lacunas.py"
+grep -qF "scripts/auditar-wiki.py" "$SKILL" && falha "a skill cita o caminho removido scripts/auditar-wiki.py" \
+                                            || ok "a skill nao cita scripts/auditar-wiki.py"
 for alheio in wiki-validate.sh wiki-log-index.sh daily-lint.sh; do
   grep -qF "$alheio" "$SKILL" && falha "a skill cita script da origem: $alheio" \
                               || ok "a skill nao cita $alheio"
