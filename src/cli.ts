@@ -15,6 +15,7 @@ import { comandoDoctor } from "./comandos/doctor";
 import { comandoHook } from "./comandos/hook-proteger-raw";
 import { comandoInit } from "./comandos/init";
 import { comandoFechar } from "./comandos/fechar";
+import { comandoBaseline } from "./comandos/baseline";
 
 export type Subcomando = (args: string[]) => Promise<number>;
 export type TabelaDeSubcomandos = Record<string, Subcomando>;
@@ -36,6 +37,7 @@ export const subcomandos: TabelaDeSubcomandos = {
   doctor: comandoDoctor,
   init: comandoInit,
   fechar: comandoFechar,
+  baseline: comandoBaseline,
 };
 
 function listar(tabela: TabelaDeSubcomandos): string {

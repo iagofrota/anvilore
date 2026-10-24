@@ -120,6 +120,10 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   quebrado ou de diretório symlink não seguido; erro ao varrer reprova o gate em vez de passar calado.
   `ANVILORE_PULAR_GATE_LOG=1` continua pulando só o gate. `--help` mostra o uso e sai 2.
 - O teste da tabela de vereditos de `sources[].resource` virou `tests/okf-baseline.test.ts`.
+- A conferência da tabela de vereditos de `sources[].resource` agora é o comando `bun src/cli.ts baseline [TSV]`
+  (`src/comandos/baseline.ts`), extraído de `tests/okf-baseline.test.ts`: sai 0 sem divergência e 1 com divergência,
+  nomeia a linha do TSV, mantém a fase de canário de mutação e reprova TSV ausente, vazio ou com coluna faltando;
+  `--help` mostra o uso e sai 2.
 
 ### Fixed
 
