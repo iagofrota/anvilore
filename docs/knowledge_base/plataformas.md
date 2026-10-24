@@ -42,6 +42,10 @@ nem CI neles quando o risco foi levantado. Cada item diz o que a biblioteca em `
 | Dependências do sistema (`jq`, `python3`, `awk`, `mktemp`, `readlink`) | Somem com o porte. | O `git` continua necessário; o diagnóstico de ambiente ainda não existe. |
 | Latência do hook | Nada medido. | O hook roda a cada gravação do agente. Um processo Bun novo por gravação precisa de latência aceitável: **medir antes de declarar**. |
 
+O subcomando `indexar-log` separa linhas CRLF dos arquivos de dia antes de contar os tipos
+(`src/comandos/indexar-log.ts`; `tests/indexar-log.test.ts`). O teste foi executado em Linux;
+o resultado em Windows ainda depende do CI.
+
 ### macOS
 
 | Risco | O que a biblioteca já trata | Falta |

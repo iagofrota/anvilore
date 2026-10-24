@@ -21,7 +21,7 @@ function resumoDoDia(conteudo: string): { total: number; resumo: string } {
   const contagens = new Map<string, number>();
   let total = 0;
   let emCerca = false;
-  for (const linha of conteudo.split("\n")) {
+  for (const linha of conteudo.split(/\r?\n/)) {
     if (linha.startsWith("```")) {
       emCerca = !emCerca;
       continue;
@@ -90,9 +90,21 @@ export async function comandoIndexarLog(args: string[]): Promise<number> {
       return 1;
     } else wiki = arg;
   }
-  const resultado = await indexarLog(wiki, { stdout });
-  console.log(resultado.saida.trimEnd());
-  return 0;
+  try {
+    const resultado = await indexarLog(wiki, { stdout });
+    console.log(resultado.saida.trimEnd());
+    return 0;
+  } catch (erro) {
+    const falha = erro as NodeJS.ErrnoException;
+    if (falha.code === "ENOTDIR" && falha.syscall === "scandir") {
+      console.error(`AVISO: ${join(wiki, "log")} não é diretório`);
+      console.log(`LOG: nada a indexar — ${join(wiki, "log")} sem arquivo log-*.md; ${join(wiki, "log.md")} preservado`);
+      return 0;
+    }
+    const caminho = falha.path ?? wiki;
+    console.error(`FAIL: ${caminho}: ${falha.message}`);
+    return 1;
+  }
 }
 
 // Obra derivada de wiki-wonka (https://github.com/cooperacode/wiki-wonka),

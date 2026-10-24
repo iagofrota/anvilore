@@ -141,3 +141,70 @@ test("Dado indexar-log registrado no CLI, Quando executo, Então devolvo 0 e imp
   expect(r.codigo).toBe(0);
   expect(r.saida.join("\n")).toContain("LOG: 4 entradas em 3 dias");
 });
+
+test("Dado arquivo de dia com CRLF, Quando indexo, Então o tipo não inclui o título", async () => {
+  dia("2026-09-01", "## [2026-09-01] ingest | a\r\n## [2026-09-01] nota | b\r\n");
+  await indexarLog(wiki);
+  expect(log()).toContain("2 · ingest ×1, nota ×1");
+});
+
+test("Dado log.md existente, Quando uso --stdout pelo comando, Então imprimo o índice sem escrever", async () => {
+  montarDias();
+  writeFileSync(join(wiki, "log.md"), "# Log original\n");
+  const antes = readFileSync(join(wiki, "log.md"));
+  const r = await capturar(() => comandoIndexarLog([wiki, "--stdout"]));
+  expect(r.codigo).toBe(0);
+  expect(r.saida.join("\n")).toContain("4 entradas em 3 dias");
+  expect(readFileSync(join(wiki, "log.md"))).toEqual(antes);
+});
+
+test("Dado wiki sem pasta log, Quando indexo, Então aviso e preservo log.md", async () => {
+  rmSync(join(wiki, "log"), { recursive: true });
+  writeFileSync(join(wiki, "log.md"), "# Log do clone\n");
+  const antes = readFileSync(join(wiki, "log.md"));
+  const r = await capturar(() => comandoIndexarLog([wiki]));
+  expect(r.codigo).toBe(0);
+  expect(r.saida.join("\n")).toContain("LOG: nada a indexar");
+  expect(readFileSync(join(wiki, "log.md"))).toEqual(antes);
+});
+
+test("Dado pasta log apenas com .gitkeep, Quando indexo, Então aviso e preservo log.md", async () => {
+  writeFileSync(join(wiki, "log", ".gitkeep"), "");
+  writeFileSync(join(wiki, "log.md"), "# Log do clone\n");
+  const antes = readFileSync(join(wiki, "log.md"));
+  const r = await capturar(() => comandoIndexarLog([wiki]));
+  expect(r.codigo).toBe(0);
+  expect(r.saida.join("\n")).toContain("LOG: nada a indexar");
+  expect(readFileSync(join(wiki, "log.md"))).toEqual(antes);
+});
+
+test("Dado wiki/log como arquivo, Quando indexo, Então saio 0 com LOG e AVISO sem stack trace", async () => {
+  rmSync(join(wiki, "log"), { recursive: true });
+  writeFileSync(join(wiki, "log"), "arquivo no lugar da pasta\n");
+  writeFileSync(join(wiki, "log.md"), "# Log do clone\n");
+  const antes = readFileSync(join(wiki, "log.md"));
+  const r = await capturar(() => comandoIndexarLog([wiki]));
+  expect(r.codigo).toBe(0);
+  expect(r.saida.join("\n")).toContain("LOG: nada a indexar");
+  expect(r.erro.join("\n")).toContain(`AVISO: ${join(wiki, "log")} não é diretório`);
+  expect(r.erro.join("\n")).not.toContain("at ");
+  expect(readFileSync(join(wiki, "log.md"))).toEqual(antes);
+});
+
+test("Dado erro de escrita em log.md, Quando indexo pelo comando, Então saio 1 com caminho e sem stack trace", async () => {
+  dia("2026-09-01", "## [2026-09-01] nota | x\n");
+  mkdirSync(join(wiki, "log.md"));
+  const r = await capturar(() => comandoIndexarLog([wiki]));
+  expect(r.codigo).toBe(1);
+  expect(r.erro.join("\n")).toContain("FAIL:");
+  expect(r.erro.join("\n")).toContain(join(wiki, "log.md"));
+  expect(r.erro.join("\n")).not.toContain("at ");
+});
+
+test("Dado módulo portado, Quando confiro o rodapé, Então preservo os quatro elementos da atribuição B8", () => {
+  const codigo = readFileSync(join(import.meta.dir, "..", "src", "comandos", "indexar-log.ts"), "utf8");
+  const rodape = codigo.split("\n").slice(-5).join("\n");
+  for (const elemento of ["https://github.com/cooperacode/wiki-wonka", "Coopera Code", "licença MIT", "LICENSE"]) {
+    expect(rodape).toContain(elemento);
+  }
+});

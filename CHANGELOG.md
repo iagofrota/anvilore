@@ -24,6 +24,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   falha no meio da migração é relatada com o que já foi movido, sem stack trace; `--help` mostra o uso e sai 2.
 - O índice do log da wiki é regenerado por `bun src/cli.ts indexar-log`, com a opção
   `--stdout` para consultar sem gravar e preservação do log do clone quando não há dias fatiados.
+  O antigo `scripts/indexar-log.sh` foi removido; a linha "Gerado por" no índice regenerado agora
+  aponta para o comando Bun. Arquivos de dia com CRLF mantêm a contagem correta por tipo.
 
 ## [0.1.0] - 2026-10-24
 
