@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { delimiter, join } from "node:path";
 import { readFileSync, rmSync } from "node:fs";
 import { capturarConsole } from "./apoio/console";
-import { ambienteSemBun, extrairFormas, prepararClone, provar, rodarCenarios, type Forma } from "../scripts/provar-forma-instalada";
+import { ambienteSemBun, argumentosDoCmd, extrairFormas, prepararClone, provar, rodarCenarios, type Forma } from "../scripts/provar-forma-instalada";
 
 const raiz = join(import.meta.dir, "..");
 
@@ -158,4 +158,14 @@ test("Dado uma forma que sem bun sai 1 Quando a prova roda Então reprova porque
     expect(await rodarCenarios([f], raiz)).toBe(1);
     expect(consoleCapturado.saida.join("\n")).toMatch(/FALHA: falso\.command em bash: sem bun no PATH → saída 1 \(esperado 2\)/);
   } finally { consoleCapturado.restaurar(); }
+});
+
+// CI de 28bf49e no Windows: `Script not found ""C:\\...\\clone"` — a prova chamava `cmd /c` com os argumentos citados pelo Bun (aspas internas
+// viram \", que o cmd não entende). Node com shell:true monta `cmd.exe /d /s /c "<comando>"` com windowsVerbatimArguments; a prova faz o mesmo.
+test("Dado comando com aspas e caminho com espaço Quando monto a chamada do cmd Então segue o formato do Node (/d /s /c entre aspas, sem escape)", () => {
+  const comando = 'bun "C:\\Users\\x\\clone com espaço\\src\\cli.ts" hook proteger-raw; exit $LASTEXITCODE';
+  const chamada = argumentosDoCmd(comando);
+  expect(chamada.args).toEqual(["/d", "/s", "/c", `"${comando}"`]);
+  expect(chamada.verbatim).toBe(true);
+  expect(chamada.args.join(" ")).not.toContain('\\"');
 });

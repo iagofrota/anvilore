@@ -67,7 +67,15 @@ export function ambienteSemBun(env: Ambiente, dirBun: string): Ambiente {
   return copia;
 }
 
-function resolverShell(nome: string): { exe: string; args: (comando: string) => string[] } | undefined {
+// O Node (spawn com shell: true), que é como os agentes chamam o hook, monta `cmd.exe /d /s /c "<comando>"` SEM escapar as aspas internas
+// (windowsVerbatimArguments). O Bun, por padrão, cita o argumento e escapa as aspas como \", que o cmd não entende: o caminho do clone
+// chegava partido ao bun (`Script not found ""C:\...\clone`). A prova chama o cmd como o agente chama.
+export function argumentosDoCmd(comando: string): { args: string[]; verbatim: boolean } {
+  return { args: ["/d", "/s", "/c", `"${comando}"`], verbatim: true };
+}
+
+type ShellResolvido = { exe: string; args: (comando: string) => string[]; verbatim?: boolean };
+function resolverShell(nome: string): ShellResolvido | undefined {
   const gitBash = join(process.env.ProgramFiles ?? "C:\\Program Files", "Git", "bin", "bash.exe");
   switch (nome) {
     case "bash": {
@@ -76,7 +84,7 @@ function resolverShell(nome: string): { exe: string; args: (comando: string) => 
     }
     case "cmd": {
       const exe = process.env.ComSpec ?? Bun.which("cmd");
-      return exe ? { exe, args: comando => ["/d", "/s", "/c", comando] } : undefined;
+      return exe ? { exe, args: comando => argumentosDoCmd(comando).args, verbatim: true } : undefined;
     }
     case "pwsh": case "powershell": {
       const exe = Bun.which(nome);
@@ -122,6 +130,7 @@ export async function rodarCenarios(formas: Forma[], cwd: string = raiz): Promis
       const rodar = (payload: string, env: Ambiente) => {
         const r = Bun.spawnSync([shell.exe, ...shell.args(forma.comando)], {
           cwd, env: { ...env, CLAUDE_PROJECT_DIR: cwd }, stdin: Buffer.from(payload), stdout: "pipe", stderr: "pipe",
+          windowsVerbatimArguments: shell.verbatim === true,
         });
         return { codigo: r.exitCode, stdout: r.stdout.toString(), stderr: r.stderr.toString() };
       };

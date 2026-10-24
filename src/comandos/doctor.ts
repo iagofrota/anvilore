@@ -90,7 +90,6 @@ function semComentarios(texto: string): string {
   }).join("\n");
 }
 
-const CHAMADA_DO_VALIDADOR = /cli\.ts"?\s+validar|anvilore validar/;
 const CHECAGEM_ATIVA = /checar-docs|cli\.ts"?\s+validar|anvilore validar/;
 const DESATIVADO = (condicao: unknown) => condicao === false || (typeof condicao === "string" && /^(?:false|\$\{\{\s*false\s*\}\})$/.test(condicao.trim()));
 
