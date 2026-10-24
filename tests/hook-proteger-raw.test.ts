@@ -377,3 +377,17 @@ test("Dado opção colada do envolvedor com raw Quando executa escrita Então bl
   for (const comando of ["env -Craw rm a", "sudo -Draw rm a", "env --chdir=RAW rm a", "xargs -araw/lista rm"]) expect(decidir(terminal(comando)).acao).toBe("bloquear");
   expect(decidir(terminal("env -Cwiki rm a")).acao).toBe("liberar");
 });
+
+// Grupo H — revisão automática: argumentos posicionais de sh -c, abreviação de opção do git e GIT_* passado por envolvedor.
+test("Dado sh -c com argumentos posicionais Quando eles citam raw Então bloqueia mesmo que o script não cite", () => {
+  for (const comando of ["bash -c 'rm $1' _ raw/a", "sh -c 'rm \"$@\"' sh raw/a raw/b", "bash -lc 'touch $0' raw/a"]) expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  expect(decidir(terminal("bash -c 'rm $1' _ wiki/a")).acao).toBe("liberar");
+});
+test("Dado opção abreviada do git Quando aponta saída ou pager Então bloqueia e a leitura comum libera", () => {
+  for (const comando of ["git diff --outp=raw/a.patch", "git log --outpu raw/x", "git grep --open=rm x raw/", "git grep --open-files x -- raw/"]) expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  expect(decidir(terminal("git log --oneline --stat -- raw/a.md")).acao).toBe("liberar");
+});
+test("Dado GIT_ passado por envolvedor Quando o comando é git de leitura citando raw Então bloqueia", () => {
+  for (const comando of ["env GIT_EXTERNAL_DIFF=rm git diff raw/", "sudo PAGER=rm git log raw/", "env -i PAGER=rm git log raw/"]) expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  expect(decidir(terminal("env LC_ALL=C git log -- raw/a.md")).acao).toBe("liberar");
+});

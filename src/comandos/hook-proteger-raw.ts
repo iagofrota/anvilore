@@ -22,6 +22,9 @@ const LEITURAS_TERMINAL = new Set([
 const ENVOLVEDORES = new Set(["xargs", "parallel", "env", "nice", "nohup", "time", "sudo", "doas", "command", "builtin", "exec", "timeout", "stdbuf", "ionice", "setsid"]);
 const OPCOES_COM_VALOR = new Set(["-I", "-n", "-P", "-L", "-d", "-E", "-s", "-a", "-u", "-g", "-C", "-i", "-l", "-S", "-k"]);
 const VERBOS_APAGAR = new Set(["rm", "rmdir", "rd", "del", "erase", "remove-item", "ri"]);
+const AMBIENTE_PROGRAMA = /^(?:GIT_|PAGER=|EDITOR=|VISUAL=)/;
+// O git aceita abreviação não ambígua de opção longa (`--outp` vale `--output`).
+const prefixo = (arg: string, longa: string) => { const nome = arg.split("=")[0]!; return nome.length >= 4 && longa.startsWith(nome); };
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd"]);
 // Em git vale a lista de leitura (e de operações que não tocam arquivos de trabalho): o resto que cita raw/ bloqueia.
 const GIT_LEITURA = new Set([
@@ -164,7 +167,7 @@ function desembrulhar(args: string[]): string[] {
 
 // `doPipe`: um segmento anterior do mesmo pipe citou raw/, então o caminho chega pela entrada padrão. Só um comando
 // executado por envolvedor (xargs, parallel...) ou um shell lendo a entrada age sobre ele; `forcar` vale dentro do envolvedor.
-function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar = false): boolean {
+function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar = false, ambienteDoEnvolvedor = false): boolean {
   const inicio = palavras.findIndex(palavra => !/^[A-Za-z_]\w*=/.test(palavra));
   if (inicio < 0) return false;
   const comando = palavras.slice(inicio);
@@ -176,12 +179,17 @@ function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar
     if (args.slice(0, args.length - resto.length).some(arg => escreveEmRaw(arg, cwd) || citaRaw(arg) || arg.toLowerCase().includes("raw"))) return true;
     // Sem comando, só o xargs é inofensivo (repete a entrada); `parallel`, `sudo -s` e `env` lendo raw/ pelo pipe não são.
     if (!resto.length) return doPipe && verbo !== "xargs";
-    return segmentoEscreve(resto, cwd, doPipe, forcar || doPipe);
+    const descartados = args.slice(0, args.length - resto.length);
+    return segmentoEscreve(resto, cwd, doPipe, forcar || doPipe, ambienteDoEnvolvedor || descartados.some(arg => AMBIENTE_PROGRAMA.test(arg)));
   }
   if (doPipe && SHELLS.has(verbo)) return true;
   if (SHELLS.has(verbo)) {
-    const script = args[args.findIndex(arg => /^-[a-zA-Z]*c$/.test(arg) || /^-command$/i.test(arg)) + 1];
-    if (script !== undefined && args.some(arg => /^-[a-zA-Z]*c$/.test(arg) || /^-command$/i.test(arg))) return terminalEscreve(script, cwd);
+    const marca = args.findIndex(arg => /^-[a-zA-Z]*c$/.test(arg) || /^-command$/i.test(arg));
+    const script = marca < 0 ? undefined : args[marca + 1];
+    if (script !== undefined) {
+      // Os argumentos depois do script chegam a ele como $0, $1, $@: se citam raw/, o script pode agir sobre eles.
+      return terminalEscreve(script, cwd) || args.slice(marca + 2).some(arg => escreveEmRaw(arg, cwd) || citaRaw(arg));
+    }
   }
   if (apagaAncestral(verbo, args, cwd)) return true;
   if (verbo === "cp") {
@@ -201,12 +209,12 @@ function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar
   if (verbo === "git") {
     const { subcomando, globais } = analisarGit(args);
     // Programa externo por variável, configuração ou caminho de executáveis: a leitura deixa de ser só leitura.
-    if (palavras.slice(0, inicio).some(atribuicao => /^(?:GIT_|PAGER=|EDITOR=|VISUAL=)/.test(atribuicao))) return true;
+    if (palavras.slice(0, inicio).some(atribuicao => AMBIENTE_PROGRAMA.test(atribuicao)) || ambienteDoEnvolvedor) return true;
     if (globais.some(opcao => opcao === "-c" || /^--(?:config-env|exec-path)(?:=|$)/.test(opcao))) return true;
     if (subcomando === undefined) return false;
     return !GIT_LEITURA.has(subcomando)
-      || args.some(arg => /^--output(?:=|$)/.test(arg) || (subcomando === "reflog" && /^(?:expire|delete)$/.test(arg))
-        || (subcomando === "grep" && /^(?:-O|--open-files-in-pager)/.test(arg)));
+      || args.some(arg => prefixo(arg, "--output") || (subcomando === "reflog" && /^(?:expire|delete)$/.test(arg))
+        || (subcomando === "grep" && /^-O/.test(arg) || prefixo(arg, "--open-files-in-pager")));
   }
   if (verbo === "find") return args.some(arg => FIND_ESCREVE.test(arg));
   return !LEITURAS_TERMINAL.has(verbo);
