@@ -13,6 +13,28 @@ afterEach(() => {
   rmSync(raiz, { recursive: true, force: true });
 });
 
+// Só a falta de privilégio/recurso para criar link simbólico (Windows comum) justifica pular o
+// teste; qualquer outro erro sobe e reprova.
+const FALTA_DE_RECURSO = new Set(["EPERM", "ENOSYS", "EACCES"]);
+
+function motivoSemSymlink(criar: () => void): string | null {
+  try {
+    criar();
+    return null;
+  } catch (erro) {
+    const codigo = (erro as NodeJS.ErrnoException).code;
+    if (codigo !== undefined && FALTA_DE_RECURSO.has(codigo)) return codigo;
+    throw erro;
+  }
+}
+
+const sonda = mkdtempSync(join(tmpdir(), "anvilore-sonda-symlink-"));
+const semSymlink = motivoSemSymlink(() => symlinkSync(join(sonda, "alvo"), join(sonda, "elo")));
+rmSync(sonda, { recursive: true, force: true });
+if (semSymlink !== null) {
+  console.warn(`PULADO: link simbólico indisponível neste ambiente (${semSymlink}); o teste do link quebrado não roda`);
+}
+
 function gravar(relativo: string, conteudo = ""): void {
   const caminho = join(raiz, relativo);
   mkdirSync(dirname(caminho), { recursive: true });
@@ -76,13 +98,43 @@ describe("listarPaginasDaKb", () => {
     expect(r.problemas.join("\n")).toContain("nenhuma página");
   });
 
-  test("Dado um link simbólico quebrado terminado em .md, Quando listo, Então ele não conta como página e nada lança exceção", () => {
-    gravar("docs/knowledge_base/real.md");
-    try {
+  test.skipIf(semSymlink !== null)(
+    "Dado um link simbólico quebrado terminado em .md, Quando listo, Então ele não conta como página e nada lança exceção",
+    () => {
+      gravar("docs/knowledge_base/real.md");
       symlinkSync(join(raiz, "nao-existe-alvo"), join(raiz, "docs", "knowledge_base", "quebrado.md"));
-    } catch {
-      return; // sem permissão para criar link simbólico (Windows comum)
-    }
-    expect(listarPaginasDaKb(raiz)).toEqual({ paginas: ["real.md"], problemas: [] });
+      expect(listarPaginasDaKb(raiz)).toEqual({ paginas: ["real.md"], problemas: [] });
+    },
+  );
+});
+
+describe("motivoSemSymlink", () => {
+  test.each(["EPERM", "ENOSYS", "EACCES"])(
+    "Dado que criar o link falha com %s, Quando sondo, Então devolve o código e o teste pode ser pulado",
+    (codigo) => {
+      const falha = () => {
+        throw Object.assign(new Error("sem privilégio"), { code: codigo });
+      };
+      expect(motivoSemSymlink(falha)).toBe(codigo);
+    },
+  );
+
+  test("Dado que criar o link falha com um erro inesperado, Quando sondo, Então o erro sobe e reprova", () => {
+    const falha = () => {
+      throw Object.assign(new Error("disco com defeito"), { code: "EIO" });
+    };
+    expect(() => motivoSemSymlink(falha)).toThrow("disco com defeito");
+  });
+
+  test("Dado um erro sem código, Quando sondo, Então o erro sobe", () => {
+    expect(() =>
+      motivoSemSymlink(() => {
+        throw new Error("qualquer");
+      }),
+    ).toThrow("qualquer");
+  });
+
+  test("Dado que criar o link funciona, Quando sondo, Então não há motivo para pular", () => {
+    expect(motivoSemSymlink(() => {})).toBeNull();
   });
 });
