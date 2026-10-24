@@ -238,3 +238,29 @@ for (const comando of ["sed -n 's/novo/velho/p' raw/a.md", "sed -n '1,3p' raw/a.
     expect(decidir(terminal(comando)).acao).toBe("liberar");
   });
 }
+
+// Rodada de correção 1 (revisão Opus): grupo A — caminho que chega por pipe e cd com opção.
+for (const comando of ["find raw -name '*.bak' | xargs rm", "ls raw/*.bak | xargs rm -f", "printf 'raw/a\\n' | xargs rm", "find raw -type f -print0 | xargs -0 rm", "xargs -0 rm < raw/lista", "find raw -exec rm {} +", "find raw -execdir rm {} \\;", "find raw -ok rm {} \\;", "ls raw | parallel rm", "cat raw/lista | xargs -n 1 rm", "cat raw/lista | head -3 | xargs rm", "echo rm raw/a | sh", "echo rm raw/a | bash", "cat raw/lista | nohup xargs rm", "cat raw/lista | xargs -I {} mv {} wiki/", "cat raw/lista | env FOO=1 xargs rm", "cat raw/lista | sudo xargs rm", "cat raw/lista | xargs sed -i s/a/b/", "cat raw/lista | xargs -I{} rm {}", "cat raw/lista | time xargs rm", "cat raw/lista | xargs -- rm"]) {
+  test(`Dado pipe que traz caminho de raw ${comando} Quando um verbo de escrita age sobre ele Então bloqueia`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  });
+}
+for (const comando of ["find wiki -name '*.bak' | xargs rm", "ls wiki/*.bak | xargs rm -f", "find raw -name '*.md' | xargs wc -l", "cat raw/lista | xargs -n 1 cat", "cat raw/a.md | sort | uniq", "cat raw/a.md | tee wiki/copia.md", "time cat raw/a.md", "nice rg palavra raw/", "cat raw/a | head -3 | wc -l", "find raw -name '*.md' | head", "cat raw/lista && xargs rm < wiki/lista"]) {
+  test(`Dado leitura em pipe ou em wrapper ${comando} Quando decido Então libera (controle)`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("liberar");
+  });
+}
+for (const comando of ["cd -P raw && rm a", "cd -- raw && rm a", "cd -L raw; touch a", "cd -P -- raw && rm a", "pushd -- raw && rm a"]) {
+  test(`Dado cd com opção ${comando} Quando o comando seguinte escreve Então o diretório continua raw e bloqueia`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  });
+}
+test("Dado cd com opção para fora de raw Quando escreve Então libera e cd - não inventa diretório", () => {
+  expect(decidir(terminal("cd -P wiki && touch a")).acao).toBe("liberar");
+  expect(decidir(terminal("cd - && touch a")).acao).toBe("liberar");
+});
+test("Dado less ou more com opção de saída Quando cita raw Então bloqueia e a leitura simples libera", () => {
+  expect(decidir(terminal("less -o raw/log wiki/a.md")).acao).toBe("bloquear");
+  expect(decidir(terminal("less raw/a.md")).acao).toBe("bloquear");
+  expect(decidir(terminal("cat raw/a.md | head")).acao).toBe("liberar");
+});

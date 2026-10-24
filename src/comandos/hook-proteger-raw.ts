@@ -11,11 +11,15 @@ const TERMINAIS = new Set(["bash", "exec_command", "shell_command", "shell", "lo
 const LEITORES = new Set(["read", "read_file", "view", "read_notebook", "list_dir", "glob", "grep"]);
 const MUDAM_DIRETORIO = new Set(["cd", "chdir", "pushd", "set-location", "sl"]);
 const LEITURAS_TERMINAL = new Set([
-  "cat", "rg", "grep", "ls", "head", "tail", "wc", "echo", "printf", "pwd", "stat", "file", "diff", "less", "more",
+  "cat", "rg", "grep", "ls", "head", "tail", "wc", "echo", "printf", "pwd", "stat", "file", "diff",
   "cut", "du", "sha256sum", "md5sum", "shasum", "basename", "dirname", "realpath", "readlink",
   "nl", "tac", "od", "strings", "test", "[", "true", "false",
   "get-content", "gc", "type", "dir", "get-childitem", "gci", "select-string", "sls", "get-item", "gi", "get-filehash",
 ]);
+// Verbos que executam outro comando: o que importa é o comando de dentro. `OPCOES_COM_VALOR` são as opções que levam argumento próprio.
+const ENVOLVEDORES = new Set(["xargs", "parallel", "env", "nice", "nohup", "time", "sudo", "doas", "command", "builtin", "exec", "timeout", "stdbuf", "ionice", "setsid"]);
+const OPCOES_COM_VALOR = new Set(["-I", "-n", "-P", "-L", "-d", "-E", "-s", "-a", "-u", "-g", "-C", "-i", "-l", "-S", "-k"]);
+const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd"]);
 const GIT_ESCREVE = new Set(["rm", "mv", "checkout", "restore", "clean", "apply"]);
 const FIND_ESCREVE = /^-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/;
 // Comando w/W/e de sed no começo, depois de ; ou { e com endereço opcional, ou flag w de s///.
@@ -103,12 +107,30 @@ function subcomandoGit(args: string[]): string | undefined {
   return undefined;
 }
 
-function segmentoEscreve(palavras: string[], cwd: string): boolean {
+function desembrulhar(args: string[]): string[] {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (/^[A-Za-z_]\w*=/.test(arg)) continue;
+    if (arg === "--") return args.slice(i + 1);
+    if (!arg.startsWith("-")) return args.slice(i);
+    if (OPCOES_COM_VALOR.has(arg)) i++;
+  }
+  return [];
+}
+
+// `doPipe`: um segmento anterior do mesmo pipe citou raw/, então o caminho chega pela entrada padrão. Só um comando
+// executado por envolvedor (xargs, parallel...) ou um shell lendo a entrada age sobre ele; `forcar` vale dentro do envolvedor.
+function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar = false): boolean {
   const inicio = palavras.findIndex(palavra => !/^[A-Za-z_]\w*=/.test(palavra));
   if (inicio < 0) return false;
   const comando = palavras.slice(inicio);
   const args = comando.slice(1);
   const verbo = comando[0]!.split(/[\\/]/).pop()!.toLowerCase().replace(/\.exe$/, "");
+  if (ENVOLVEDORES.has(verbo)) {
+    const resto = desembrulhar(args);
+    return resto.length ? segmentoEscreve(resto, cwd, doPipe, forcar || doPipe) : false;
+  }
+  if (doPipe && SHELLS.has(verbo)) return true;
   if (verbo === "cp") {
     const alvos = args.flatMap((arg, i) => {
       if (arg.startsWith("--target-directory=")) return [arg.slice(19)];
@@ -118,7 +140,7 @@ function segmentoEscreve(palavras: string[], cwd: string): boolean {
     });
     return (alvos.length ? alvos : [args.at(-1) ?? ""]).some(alvo => escreveEmRaw(alvo, cwd));
   }
-  if (!args.some(palavra => escreveEmRaw(palavra, cwd) || citaRaw(palavra))) return false;
+  if (!forcar && !args.some(palavra => escreveEmRaw(palavra, cwd) || citaRaw(palavra))) return false;
   if (verbo === "rg") return args.some(arg => arg === "--pre" || arg.startsWith("--pre="));
   // Interpretadores com script próprio escrevem onde quiserem: citando raw/, só passa sed sem -i e sem comando w/e.
   if (verbo === "perl") return true;
@@ -128,19 +150,25 @@ function segmentoEscreve(palavras: string[], cwd: string): boolean {
   return !LEITURAS_TERMINAL.has(verbo);
 }
 
+function citaRawSegmento(palavras: string[], cwd: string): boolean {
+  return palavras.slice(1).some(palavra => escreveEmRaw(palavra, cwd) || citaRaw(palavra));
+}
+
 function terminalEscreve(comando: unknown, cwdInicial: string): boolean {
   let cwd = cwdInicial;
   let palavras: string[] = [];
+  let doPipe = false;
   const tokens = tokensDoComando(comando);
   function fechar(): boolean {
     const verbo = palavras[0]?.toLowerCase();
     if (verbo !== undefined && MUDAM_DIRETORIO.has(verbo)) {
-      const alvo = (palavras[1] ?? "").replaceAll("\\", "/");
-      cwd = /^(?:[a-z]:|\/)/i.test(alvo) || !cwd ? posix.normalize(alvo || ".") : posix.normalize(`${cwd.replaceAll("\\", "/")}/${alvo}`);
+      const alvos = palavras.slice(1).filter(palavra => !palavra.startsWith("-") || palavra === "-");
+      const alvo = (alvos[0] ?? "").replaceAll("\\", "/");
+      if (alvo !== "-") cwd = /^(?:[a-z]:|\/)/i.test(alvo) || !cwd ? posix.normalize(alvo || ".") : posix.normalize(`${cwd.replaceAll("\\", "/")}/${alvo}`);
       palavras = [];
       return false;
     }
-    const escreve = segmentoEscreve(palavras, cwd);
+    const escreve = segmentoEscreve(palavras, cwd, doPipe);
     palavras = [];
     return escreve;
   }
@@ -154,7 +182,11 @@ function terminalEscreve(comando: unknown, cwdInicial: string): boolean {
       let alvo = tokens[i + 1];
       if (alvo?.operador && /^[|&]$/.test(alvo.texto)) alvo = tokens[i + 2];
       if (alvo !== undefined && !alvo.operador && escreveEmRaw(alvo.texto, cwd)) return true;
-    } else if ([";", "|", "||", "&&", "&"].includes(token.texto) && fechar()) return true;
+    } else if ([";", "|", "||", "&&", "&"].includes(token.texto)) {
+      const citou = citaRawSegmento(palavras, cwd);
+      if (fechar()) return true;
+      doPipe = token.texto === "|" && (doPipe || citou);
+    }
   }
   return fechar();
 }
