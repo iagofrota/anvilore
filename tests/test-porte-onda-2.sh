@@ -90,12 +90,15 @@ done
 # Duas listas, porque os termos nao sao todos do mesmo tipo:
 #
 #   DISTINTIVOS — nao aparecem em prosa tecnica por acaso. Casam em qualquer
-#     posicao.
+#     posicao e valem para TODO arquivo varrido.
 #   GENERICOS   — sao ao mesmo tempo nome de area do vault privado E palavra
 #     comum da lingua. Casar "pessoal" em qualquer posicao acusaria uma frase
 #     como "wiki pessoal" no README. So contam em POSICAO de caminho
 #     (`wiki/<area>/`) ou de campo (`area: <area>`), que e como um nome de
-#     area de verdade apareceria num script.
+#     area de verdade apareceria num script. E so valem para o que DERIVA do
+#     vault: os scripts em PORTADOS e os modulos em TS_DERIVADOS. O resto do
+#     codigo e dos testes em TypeScript e escrito para o produto, que usa
+#     `pessoal` como area padrao e exemplo legitimo (`area: pessoal`).
 #
 # Cada termo tem a ultima letra escrita como classe de um caractere so
 # (`exempl[o]` casa a palavra inteira exatamente como a grafia direta casaria):
@@ -108,13 +111,24 @@ sujos=0; nao_rastreados=0
 # O codigo portado para TypeScript e seus testes entram pela glob: um porte novo
 # nao precisa lembrar de se registrar aqui.
 TS_PORTADOS=(src/lib/*.ts src/comandos/*.ts src/cli.ts tests/*.test.ts)
+DERIVADOS_DO_VAULT=("${PORTADOS[@]}" "${TS_DERIVADOS[@]}")
+
+# Regex que vale para um arquivo: DISTINTIVOS sempre; GENERICOS so no que deriva do vault.
+regex_para() {
+  local f="$1" d
+  for d in "${DERIVADOS_DO_VAULT[@]}"; do
+    [ "$f" = "$d" ] && { printf '%s' "$DISTINTIVOS|$GENERICOS"; return; }
+  done
+  printf '%s' "$DISTINTIVOS"
+}
+
 for f in "${PORTADOS[@]}" "${TESTES_NOVOS[@]}" "${TS_PORTADOS[@]}"; do
   if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
     conteudo="$(git show ":$f" 2>/dev/null)"
   else
     conteudo="$(cat "$f")"; nao_rastreados=$((nao_rastreados+1))
   fi
-  achado="$(printf '%s' "$conteudo" | grep -inE "$DISTINTIVOS|$GENERICOS" || true)"
+  achado="$(printf '%s' "$conteudo" | grep -inE "$(regex_para "$f")" || true)"
   if [ -n "$achado" ]; then
     falha "conteudo do vault privado em $f: $(printf '%s' "$achado" | head -3 | tr '\n' ' ')"
     sujos=$((sujos+1))
@@ -123,21 +137,36 @@ done
 [ "$sujos" -eq 0 ] && ok "varredura: nada do vault privado nos scripts restantes, nos testes novos e em src/ e tests/*.test.ts"
 
 # PROVA DE DENTES da varredura: uma varredura que nunca acusa nada pode estar
-# acusando nada porque o regex esta quebrado. Um arquivo-isca sintetico, com um
-# nome de area do vault privado em posicao de campo, TEM de ser pego.
+# acusando nada porque o regex esta quebrado. Arquivos-isca sinteticos, montados
+# em pedacos pelo mesmo motivo do regex acima (por extenso, este arquivo se
+# acusaria sozinho): um nome distintivo TEM de ser pego em qualquer arquivo; um
+# nome de area em posicao de campo TEM de ser pego no que deriva do vault e
+# NAO no resto do codigo TypeScript.
 isca="$(mktemp)"
-# O nome da area e montado em pedacos pelo mesmo motivo do regex acima: escrito
-# por extenso, ele faria este arquivo acusar a si mesmo.
 area_isca="pesso""al"
-isca_conteudo="$(printf 'type: concept\narea: %s\n' "$area_isca")"
-printf '%s\n' "$isca_conteudo" > "$isca"
-if grep -qinE "$DISTINTIVOS|$GENERICOS" "$isca"; then
-  ok "a varredura pega uma isca plantada (tem dentes)"
+distintivo_isca="an""ki"
+
+printf 'nota sobre %s\n' "$distintivo_isca" > "$isca"
+if grep -qinE "$(regex_para src/cli.ts)" "$isca" && grep -qinE "$(regex_para "${PORTADOS[0]}")" "$isca"; then
+  ok "a varredura pega um nome distintivo em qualquer arquivo (tem dentes)"
 else
-  falha "a varredura nao pegou a isca — o regex nao mede nada"
+  falha "a varredura nao pegou o nome distintivo — o regex nao mede nada"
 fi
+
+printf 'type: concept\narea: %s\n' "$area_isca" > "$isca"
+if grep -qinE "$(regex_para "${PORTADOS[0]}")" "$isca" && grep -qinE "$(regex_para "${TS_DERIVADOS[0]}")" "$isca"; then
+  ok "a varredura pega uma area do vault nos scripts e nos modulos derivados (tem dentes)"
+else
+  falha "a varredura nao pegou a area do vault no que deriva do vault"
+fi
+if grep -qinE "$(regex_para src/cli.ts)" "$isca" || grep -qinE "$(regex_para tests/lib-frontmatter.test.ts)" "$isca"; then
+  falha "a varredura acusou 'area: $area_isca' em codigo TypeScript do produto (falso positivo)"
+else
+  ok "a varredura tolera 'area: $area_isca' como exemplo no codigo TypeScript do produto"
+fi
+
 printf -- 'type: concept\narea: exemplo\n' > "$isca"
-if grep -qinE "$DISTINTIVOS|$GENERICOS" "$isca"; then
+if grep -qinE "$(regex_para "${PORTADOS[0]}")" "$isca" || grep -qinE "$(regex_para "${TS_DERIVADOS[0]}")" "$isca"; then
   falha "a varredura acusou uma area neutra (falso positivo)"
 else
   ok "a varredura nao acusa area neutra"
