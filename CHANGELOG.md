@@ -20,6 +20,11 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   (`>`/`>>`, `tee`, `mv`, `cp`, `rm`, `sed -i`, `touch`, `git mv`/`rm`…), bloqueia `C:\p\raw\a.md` e payload
   ilegível, e libera leitura. A reinstalação troca a entrada do hook antigo pela nova em Claude,
   Gemini e Copilot. O CI imprime a latência do hook (mediana e p95) em cada sistema.
+- Comando `anvilore init`: o onboarding de áreas. Pergunta no terminal (aceitar as áreas padrão,
+  tirar algumas, adicionar outras) ou recebe `--areas a,b,c`, cria `wiki/<área>/{sources,entities,concepts}`
+  e termina com a mensagem de sucesso e o próximo passo. Recusa nome reservado, nome com `..`, `/`,
+  `\` ou `:` e nomes que só diferem na caixa; repetir não altera nada. Sem terminal e sem `--areas`,
+  reprova em vez de esperar.
 - Comando `anvilore instalar`: configura Claude Code, Codex, Gemini e Copilot usando Bun.
   Preserva preferências, recusa conflitos, simula sem escrever e não altera arquivos ao repetir.
   As skills continuam ligadas à fonte; no Windows, diretórios usam junções. Falhas de ligação

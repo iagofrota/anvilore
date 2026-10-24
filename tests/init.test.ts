@@ -1,0 +1,325 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { PassThrough, Readable } from "node:stream";
+import { AREAS_PADRAO, comandoInit, inicializar } from "../src/comandos/init";
+import { executar } from "../src/cli";
+import { capturarConsole } from "./apoio/console";
+
+let raiz: string;
+let console_: ReturnType<typeof capturarConsole>;
+
+beforeEach(() => {
+  raiz = mkdtempSync(join(tmpdir(), "anvilore-init-"));
+  console_ = capturarConsole();
+});
+
+afterEach(() => {
+  console_.restaurar();
+  rmSync(raiz, { recursive: true, force: true });
+});
+
+const TIPOS = ["concepts", "entities", "sources"];
+const listar = (dir: string) => readdirSync(dir).sort();
+
+function entradaCom(...respostas: string[]): Readable {
+  return Readable.from(respostas.map((r) => `${r}\n`));
+}
+
+function saidaMudaEcoada(): { saida: PassThrough; texto: () => string } {
+  const saida = new PassThrough();
+  const pedacos: string[] = [];
+  saida.on("data", (p) => pedacos.push(String(p)));
+  return { saida, texto: () => pedacos.join("") };
+}
+
+describe("inicializar", () => {
+  test("Dado as áreas padrão, Então são pessoal, profissional, projetos-paralelos e saude", () => {
+    expect([...AREAS_PADRAO]).toEqual(["pessoal", "profissional", "projetos-paralelos", "saude"]);
+  });
+
+  test("Dado pessoal e saude, Quando inicializar, Então cria só essas duas com sources, entities e concepts", async () => {
+    const r = await inicializar({ raiz, areas: ["pessoal", "saude"] });
+    expect(r.criadas).toEqual(["pessoal", "saude"]);
+    expect(r.jaExistiam).toEqual([]);
+    expect(listar(join(raiz, "wiki"))).toEqual(["pessoal", "saude"]);
+    expect(listar(join(raiz, "wiki", "pessoal"))).toEqual(TIPOS);
+    expect(listar(join(raiz, "wiki", "saude"))).toEqual(TIPOS);
+  });
+
+  test("Dado init repetido, Quando inicializar de novo, Então devolve jaExistiam e não altera nada", async () => {
+    await inicializar({ raiz, areas: ["pessoal"] });
+    const pagina = join(raiz, "wiki", "pessoal", "concepts", "minha.md");
+    writeFileSync(pagina, "conteudo do usuario");
+    const r = await inicializar({ raiz, areas: ["pessoal"] });
+    expect(r.criadas).toEqual([]);
+    expect(r.jaExistiam).toEqual(["pessoal"]);
+    expect(await Bun.file(pagina).text()).toBe("conteudo do usuario");
+    expect(listar(join(raiz, "wiki", "pessoal", "concepts"))).toEqual(["minha.md"]);
+  });
+
+  test("Dado área existente sem um dos tipos, Quando inicializar, Então completa os tipos e conta como criada", async () => {
+    mkdirSync(join(raiz, "wiki", "pessoal", "sources"), { recursive: true });
+    const r = await inicializar({ raiz, areas: ["pessoal"] });
+    expect(r.criadas).toEqual(["pessoal"]);
+    expect(listar(join(raiz, "wiki", "pessoal"))).toEqual(TIPOS);
+  });
+
+  test("Dado uma área nova e uma existente, Quando inicializar, Então separa criadas de jaExistiam", async () => {
+    await inicializar({ raiz, areas: ["pessoal"] });
+    const r = await inicializar({ raiz, areas: ["pessoal", "saude"] });
+    expect(r.criadas).toEqual(["saude"]);
+    expect(r.jaExistiam).toEqual(["pessoal"]);
+  });
+
+  test("Dado _meta como nome de área, Quando inicializar, Então recusa e não cria nada", async () => {
+    await expect(inicializar({ raiz, areas: ["pessoal", "_meta"] })).rejects.toThrow(/reservado/);
+    expect(existsSync(join(raiz, "wiki"))).toBe(false);
+  });
+
+  test("Dado log em outra caixa como nome de área, Quando inicializar, Então recusa como reservado", async () => {
+    await expect(inicializar({ raiz, areas: ["LOG"] })).rejects.toThrow(/reservado/);
+  });
+
+  test("Dado nome de diretório de tipo como área, Quando inicializar, Então recusa", async () => {
+    await expect(inicializar({ raiz, areas: ["sources"] })).rejects.toThrow(/tipo/);
+  });
+
+  for (const nome of ["../fora", "a/b", "a\\b", "C:x", "..", ".", "a..b", "", "   "]) {
+    test(`Dado o nome ${JSON.stringify(nome)}, Quando inicializar, Então recusa nome inválido`, async () => {
+      await expect(inicializar({ raiz, areas: [nome] })).rejects.toThrow(/inválido|vazio/);
+      expect(existsSync(join(raiz, "wiki"))).toBe(false);
+    });
+  }
+
+  test("Dado nome com ponto ou espaço no fim, Quando inicializar, Então recusa porque o Windows os descarta", async () => {
+    await expect(inicializar({ raiz, areas: ["saude."] })).rejects.toThrow(/inválido/);
+    await expect(inicializar({ raiz, areas: ["saude "] })).rejects.toThrow(/inválido/);
+  });
+
+  test("Dado nenhuma área, Quando inicializar, Então recusa", async () => {
+    await expect(inicializar({ raiz, areas: [] })).rejects.toThrow(/nenhuma área/);
+  });
+
+  test("Dado a mesma área duas vezes, Quando inicializar, Então cria uma só", async () => {
+    const r = await inicializar({ raiz, areas: ["pessoal", "pessoal"] });
+    expect(r.criadas).toEqual(["pessoal"]);
+  });
+
+  test("Dado nomes que só diferem na caixa, Quando inicializar, Então aponta o conflito e não cria nada", async () => {
+    await expect(inicializar({ raiz, areas: ["Saude", "saude"] })).rejects.toThrow(/conflito/);
+    expect(existsSync(join(raiz, "wiki"))).toBe(false);
+  });
+
+  test("Dado nomes que só diferem pela normalização Unicode, Quando inicializar, Então aponta o conflito", async () => {
+    await expect(inicializar({ raiz, areas: ["saúde", "saúde"] })).rejects.toThrow(/conflito/);
+  });
+
+  test("Dado pasta existente que só difere na caixa, Quando inicializar, Então aponta o conflito", async () => {
+    mkdirSync(join(raiz, "wiki", "Saude"), { recursive: true });
+    await expect(inicializar({ raiz, areas: ["saude"] })).rejects.toThrow(/conflito/);
+  });
+
+  test("Dado área que existe como arquivo, Quando inicializar, Então falha dizendo que não é diretório", async () => {
+    mkdirSync(join(raiz, "wiki"), { recursive: true });
+    writeFileSync(join(raiz, "wiki", "pessoal"), "x");
+    await expect(inicializar({ raiz, areas: ["pessoal"] })).rejects.toThrow(/não é um diretório/);
+  });
+
+  test("Dado área que é link simbólico para uma pasta, Quando inicializar, Então segue o link e completa os tipos", async () => {
+    const alvo = mkdtempSync(join(tmpdir(), "anvilore-init-alvo-"));
+    try {
+      mkdirSync(join(raiz, "wiki"), { recursive: true });
+      symlinkSync(alvo, join(raiz, "wiki", "pessoal"), process.platform === "win32" ? "junction" : "dir");
+      const r = await inicializar({ raiz, areas: ["pessoal"] });
+      expect(r.criadas).toEqual(["pessoal"]);
+      expect(listar(alvo)).toEqual(TIPOS);
+    } finally {
+      rmSync(alvo, { recursive: true, force: true });
+    }
+  });
+
+  test("Dado área que é link simbólico quebrado, Quando inicializar, Então avisa e não cria", async () => {
+    mkdirSync(join(raiz, "wiki"), { recursive: true });
+    symlinkSync(join(raiz, "nao-existe"), join(raiz, "wiki", "pessoal"), process.platform === "win32" ? "junction" : "dir");
+    const r = await inicializar({ raiz, areas: ["pessoal", "saude"] });
+    expect(r.criadas).toEqual(["saude"]);
+    expect(r.avisos.join("\n")).toMatch(/pessoal.*quebrado/);
+  });
+});
+
+describe("comandoInit", () => {
+  test("Dado --areas pessoal,saude, Quando rodar sem perguntas, Então cria as duas e devolve 0", async () => {
+    const codigo = await comandoInit(["--areas", "pessoal,saude"], { raiz });
+    expect(codigo).toBe(0);
+    expect(listar(join(raiz, "wiki"))).toEqual(["pessoal", "saude"]);
+    expect(listar(join(raiz, "wiki", "saude"))).toEqual(TIPOS);
+  });
+
+  test("Dado --areas, Quando rodar, Então a saída tem a mensagem de sucesso e o próximo passo em uma linha", async () => {
+    mkdirSync(join(raiz, "raw", "exemplo"), { recursive: true });
+    writeFileSync(join(raiz, "raw", "exemplo", "llm-wiki.md"), "# exemplo");
+    await comandoInit(["--areas", "pessoal"], { raiz });
+    const saida = console_.saida.join("\n");
+    expect(saida).toContain("Pronto: 1 área criada em wiki/ (pessoal).");
+    const proximo = console_.saida.filter((l) => l.startsWith("Próximo passo:"));
+    expect(proximo).toEqual(["Próximo passo: peça ao seu agente para seguir skills/ingest/SKILL.md e ingerir raw/exemplo/llm-wiki.md."]);
+  });
+
+  test("Dado raw/exemplo ausente, Quando rodar, Então o próximo passo pede um documento em raw/", async () => {
+    await comandoInit(["--areas", "pessoal"], { raiz });
+    const proximo = console_.saida.filter((l) => l.startsWith("Próximo passo:"));
+    expect(proximo).toEqual(["Próximo passo: coloque um documento em raw/ e peça ao seu agente para seguir skills/ingest/SKILL.md e ingeri-lo."]);
+  });
+
+  test("Dado init repetido, Quando rodar de novo, Então informa que já existiam e devolve 0", async () => {
+    await comandoInit(["--areas", "pessoal,saude"], { raiz });
+    console_.saida.length = 0;
+    const codigo = await comandoInit(["--areas", "pessoal,saude"], { raiz });
+    expect(codigo).toBe(0);
+    const saida = console_.saida.join("\n");
+    expect(saida).toContain("Já existiam: pessoal, saude.");
+    expect(saida).toContain("Pronto: nada novo a criar");
+    expect(saida).toContain("Próximo passo:");
+  });
+
+  test("Dado área nova e existente, Quando rodar, Então lista as duas situações", async () => {
+    await comandoInit(["--areas", "pessoal"], { raiz });
+    console_.saida.length = 0;
+    await comandoInit(["--areas", "pessoal,saude"], { raiz });
+    const saida = console_.saida.join("\n");
+    expect(saida).toContain("Já existiam: pessoal.");
+    expect(saida).toContain("Pronto: 1 área criada em wiki/ (saude).");
+  });
+
+  test("Dado várias áreas criadas, Quando rodar, Então a mensagem usa o plural", async () => {
+    await comandoInit(["--areas", "pessoal,saude"], { raiz });
+    expect(console_.saida.join("\n")).toContain("Pronto: 2 áreas criadas em wiki/ (pessoal, saude).");
+  });
+
+  test("Dado --areas _meta, Quando rodar, Então devolve 1, nomeia o motivo e não imprime sucesso", async () => {
+    const codigo = await comandoInit(["--areas", "_meta"], { raiz });
+    expect(codigo).toBe(1);
+    expect(console_.erros.join("\n")).toMatch(/reservado/);
+    expect(console_.saida.join("\n")).not.toContain("Pronto");
+  });
+
+  test("Dado --areas com item vazio, Quando rodar, Então devolve 1 recusando o nome vazio", async () => {
+    const codigo = await comandoInit(["--areas", "pessoal,,saude"], { raiz });
+    expect(codigo).toBe(1);
+    expect(console_.erros.join("\n")).toMatch(/vazio/);
+    expect(existsSync(join(raiz, "wiki"))).toBe(false);
+  });
+
+  test("Dado argumento desconhecido, Quando rodar, Então devolve 2 com o uso", async () => {
+    expect(await comandoInit(["--nada"], { raiz })).toBe(2);
+    expect(console_.erros.join("\n")).toContain("Uso: anvilore init");
+  });
+
+  test("Dado argumento posicional, Quando rodar, Então devolve 2 com o uso", async () => {
+    expect(await comandoInit(["pessoal"], { raiz })).toBe(2);
+    expect(console_.erros.join("\n")).toContain("Uso: anvilore init");
+  });
+
+  test("Dado --help, Quando rodar, Então devolve 2 com o uso (R56)", async () => {
+    expect(await comandoInit(["--help"], { raiz })).toBe(2);
+    expect(console_.erros.join("\n")).toContain("--areas");
+  });
+
+  test("Dado sem --areas e sem terminal, Quando rodar, Então reprova sem travar e sem criar nada", async () => {
+    const codigo = await comandoInit([], { raiz, interativo: false });
+    expect(codigo).toBe(2);
+    expect(console_.erros.join("\n")).toMatch(/--areas.*terminal|terminal.*--areas/);
+    expect(existsSync(join(raiz, "wiki"))).toBe(false);
+  });
+});
+
+describe("comandoInit interativo", () => {
+  test("Dado Enter nas duas perguntas, Quando rodar, Então aceita as quatro áreas padrão", async () => {
+    const { saida, texto } = saidaMudaEcoada();
+    const codigo = await comandoInit([], { raiz, interativo: true, entrada: entradaCom("", ""), saida });
+    expect(codigo).toBe(0);
+    expect(listar(join(raiz, "wiki"))).toEqual(["pessoal", "profissional", "projetos-paralelos", "saude"]);
+    expect(texto()).toContain("pessoal");
+    expect(texto()).toContain("projetos-paralelos");
+  });
+
+  test("Dado números 1,4 e uma nova, Quando rodar, Então mantém essas e adiciona a outra", async () => {
+    const { saida } = saidaMudaEcoada();
+    const codigo = await comandoInit([], { raiz, interativo: true, entrada: entradaCom("1,4", "estudos"), saida });
+    expect(codigo).toBe(0);
+    expect(listar(join(raiz, "wiki"))).toEqual(["estudos", "pessoal", "saude"]);
+  });
+
+  test("Dado nomes na resposta, Quando rodar, Então mantém as nomeadas", async () => {
+    const { saida } = saidaMudaEcoada();
+    await comandoInit([], { raiz, interativo: true, entrada: entradaCom("saude, pessoal", ""), saida });
+    expect(listar(join(raiz, "wiki"))).toEqual(["pessoal", "saude"]);
+  });
+
+  test("Dado nenhuma e duas novas, Quando rodar, Então cria só as novas", async () => {
+    const { saida } = saidaMudaEcoada();
+    await comandoInit([], { raiz, interativo: true, entrada: entradaCom("nenhuma", "estudos, casa"), saida });
+    expect(listar(join(raiz, "wiki"))).toEqual(["casa", "estudos"]);
+  });
+
+  test("Dado nenhuma e nada novo, Quando rodar, Então devolve 1 dizendo que nenhuma área foi escolhida", async () => {
+    const { saida } = saidaMudaEcoada();
+    const codigo = await comandoInit([], { raiz, interativo: true, entrada: entradaCom("nenhuma", ""), saida });
+    expect(codigo).toBe(1);
+    expect(console_.erros.join("\n")).toMatch(/nenhuma área/);
+    expect(existsSync(join(raiz, "wiki"))).toBe(false);
+  });
+
+  test("Dado resposta com número fora da lista, Quando rodar, Então devolve 1 sem criar nada", async () => {
+    const { saida } = saidaMudaEcoada();
+    const codigo = await comandoInit([], { raiz, interativo: true, entrada: entradaCom("9", ""), saida });
+    expect(codigo).toBe(1);
+    expect(console_.erros.join("\n")).toMatch(/9/);
+    expect(existsSync(join(raiz, "wiki"))).toBe(false);
+  });
+
+  test("Dado resposta com nome que não é padrão, Quando rodar, Então devolve 1 sugerindo adicionar na segunda pergunta", async () => {
+    const { saida } = saidaMudaEcoada();
+    const codigo = await comandoInit([], { raiz, interativo: true, entrada: entradaCom("estudos", ""), saida });
+    expect(codigo).toBe(1);
+    expect(console_.erros.join("\n")).toMatch(/estudos.*padrão/);
+  });
+
+  test("Dado área extra reservada, Quando rodar, Então devolve 1 recusando", async () => {
+    const { saida } = saidaMudaEcoada();
+    const codigo = await comandoInit([], { raiz, interativo: true, entrada: entradaCom("", "_meta"), saida });
+    expect(codigo).toBe(1);
+    expect(console_.erros.join("\n")).toMatch(/reservado/);
+    expect(existsSync(join(raiz, "wiki"))).toBe(false);
+  });
+
+  test("Dado entrada que acaba antes da resposta, Quando rodar, Então devolve 1 sem travar", async () => {
+    const { saida } = saidaMudaEcoada();
+    const codigo = await comandoInit([], { raiz, interativo: true, entrada: Readable.from([]), saida });
+    expect(codigo).toBe(1);
+    expect(console_.erros.join("\n")).toMatch(/entrada encerrada/);
+    expect(existsSync(join(raiz, "wiki"))).toBe(false);
+  });
+
+  test("Dado --areas e terminal, Quando rodar, Então não pergunta nada", async () => {
+    const { saida, texto } = saidaMudaEcoada();
+    const codigo = await comandoInit(["--areas", "saude"], { raiz, interativo: true, entrada: Readable.from([]), saida });
+    expect(codigo).toBe(0);
+    expect(texto()).toBe("");
+  });
+});
+
+describe("cli", () => {
+  test("Dado o subcomando init na tabela, Quando executar com --areas, Então cria as áreas no cwd", async () => {
+    const antes = process.cwd();
+    process.chdir(raiz);
+    try {
+      expect(await executar(["init", "--areas", "pessoal"])).toBe(0);
+    } finally {
+      process.chdir(antes);
+    }
+    expect(listar(join(raiz, "wiki", "pessoal"))).toEqual(TIPOS);
+  });
+});

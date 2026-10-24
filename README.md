@@ -16,7 +16,7 @@ repositório**:
 | `SCHEMA.md` | o contrato de formato das páginas: tipos, frontmatter, wikilinks e callouts |
 | `AGENTS.md` | o contrato do agente: o que ele faz, o que não faz |
 | `skills/ingest`, `skills/query`, `skills/lint` | ingerir uma fonte; responder citando página; varrer a wiki atrás de problemas estruturais |
-| `src/` | o comando `anvilore` em TypeScript, que roda no [Bun](https://bun.sh); traz o validador (`validar`) e o instalador (`instalar`) |
+| `src/` | o comando `anvilore` em TypeScript, que roda no [Bun](https://bun.sh); traz o validador (`validar`), o instalador (`instalar`) e o onboarding de áreas (`init`) |
 | `scripts/` | os scripts de manutenção (índice, log, lacunas, áreas) |
 | `hooks/` | a regra "`raw/` é imutável" na forma de hook; a decisão mora num subcomando só (`anvilore hook proteger-raw`, em `src/comandos/hook-proteger-raw.ts`) |
 | `anvilore instalar` | configura um clone para o agente que você usa: Claude Code, Codex, Gemini ou Copilot |
@@ -68,12 +68,23 @@ Com o clone configurado:
 1. Abra o repositório com seu agente de código. `CLAUDE.md` aponta para
    `AGENTS.md` — é o contrato que ele precisa ler antes de tocar em qualquer
    arquivo.
-2. Peça ao agente para seguir `skills/ingest/SKILL.md` e ingerir
+2. Escolha suas áreas da vida:
+
+   ```bash
+   bun src/cli.ts init
+   ```
+
+   O comando oferece as áreas padrão (pessoal, profissional,
+   projetos-paralelos e saude); você aceita todas, tira algumas e adiciona
+   outras, e cada área vira `wiki/<área>/{sources,entities,concepts}`. Sem
+   terminal, passe `--areas pessoal,saude`. Repetir o comando não altera o que
+   já existe.
+3. Peça ao agente para seguir `skills/ingest/SKILL.md` e ingerir
    `raw/exemplo/llm-wiki.md` — o próprio texto que originou este padrão.
-3. Depois de ingerido, peça para ele seguir `skills/query/SKILL.md` e
+4. Depois de ingerido, peça para ele seguir `skills/query/SKILL.md` e
    responder alguma pergunta sobre o conteúdo ingerido, citando as páginas
    que criou.
-4. Valide a estrutura:
+5. Valide a estrutura:
 
    ```bash
    bun src/cli.ts validar
