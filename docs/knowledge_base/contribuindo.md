@@ -115,7 +115,12 @@ Versionamento Semântico.
   em linha em branco, cerca, item de lista (o numerado só se começar em 1 ou for irmão de outro
   numerado), início de citação (a continuação com `>` não corta), título ou régua: um código em linha que de
   verdade atravessa esses blocos não é reconhecido como código, e um link dentro dele pode reprovar
-  sem necessidade.
+  sem necessidade. Em sentido contrário, dois limites deixam passar um link quebrado: um bloco
+  dentro de uma citação (item, título, régua) não encerra o parágrafo, então uma crase sem par
+  na linha de cima pode parear com uma crase da linha de baixo e esconder o link entre elas
+  (uma linha de texto com crase sem par seguida de `> - [q](quebrado.md)` e de outra crase); e
+  um item numerado logo depois de um item com marcador não abre lista nova, então no par de linhas
+  `- a` e `2. [q](quebrado.md)` a mesma crase sem par atravessa os dois itens.
 - **A caixa do nome só é conferida no Linux.** No macOS e no Windows o disco não diferencia
   maiúsculas de minúsculas: `[x](Decisoes.md)` para o arquivo decisoes.md passa lá e reprova no
   Linux. Quem pega é o job Ubuntu do CI.
