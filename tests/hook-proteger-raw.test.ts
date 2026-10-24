@@ -564,3 +564,79 @@ test("Dado New-Item de link Quando mira raw Então bloqueia e diretório comum n
   }
   expect(decidir(terminal("New-Item -ItemType Directory -Path wiki\\x", "powershell")).acao).toBe("liberar");
 });
+
+// Rodada 3 — I2: find e grep -r sobre a raiz do projeto alimentando escrita (como gci -Recurse e ls -R).
+test("Dado find ou grep recursivo sobre a raiz Quando a pipeline escreve Então bloqueia e diretórios da wiki passam", () => {
+  const proj = "/srv/equipe/proj";
+  for (const comando of ["find . -name '*.tmp' | xargs rm", "find . -type f | xargs rm -f", "grep -rl foo . | xargs sed -i 's/foo/bar/'", "grep -Rl foo | xargs sed -i s/foo/bar/", "grep -rl foo --include=*.md . | xargs sed -Ei s/a/b/", "find . | xargs --max-args 1 rm", "find .. -name proj | xargs rm -rf", "find . -name x | while read f; do rm \"$f\"; done", "grep --recursive -l foo . | xargs rm"]) {
+    expect(decidir(comCwd(comando, proj)).acao).toBe("bloquear");
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  }
+  for (const comando of ["find wiki -name '*.tmp' | xargs rm", "find . -name '*.md' | xargs wc -l", "grep -rl foo wiki | xargs sed -i s/a/b/", "find . -name x | head", "grep -rn foo . | wc -l", "find wiki -type f | while read f; do rm \"$f\"; done", "cd wiki && find . -name '*.tmp' | xargs rm"]) {
+    expect(decidir(comCwd(comando, proj)).acao).toBe("liberar");
+  }
+});
+
+// Rodada 3 — I3: projeto direto na raiz do sistema (contêiner: /workspace; Windows: C:\proj).
+test("Dado projeto na raiz do sistema Quando o alvo sobe para a raiz Então o ancestral é resolvido", () => {
+  for (const comando of ["cd .. && rm -rf workspace", "rm -rf ..", "find .. -name '*.tmp' -delete", "rm -rf ../workspace", "rm -rf /workspace", "rm -rf /*", "cd / && rm -rf workspace", "cd / && rm -rf *", "rm -rf /"]) {
+    expect(decidir(comCwd(comando, "/workspace")).acao).toBe("bloquear");
+  }
+  for (const comando of ["cd .. && rm -rf outro", "rm -rf ../outro", "rm -rf wiki/x", "cd / && rm -rf outro"]) {
+    expect(decidir(comCwd(comando, "/workspace")).acao).toBe("liberar");
+  }
+  for (const comando of ["cd .. && rm -rf proj", "rm -rf ..", "Remove-Item -Recurse -Force C:\\proj", "Remove-Item -Recurse -Force ..\\proj", "cd C:\\ ; Remove-Item -Recurse -Force proj", "rd /s /q C:\\proj"]) {
+    expect(decidir(JSON.stringify({ tool_name: "powershell", cwd: "C:\\proj", tool_input: { command: comando } })).acao).toBe("bloquear");
+  }
+  expect(decidir(JSON.stringify({ tool_name: "powershell", cwd: "C:\\proj", tool_input: { command: "cd .. ; Remove-Item -Recurse -Force outro" } })).acao).toBe("liberar");
+});
+
+// Rodada 3 — Menores: script de sh -c dentro de find -exec, env -S, leitores de PDF.
+test("Dado find -exec sh -c ou env -S Quando o script apaga amplo Então bloqueia", () => {
+  for (const comando of ["find . -name '*.tmp' -exec sh -c 'rm \"$1\"' _ {} \\;", "find . -exec bash -c 'rm -f \"$0\"' {} +", "env -S 'rm -rf .'", "env --split-string='rm -rf .'", "env -S 'rm -rf .' FOO=1"]) {
+    expect(decidir(comCwd(comando, "/srv/equipe/proj")).acao).toBe("bloquear");
+  }
+  expect(decidir(comCwd("find . -name '*.tmp' -exec sh -c 'cat \"$1\"' _ {} \\;", "/srv/equipe/proj")).acao).toBe("liberar");
+  expect(decidir(comCwd("env -S 'cat wiki/a.md'", "/srv/equipe/proj")).acao).toBe("liberar");
+});
+test("Dado leitores de PDF Quando leem raw Então liberam", () => {
+  for (const comando of ["pdftotext raw/a.pdf /tmp/a.txt", "pdftotext raw/a.pdf -", "pdfinfo raw/a.pdf", "pdftotext -layout raw/a.pdf wiki/a.txt"]) {
+    expect(decidir(terminal(comando)).acao).toBe("liberar");
+  }
+  expect(decidir(terminal("pdftotext wiki/a.pdf raw/a.txt")).acao).toBe("bloquear");
+});
+
+// Revisão automática (rodada 3): custo linear em blocos aninhados e corpo do bloco além do primeiro comando.
+test("Dado muitos blocos aninhados Quando decido Então termina depressa (sem recursão exponencial)", () => {
+  const comando = `cat raw/a.md | % ${"{ ".repeat(300)}Write-Host $_${" }".repeat(300)}`;
+  const inicio = performance.now();
+  expect(decidir(terminal(comando, "powershell")).acao).toBeDefined();
+  expect(performance.now() - inicio).toBeLessThan(2000);
+  const profundo = `gci raw | % ${"{ ".repeat(300)}Remove-Item $_${" }".repeat(300)}`;
+  expect(decidir(terminal(profundo, "powershell")).acao).toBe("bloquear");
+});
+test("Dado bloco alimentado por raw Quando um comando depois de ; grava em caminho do item Então bloqueia", () => {
+  for (const comando of ["gci raw | % { Write-Host $_; Set-Content $_.FullName x }", "gci raw | % { Write-Host $_; Add-Content -Path $_.FullName -Value x }", "gci raw | ForEach-Object { \"x\" > $_.FullName }", "gci raw | % { $a = 1; Clear-Content $_ }", "gci raw | % { Write-Host $_ ; Out-File -FilePath $_.FullName }"]) {
+    expect(decidir(terminal(comando, "powershell")).acao).toBe("bloquear");
+  }
+  for (const comando of ["gci raw | % { Write-Host $_; Set-Content wiki\\a.md $_.Name }", "gci wiki | % { Write-Host $_; Set-Content $_.FullName x }", "gci raw | % { Write-Host $_; $_.Name }"]) {
+    expect(decidir(terminal(comando, "powershell")).acao).toBe("liberar");
+  }
+});
+
+// Barra invertida no PowerShell/cmd é separador de caminho: `raw\\ -Force` não pode virar uma palavra só.
+test("Dado PowerShell com caminho terminado em barra invertida e opções depois Quando o destino é raw Então bloqueia", () => {
+  for (const comando of ["Copy-Item wiki\\a.md raw\\ -Force", "Remove-Item raw\\ -Recurse", "Copy-Item wiki\\a.md raw\\ ; Write-Host ok", "Remove-Item \"raw\\\" -Recurse", "Move-Item raw\\a.md wiki\\ -Force"]) {
+    expect(decidir(terminal(comando, "powershell")).acao).toBe("bloquear");
+  }
+  expect(decidir(terminal("Copy-Item raw\\a.md wiki\\ -Force", "powershell")).acao).toBe("liberar");
+  expect(decidir(terminal("rm raw/a\\ b.md")).acao).toBe("bloquear");
+  expect(decidir(terminal("rm wiki/a\\ b.md")).acao).toBe("liberar");
+  expect(decidir(JSON.stringify({ tool_name: "shell", tool_input: { command: ["powershell.exe", "-Command", "Copy-Item wiki\\a.md raw\\ -Force"] } })).acao).toBe("bloquear");
+  expect(decidir(terminal("cmd /c copy wiki\\a.md raw\\ /y")).acao).toBe("bloquear");
+});
+test("Dado script de sh -c ilegível ou envolvedor sem comando em comando que cita raw Quando decido Então não quebra", () => {
+  expect(decidir(terminal("cat raw/a.md; find . -exec sh -c 'echo \"' _ {} \;")).acao).toBeDefined();
+  expect(decidir(terminal("cat raw/a.md; time")).acao).toBe("liberar");
+  expect(decidir(terminal("cat raw/a.md; nice -n 5")).acao).toBe("liberar");
+});

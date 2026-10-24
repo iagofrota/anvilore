@@ -15,7 +15,7 @@ const MUDAM_DIRETORIO = new Set(["cd", "chdir", "pushd", "popd", "set-location",
 const LEITURAS_TERMINAL = new Set([
   "cat", "rg", "grep", "ls", "head", "tail", "wc", "echo", "printf", "pwd", "stat", "file", "diff",
   "cut", "du", "sha256sum", "md5sum", "shasum", "basename", "dirname", "realpath", "readlink",
-  "nl", "tac", "od", "strings", "test", "[", "true", "false",
+  "nl", "tac", "od", "strings", "test", "[", "true", "false", "pdfinfo",
   "get-content", "gc", "type", "dir", "get-childitem", "gci", "select-string", "sls", "get-item", "gi", "get-filehash",
 ]);
 // Verbos que executam outro comando: o que importa é o comando de dentro (as opções de cada um estão em OPCOES_ENVOLVEDOR).
@@ -30,7 +30,7 @@ const OPCOES_ENVOLVEDOR: Record<string, { valor: string[]; posicionais?: number 
   doas: { valor: ["-u", "-C"] },
   time: { valor: ["-o", "-f", "--output", "--format"] },
   stdbuf: { valor: ["-i", "-o", "-e"] },
-  xargs: { valor: ["-I", "-n", "-P", "-L", "-d", "-E", "-s", "-a", "-l", "-i"] },
+  xargs: { valor: ["-I", "-n", "-P", "-L", "-d", "-E", "-s", "-a", "-l", "-i", "--max-args", "--max-procs", "--max-lines", "--max-chars", "--delimiter", "--arg-file", "--replace", "--eof"] },
   parallel: { valor: ["-j", "-S", "-a", "-N", "-n", "-L", "-I"] },
   exec: { valor: ["-a"] },
 };
@@ -89,7 +89,8 @@ function caminhosDe(valor: unknown): string[] {
 }
 
 // Reconhece palavras, aspas e operadores; não executa nem expande código de shell.
-function tokenizar(comando: string): Token[] {
+// `windows`: no PowerShell e no cmd a barra invertida é separador de caminho, não escape (`raw\ -Force`, `"raw\"`).
+function tokenizar(comando: string, windows = false): Token[] {
   const tokens: Token[] = [];
   let palavra = "", aspas = "";
   function guardar() {
@@ -101,11 +102,11 @@ function tokenizar(comando: string): Token[] {
     const seguinte = comando[i + 1] ?? "";
     if (aspas) {
       if (caractere === aspas) aspas = "";
-      else if (aspas === '"' && caractere === "\\" && /["\\$`]/.test(seguinte) && seguinte) palavra += comando[++i];
+      else if (!windows && aspas === '"' && caractere === "\\" && /["\\$`]/.test(seguinte) && seguinte) palavra += comando[++i];
       else palavra += caractere;
     } else if (caractere === "'" || caractere === '"') {
       aspas = caractere;
-    } else if (caractere === "\\" && seguinte && /[\s'";|&<>\\]/.test(seguinte)) {
+    } else if (!windows && caractere === "\\" && seguinte && /[\s'";|&<>\\]/.test(seguinte)) {
       palavra += comando[++i];
     } else if (caractere === "`" || caractere === "(" || caractere === ")" || (caractere === "$" && /[({]/.test(seguinte) && seguinte)) {
       throw new Error("subshell ou expansão não interpretável");
@@ -125,8 +126,8 @@ function tokenizar(comando: string): Token[] {
   return tokens;
 }
 
-function tokensDoComando(comando: unknown): Token[] {
-  if (typeof comando === "string") return tokenizar(comando);
+function tokensDoComando(comando: unknown, windows = false): Token[] {
+  if (typeof comando === "string") return tokenizar(comando, windows);
   if (!Array.isArray(comando) || !comando.length || !comando.every(item => typeof item === "string")) {
     throw new Error("comando de terminal ilegível");
   }
@@ -134,7 +135,7 @@ function tokensDoComando(comando: unknown): Token[] {
   if (/^(?:bash|sh|zsh|powershell)(?:\.exe)?$/i.test(argv[0]!)) {
     const argumento = argv.findIndex(item => /^(?:-[a-z]*c|-command)$/i.test(item));
     const script = argv[argumento + 1];
-    if (argumento >= 0 && script !== undefined) return tokenizar(script);
+    if (argumento >= 0 && script !== undefined) return tokenizar(script, /^(?:powershell|pwsh)(?:\.exe)?$/i.test(argv[0]!));
   }
   return argv.map(texto => ({ texto, operador: false }));
 }
@@ -154,7 +155,11 @@ function analisarGit(args: string[]): { subcomando?: string; globais: string[] }
 // ancestral quando é a própria raiz ou um diretório que a contém. Caminho relativo é resolvido contra o cwd atual (que pode ter
 // mudado com `cd`). Sem cwd absoluto, vale a heurística de `.`, `..` e `*`.
 function ancestralDeRaw(alvo: string, cwd: string, raiz: string): boolean {
-  const normal = (texto: string) => posix.normalize(texto.replaceAll("\\", "/").toLowerCase()).replace(/\/+$/, "");
+  // `/` e `c:/` ficam como estão (sem a barra final viram "" e "c:", que não são absolutos).
+  const normal = (texto: string) => {
+    const n = posix.normalize(texto.replaceAll("\\", "/").toLowerCase()).replace(/(?<=.)\/+$/, "");
+    return /^[a-z]:$/.test(n) ? `${n}/` : n;
+  };
   const absoluto = (texto: string) => /^(?:[a-z]:)?\//.test(texto);
   if (/^(?:[a-z]:)?[\\/]+$/i.test(alvo.trim())) return true;
   const atual = normal(cwd), base = normal(raiz);
@@ -162,14 +167,26 @@ function ancestralDeRaw(alvo: string, cwd: string, raiz: string): boolean {
   const todos = /(?:^|\/)\*\*?$/.test(bruto);
   const limpo = normal(todos ? posix.dirname(bruto) : bruto);
   const resolvido = absoluto(limpo) ? limpo : absoluto(atual) ? posix.normalize(`${atual}/${limpo}`) : undefined;
-  if (resolvido !== undefined && absoluto(base)) return base === resolvido || base.startsWith(`${resolvido}/`);
+  if (resolvido !== undefined && absoluto(base)) return base === resolvido || base.startsWith(resolvido.endsWith("/") ? resolvido : `${resolvido}/`);
   if (!/^(?:\.\.\/)*(?:\.\.|\.)$/.test(limpo)) return false;
   const subdiretorio = atual !== "" && atual !== "." && !absoluto(atual) && !atual.startsWith("..");
   return !subdiretorio || limpo.startsWith("..");
 }
 
-// Diretórios que uma listagem recursiva (`Get-ChildItem -Recurse`, `ls -R`) percorre: os argumentos que não são opção nem valor de filtro.
+// Diretórios que uma listagem recursiva (`Get-ChildItem -Recurse`, `ls -R`, `find`, `grep -r`) percorre.
 function listagemRecursivaAncestral(verbo: string, args: string[], cwd: string, raiz: string): boolean {
+  const ancestral = (caminhos: string[]) => (caminhos.length ? caminhos : ["."]).some(alvo => ancestralDeRaw(alvo, cwd, raiz));
+  if (verbo === "find") return ancestral(caminhosDoFind(args));
+  if (["grep", "egrep", "fgrep"].includes(verbo)) {
+    if (!args.some(arg => arg === "--recursive" || arg === "--dereference-recursive" || (!arg.startsWith("--") && /^-[A-Za-z]*[rR]/.test(arg)))) return false;
+    const comPadrao = args.some(arg => /^-[A-Za-z]*[ef]$/.test(arg) || arg.startsWith("--regexp") || arg.startsWith("--file"));
+    const posicionais: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+      if (/^-[eEfmABC]$/.test(args[i]!)) i++;
+      else if (!args[i]!.startsWith("-")) posicionais.push(args[i]!);
+    }
+    return ancestral(comPadrao ? posicionais : posicionais.slice(1));
+  }
   if (!["get-childitem", "gci", "ls", "dir"].includes(verbo)) return false;
   if (!args.some(arg => /^-r(?:ecurse)?$/i.test(arg) || (verbo === "ls" && /^-[A-Za-z]*R/.test(arg)))) return false;
   const caminhos: string[] = [];
@@ -179,7 +196,16 @@ function listagemRecursivaAncestral(verbo: string, args: string[], cwd: string, 
     else if (/^-path$/i.test(arg)) caminhos.push(args[++i] ?? "");
     else if (!arg.startsWith("-")) caminhos.push(arg);
   }
-  return (caminhos.length ? caminhos : ["."]).some(alvo => ancestralDeRaw(alvo, cwd, raiz));
+  return ancestral(caminhos);
+}
+
+// Caminhos iniciais do `find`: depois das opções -H/-L/-P/-D/-O e antes da primeira expressão.
+function caminhosDoFind(args: string[]): string[] {
+  let inicio = 0;
+  while (inicio < args.length && /^(?:-[HLP]|-O\d|-D)$/.test(args[inicio]!)) inicio += args[inicio] === "-D" ? 2 : 1;
+  const sem = args.slice(inicio);
+  const fim = sem.findIndex(arg => /^[-!(]/.test(arg));
+  return fim < 0 ? sem : sem.slice(0, fim);
 }
 
 function apagaAncestral(verbo: string, args: string[], cwd: string, raiz: string): boolean {
@@ -191,11 +217,7 @@ function apagaAncestral(verbo: string, args: string[], cwd: string, raiz: string
     return recursivo && args.filter(arg => !opcao(arg)).some(alvo => ancestralDeRaw(alvo, cwd, raiz));
   }
   if (verbo === "find") {
-    let inicio = 0;
-    while (inicio < args.length && /^(?:-[HLP]|-O\d|-D)$/.test(args[inicio]!)) inicio += args[inicio] === "-D" ? 2 : 1;
-    const sem = args.slice(inicio);
-    const fim = sem.findIndex(arg => /^[-!(]/.test(arg));
-    const caminhos = fim < 0 ? sem : sem.slice(0, fim);
+    const caminhos = caminhosDoFind(args);
     if (!caminhos.length) caminhos.push(".");
     const apaga = args.some((arg, i) => arg === "-delete" || (/^-(?:exec|execdir|ok|okdir)$/.test(arg) && escritaDeShell(args.slice(i + 1))));
     return apaga && caminhos.some(alvo => ancestralDeRaw(alvo, cwd, raiz));
@@ -233,21 +255,27 @@ function destinosDoCmdlet(verbo: string, args: string[]): string[] {
   return link ? [...destinos, ...(nomeados.get("value") ?? [])] : destinos;
 }
 
-function desembrulhar(verbo: string, args: string[]): string[] {
+function desembrulhar(verbo: string, args: string[]): { resto: string[]; descartados: string[] } {
   const { valor, posicionais = 0 } = OPCOES_ENVOLVEDOR[verbo] ?? { valor: [] };
+  const sai = (i: number, extra: string[] = []) => ({ resto: [...extra, ...args.slice(i)], descartados: args.slice(0, i) });
   let pular = posicionais;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (/^[A-Za-z_]\w*=/.test(arg)) continue;
-    if (arg === "--") return args.slice(i + 1);
+    if (arg === "--") return sai(i + 1);
+    // `env -S 'rm -rf .'`: o valor é um comando inteiro.
+    if (verbo === "env" && (arg === "-S" || arg === "--split-string" || arg.startsWith("--split-string="))) {
+      const texto = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[i + 1] ?? "";
+      return { resto: [...texto.split(/\s+/).filter(Boolean), ...args.slice(arg.includes("=") ? i + 1 : i + 2)], descartados: args.slice(0, i) };
+    }
     if (arg.startsWith("-")) {
       if (valor.includes(arg)) i++;
       continue;
     }
     if (pular > 0) { pular--; continue; }
-    return args.slice(i);
+    return sai(i);
   }
-  return [];
+  return { resto: [], descartados: args };
 }
 
 // `doPipe`: um segmento anterior do mesmo pipe citou raw/, então o caminho chega pela entrada padrão. Só um comando
@@ -261,12 +289,11 @@ function segmentoEscreve(palavras: string[], cwd: string, contexto: Contexto): b
   const args = comando.slice(1);
   const verbo = verboNormalizado(comando[0]!);
   if (ENVOLVEDORES.has(verbo)) {
-    const resto = desembrulhar(verbo, args);
+    const { resto, descartados } = desembrulhar(verbo, args);
     // Opções do próprio envolvedor também podem apontar para raw/ (`env -C raw`, `xargs -a raw/lista`).
-    if (args.slice(0, args.length - resto.length).some(arg => escreveEmRaw(arg, cwd) || citaRaw(arg) || arg.toLowerCase().includes("raw"))) return true;
+    if (descartados.some(arg => escreveEmRaw(arg, cwd) || citaRaw(arg) || arg.toLowerCase().includes("raw"))) return true;
     // Sem comando, só o xargs é inofensivo (repete a entrada); `parallel`, `sudo -s` e `env` lendo raw/ pelo pipe não são.
     if (!resto.length) return doPipe && verbo !== "xargs";
-    const descartados = args.slice(0, args.length - resto.length);
     return segmentoEscreve(resto, cwd, { raiz, doPipe, forcar: forcar || doPipe, ambienteDoEnvolvedor: ambienteDoEnvolvedor || descartados.some(ambienteInseguro) });
   }
   if (doPipe && (SHELLS.has(verbo) || verbo === "source" || verbo === ".")) return true;
@@ -276,10 +303,14 @@ function segmentoEscreve(palavras: string[], cwd: string, contexto: Contexto): b
     const script = marca < 0 ? undefined : verbo === "cmd" ? args.slice(marca + 1).join(" ") : args[marca + 1];
     if (script !== undefined) {
       // Os argumentos depois do script chegam a ele como $0, $1, $@: se citam raw/, o script pode agir sobre eles.
-      return terminalEscreve(script, cwd, raiz) || (verbo !== "cmd" && args.slice(marca + 2).some(arg => escreveEmRaw(arg, cwd) || citaRaw(arg)));
+      return terminalEscreve(script, cwd, raiz, ["cmd", "powershell", "pwsh"].includes(verbo)) || (verbo !== "cmd" && args.slice(marca + 2).some(arg => escreveEmRaw(arg, cwd) || citaRaw(arg)));
     }
   }
   if (apagaAncestral(verbo, args, cwd, raiz)) return true;
+  if (verbo === "pdftotext") {
+    const posicionais = args.filter(arg => arg === "-" || !arg.startsWith("-"));
+    return posicionais.length > 1 && posicionais[1] !== "-" && (escreveEmRaw(posicionais[1]!, cwd) || citaRaw(posicionais[1]!));
+  }
   if (DESTINO_JULGADO.has(verbo)) {
     const destinos = destinosDoCmdlet(verbo, args);
     if (destinos.length === 0) return doPipe && GRAVA_PELA_PIPELINE.has(verbo);
@@ -317,12 +348,22 @@ function verboNormalizado(palavra: string): string {
   return palavra.replace(/^\\/, "").split(/[\\/]/).pop()!.toLowerCase().replace(/\.exe$/, "");
 }
 
-function escritaDeShell(original: string[]): boolean {
-  // Blocos de script do PowerShell (`% { Remove-Item $_ }`, `ForEach-Object -Process { ... }`): as chaves podem vir coladas à palavra.
-  const palavras = original.flatMap(palavra => palavra.split(/([{}])/).filter(parte => parte !== ""));
-  for (let i = 0; i < palavras.length; i++) {
-    if (palavras[i] === "{" && escritaEmBloco(palavras.slice(i + 1))) return true;
+// Segmentos (palavras entre ; | & e semelhantes) de um texto de script, ou nenhum se ele não for legível.
+function segmentosDoTexto(texto: string, windows = false): string[][] {
+  try {
+    const segmentos: string[][] = [[]];
+    for (const token of tokenizar(texto, windows)) {
+      if (token.operador && /^[;|&]+$/.test(token.texto)) segmentos.push([]);
+      else if (!token.operador) segmentos.at(-1)!.push(token.texto);
+    }
+    return segmentos;
+  } catch {
+    return [];
   }
+}
+
+// O comando (e os envolvidos) que começa em `palavras`; não olha blocos `{ }` (quem chama varre as chaves uma vez só).
+function comandoEscreve(palavras: string[]): boolean {
   let comando = palavras;
   for (;;) {
     const inicio = comando.findIndex(palavra => !/^[A-Za-z_]\w*=/.test(palavra) && !PALAVRAS_DE_LACO.has(palavra));
@@ -335,18 +376,31 @@ function escritaDeShell(original: string[]): boolean {
       if (verbo === "sed") return sedEmLugar(args) || args.some(arg => SED_ESCREVE.test(arg));
       if (/^python[0-9.]*$/.test(verbo)) return args.includes("-c");
       if (["node", "bun", "deno", "ruby", "php"].includes(verbo)) return args.some(arg => /^(?:-e|--eval|-r|-p|--print)$/.test(arg));
+      if (SHELLS.has(verbo)) {
+        const marca = args.findIndex(arg => /^-[a-zA-Z]*c$/.test(arg) || /^-command$/i.test(arg) || (verbo === "cmd" && /^\/[ck]$/i.test(arg)));
+        const script = marca < 0 ? undefined : verbo === "cmd" ? args.slice(marca + 1).join(" ") : args[marca + 1];
+        return script !== undefined && segmentosDoTexto(script, ["cmd", "powershell", "pwsh"].includes(verbo)).some(escritaDeShell);
+      }
       return false;
     }
-    const resto = desembrulhar(verbo, comando.slice(1));
+    const { resto } = desembrulhar(verbo, comando.slice(1));
     if (!resto.length) return false;
     comando = resto;
   }
 }
 
-// Primeiro comando dentro de um bloco `{ ... }`. Num bloco alimentado por raw/, gravar em caminho montado a partir do item (`$_.FullName`)
-// escreve em raw/, então um destino com variável conta como escrita.
-function escritaEmBloco(palavras: string[]): boolean {
-  if (escritaDeShell(palavras)) return true;
+function escritaDeShell(original: string[]): boolean {
+  // Blocos de script do PowerShell (`% { Remove-Item $_ }`, `ForEach-Object -Process { ... }`): as chaves podem vir coladas à palavra.
+  const palavras = original.flatMap(palavra => palavra.split(/([{}])/).filter(parte => parte !== ""));
+  if (comandoEscreve(palavras)) return true;
+  for (let i = 0; i < palavras.length; i++) {
+    if (palavras[i] === "{" && (comandoEscreve(palavras.slice(i + 1)) || gravaComVariavel(palavras.slice(i + 1)))) return true;
+  }
+  return false;
+}
+
+// Num bloco alimentado por raw/, gravar em caminho montado a partir do item (`Set-Content $_.FullName`) escreve em raw/.
+function gravaComVariavel(palavras: string[]): boolean {
   const inicio = palavras.findIndex(palavra => palavra !== "{");
   if (inicio < 0) return false;
   const verbo = verboNormalizado(palavras[inicio]!);
@@ -362,14 +416,19 @@ function citaRawSegmento(palavras: string[], cwd: string): boolean {
   return palavras.slice(1).some(palavra => escreveEmRaw(palavra, cwd) || citaRaw(palavra));
 }
 
-function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cwdInicial): boolean {
+function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cwdInicial, windows = false): boolean {
   let cwd = cwdInicial;
   let palavras: string[] = [];
   let doPipe = false;
   let listagemAncestral = false;
+  let profundidade = 0;
+  let blocoAlimentado = false;
+  let lacoAlimentado = false;
   const segmentos: string[][] = [];
+  const chaves = (itens: string[]) => { const texto = itens.join(" "); return (texto.match(/\{/g) ?? []).length - (texto.match(/\}/g) ?? []).length; };
+  const dentroDeBlocoDeRaw = () => profundidade + chaves(palavras) > 0 && (blocoAlimentado || doPipe || listagemAncestral);
   let anterior: string | undefined;
-  const tokens = tokensDoComando(comando);
+  const tokens = tokensDoComando(comando, windows);
   function fechar(): boolean {
     const verbo = palavras[0]?.toLowerCase();
     if (verbo !== undefined && MUDAM_DIRETORIO.has(verbo)) {
@@ -379,11 +438,21 @@ function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cw
       if (alvo === "-") {
         if (anterior !== undefined) cwd = anterior;
       } else cwd = /^(?:[a-z]:|\/)/i.test(alvo) || !cwd ? posix.normalize(alvo || ".") : posix.normalize(`${cwd.replaceAll("\\", "/")}/${alvo}`);
+      if (/^[a-z]:$/i.test(cwd)) cwd += "/";
       anterior = antes;
       palavras = [];
       return false;
     }
-    const escreve = segmentoEscreve(palavras, cwd, { raiz, doPipe }) || (listagemAncestral && (escritaDeShell(palavras) || gravaPelaPipeline(palavras)));
+    // `find . | while read f; do rm "$f"; done`: o `;` zera o pipe, mas o corpo do laço continua alimentado pela listagem.
+    if ((doPipe || listagemAncestral) && /^(?:while|until|for)$/.test(palavras[0] ?? "")) lacoAlimentado = true;
+    const noLaco = lacoAlimentado;
+    if (palavras.includes("done")) lacoAlimentado = false;
+    const abreAgora = profundidade === 0 && chaves(palavras) > 0;
+    if (abreAgora && (doPipe || listagemAncestral)) blocoAlimentado = true;
+    const escreve = segmentoEscreve(palavras, cwd, { raiz, doPipe }) || (listagemAncestral && (escritaDeShell(palavras) || gravaPelaPipeline(palavras)))
+      || (blocoAlimentado && (profundidade > 0 || abreAgora) && gravaComVariavel(palavras)) || (noLaco && escritaDeShell(palavras));
+    profundidade = Math.max(0, profundidade + chaves(palavras));
+    if (profundidade === 0) blocoAlimentado = false;
     segmentos.push(palavras);
     palavras = [];
     return escreve;
@@ -397,7 +466,7 @@ function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cw
     if (/^>{1,2}$/.test(token.texto)) {
       let alvo = tokens[i + 1];
       if (alvo?.operador && /^[|&]$/.test(alvo.texto)) alvo = tokens[i + 2];
-      if (alvo !== undefined && !alvo.operador && escreveEmRaw(alvo.texto, cwd)) return true;
+      if (alvo !== undefined && !alvo.operador && (escreveEmRaw(alvo.texto, cwd) || (alvo.texto.includes("$") && dentroDeBlocoDeRaw()))) return true;
     } else if ([";", "|", "||", "&&", "&"].includes(token.texto)) {
       const citou = citaRawSegmento(palavras, cwd);
       const recursiva = palavras.length > 0 && listagemRecursivaAncestral(verboNormalizado(palavras[0]!), palavras.slice(1), cwd, raiz);
@@ -415,10 +484,10 @@ function textoDoComando(comando: unknown): string {
   return typeof comando === "string" ? comando : JSON.stringify(comando) ?? "";
 }
 
-function decidirTerminal(comando: unknown, cwd: string): Decisao {
+function decidirTerminal(comando: unknown, cwd: string, windows = false): Decisao {
   const motivo = `terminal: ${textoDoComando(comando)}`;
   try {
-    return { acao: terminalEscreve(comando, cwd) ? "bloquear" : "liberar", motivo };
+    return { acao: terminalEscreve(comando, cwd, cwd, windows) ? "bloquear" : "liberar", motivo };
   } catch (erro) {
     // Comando que não dá para ler só falha fechado quando cita raw/; sem isso, todo $(...) seria recusado.
     const cita = citaRaw(textoDoComando(comando));
@@ -441,7 +510,7 @@ export function decidir(payload: string): Decisao {
     const caminhos = [...new Set(caminhosDe([dados, entrada]))];
     const alvo = caminhos.find(caminho => escreveEmRaw(caminho, cwd));
     if (alvo !== undefined) return { acao: "bloquear", motivo: `caminho dentro de raw/: ${alvo}` };
-    if (TERMINAIS.has(nome) || "command" in entrada || "cmd" in entrada) return decidirTerminal(entrada.command ?? entrada.cmd, cwd);
+    if (TERMINAIS.has(nome) || "command" in entrada || "cmd" in entrada) return decidirTerminal(entrada.command ?? entrada.cmd, cwd, nome === "powershell" || nome === "pwsh");
     if (caminhos.length) return { acao: "liberar", motivo: caminhos.join(" ") };
     return citaRaw(payload)
       ? { acao: "bloquear", motivo: "payload sem caminho isolável que cita raw/ (falha fechado)" }
