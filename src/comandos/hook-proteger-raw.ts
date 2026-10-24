@@ -150,8 +150,9 @@ function ancestralDeRaw(alvo: string, cwd: string, raiz: string): boolean {
   const absoluto = (texto: string) => /^(?:[a-z]:)?\//.test(texto);
   if (/^(?:[a-z]:)?[\\/]+$/i.test(alvo.trim())) return true;
   const atual = normal(cwd), base = normal(raiz);
-  const todos = /(?:^|\/)\*\*?$/.test(alvo.replaceAll("\\", "/"));
-  const limpo = normal(todos ? posix.dirname(alvo.replaceAll("\\", "/")) : alvo);
+  const bruto = alvo.replaceAll("\\", "/").replace(/(?<=.)\/+$/, "");
+  const todos = /(?:^|\/)\*\*?$/.test(bruto);
+  const limpo = normal(todos ? posix.dirname(bruto) : bruto);
   const resolvido = absoluto(limpo) ? limpo : absoluto(atual) ? posix.normalize(`${atual}/${limpo}`) : undefined;
   if (resolvido !== undefined && absoluto(base)) return base === resolvido || base.startsWith(`${resolvido}/`);
   if (!/^(?:\.\.\/)*(?:\.\.|\.)$/.test(limpo)) return false;

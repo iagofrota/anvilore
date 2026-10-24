@@ -446,7 +446,7 @@ for (const comando of ["env -i cat raw/a.md", "env -u FOO cat raw/a.md", "timeou
 // R66 parte 2 — ancestral resolvido contra o cwd (RI2), edição em massa por find/exec e pipeline recursiva do PowerShell (RI5).
 test("Dado cwd absoluto Quando o alvo relativo sobe até a raiz do projeto Então bloqueia e irmãos e filhos passam", () => {
   const proj = "/srv/equipe/proj";
-  for (const comando of ["rm -rf ../proj", "cd .. && rm -rf proj", "rm -rf ../", "rm -rf ../*", "rm -rf ./*", "rm -rf *", "cd wiki && rm -rf ..", "cd .. && rm -rf ./proj/", "rm -rf /srv", "rm -rf /srv/equipe", "find .. -name proj -exec rm -rf {} +"]) {
+  for (const comando of ["rm -rf ../proj", "cd .. && rm -rf proj", "rm -rf ../", "rm -rf ../*", "rm -rf ./*", "rm -rf *", "cd wiki && rm -rf ..", "cd .. && rm -rf ./proj/", "rm -rf -- */", "rm -rf ./*/", "rm -rf /srv", "rm -rf /srv/equipe", "find .. -name proj -exec rm -rf {} +"]) {
     expect(decidir(comCwd(comando, proj)).acao).toBe("bloquear");
   }
   for (const comando of ["rm -rf ../outro", "rm -rf wiki/*", "rm -rf wiki/sources", "cd wiki && rm -rf .", "cd wiki && rm -rf ./*", "rm -rf /srv/outra/pasta", "cd .. && rm -rf outro", "find wiki -exec sed -i s/a/b/ {} +"]) {
