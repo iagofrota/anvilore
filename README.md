@@ -20,6 +20,7 @@ repositório**:
 | `scripts/` | os scripts de manutenção (índice, log, lacunas, áreas) |
 | `hooks/` | a regra "`raw/` é imutável" na forma de hook; a decisão mora num subcomando só (`anvilore hook proteger-raw`, em `src/comandos/hook-proteger-raw.ts`) |
 | `anvilore instalar` | configura um clone para o agente que você usa: Claude Code, Codex, Gemini ou Copilot |
+| `anvilore doctor` | diz, em linguagem simples, quais travas estão ligadas (proteção do `raw/`, validação, CI) e como ligar as que faltam |
 | `tests/` | os testes que provam os scripts, o hook e o instalador |
 | `docs/knowledge_base/` | a documentação do próprio Anvilore, escrita para agentes que desenvolvem o projeto ou respondem dúvidas sobre ele |
 

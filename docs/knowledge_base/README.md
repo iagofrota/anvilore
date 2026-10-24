@@ -30,8 +30,8 @@ Peças que existem hoje no repositório:
 - Instalador para Claude Code, Codex, Gemini e Copilot: `anvilore instalar`, em
   `src/comandos/instalar.ts`, com fusão em `src/lib/fundir-json.ts` e `src/lib/fundir-bloco.ts`.
 - O porte para TypeScript no Bun, em andamento: `src/cli.ts` (tabela de subcomandos), a biblioteca
-  em `src/lib/` e quatro subcomandos, `checar-docs`, `checar-release`, `validar` e `instalar`, em
-  `src/comandos/`. Os demais scripts de manutenção e o hook ainda não foram substituídos.
+  em `src/lib/` e seis subcomandos, `checar-docs`, `checar-release`, `validar`, `instalar`, `doctor` e `hook`, em
+  `src/comandos/`. Os demais scripts de manutenção ainda não foram substituídos.
 
 ## Para onde ir com cada pergunta
 

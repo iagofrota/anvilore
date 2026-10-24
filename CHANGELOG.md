@@ -11,6 +11,9 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Added
 
+- Comando `anvilore doctor [pasta]`: mostra, em linguagem simples, quais travas estão ligadas (proteção do `raw/` em
+  cada agente, validação no fechamento da wiki, CI ou pré-commit, perfil da empresa) e o comando que liga cada uma que
+  falta; confere `bun` e `git` no PATH. Sai 1 se faltar trava ou pré-requisito. Hook antigo conta como desligado.
 - Comando `anvilore hook proteger-raw`: o hook que recusa escrita em `raw/` agora é TypeScript no Bun,
   no lugar de `hooks/proteger-raw.sh` (sem `jq` nem Python). Mantém os códigos 0 e 2, a mensagem de
   bloqueio e o rastro `ANVILORE_LOG_HOOK`. Passa a avaliar também o comando de terminal de cada agente
