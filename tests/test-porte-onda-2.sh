@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # B8-B11 — criterios que valem para o porte inteiro, nao para um script so:
-#   B8  rodape de atribuicao ao wiki-wonka nos 7 scripts
+#   B8  rodape de atribuicao ao wiki-wonka nos 6 scripts
 #   B9  nenhum conteudo pessoal nos scripts nem nos testes
-#   B10 runtime preservado: 4 bash + 3 Python 3
+#   B10 runtime preservado: 4 bash + 2 Python 3
 #   B11 os dois scripts do nivel 04 NAO foram portados
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
@@ -56,7 +56,7 @@ done
 for elemento in "${ELEMENTOS[@]}"; do
   sem_rodape="$(grep -LF -- "$elemento" "${PORTADOS[@]}")"
   if [ -z "$sem_rodape" ]; then
-    ok "todos os 7 scripts citam '$elemento'"
+    ok "todos os 6 scripts citam '$elemento'"
   else
     falha "scripts sem '$elemento': $(echo "$sem_rodape" | tr '\n' ' ')"
   fi
@@ -96,7 +96,10 @@ done
 DISTINTIVOS='side-projec[t]|terapi[a]|garmi[n]|planeja[i]|ank[i]|iag[o]|qualidade-softwar[e]|engenharia-softwar[e]|notio[n]|inventario-vitoria[s]|/home[/]|raw/meeting[s]'
 GENERICOS='(wiki/|area: *|\[\[)(trabalh[o]|pessoa[l]|ingle[s]|glob[o])'
 sujos=0; nao_rastreados=0
-for f in "${PORTADOS[@]}" "${TESTES_NOVOS[@]}"; do
+# O codigo portado para TypeScript e seus testes entram pela glob: um porte novo
+# nao precisa lembrar de se registrar aqui.
+TS_PORTADOS=(src/lib/*.ts src/comandos/*.ts src/cli.ts tests/*.test.ts)
+for f in "${PORTADOS[@]}" "${TESTES_NOVOS[@]}" "${TS_PORTADOS[@]}"; do
   if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
     conteudo="$(git show ":$f" 2>/dev/null)"
   else
@@ -108,7 +111,7 @@ for f in "${PORTADOS[@]}" "${TESTES_NOVOS[@]}"; do
     sujos=$((sujos+1))
   fi
 done
-[ "$sujos" -eq 0 ] && ok "varredura: nada do vault privado nos 7 scripts e nos testes novos"
+[ "$sujos" -eq 0 ] && ok "varredura: nada do vault privado nos 6 scripts, nos testes novos e em src/ e tests/*.test.ts"
 
 # PROVA DE DENTES da varredura: uma varredura que nunca acusa nada pode estar
 # acusando nada porque o regex esta quebrado. Um arquivo-isca sintetico, com um
@@ -144,7 +147,7 @@ for f in tests/test-migrar-areas.sh; do
 done
 
 # ============================================================================
-# B10 — runtime preservado: 4 bash, 3 Python 3
+# B10 — runtime preservado: 4 bash, 2 Python 3
 # ============================================================================
 for s in "${BASH_PORTADOS[@]}"; do
   if [ "$(head -1 "$s")" = "#!/usr/bin/env bash" ]; then
@@ -163,7 +166,7 @@ done
 [ "${#BASH_PORTADOS[@]}" -eq 4 ] && ok "4 scripts bash" || falha "${#BASH_PORTADOS[@]} scripts bash (esperado 4)"
 [ "${#PY_PORTADOS[@]}" -eq 2 ]   && ok "2 scripts Python 3" || falha "${#PY_PORTADOS[@]} scripts Python 3 (esperado 2)"
 
-# Os 7 existem e sao executaveis.
+# Os 6 existem e sao executaveis.
 for s in "${PORTADOS[@]}"; do
   [ -f "$s" ] || { falha "$s nao existe"; continue; }
   [ -x "$s" ] && ok "$(basename "$s"): executavel" || falha "$(basename "$s"): sem bit de execucao"

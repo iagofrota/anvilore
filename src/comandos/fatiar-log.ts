@@ -1,7 +1,6 @@
-import { existsSync, statSync } from "node:fs";
+import { lstatSync, statSync, type Stats } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { normalizarFimDeLinha } from "../lib/caminhos";
 
 // Fatia `<WIKI>/log.md` em um arquivo por dia sob `<WIKI>/log/`.
 //
@@ -31,7 +30,9 @@ function fatiar(texto: string): { entradas: Entrada[]; linhasDePreambulo: number
   const entradas: Entrada[] = [];
   let dentroDeFence = false;
   let linhasDePreambulo = 0;
-  normalizarFimDeLinha(texto)
+  // Newline universal, como o `read_text` do original: CRLF e CR solto também terminam a linha.
+  texto
+    .replace(/\r\n?/g, "\n")
     .split("\n")
     .forEach((linha, indice) => {
       if (linha.startsWith("```")) {
@@ -68,11 +69,38 @@ function renderizar(data: string, entradas: Entrada[]): string {
   return `---\ntype: log-day\ndate: ${data}\n---\n\n# Log — ${data}\n\n${blocos.join("\n\n")}\n`;
 }
 
-function ehArquivo(caminho: string): boolean {
+// Só ENOENT e ENOTDIR são "não existe"; qualquer outra falha (EACCES, ELOOP...) reprova nomeando o caminho.
+function consultar(caminho: string, stat: (c: string) => Stats): Stats | null {
   try {
-    return statSync(caminho).isFile();
+    return stat(caminho);
+  } catch (erro) {
+    const codigo = (erro as NodeJS.ErrnoException).code;
+    if (codigo === "ENOENT" || codigo === "ENOTDIR") return null;
+    throw new ErroDeFatiamento(`não foi possível acessar ${caminho}: ${codigo ?? (erro as Error).message}`);
+  }
+}
+
+function ehArquivo(caminho: string): boolean {
+  return consultar(caminho, statSync)?.isFile() ?? false;
+}
+
+// `lstat`: um symlink pendurado também conta como destino que já existe.
+function existe(caminho: string): boolean {
+  return consultar(caminho, lstatSync) !== null;
+}
+
+async function lerUtf8(caminho: string): Promise<string> {
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(caminho);
+  } catch (erro) {
+    throw new ErroDeFatiamento(`não foi possível ler ${caminho}: ${(erro as NodeJS.ErrnoException).code ?? (erro as Error).message}`);
+  }
+  try {
+    // `ignoreBOM`: o BOM fica no texto, como no `read_text` do original.
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
   } catch {
-    return false;
+    throw new ErroDeFatiamento(`${caminho} não é UTF-8 válido`);
   }
 }
 
@@ -80,7 +108,7 @@ export async function fatiarLog(wiki: string): Promise<ResultadoDoFatiamento> {
   const origem = join(wiki, "log.md");
   if (!ehArquivo(origem)) throw new ErroDeFatiamento(`${origem} não existe`);
 
-  const { entradas, linhasDePreambulo } = fatiar(await readFile(origem, "utf8"));
+  const { entradas, linhasDePreambulo } = fatiar(await lerUtf8(origem));
   if (entradas.length === 0) throw new ErroDeFatiamento(`nenhuma entrada encontrada em ${origem}`);
 
   const porData = new Map<string, Entrada[]>();
@@ -92,7 +120,7 @@ export async function fatiarLog(wiki: string): Promise<ResultadoDoFatiamento> {
 
   const pastaDestino = join(wiki, "log");
   const destinos = new Map([...porData.keys()].map((data) => [data, join(pastaDestino, `log-${data}.md`)]));
-  const existentes = [...destinos.values()].filter((destino) => existsSync(destino)).sort();
+  const existentes = [...destinos.values()].filter(existe).sort();
   if (existentes.length > 0) {
     throw new ErroDeFatiamento(
       `destino já existe, nada foi escrito (migração one-shot): ${existentes.join(", ")}`,
@@ -104,12 +132,20 @@ export async function fatiarLog(wiki: string): Promise<ResultadoDoFatiamento> {
   } catch (erro) {
     throw new ErroDeFatiamento(`não foi possível criar ${pastaDestino}: ${(erro as Error).message}`);
   }
+  const gravados: string[] = [];
   for (const [data, destino] of destinos) {
-    // `wx`: nunca sobrescreve, nem se o arquivo aparecer entre a checagem e a escrita.
-    await writeFile(destino, renderizar(data, porData.get(data)!), { encoding: "utf8", flag: "wx" });
+    try {
+      // `wx`: nunca sobrescreve, nem se o arquivo aparecer entre a checagem e a escrita.
+      await writeFile(destino, renderizar(data, porData.get(data)!), { encoding: "utf8", flag: "wx" });
+    } catch (erro) {
+      throw new ErroDeFatiamento(
+        `não foi possível gravar ${destino}: ${(erro as Error).message}; já gravados: ${gravados.join(", ") || "nenhum"}`,
+      );
+    }
+    gravados.push(destino);
   }
 
-  return { arquivosCriados: [...destinos.values()], linhasDePreambulo, entradas: entradas.length };
+  return { arquivosCriados: gravados, linhasDePreambulo, entradas: entradas.length };
 }
 
 export async function comandoFatiarLog(args: string[]): Promise<number> {

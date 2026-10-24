@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ErroDeFatiamento, comandoFatiarLog, fatiarLog } from "../src/comandos/fatiar-log";
@@ -274,6 +274,105 @@ describe("fatiar-log: entradas ausentes", () => {
     expect(r.codigo).toBe(1);
     expect(r.erro.join("\n")).toContain("nenhuma entrada encontrada");
     expect(existsSync(join(zerada, "log"))).toBe(false);
+  });
+});
+
+const semPermissaoDeSistema = process.platform === "win32" || process.getuid?.() === 0;
+
+describe("fatiar-log: entrada ilegível ou fora do padrão", () => {
+  function diasGravados(): string[] {
+    return readdirSync(join(wiki, "log")).filter((n) => /^log-.*\.md$/.test(n));
+  }
+
+  test("Dado um log.md em Latin-1 que não é UTF-8 válido, Quando fatio, Então reprova com saída 1 nomeando o arquivo e nenhum arquivo de dia é gravado", async () => {
+    writeFileSync(join(wiki, "log.md"), Buffer.from("## [2026-09-01] ingest | Coração\n\nCorpo.\n", "latin1"));
+    const r = await capturar(() => comandoFatiarLog([wiki]));
+    expect(r.codigo).toBe(1);
+    expect(r.erro).toEqual([`ERRO: ${join(wiki, "log.md")} não é UTF-8 válido`]);
+    expect(diasGravados()).toEqual([]);
+  });
+
+  test("Dado um log.md com BOM antes do primeiro header, Quando fatio, Então segue o original: o BOM não é descartado e não há entrada", async () => {
+    writeFileSync(join(wiki, "log.md"), "\uFEFF## [2026-09-01] ingest | A\n\nCorpo.\n");
+    const r = await capturar(() => comandoFatiarLog([wiki]));
+    expect(r.codigo).toBe(1);
+    expect(r.erro.join("\n")).toContain("nenhuma entrada encontrada");
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "Dado um destino que é symlink pendurado (pulado no Windows: criar symlink exige privilégio), Quando fatio, Então aborta antes de escrever qualquer arquivo",
+    async () => {
+      writeFileSync(join(wiki, "log.md"), LOG);
+      symlinkSync(join("..", "alvo-fora.md"), join(wiki, "log", "log-2026-09-02.md"));
+      const r = await capturar(() => comandoFatiarLog([wiki]));
+      expect(r.codigo).toBe(1);
+      expect(r.erro.join("\n")).toContain(
+        `destino já existe, nada foi escrito (migração one-shot): ${join(wiki, "log", "log-2026-09-02.md")}`,
+      );
+      expect(existsSync(join(wiki, "log", "log-2026-09-01.md"))).toBe(false);
+      expect(existsSync(join(tmp, "alvo-fora.md"))).toBe(false);
+    },
+  );
+
+  test.skipIf(semPermissaoDeSistema)(
+    "Dado uma pasta log/ sem permissão de escrita (pulado no Windows e como root), Quando fatio, Então o erro de escrita vira ERRO em voz alta, sem stack trace",
+    async () => {
+      writeFileSync(join(wiki, "log.md"), LOG);
+      chmodSync(join(wiki, "log"), 0o555);
+      try {
+        const r = await capturar(() => comandoFatiarLog([wiki]));
+        expect(r.codigo).toBe(1);
+        expect(r.erro).toHaveLength(1);
+        expect(r.erro[0]).toContain(`ERRO: não foi possível gravar ${join(wiki, "log", "log-2026-09-01.md")}`);
+        expect(r.erro[0]).toContain("já gravados: nenhum");
+      } finally {
+        chmodSync(join(wiki, "log"), 0o755);
+      }
+    },
+  );
+
+  test.skipIf(semPermissaoDeSistema)(
+    "Dado uma wiki sem permissão de leitura (pulado no Windows e como root), Quando fatio, Então reprova nomeando o caminho e não diz que o arquivo não existe",
+    async () => {
+      writeFileSync(join(wiki, "log.md"), LOG);
+      chmodSync(wiki, 0o000);
+      try {
+        const r = await capturar(() => comandoFatiarLog([wiki]));
+        expect(r.codigo).toBe(1);
+        expect(r.erro[0]).toContain(`ERRO: não foi possível acessar ${join(wiki, "log.md")}`);
+        expect(r.erro[0]).toContain("EACCES");
+        expect(r.erro[0]).not.toContain("não existe");
+      } finally {
+        chmodSync(wiki, 0o755);
+      }
+    },
+  );
+
+  test.skipIf(semPermissaoDeSistema)(
+    "Dado um log.md sem permissão de leitura (pulado no Windows e como root), Quando fatio, Então reprova nomeando o arquivo e nenhum arquivo de dia é gravado",
+    async () => {
+      writeFileSync(join(wiki, "log.md"), LOG);
+      chmodSync(join(wiki, "log.md"), 0o000);
+      try {
+        const r = await capturar(() => comandoFatiarLog([wiki]));
+        expect(r.codigo).toBe(1);
+        expect(r.erro).toEqual([`ERRO: não foi possível ler ${join(wiki, "log.md")}: EACCES`]);
+        expect(diasGravados()).toEqual([]);
+      } finally {
+        chmodSync(join(wiki, "log.md"), 0o644);
+      }
+    },
+  );
+
+  test("Dado um log.md com CR solto como fim de linha, Quando fatio, Então fatia como o original (newline universal)", async () => {
+    const w = novaWiki("cr", "# Log\r\r## [2026-09-01] ingest | A\rcorpo A\r\r## [2026-09-02] nota | B\rcorpo B\r");
+    const r = await capturar(() => comandoFatiarLog([w]));
+    expect(r.codigo).toBe(0);
+    expect(r.saida[0]).toBe(`OK: 2 entradas → 2 arquivos em ${join(w, "log")}`);
+    expect(r.saida[1]).toContain("AVISO: 1 linha(s) de preâmbulo");
+    expect(lerDia("2026-09-01", w)).toBe(
+      "---\ntype: log-day\ndate: 2026-09-01\n---\n\n# Log — 2026-09-01\n\n## [2026-09-01] ingest | A\ncorpo A\n",
+    );
   });
 });
 
