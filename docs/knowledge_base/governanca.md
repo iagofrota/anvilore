@@ -20,8 +20,8 @@ fica para depois (veja a última seção).
 | Validador da wiki | Reprova página sem frontmatter, com `type` inválido, com `slug` diferente do nome do arquivo ou com `area` em conflito com o diretório. Reprova wiki inexistente e diretório sem nenhum arquivo `.md`; uma wiki só com index.md e log.md passa. | `scripts/validar-wiki.sh`, linhas 14 a 18, 33 a 55 e 63 a 67 |
 | Tipos e cobertura | `tsc --noEmit` e testes com cobertura mínima de 80% no geral. | `package.json` (script `checar`); `bunfig.toml`, linha 2 |
 | Checagem de links | Reprova link e menção a arquivo inexistente nesta pasta. | `src/comandos/checar-docs.ts` |
-| Trava de release | Reprova versão sem seção no CHANGELOG, seção vazia ou página desta pasta sem `verified`. | `src/comandos/checar-release.ts` |
-| CI | Roda `bun run checar` e `checar-docs` em Linux, Windows e macOS a cada push e pull request. | `.github/workflows/ci.yml` |
+| Trava de release | Reprova versão sem seção no CHANGELOG, seção vazia, pasta desta KB ausente ou sem página, ou página sem `verified`. | `src/comandos/checar-release.ts` |
+| CI (configurado, ainda não executado) | Está configurado para rodar `bun run checar` e `checar-docs` em Linux, Windows e macOS a cada push e pull request, e `checar-release` em tag. A primeira execução ainda não aconteceu: a confirmar. | `.github/workflows/ci.yml` |
 
 O `hooks/proteger-raw.sh` falha fechado: se não consegue ler o caminho no payload, a decisão passa
 a ser sobre o texto inteiro, e "não achei caminho" nunca vira "pode passar" (linhas 115 a 127). O

@@ -57,8 +57,9 @@ Enquanto não existem, a fonte é o código: `src/cli.ts` lista os subcomandos e
   que diz. Quando uma decisão não tem arquivo que a sustente, a página diz isso e informa quem
   decidiu e quando.
 - **Link e menção a arquivo são conferidos.** `bun src/cli.ts checar-docs` reprova o link
-  relativo quebrado e a menção entre crases a arquivo que não existe. Ele roda no CI nos três
-  sistemas (`.github/workflows/ci.yml`). Veja o código em `src/comandos/checar-docs.ts`.
+  relativo quebrado e a menção entre crases a arquivo que não existe. Ele está configurado para
+  rodar no CI nos três sistemas (`.github/workflows/ci.yml`; ainda não executado). Veja o código em
+  `src/comandos/checar-docs.ts`.
 - **Revisão por pessoa.** Um agente pode redigir uma página; só uma pessoa a marca como revisada,
   com `verified: AAAA-MM-DD` no cabeçalho. `bun src/cli.ts checar-release` recusa a release
   enquanto houver página sem essa data (`src/comandos/checar-release.ts`). Por isso as páginas

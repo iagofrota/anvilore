@@ -18,40 +18,44 @@ antigos em bash e Python: eles continuam sendo o que valida a wiki e protege o `
 
 - Projeto em TypeScript rodando no Bun, com verificação de tipos e testes que exigem pelo menos
   80% de cobertura.
-- Verificação automática (CI) que roda os testes em Linux, Windows e macOS a cada envio de
-  código, sempre com a mesma versão do Bun.
-- Biblioteca compartilhada para ler e validar páginas da wiki. Ela funciona igual em Windows,
-  macOS e Linux, inclusive com arquivos salvos no Windows e caminhos escritos no estilo do
-  Windows.
-- Comando `anvilore checar-release <versao>`. Ele impede a release se a seção da versão neste
-  arquivo estiver ausente ou sem item entregue. Também impede se alguma página de
-  `docs/knowledge_base/` não tiver a data em que uma pessoa a revisou (`verified`). No CI, roda só
-  quando uma tag de versão é criada. Por isso ele avisa, mas não impede: rode-o na sua máquina
-  antes de criar a tag.
+- Verificação automática (CI) configurada para rodar os testes em Linux, Windows e macOS a cada
+  envio de código, sempre com a mesma versão do Bun. Ela ainda não rodou: o arquivo foi escrito,
+  mas não foi enviado ao GitHub. O resultado nos três sistemas está por confirmar na primeira
+  execução.
+- Biblioteca compartilhada para ler e validar páginas da wiki. Foi escrita para funcionar igual em
+  Windows, macOS e Linux, inclusive com arquivos salvos no Windows e caminhos escritos no estilo do
+  Windows, e tem testes para isso. Por enquanto só rodou no Linux; a confirmação nos outros dois
+  depende da primeira execução do CI.
+- Comando `anvilore checar-release <versao>`. Ele reprova (sai com 1) se a seção da versão neste
+  arquivo estiver ausente ou sem item entregue. Também reprova se `docs/knowledge_base/` não
+  existir ou não tiver nenhuma página, ou se alguma página não tiver a data em que uma pessoa a
+  revisou (`verified`). No CI, roda em qualquer tag (o `v` da frente é opcional). Como roda depois
+  que a tag existe, ele avisa, mas não impede: rode-o na sua máquina antes de criar a tag e só
+  crie a tag com o CI verde nos três sistemas.
 - Documentação do próprio Anvilore em `docs/knowledge_base/`, escrita para agentes que desenvolvem
   o projeto ou respondem dúvidas sobre ele, e uma seção no `AGENTS.md` que aponta para ela. As
   páginas ainda esperam a revisão de uma pessoa.
 - Comando `anvilore checar-docs`. Ele reprova link quebrado e menção a arquivo inexistente nas
   páginas de `docs/knowledge_base/`, inclusive o link cujo texto passa para a linha seguinte e o
-  que aponta para fora do repositório. Recusa argumento extra. Roda no CI em Linux, Windows e
-  macOS a cada envio de código.
+  que aponta para fora do repositório. Recusa argumento extra. Está configurado para rodar no CI em
+  Linux, Windows e macOS a cada envio de código (ainda não executado).
 
 ### Não resolvido nesta versão
 
 - O Anvilore **não protege contra vazamento de documentos internos**. Ele impede que o agente
-  altere os arquivos originais em `raw/` pelas ferramentas de edição; escrita feita por comando
-  de terminal ainda não é barrada. Nada impede que o conteúdo de uma wiki seja copiado, enviado
+  altere os arquivos originais em `raw/` pelas ferramentas de edição (o item seguinte diz o que
+  fica de fora). Nada impede que o conteúdo de uma wiki seja copiado, enviado
   a um serviço externo ou lido por quem não deveria. Não use o Anvilore, nesta versão, como
   garantia de sigilo.
 - O hook que protege o `raw/` só vigia as ferramentas de edição de arquivo (`Write`, `Edit` e
-  `NotebookEdit`, no Claude Code). Não vigia comando de terminal. A frase "recusa qualquer
+  `NotebookEdit`, no Claude Code). Escrita por comando de terminal não é barrada. A frase "recusa qualquer
   escrita" em alguns textos do projeto vale só para essas ferramentas.
 - A regra de que a pessoa dá o aval antes de uma ingestão gravar na wiki existe só como
   instrução escrita na skill. Nenhum script ou teste confere se o aval aconteceu.
 - O validador da wiki não reprova link `[[...]]` quebrado nem página que ficou fora do índice.
-  Isso só aparece na auditoria da skill de lint, que ninguém roda sozinha.
+  Isso só aparece na auditoria da skill de lint, que não roda sozinha (nem no CI nem por hook).
 - A checagem de proveniência é pulada sem nenhum aviso se o `python3` não estiver instalado. Se
   faltar só o PyYAML, ela avisa, mas não reprova.
-- Os scripts que de fato validam a wiki e protegem o `raw/` ainda são bash e Python, e só
-  funcionam em Linux. A meta de 95% de cobertura para validação e proteção do `raw/` ainda não é
+- Os scripts que de fato validam a wiki e protegem o `raw/` ainda são bash e Python, e têm
+  Linux como único alvo declarado. A meta de 95% de cobertura para validação e proteção do `raw/` ainda não é
   imposta: o que roda é o mínimo de 80% no geral.

@@ -18,8 +18,10 @@ do que ainda é só hipótese.
   para TypeScript.
 - Os testes antigos são scripts bash (`tests/test-*.sh`) e o `--help` do instalador declara Linux
   (`tests/test-instalar.sh`, linhas 96 a 107). Eles não são o que roda no CI de hoje.
-- O que já roda nos três sistemas é a parte nova: o CI executa `bun run checar` em Ubuntu, Windows e
-  macOS (`.github/workflows/ci.yml`, matriz `os`).
+- O que está configurado para rodar nos três sistemas é a parte nova: o CI executa `bun run checar`
+  em Ubuntu, Windows e macOS (`.github/workflows/ci.yml`, matriz `os`). **A confirmar na primeira
+  execução do CI:** o workflow ainda não foi enviado ao GitHub, então nunca rodou em nenhum dos
+  três.
 - O `.gitattributes` fixa `eol=lf` para texto, Markdown e TypeScript, para o checkout no Windows
   não trazer CRLF.
 

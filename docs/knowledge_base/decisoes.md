@@ -28,7 +28,7 @@ Para a linhagem do método e a argumentação completa das posições de design,
   macOS, os três obrigatórios.
 - O que o repositório mostra hoje: o porte está no começo. `scripts/`, `hooks/proteger-raw.sh` e
   `instalar.sh` ainda são bash e Python, e o `README.md` ainda diz que não há suporte a Windows
-  nem a macOS. O CI já roda nos três sistemas (`.github/workflows/ci.yml`). Os detalhes e os riscos
+  nem a macOS. O CI está configurado para rodar nos três sistemas (`.github/workflows/ci.yml`), mas ainda não rodou. Os detalhes e os riscos
   estão em [plataformas.md](plataformas.md).
 
 ## Não fundir buscas (sentido a confirmar pelo dono)

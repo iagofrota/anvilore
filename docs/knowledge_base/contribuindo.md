@@ -28,8 +28,10 @@ bun run checar
   declara isso (`instalar.sh`, linhas 21 e 22) e `tests/test-instalar.sh` confere que o `--help`
   diz Linux e não promete Windows nem macOS (linhas 96 a 107).
 
-O CI roda `bun run checar` e `checar-docs` em Ubuntu, Windows e macOS a cada push e pull request
-(`.github/workflows/ci.yml`). Uma mudança que passa só no seu sistema não está pronta.
+O CI está configurado para rodar `bun run checar` e `checar-docs` em Ubuntu, Windows e macOS a
+cada push e pull request (`.github/workflows/ci.yml`). Ele ainda não rodou: o workflow não foi
+enviado ao GitHub, então a primeira execução é a confirmação. Uma mudança que passa só no seu
+sistema não está pronta.
 
 ## Testes primeiro, com cenários em gherkin
 
@@ -84,6 +86,9 @@ Versionamento Semântico.
   com colchete dentro (`[a [b] c](x.md)`), e menção a dotfile ou a nome sem extensão e sem barra
   (`.gitignore`, `LICENSE`). Para esses, a conferência é da revisão por pessoa. Uma extensão fora da
   lista fechada de `src/comandos/checar-docs.ts` também não conta.
+- **A caixa do nome só é conferida no Linux.** No macOS e no Windows o disco não diferencia
+  maiúsculas de minúsculas: `[x](Decisoes.md)` para o arquivo decisoes.md passa lá e reprova no
+  Linux. Quem pega é o job Ubuntu do CI.
 - Um agente pode redigir a página, com `generated: AAAA-MM-DD` no cabeçalho. **Só uma pessoa
   acrescenta `verified: AAAA-MM-DD`**, depois de ler a página e conferir os arquivos citados.
   Agente nenhum deve pôr esse campo.
@@ -95,8 +100,12 @@ Versionamento Semântico.
 1. A seção `## [x.y.z]` do `CHANGELOG.md` precisa existir e ter pelo menos um item entregue.
 2. Toda página de `docs/knowledge_base/` precisa de `verified: AAAA-MM-DD`.
 3. `bun src/cli.ts checar-release x.y.z` confere os dois pontos
-   (`src/comandos/checar-release.ts`). O CI o roda só quando a tag de versão é criada
-   (`.github/workflows/ci.yml`, última etapa).
+   (`src/comandos/checar-release.ts`). Ele reprova também a pasta `docs/knowledge_base/` ausente,
+   que seja arquivo ou sem nenhuma página `.md`: KB vazia não conta como revisada. O CI o roda em
+   qualquer tag (`.github/workflows/ci.yml`, última etapa).
+
+A tag é `vX.Y.Z` ou `X.Y.Z`: o CI tira o `v` da frente e o resto precisa ser SemVer. Qualquer outra
+forma (`release-1`, `v1.0`) faz a etapa reprovar.
 
 A trava roda depois que a tag existe, então ela sinaliza mas não impede. Por isso o procedimento
 tem esta ordem:
@@ -106,7 +115,10 @@ tem esta ordem:
 2. Rode `bun run checar` e `bun src/cli.ts checar-docs`. Os dois devem sair com 0.
 3. Rode `bun src/cli.ts checar-release x.y.z` **na sua máquina, antes de criar a tag**. Ele deve
    sair com 0. Se reprovar, corrija antes de seguir; não crie a tag para ver o que o CI diz.
-4. Só então peça a aprovação do dono do projeto. A tag e a release saem apenas com o "sim"
+4. Confirme que o CI está **verde em Ubuntu, Windows e macOS no commit que vai receber a tag**. É
+   a única prova de que a base roda nos três sistemas; antes disso, é só hipótese. Faça isso antes
+   da tag, nunca depois.
+5. Só então peça a aprovação do dono do projeto. A tag e a release saem apenas com o "sim"
    explícito dele.
 
 A seção `[0.1.0]` já está preenchida. Enquanto nenhuma página desta pasta tiver sido revisada por
