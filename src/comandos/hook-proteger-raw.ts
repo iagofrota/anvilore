@@ -256,7 +256,7 @@ function segmentoEscreve(palavras: string[], cwd: string, contexto: Contexto): b
   if (verbo === "rg") return args.some(arg => arg === "--pre" || arg.startsWith("--pre="));
   // Interpretadores com script próprio escrevem onde quiserem: citando raw/, só passa sed sem -i e sem comando w/e.
   if (verbo === "perl") return true;
-  if (verbo === "sed") return args.some(arg => /^--in-place(?:=|$)/.test(arg) || /^-[a-z]*i/.test(arg) || SED_ESCREVE.test(arg));
+  if (verbo === "sed") return args.some(arg => /^--in-place(?:=|$)/.test(arg) || /^-[a-zA-Z]*[iI]/.test(arg) || SED_ESCREVE.test(arg));
   if (verbo === "git") {
     const { subcomando, globais } = analisarGit(args);
     // Programa externo por variável, configuração ou caminho de executáveis: a leitura deixa de ser só leitura.
@@ -285,7 +285,7 @@ function escritaDeShell(palavras: string[]): boolean {
     if (!ENVOLVEDORES.has(verbo)) {
       const args = comando.slice(1);
       if (ESCRITA_GLOBAL.has(verbo)) return true;
-      if (verbo === "sed") return args.some(arg => /^--in-place(?:=|$)/.test(arg) || /^-[a-z]*i/.test(arg));
+      if (verbo === "sed") return args.some(arg => /^--in-place(?:=|$)/.test(arg) || /^-[a-zA-Z]*[iI]/.test(arg));
       if (/^python[0-9.]*$/.test(verbo)) return args.includes("-c");
       if (["node", "bun", "deno", "ruby", "php"].includes(verbo)) return args.some(arg => /^(?:-e|--eval|-r|-p|--print)$/.test(arg));
       return false;

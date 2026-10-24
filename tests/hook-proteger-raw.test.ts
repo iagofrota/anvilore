@@ -483,3 +483,15 @@ test("Dado cmd /c, busybox e source de stdin Quando escondem apagamento amplo En
     expect(decidir(terminal(comando)).acao).toBe("liberar");
   }
 });
+
+// Rodada 3 (R68) — C2: sed -i agrupado com opção maiúscula.
+for (const comando of ["sed -Ei 's/a/b/' raw/a.md", "sed -Ei.bak 's/a/b/' raw/a.md", "sed -rEi 's/a/b/' raw/a.md", "sed -E -i 's/a/b/' raw/a.md", "sed -Ie 's/a/b/' raw/a.md", "sed -nEi 's/a/b/p' raw/a.md", "rg -l foo raw | xargs sed -Ei 's/a/b/'", "cat raw/lista | xargs sed -rEi s/a/b/", "sed -EI 's/a/b/' raw/a.md", "perl -pi.bak -e 's/a/b/' raw/a.md"]) {
+  test(`Dado sed in-place com opções agrupadas ${comando} Quando cita raw Então bloqueia`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  });
+}
+for (const comando of ["sed -E -n 's/a/b/p' raw/a.md", "sed -En 's/a/b/p' raw/a.md", "sed -E 's/i/x/' raw/a.md", "sed --expression='s/a/b/' raw/a.md", "sed -Ei 's/a/b/' wiki/a.md"]) {
+  test(`Dado sed sem in-place ${comando} Quando decido Então libera (controle)`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("liberar");
+  });
+}
