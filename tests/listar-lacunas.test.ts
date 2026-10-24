@@ -177,21 +177,35 @@ testeSymlink("Dado symlink .md quebrado, Quando consulto, Então avisa o caminho
   expect(r.saida.join("\n")).toContain("alfa/concepts/a.md:10");
 });
 
-testeSymlink("Dado diretório em symlink, Quando consulto, Então as páginas aparecem pelo caminho do link", async () => {
-  const alvo = join(raiz, "compartilhada");
-  mkdirSync(alvo);
-  writeFileSync(join(alvo, "p.md"), "> [!gap] Vem do diretório linkado.\n");
-  symlinkSync(alvo, join(wiki, "gama"));
-  const linhas = await listarLacunas(wiki, { consultar: true, area: "gama" });
-  expect(linhas).toEqual(["gama/p.md:1 [gap] Vem do diretório linkado."]);
-});
-
-testeSymlink("Dado symlink de diretório que aponta para um ancestral, Quando consulto, Então avisa o ciclo e termina", async () => {
-  const ciclo = join(wiki, "alfa", "volta");
-  symlinkSync(wiki, ciclo);
+testeSymlink("Dado diretório symlink para outra área da wiki, Quando consulto, Então não duplica callouts e avisa o link", async () => {
+  const espelho = join(wiki, "alfa", "espelho");
+  symlinkSync(join(wiki, "beta"), espelho);
   const r = await capturar(() => comandoListarLacunas([wiki, "--consultar"]));
   expect(r.codigo).toBe(0);
-  expect(r.erro).toEqual([`AVISO: symlink em ciclo: ${ciclo}`]);
+  expect(r.erro).toEqual([`AVISO: symlink de diretório não seguido: ${espelho}`]);
+  expect(r.saida.join("\n").split("\n")).toHaveLength(4);
+  expect(r.saida.join("\n")).not.toContain("espelho");
+});
+
+testeSymlink("Dado diretório symlink para fora da wiki, Quando gero o índice, Então nada de fora entra e avisa o link", async () => {
+  const fora = join(raiz, "fora", "sub");
+  mkdirSync(fora, { recursive: true });
+  writeFileSync(join(fora, "x.md"), "> [!gap] Fora da wiki.\n");
+  const externo = join(wiki, "externo");
+  symlinkSync(fora, externo);
+  const r = await capturar(() => comandoListarLacunas([wiki]));
+  expect(r.codigo).toBe(0);
+  expect(r.erro).toEqual([`AVISO: symlink de diretório não seguido: ${externo}`]);
+  expect(r.saida).toEqual([`${join(wiki, "_meta", "lacunas.md")}: 4 callout(s) em 3 página(s)`]);
+  expect(indice()).not.toContain("externo");
+});
+
+testeSymlink("Dado symlink de diretório para um ancestral, Quando consulto, Então avisa o link e termina", async () => {
+  const volta = join(wiki, "alfa", "volta");
+  symlinkSync(wiki, volta);
+  const r = await capturar(() => comandoListarLacunas([wiki, "--consultar"]));
+  expect(r.codigo).toBe(0);
+  expect(r.erro).toEqual([`AVISO: symlink de diretório não seguido: ${volta}`]);
   expect(r.saida.join("\n").split("\n")).toHaveLength(4);
 });
 

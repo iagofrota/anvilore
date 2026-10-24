@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, join, relative, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { DIR_META, diretorioDeTipo, nomeReservado } from "../lib/reservados";
@@ -15,11 +15,11 @@ function tipoValido(valor: string): valor is Tipo {
   return valor === "gap" || valor === "contradiction";
 }
 
-// R58: symlink é seguido com stat; link que não resolve avisa em vez de sumir.
+// R58/R61: symlink de arquivo é seguido com stat e, quebrado, avisa. Symlink de
+// diretório não é descido (o rglob do Python 3.12 não descia), mas avisa.
 const LINK_QUEBRADO = new Set(["ENOENT", "ELOOP", "ENOTDIR"]);
 
-async function paginasMarkdown(pasta: string, ancestrais: ReadonlySet<string> = new Set()): Promise<string[]> {
-  const caminhosReais = new Set(ancestrais).add(await realpath(pasta));
+async function paginasMarkdown(pasta: string): Promise<string[]> {
   const paginas: string[] = [];
   for (const entrada of await readdir(pasta, { withFileTypes: true })) {
     if (entrada.name === DIR_META) continue;
@@ -33,12 +33,12 @@ async function paginasMarkdown(pasta: string, ancestrais: ReadonlySet<string> = 
         console.error(`AVISO: symlink quebrado: ${caminho}`);
         continue;
       }
-      if (alvo.isDirectory() && caminhosReais.has(await realpath(caminho))) {
-        console.error(`AVISO: symlink em ciclo: ${caminho}`);
+      if (alvo.isDirectory()) {
+        console.error(`AVISO: symlink de diretório não seguido: ${caminho}`);
         continue;
       }
     }
-    if (alvo.isDirectory()) paginas.push(...await paginasMarkdown(caminho, caminhosReais));
+    if (alvo.isDirectory()) paginas.push(...await paginasMarkdown(caminho));
     else if (alvo.isFile() && entrada.name.endsWith(".md")) paginas.push(caminho);
   }
   return paginas.sort();
