@@ -372,3 +372,8 @@ for (const comando of ["bash -c 'cat raw/a.md'", "sh -c 'ls wiki'", "bash -c 'rm
     expect(decidir(terminal(comando)).acao).toBe("liberar");
   });
 }
+
+test("Dado opção colada do envolvedor com raw Quando executa escrita Então bloqueia (env -Craw, sudo -Draw)", () => {
+  for (const comando of ["env -Craw rm a", "sudo -Draw rm a", "env --chdir=RAW rm a", "xargs -araw/lista rm"]) expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  expect(decidir(terminal("env -Cwiki rm a")).acao).toBe("liberar");
+});

@@ -173,7 +173,7 @@ function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar
   if (ENVOLVEDORES.has(verbo)) {
     const resto = desembrulhar(args);
     // Opções do próprio envolvedor também podem apontar para raw/ (`env -C raw`, `xargs -a raw/lista`).
-    if (args.slice(0, args.length - resto.length).some(arg => escreveEmRaw(arg, cwd) || citaRaw(arg))) return true;
+    if (args.slice(0, args.length - resto.length).some(arg => escreveEmRaw(arg, cwd) || citaRaw(arg) || arg.toLowerCase().includes("raw"))) return true;
     // Sem comando, só o xargs é inofensivo (repete a entrada); `parallel`, `sudo -s` e `env` lendo raw/ pelo pipe não são.
     if (!resto.length) return doPipe && verbo !== "xargs";
     return segmentoEscreve(resto, cwd, doPipe, forcar || doPipe);
