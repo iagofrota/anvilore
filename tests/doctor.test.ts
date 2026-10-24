@@ -208,3 +208,35 @@ test("Dado o processo real Quando rodo bun src/cli.ts doctor Então imprime o re
   expect(p.exitCode).toBe(1);
   expect(p.stdout.toString()).toContain("desligada — para ligar:");
 });
+
+function semCli(...nomes: string[]) {
+  for (const nome of nomes) rmSync(join(bin, process.platform === "win32" ? `${nome}.cmd` : nome));
+}
+
+test("Dado clone só com Claude e a trava ligada Quando rodo o doctor Então os agentes ausentes são opcionais e a saída é 0", async () => {
+  const r = await instalar({ alvos: ["claude"], destino: clone, simular: false });
+  expect(r.codigo).toBe(0); completar(); semCli("codex", "gemini", "copilot");
+  const t = await travas();
+  for (const agente of ["Codex", "Gemini", "Copilot"]) expect(t[protecao(agente)]).toMatchObject({ ligada: false, opcional: true });
+  expect(t[protecao("Claude Code")]?.ligada).toBe(true);
+  expect(await comandoDoctor([clone])).toBe(0);
+  const saida = consoleCapturado.saida.join("\n");
+  expect(saida).toContain("Proteção do raw/ no Codex: não instalado (opcional)");
+  expect(saida).toContain("Resultado: tudo ligado");
+});
+
+test("Dado agente presente só pela pasta de configuração Quando a trava falta Então é cobrada e o doctor devolve 1", async () => {
+  await instalar({ alvos: ["claude"], destino: clone, simular: false }); completar(); semCli("codex", "gemini", "copilot");
+  mkdirSync(join(clone, ".gemini"));
+  const t = await travas();
+  expect(t[protecao("Gemini")]).toMatchObject({ ligada: false }); expect(t[protecao("Gemini")]?.opcional).toBeUndefined();
+  expect(t[protecao("Codex")]?.opcional).toBe(true);
+  expect(await comandoDoctor([clone])).toBe(1);
+  expect(consoleCapturado.saida.join("\n")).toContain("Proteção do raw/ no Gemini: desligada — para ligar:");
+});
+
+test("Dado agente com CLI no PATH e sem configuração Quando diagnostico Então a trava é cobrada", async () => {
+  await instalar({ alvos: ["claude"], destino: clone, simular: false }); completar(); semCli("gemini", "copilot");
+  expect((await travas())[protecao("Codex")]?.opcional).toBeUndefined();
+  expect(await comandoDoctor([clone])).toBe(1);
+});

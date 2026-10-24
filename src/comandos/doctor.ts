@@ -1,12 +1,12 @@
 import { readFile, readdir, stat } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { fundirBloco } from "../lib/fundir-bloco";
 import { fundirJson } from "../lib/fundir-json";
 import { NOME_DO_PERFIL, carregarPerfil } from "../lib/perfil";
 import { alvosConhecidos, configuracaoDoHook, tirarHookAntigo, valorDoPath, type Alvo } from "./instalar";
 
-export type Trava = { nome: string; ligada: boolean; comoLigar?: string; detalhe?: string; opcional?: boolean };
+export type Trava = { nome: string; ligada: boolean; comoLigar?: string; detalhe?: string; opcional?: boolean; naoInstalado?: boolean };
 export type Prerequisito = { nome: string; presente: boolean };
 export type Diagnostico = { travas: Trava[]; prerequisitos: Prerequisito[] };
 
@@ -28,9 +28,12 @@ function comandoInstalar(raiz: string, alvo: Alvo): string {
 }
 
 // Lê a configuração do agente do mesmo jeito que o `instalar` a escreve: o hook está ligado quando a fusão não teria o que acrescentar.
-async function protecaoDoRaw(raiz: string, alvo: Alvo): Promise<Trava> {
+async function protecaoDoRaw(raiz: string, alvo: Alvo, path: string | undefined): Promise<Trava> {
   const trava: Trava = { nome: `Proteção do raw/ no ${AGENTES[alvo]}`, ligada: false, comoLigar: comandoInstalar(raiz, alvo) };
   const esperado = await configuracaoDoHook(alvo);
+  // R63: só cobra o agente presente — CLI no PATH ou pasta de configuração já criada no destino.
+  const pasta = await stat(join(raiz, dirname(esperado.arquivo))).then(info => info.isDirectory(), () => false);
+  if (Bun.which(alvo, { PATH: path ?? "" }) === null && !pasta) return { ...trava, opcional: true, naoInstalado: true };
   let atual: string | undefined;
   try {
     atual = await ler(join(raiz, esperado.arquivo));
@@ -94,15 +97,16 @@ async function perfilDaEmpresa(raiz: string): Promise<Trava> {
 
 export async function diagnosticar(raiz: string, ambiente: Record<string, string | undefined> = process.env): Promise<Diagnostico> {
   const travas: Trava[] = [];
-  for (const alvo of alvosConhecidos) travas.push(await protecaoDoRaw(raiz, alvo));
-  travas.push(await validacaoNoFechamento(raiz), await checagemAntesDeAceitar(raiz), await perfilDaEmpresa(raiz));
   const path = valorDoPath(ambiente);
+  for (const alvo of alvosConhecidos) travas.push(await protecaoDoRaw(raiz, alvo, path));
+  travas.push(await validacaoNoFechamento(raiz), await checagemAntesDeAceitar(raiz), await perfilDaEmpresa(raiz));
   const prerequisitos = ["bun", "git"].map(nome => ({ nome, presente: Bun.which(nome, { PATH: path ?? "" }) !== null }));
   return { travas, prerequisitos };
 }
 
 function linhas(trava: Trava): string[] {
   if (trava.ligada) return [`  ${trava.nome}: ligada`];
+  if (trava.naoInstalado) return [`  ${trava.nome}: não instalado (opcional) — se usar este agente, para ligar: ${trava.comoLigar}`];
   if (trava.opcional) return [`  ${trava.nome}: não configurado (opcional) — para ligar: ${trava.comoLigar}`];
   const principal = `  ${trava.nome}: desligada — para ligar: ${trava.comoLigar}`;
   return trava.detalhe ? [principal, `    motivo: ${trava.detalhe}`] : [principal];
