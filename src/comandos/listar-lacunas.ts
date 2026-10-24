@@ -1,6 +1,7 @@
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, join, relative, sep } from "node:path";
 import { parseArgs } from "node:util";
+import { dataLocal, linhasPython, paginasMarkdown } from "../lib/paginas";
 import { DIR_META, diretorioDeTipo, nomeReservado } from "../lib/reservados";
 
 type Tipo = "gap" | "contradiction";
@@ -15,37 +16,8 @@ function tipoValido(valor: string): valor is Tipo {
   return valor === "gap" || valor === "contradiction";
 }
 
-// R58/R61: symlink de arquivo é seguido com stat e, quebrado, avisa. Symlink de
-// diretório não é descido (o rglob do Python 3.12 não descia), mas avisa.
-const LINK_QUEBRADO = new Set(["ENOENT", "ELOOP", "ENOTDIR"]);
-
-async function paginasMarkdown(pasta: string): Promise<string[]> {
-  const paginas: string[] = [];
-  for (const entrada of await readdir(pasta, { withFileTypes: true })) {
-    if (entrada.name === DIR_META) continue;
-    const caminho = join(pasta, entrada.name);
-    let alvo: { isDirectory(): boolean; isFile(): boolean } = entrada;
-    if (entrada.isSymbolicLink()) {
-      try {
-        alvo = await stat(caminho);
-      } catch (erro) {
-        if (!LINK_QUEBRADO.has((erro as NodeJS.ErrnoException).code ?? "")) throw erro;
-        console.error(`AVISO: symlink quebrado: ${caminho}`);
-        continue;
-      }
-      if (alvo.isDirectory()) {
-        console.error(`AVISO: symlink de diretório não seguido: ${caminho}`);
-        continue;
-      }
-    }
-    if (alvo.isDirectory()) paginas.push(...await paginasMarkdown(caminho));
-    else if (alvo.isFile() && entrada.name.endsWith(".md")) paginas.push(caminho);
-  }
-  return paginas.sort();
-}
-
 function extrair(texto: string, tipos: ReadonlySet<Tipo>): { linha: number; tipo: Tipo; texto: string }[] {
-  const linhas = texto.split(/\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]/);
+  const linhas = linhasPython(texto);
   const achados: { linha: number; tipo: Tipo; texto: string }[] = [];
   for (let i = 0; i < linhas.length;) {
     const abertura = CALLOUT.exec(linhas[i]!);
@@ -71,18 +43,13 @@ function dobrar(texto: string): string {
   return texto.toLowerCase().normalize("NFD").replace(/\p{Mn}/gu, "");
 }
 
-function dataLocal(): string {
-  const agora = new Date();
-  return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
-}
-
 function ordenar(a: Achado, b: Achado): number {
   return a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : a.linha - b.linha;
 }
 
 async function coletar(wiki: string, tipos: Tipo[]): Promise<Achado[]> {
   const achados: Achado[] = [];
-  for (const pagina of await paginasMarkdown(wiki)) {
+  for (const pagina of await paginasMarkdown(wiki, (nome) => nome === DIR_META)) {
     const rel = relative(wiki, pagina).split(sep).join("/");
     const partes = rel.split("/");
     const topo = partes[0]!;

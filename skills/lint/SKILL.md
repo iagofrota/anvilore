@@ -26,14 +26,14 @@ responderia caro lendo arquivo por arquivo.
 
 ```bash
 bash scripts/validar-wiki.sh wiki
-python3 scripts/auditar-wiki.py wiki
+bun src/cli.ts auditar wiki
 bun src/cli.ts listar-lacunas wiki --consultar
 ```
 
 | Comando | O que responde | Como ler a saída |
 |---|---|---|
 | `scripts/validar-wiki.sh` | invariantes do `SCHEMA.md` — frontmatter ausente, `type` inválido, `slug` divergente, área do frontmatter brigando com o diretório | `VALIDACAO: FAIL` é violação de contrato: **isso vem antes de tudo**, porque uma wiki que não valida torna o resto da varredura ruído |
-| `scripts/auditar-wiki.py` | as cinco categorias estruturais do Passo 2 | sai `1` quando há achado, `0` quando não há; ele **nunca escreve**, só relata |
+| `bun src/cli.ts auditar` | as cinco categorias estruturais do Passo 2 | sai `1` quando há achado, `0` quando não há; ele **nunca escreve**, só relata |
 | `bun src/cli.ts listar-lacunas … --consultar` | os callouts `[!gap]` e `[!contradiction]` abertos, um por linha, no formato `caminho.md:linha [tipo] texto` | é a dívida que quem cura **declarou** e ainda não fechou |
 
 Depois, e só depois:
@@ -57,7 +57,7 @@ usuário e pare.** Não há o que varrer, e inventar um índice não é lint.
 
 ## Passo 2 — Ler a varredura estrutural
 
-`scripts/auditar-wiki.py` devolve cinco seções. Você não precisa reimplementar
+`bun src/cli.ts auditar` devolve cinco seções. Você não precisa reimplementar
 nenhuma delas; precisa saber o que cada uma significa para não tratar um achado
 como se fosse outro.
 
@@ -215,7 +215,7 @@ Corrigido: página mínima criada para entities/nome-da-pessoa (alvo de link que
 Corrigido: campo slug acrescentado a sources/artigo-tal (inferido do nome do arquivo)
 ```
 
-Depois de corrigir, rode `python3 scripts/auditar-wiki.py wiki` de novo e
+Depois de corrigir, rode `bun src/cli.ts auditar wiki` de novo e
 confira que os itens que você diz ter corrigido **saíram** do relatório. Dizer
 "corrigi" sem essa segunda passada é afirmar sobre o estado da wiki algo que
 você não pode apontar numa saída de validação — o que o `AGENTS.md` proíbe.
@@ -322,7 +322,7 @@ Para conferir só a contagem dos índices sem escrever, rode
   sinal.
 - **Um lint é uma varredura completa.** Se o usuário quer saber só quais
   páginas não têm link de entrada, isso é uma consulta — rode
-  `python3 scripts/auditar-wiki.py wiki` e responda. Não chame de lint.
+  `bun src/cli.ts auditar wiki` e responda. Não chame de lint.
 
 ---
 

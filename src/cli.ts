@@ -8,6 +8,7 @@ import { comandoMigrarAreas } from "./comandos/migrar-areas";
 import { comandoIndexarLog } from "./comandos/indexar-log";
 import { comandoListarLacunas } from "./comandos/listar-lacunas";
 import { comandoRejuntarLinhas } from "./comandos/rejuntar-linhas";
+import { comandoAuditar } from "./comandos/auditar";
 
 export type Subcomando = (args: string[]) => Promise<number>;
 export type TabelaDeSubcomandos = Record<string, Subcomando>;
@@ -22,6 +23,7 @@ export const subcomandos: TabelaDeSubcomandos = {
   "indexar-log": comandoIndexarLog,
   "listar-lacunas": comandoListarLacunas,
   "rejuntar-linhas": comandoRejuntarLinhas,
+  auditar: comandoAuditar,
 };
 
 function listar(tabela: TabelaDeSubcomandos): string {

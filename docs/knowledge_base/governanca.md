@@ -66,8 +66,8 @@ está dito.
 - Ele **não reprova wikilink quebrado nem página fora do índice**. A busca por `[[` e por índice em
   `scripts/validar-wiki.sh` e `scripts/validar-okf.py` não retorna nada além do nome index.md, que é
   pulado (linha 25).
-- Quem sinaliza isso é outro script, `scripts/auditar-wiki.py` (páginas fora do índice e wikilinks
-  quebrados, linhas 151 a 164). Ele é chamado pela skill de lint (`skills/lint/SKILL.md`, linhas
+- Quem sinaliza isso é outro comando, `bun src/cli.ts auditar` (`src/comandos/auditar.ts`: páginas fora do índice e
+  wikilinks quebrados, linhas 113 a 122). Ele é chamado pela skill de lint (`skills/lint/SKILL.md`, linhas
   27 a 37), não pelo validador, e nada o roda automaticamente.
 
 ### 4. O perfil de proveniência pode ser pulado

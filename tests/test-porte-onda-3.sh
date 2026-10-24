@@ -17,11 +17,11 @@ SKILL=skills/lint/SKILL.md
 HOOK=hooks/proteger-raw.sh
 FORMA=hooks/hooks.json
 DOC=hooks/README.md
-VARREDURA=scripts/auditar-wiki.py
+VARREDURA=src/comandos/auditar.ts
 
 NOVOS=(
   "$SKILL" "$HOOK" "$FORMA" "$DOC" "$VARREDURA"
-  tests/test-auditar-wiki.sh
+  tests/auditar.test.ts
   tests/test-proteger-raw.sh
   tests/test-porte-onda-3.sh
 )
@@ -101,7 +101,7 @@ else
 fi
 
 # A skill tem de citar os scripts REAIS deste repositorio, nao os da origem.
-for script in "$VARREDURA" scripts/validar-wiki.sh "src/cli.ts listar-lacunas"; do
+for script in "src/cli.ts auditar" scripts/validar-wiki.sh "src/cli.ts listar-lacunas"; do
   grep -qF "$script" "$SKILL" && ok "a skill cita $script" || falha "a skill nao cita $script"
 done
 grep -qF "scripts/listar-lacunas.py" "$SKILL" && falha "a skill cita o caminho removido scripts/listar-lacunas.py" \
@@ -245,9 +245,7 @@ rm -f "$isca"
 # Runtime e sintaxe dos arquivos novos
 # ============================================================================
 [ "$(head -1 "$HOOK")" = "#!/usr/bin/env bash" ] && ok "$HOOK: shebang bash" || falha "$HOOK: shebang '$(head -1 "$HOOK")'"
-[ "$(head -1 "$VARREDURA")" = "#!/usr/bin/env python3" ] && ok "$VARREDURA: shebang python3" || falha "$VARREDURA: shebang '$(head -1 "$VARREDURA")'"
 bash -n "$HOOK" 2>/dev/null && ok "$HOOK: sintaxe bash ok" || falha "$HOOK: erro de sintaxe bash"
-python3 -m py_compile "$VARREDURA" 2>/dev/null && ok "$VARREDURA: compila em Python 3" || falha "$VARREDURA: erro de sintaxe Python"
 rm -rf scripts/__pycache__
 
 # Os hooks moram em hooks/ na raiz, versionado — nao num diretorio de provedor.
