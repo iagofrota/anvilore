@@ -311,16 +311,16 @@ for (const comando of ["git clean -fdx", "git clean -fdX", "git clean -xdf", "gi
   });
 }
 test("Dado cwd absoluto Quando apaga a raiz do projeto ou um ancestral Então bloqueia e outros diretórios passam", () => {
-  const raiz = "/home/ana/proj";
-  for (const alvo of [raiz, `${raiz}/`, "/home/ana", "/home", "/"]) expect(decidir(comCwd(`rm -rf ${alvo}`, raiz)).acao).toBe("bloquear");
+  const raiz = "/srv/equipe/proj";
+  for (const alvo of [raiz, `${raiz}/`, "/srv/equipe", "/srv", "/"]) expect(decidir(comCwd(`rm -rf ${alvo}`, raiz)).acao).toBe("bloquear");
   expect(decidir(comCwd(`rm -rf ${raiz}/wiki`, raiz)).acao).toBe("liberar");
-  expect(decidir(comCwd("rm -rf /home/ana/outro", raiz)).acao).toBe("liberar");
+  expect(decidir(comCwd("rm -rf /srv/equipe/outro", raiz)).acao).toBe("liberar");
   expect(decidir(comCwd("rm -rf /tmp/x", raiz)).acao).toBe("liberar");
   expect(decidir(comCwd(`find ${raiz} -delete`, `${raiz}/wiki`)).acao).toBe("bloquear");
   expect(decidir(comCwd("rm -rf C:\\proj", "C:\\proj")).acao).toBe("bloquear");
   // o cwd absoluto pode ser a raiz do projeto: apagá-lo bloqueia, mesmo que seja uma subpasta.
-  expect(decidir(comCwd("rm -rf /home/ana/proj/wiki", "/home/ana/proj/wiki")).acao).toBe("bloquear");
-  expect(decidir(comCwd("rm -rf /home/ana/proj/wiki/tmp", "/home/ana/proj/wiki")).acao).toBe("liberar");
+  expect(decidir(comCwd("rm -rf /srv/equipe/proj/wiki", "/srv/equipe/proj/wiki")).acao).toBe("bloquear");
+  expect(decidir(comCwd("rm -rf /srv/equipe/proj/wiki/tmp", "/srv/equipe/proj/wiki")).acao).toBe("liberar");
 });
 for (const comando of ["rm -rf wiki/tmp", "rm -f *.tmp", "rm -rf node_modules", "rm a.md", "rm -r wiki/x", "find wiki -name '*.tmp' -delete", "find . -name '*.md'", "find . -exec cat {} +", "git clean -fd", "git clean -n", "rm -rf $TMP/*", "rm -rf /tmp/x", "cd wiki && rm -rf .", "cd wiki && rm -rf ./*", "cd -- wiki/sub && rm -r *", "rmdir wiki/vazio", "Remove-Item -Force wiki/a.md", "rm -rf wiki/.", "ls -R ."]) {
   test(`Dado limpeza restrita ${comando} Quando não cita raw Então libera (controle)`, () => {

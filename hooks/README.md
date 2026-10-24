@@ -63,7 +63,7 @@ mesmo hook avalia o comando (`Bash` no Claude Code e no Codex, `run_shell_comman
 no Gemini, `bash`/`powershell` no Copilot). **Bloqueia** quando o comando
 escreve ou apaga algo em `raw/`: redirecionamento `>`/`>>`, `tee`, `mv`, `cp` com
 destino em `raw/`, `rm`, `rmdir`, `sed -i`/`w`/`e`, `perl` (qualquer script), `truncate`, `touch`, `ln`,
-`chmod`, `find -delete`/`-exec`, `git mv`, `git rm`, `git checkout`/`restore`/`clean`/`apply`
+`chmod`, `find -delete`/`-exec`, `git` com subcomando que não seja de leitura (`log`, `show`, `diff`, `status`, `blame`, `grep`, `add`, `commit`…)
 e os equivalentes de PowerShell (`Remove-Item`, `Set-Content`, …). **Libera**
 leituras (`cat`, `rg`, `grep`, `ls`, `head`, `tail`, `wc`, `stat`, `diff`, `git log`,
 `Get-Content`, …). Um verbo que o hook não conhece e que cita `raw/` é
@@ -72,11 +72,16 @@ seguido de um comando com caminho relativo conta como escrita em `raw/`.
 Comando que não dá para ler (aspas abertas, `$(...)`, crase) bloqueia **só se
 citar `raw/`**; sem citação, passa.
 
-Limites, ditos de propósito: o hook não executa nem expande shell. Variável
-(`d=raw; rm $d/a`), subshell que monte o caminho, script externo (`bash limpa.sh`,
-`python apaga.py`) e `sed 'w raw/x'`/`perl -e` não são vistos. Quem precisa de
-garantia contra um agente hostil tem de usar permissão de sistema de arquivos;
-o hook cobre o erro do agente, não o adversário. Ver `docs/knowledge_base/governanca.md`.
+Limites, ditos de propósito: o hook não executa nem expande shell. Não são vistos, por exemplo:
+variável (`d=raw; rm $d/a`), subshell que monte o caminho (`rm $(printf r%s aw)/a`), script externo
+(`bash limpa.sh`, `python apaga.py`), glob que monte o nome (`rm r*/a`), ofuscação (`> r\aw/a`,
+`> $'raw/a'`), `sed -f script` e `git -c`/`git config` que mudem o programa de um comando de leitura que
+não cite `raw/`. Comando que alcança `raw/` sem nomeá-lo só é pego nos casos do R64: `git clean -x`/`-X` e
+`rm -r`/`find -delete` cujo alvo é `.`, `..`, `*`, a pasta de trabalho ou um ancestral dela. O caminho que chega
+por pipe a `xargs`, `parallel`, `sh` ou `find -exec` é visto quando um segmento anterior cita `raw/`; `xargs rm
+< lista` com a lista fora de `raw/` não é. Quem precisa de garantia contra um agente hostil tem de usar
+permissão de sistema de arquivos; o hook cobre o erro do agente, não o adversário. Lista completa, com
+exemplos, em `docs/knowledge_base/governanca.md`.
 
 ### Como saber que o hook rodou — `ANVILORE_LOG_HOOK`
 
@@ -136,6 +141,14 @@ Fonte: <https://learn.chatgpt.com/docs/hooks> (acesso em 2026-09-22). O matcher
 de edição de arquivo aceita `apply_patch`, `Edit` e `Write`; os três entram,
 porque o mesmo agente edita por mais de um caminho.
 
+### Claude Code — `hooks/hooks.json`
+
+O hook leva `"shell": "bash"` (Git Bash no Windows) e `"onFailure": "block"`: se o comando não
+subir, sair com código diferente de 0 e 2 ou estourar o tempo, a ferramenta é bloqueada em vez de seguir. Fonte:
+<https://code.claude.com/docs/en/hooks> (acesso em 2026-10-24; `onFailure` pede o Claude Code 2.1.295 ou
+mais novo, e a página não diz o que versões anteriores fazem com a chave). Sem Git Bash no Windows, o
+`shell: "bash"` não sobe e, nas versões novas, o `onFailure` bloqueia tudo: falha fechada, e barulhenta.
+
 ### Gemini CLI — `.gemini/settings.json`
 
 ```json
@@ -164,14 +177,19 @@ para os nomes `write_file` e `replace` (escrita) e `run_shell_command` (terminal
 {
   "hooks": {
     "preToolUse": [
-      { "type": "command", "bash": "bun ./src/cli.ts hook proteger-raw || exit 2" }
+      {
+        "type": "command",
+        "bash": "bun ./src/cli.ts hook proteger-raw || exit 2",
+        "powershell": "bun ./src/cli.ts hook proteger-raw; if ($LASTEXITCODE -ne 0) { exit 2 }"
+      }
     ]
   }
 }
 ```
 
 Fonte: <https://docs.github.com/en/copilot/reference/hooks-reference> (acesso em
-2026-09-22).
+2026-09-22 e 2026-10-24). No Windows vale o campo `powershell`; o `preToolUse` fecha em qualquer saída diferente
+de 0 ("Denied by preToolUse hook (hook errored)"), e o `||` não existe no PowerShell 5.1, por isso os dois campos.
 
 > **Correção.** Até a onda anterior este documento descrevia, para o Copilot CLI,
 > um evento `hooks.toolCall` com um campo `"phase": "before"` no payload. **Isso
