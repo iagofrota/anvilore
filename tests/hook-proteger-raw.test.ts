@@ -245,7 +245,7 @@ for (const comando of ["find raw -name '*.bak' | xargs rm", "ls raw/*.bak | xarg
     expect(decidir(terminal(comando)).acao).toBe("bloquear");
   });
 }
-for (const comando of ["find wiki -name '*.bak' | xargs rm", "ls wiki/*.bak | xargs rm -f", "find raw -name '*.md' | xargs wc -l", "cat raw/lista | xargs -n 1 cat", "cat raw/a.md | sort | uniq", "cat raw/a.md | tee wiki/copia.md", "time cat raw/a.md", "nice rg palavra raw/", "cat raw/a | head -3 | wc -l", "find raw -name '*.md' | head", "cat raw/lista && xargs rm < wiki/lista"]) {
+for (const comando of ["find wiki -name '*.bak' | xargs rm", "ls wiki/*.bak | xargs rm -f", "find raw -name '*.md' | xargs wc -l", "cat raw/lista | xargs -n 1 cat", "cat raw/a.md | sort | uniq", "cat raw/a.md | tee wiki/copia.md", "time cat raw/a.md", "nice rg palavra raw/", "cat raw/lista | xargs -n 1", "cat raw/a | head -3 | wc -l", "find raw -name '*.md' | head", "cat raw/lista && xargs rm < wiki/lista"]) {
   test(`Dado leitura em pipe ou em wrapper ${comando} Quando decido Então libera (controle)`, () => {
     expect(decidir(terminal(comando)).acao).toBe("liberar");
   });
