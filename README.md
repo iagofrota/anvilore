@@ -16,7 +16,8 @@ repositório**:
 | `SCHEMA.md` | o contrato de formato das páginas: tipos, frontmatter, wikilinks e callouts |
 | `AGENTS.md` | o contrato do agente: o que ele faz, o que não faz |
 | `skills/ingest`, `skills/query`, `skills/lint` | ingerir uma fonte; responder citando página; varrer a wiki atrás de problemas estruturais |
-| `scripts/` | o validador `validar-wiki.sh` e os scripts de manutenção (índice, log, lacunas, áreas) |
+| `src/` | o comando `anvilore` em TypeScript, que roda no [Bun](https://bun.sh); por ora traz o validador (`validar`) |
+| `scripts/` | os scripts de manutenção (índice, log, lacunas, áreas) |
 | `hooks/` | a regra "`raw/` é imutável" na forma de hook, com a decisão num script só (`hooks/proteger-raw.sh`) |
 | `instalar.sh` | configura um clone para o agente que você usa: Claude Code, Codex, Gemini ou Copilot |
 | `tests/` | os testes que provam os scripts, o hook e o instalador |
@@ -73,18 +74,21 @@ Com o clone configurado:
 4. Valide a estrutura:
 
    ```bash
-   bash scripts/validar-wiki.sh
+   bun src/cli.ts validar
    ```
 
    Espera-se `VALIDACAO: PASS`, com uma linha de dívida de conhecimento
    (gaps e contradições sinalizados, se houver — zero também é uma resposta
    válida).
 
-   > O validador é shell puro. A única checagem opcional que precisa de algo
-   > além disso é o [perfil de proveniência](SCHEMA.md#perfil-de-proveniência-opcional),
-   > que lê o frontmatter com **PyYAML** (`pip install pyyaml`). Sem ele, o
-   > validador pula esse perfil com uma linha `SKIP:` dizendo por quê e segue
-   > normalmente — nunca reprova por falta da dependência.
+   > O validador roda no [Bun](https://bun.sh) e não tem outra dependência: ele
+   > lê o YAML do frontmatter sozinho, então o
+   > [perfil de proveniência](SCHEMA.md#perfil-de-proveniência-opcional) nunca é
+   > pulado. Sem o Bun o comando não roda — ele nunca imprime `VALIDACAO: PASS`
+   > por falta de ferramenta. Além do formato das páginas, ele reprova wikilink
+   > quebrado, página fora do `index.md` e página com `generated` sem
+   > verificação humana posterior. Uma empresa pode restringir áreas, tipos e
+   > campos obrigatórios num `anvilore.toml` (veja o `SCHEMA.md`).
 
 Quando a wiki crescer, `skills/lint/SKILL.md` faz a varredura de manutenção:
 o que está estruturalmente quebrado, o que virou dívida de conhecimento e o

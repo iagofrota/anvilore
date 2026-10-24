@@ -23,12 +23,14 @@ Peças que existem hoje no repositório:
 - Contrato do agente: `AGENTS.md` (e `CLAUDE.md`, que só aponta para ele).
 - Skills de ingerir, consultar e varrer a wiki: `skills/ingest/SKILL.md`, `skills/query/SKILL.md`
   e `skills/lint/SKILL.md`.
-- Validador e scripts de manutenção, ainda em bash e Python: `scripts/`.
+- Validador da wiki (`anvilore validar`), em TypeScript: `src/comandos/validar.ts`, `src/lib/okf.ts` e
+  `src/lib/perfil.ts`. Os scripts de manutenção, ainda em bash e Python: `scripts/`.
 - Proteção de `raw/` como hook: `hooks/proteger-raw.sh`.
 - Instalador para Claude Code, Codex, Gemini e Copilot: `instalar.sh`.
 - O porte para TypeScript no Bun, em andamento: `src/cli.ts` (tabela de subcomandos), a biblioteca
-  em `src/lib/` e dois subcomandos, `checar-docs` e `checar-release`, em `src/comandos/`. Os
-  scripts, o hook e o instalador acima ainda não foram substituídos.
+  em `src/lib/` e três subcomandos, `checar-docs`, `checar-release` e `validar`, em
+  `src/comandos/`. Os scripts de manutenção, o hook e o instalador acima ainda não foram
+  substituídos.
 
 ## Para onde ir com cada pergunta
 

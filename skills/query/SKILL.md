@@ -119,7 +119,7 @@ Depois de responder, pergunte:
 Quer que eu salve isso como uma página da wiki?
 ```
 
-Se o usuário disser sim, pergunte um título se não for óbvio. Então crie `wiki/concepts/<slug>.md` usando o modelo de página de conceito de `skills/ingest/SKILL.md`. O frontmatter tem que obedecer ao `SCHEMA.md` — é ele que `scripts/validar-wiki.sh` cobra. A página deve conter a resposta sintetizada, com todas as citações intactas, mais uma seção `## Pergunta de origem` no topo:
+Se o usuário disser sim, pergunte um título se não for óbvio. Então crie `wiki/concepts/<slug>.md` usando o modelo de página de conceito de `skills/ingest/SKILL.md`. O frontmatter tem que obedecer ao `SCHEMA.md` — é ele que `bun src/cli.ts validar` cobra. A página deve conter a resposta sintetizada, com todas as citações intactas, mais uma seção `## Pergunta de origem` no topo:
 
 ```markdown
 ## Pergunta de origem

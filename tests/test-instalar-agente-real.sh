@@ -135,7 +135,7 @@ resposta="$(cd "$ALVO" && timeout 300 claude -p \
   --settings "$CONFIG" 2>&1)"
 
 citados=0
-for script in auditar-wiki listar-lacunas validar-wiki; do
+for script in auditar-wiki listar-lacunas cli.ts; do
   printf '%s' "$resposta" | grep -qF "$script" && citados=$((citados+1))
 done
 if [ "$citados" -ge 2 ]; then

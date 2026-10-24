@@ -24,7 +24,7 @@ bun run checar
 - Para conferir esta pasta: `bun src/cli.ts checar-docs`. Para simular a trava de release:
   `bun src/cli.ts checar-release 0.1.0`.
 - Os testes antigos em bash continuam em `tests/test-*.sh`, para o código que ainda é bash. Rode
-  cada um com `bash tests/test-validar-wiki.sh`, por exemplo. O alvo deles é Linux: o instalador
+  cada um com `bash tests/test-fechar-wiki.sh`, por exemplo. O alvo deles é Linux: o instalador
   declara isso (`instalar.sh`, linhas 21 e 22) e `tests/test-instalar.sh` confere que o `--help`
   diz Linux e não promete Windows nem macOS (linhas 96 a 107).
 

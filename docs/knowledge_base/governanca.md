@@ -17,7 +17,9 @@ fica para depois (veja a última seção).
 | Trava | O que faz | Onde |
 |---|---|---|
 | Hook `proteger-raw` | Bloqueia (saída 2) a escrita em `raw/` feita pelas ferramentas de edição de arquivo. Sem caminho isolável no payload, bloqueia se o texto citar `raw/`. | `hooks/proteger-raw.sh`, linhas 27 a 32 e 115 a 127; `hooks/hooks.json`, linha 6 |
-| Validador da wiki | Reprova página sem frontmatter, com `type` inválido, com `slug` diferente do nome do arquivo ou com `area` em conflito com o diretório. Reprova wiki inexistente e diretório sem nenhum arquivo `.md`; uma wiki só com index.md e log.md passa. | `scripts/validar-wiki.sh`, linhas 14 a 18, 33 a 55 e 63 a 67 |
+| Validador da wiki (`anvilore validar`) | Reprova página sem frontmatter ou com frontmatter que não lê (YAML inválido nunca é pulado), com `type` inválido, com `slug` diferente do nome do arquivo (comparado em Unicode NFC), com `area` em conflito com o diretório, dois arquivos da mesma pasta que só diferem na caixa, wikilink que não resolve, página fora do index.md aplicável e campo de proveniência malformado. Reprova wiki inexistente e diretório sem nenhum arquivo `.md`; uma wiki só com index.md e log.md passa. Sem o Bun o comando não roda, e nunca imprime PASS. | `src/comandos/validar.ts`, linhas 91 a 210 |
+| Portão humano, depois da escrita | Reprova a página com `generated` em mapping e sem uma entrada `verified` com `by: human:<id>` e `at` igual ou posterior a `generated.at`. A mensagem é "página gerada sem aprovação humana". | `src/lib/okf.ts`, linhas 144 a 185 |
+| Perfil da empresa | Um anvilore.toml na raiz do projeto restringe áreas, tipos de página e campos obrigatórios; reprova nomeando arquivo e valor. Arquivo ilegível, chave desconhecida ou valor que não é lista de textos também reprova. | `src/lib/perfil.ts`, linhas 28 a 54; `src/comandos/validar.ts`, linhas 159 a 161 e 174 a 182 |
 | Tipos e cobertura | `tsc --noEmit` e testes com cobertura mínima de 80% no geral. | `package.json` (script `checar`); `bunfig.toml`, linha 2 |
 | Checagem de links | Reprova link e menção a arquivo inexistente nesta pasta. | `src/comandos/checar-docs.ts` |
 | Trava de release | Reprova versão sem seção no CHANGELOG, seção vazia, pasta desta KB ausente ou sem página, ou página sem `verified`. | `src/comandos/checar-release.ts` |
@@ -25,7 +27,9 @@ fica para depois (veja a última seção).
 
 O `hooks/proteger-raw.sh` falha fechado: se não consegue ler o caminho no payload, a decisão passa
 a ser sobre o texto inteiro, e "não achei caminho" nunca vira "pode passar" (linhas 115 a 127). O
-validador também não imprime PASS quando o diretório não existe (linhas 14 a 18).
+validador também não imprime PASS quando o diretório não existe (`src/comandos/validar.ts`, linhas
+95 a 99) nem quando um arquivo, o anvilore.toml ou o YAML do frontmatter não lê: cada um vira um
+erro que nomeia o arquivo.
 
 ## O que hoje não é imposto
 
@@ -50,34 +54,43 @@ está dito.
   Leia como "qualquer escrita por ferramenta de edição". O `CHANGELOG.md` (seção "Não resolvido
   nesta versão") já diz o alcance certo.
 
-### 2. O portão humano da ingestão é só texto
+### 2. O portão humano só vale para a página que declara `generated`
 
-- A regra "o primeiro subagente lê e não escreve; o segundo só escreve depois do aval da pessoa"
-  está em `skills/ingest/SKILL.md`, linhas 20, 32 a 38 e 79 a 96.
-- Nenhum script, hook ou teste confere que o aval aconteceu. A busca por "aval" e "portão" em
-  `scripts/`, `hooks/` e `src/` não retorna nada. Quem cumpre a regra é o agente.
+- O aval **antes** da escrita ("o primeiro subagente lê e não escreve; o segundo só escreve depois
+  do aval da pessoa") continua sendo texto, em `skills/ingest/SKILL.md`, linhas 20, 32 a 38 e 79 a
+  96. Nenhum script confere que ele aconteceu.
+- O aval **depois** da escrita é imposto (tabela acima), mas só para a página que traz o bloco
+  `generated`. Uma página sem esse bloco é tratada como escrita à mão e não é barrada. Hoje a skill
+  `ingest` ainda não manda gravar o `generated` (a busca por `generated` em `skills/` não retorna
+  nada); sem isso, o portão não pega a página que o agente escreve sem declará-lo.
+- Nenhum programa prova quem escreveu `verified`. Um agente que grave `verified` com
+  `by: human:<id>` por conta própria viola o contrato (`AGENTS.md`, seção "O que você não faz") e o
+  validador não o detecta.
+- Não confunda os dois formatos: o `verified: AAAA-MM-DD` escalar desta pasta é do projeto e é lido
+  por `checar-release`; o `verified` em mapping (`by`, `at`) é o da wiki de quem usa, lido pelo
+  validador da wiki. Eles não se unificam.
 - A mesma coisa vale para "não resolver contradição por conta própria" no `AGENTS.md`: é contrato
   em prosa.
 
-### 3. O validador não olha a navegação
+### 3. A navegação é conferida com limites
 
-- `scripts/validar-wiki.sh` confere frontmatter, `type`, `slug` e `area` (linhas 33 a 55) e conta
-  `gap` e `contradiction` como dívida, sem reprovar (linhas 57, 58 e 69).
-- Ele **não reprova wikilink quebrado nem página fora do índice**. A busca por `[[` e por índice em
-  `scripts/validar-wiki.sh` e `scripts/validar-okf.py` não retorna nada além do nome index.md, que é
-  pulado (linha 25).
-- Quem sinaliza isso é outro script, `scripts/auditar-wiki.py` (páginas fora do índice e wikilinks
-  quebrados, linhas 151 a 164). Ele é chamado pela skill de lint (`skills/lint/SKILL.md`, linhas
-  27 a 37), não pelo validador, e nada o roda automaticamente.
+- O validador reprova wikilink quebrado e página fora do índice (`src/comandos/validar.ts`, linhas
+  190 a 206). A regra foi portada de `scripts/auditar-wiki.py` (linhas 151 a 164), que continua
+  existindo como relatório e é chamado pela skill de lint (`skills/lint/SKILL.md`, linhas 27 a 37).
+- A página da wiki plana é conferida contra o `wiki/index.md`; a de uma área, contra o
+  `wiki/<área>/index.md`. Uma área sem index.md próprio não é conferida: a página dela pode
+  estar listada só no `wiki/index.md`, ou em lugar nenhum, e o validador não vê. Wiki sem nenhum
+  index.md também passa.
+- Só `[[slug]]`, `[[slug|rótulo]]` e `[[slug#seção]]` são links. Link com caminho
+  ([[sources/x]]), link markdown e wikilink dentro de bloco de código, código em linha ou
+  comentário HTML não são conferidos.
 
-### 4. O perfil de proveniência pode ser pulado
+### 4. O perfil da empresa vale para o estado atual
 
-- Se `python3` não existe, o validador não checa o perfil e não avisa (`scripts/validar-wiki.sh`,
-  linhas 72 a 78). Se existe `python3` mas não PyYAML, o validador OKF emite uma linha `SKIP:` e
-  sai com 0 (`scripts/validar-okf.py`, linhas 244 a 247), e o validador da wiki repete a linha na
-  saída e segue (`scripts/validar-wiki.sh`, linha 84).
-- O porte para TypeScript existe para acabar com esse pulo: o Bun lê YAML sozinho. Enquanto o
-  validador novo não substitui o antigo, a limitação vale.
+- Mudar o anvilore.toml reprova as páginas antigas que o novo perfil deixa de aceitar; o
+  validador não guarda histórico nem tolera páginas "anteriores ao perfil". Quem muda o perfil
+  decide se corrige as páginas ou afrouxa a regra.
+- Só o anvilore.toml na pasta que contém a wiki vale. Um arquivo em outro lugar é ignorado.
 
 ### 5. A regra "afirmar só o que dá para apontar" é prosa
 

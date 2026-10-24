@@ -33,7 +33,11 @@ em vez de deixar passar. Errar recusando é o lado barato de errar.
 O agente ingere, cruza e escreve; o que entra na wiki como verdade passa por
 quem cura. A `skills/ingest` despacha um primeiro subagente que **lê e não
 escreve**, devolve 3–5 takeaways candidatos com a citação que os sustenta, e
-só depois do aval humano um segundo subagente escreve. A `skills/query`
+só depois do aval humano um segundo subagente escreve. Esse aval antes da
+escrita é regra da skill; o que o código impõe é o aval depois: o validador
+reprova a página que declara `generated` sem uma verificação humana posterior
+(`verified[]` com `by: human:<id>`) — sem provar quem escreveu a verificação.
+A `skills/query`
 responde a partir da wiki, não da memória, e toda afirmação remete a uma
 página, que remete a uma fonte. A `skills/lint` corrige o que não exige
 julgamento e **apresenta o resto** para quem cura decidir. E o `AGENTS.md`
@@ -81,12 +85,11 @@ dados e de agente — coisas que não existem antes de a wiki existir.
 
 ## 4. Sem RAG, sem banco vetorial, sem infraestrutura
 
-A wiki é um diretório de markdown. O validador (`scripts/validar-wiki.sh`) é
-shell puro; a única checagem que pede mais que isso é o perfil de
-proveniência, opcional, e mesmo ele **pula com uma linha `SKIP:`** quando
-falta a dependência, em vez de reprovar. Os scripts de manutenção são shell e
-Python de biblioteca padrão. Não há servidor, índice binário nem processo
-rodando por trás.
+A wiki é um diretório de markdown. O validador (`anvilore validar`) é
+TypeScript que roda no Bun, sem biblioteca de terceiros: ele lê o YAML do
+frontmatter sozinho e, sem o Bun, falha em vez de fingir que passou. Os
+scripts de manutenção ainda são shell e Python de biblioteca padrão. Não há
+servidor, índice binário nem processo rodando por trás.
 
 **Por quê:** na escala de uma wiki pessoal, um agente que lê `wiki/index.md`
 e abre as páginas relevantes é suficiente — e o que se ganha em recuperação
@@ -155,7 +158,7 @@ e adaptadas, sob a licença MIT, com o aviso de copyright original preservado
 no [`LICENSE`](./LICENSE).
 
 O que este repositório acrescenta por cima: o passo de despacho de subagentes
-no `ingest`, o validador `scripts/validar-wiki.sh` com testes, um schema
+no `ingest`, o validador `anvilore validar` com testes, um schema
 deliberadamente menor, a fronteira de `raw/` com dentes em `hooks/`, o
 instalador multi-agente, e a ideia de que a coisa cresce em níveis — você
 começa com duas skills e um contrato, e só adiciona estrutura quando a dor

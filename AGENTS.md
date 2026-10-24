@@ -19,6 +19,8 @@ Você mantém uma wiki pessoal. Três camadas, e a fronteira entre elas é rígi
 
 - Não escrever em `raw/`.
 - Não resolver uma contradição entre fontes por conta própria: registre-a e pergunte.
+- Não escrever `verified` com `by: human:<id>` numa página que você gerou: quem aprova é a pessoa.
+  O validador reprova página com `generated` e sem essa aprovação, mas não prova quem a escreveu.
 - Não afirmar nada sobre o estado da wiki que você não possa apontar num arquivo,
   num campo de frontmatter ou numa saída de validação.
 
@@ -31,7 +33,7 @@ invenção vira conhecimento consultado depois.
 - **Mantém uma wiki:** siga o contrato acima. Esta seção não muda nada do que você faz.
 - **Desenvolve o Anvilore ou responde dúvidas sobre ele:** comece por `docs/knowledge_base/README.md`.
 - Leia antes de mudar:
-  - o hook (`hooks/`) ou o validador (`scripts/validar-wiki.sh`): `docs/knowledge_base/governanca.md`;
+  - o hook (`hooks/`) ou o validador (`src/comandos/validar.ts`): `docs/knowledge_base/governanca.md`;
   - qualquer coisa que dependa de sistema operacional: `docs/knowledge_base/plataformas.md`;
   - o motivo de uma escolha de projeto: `docs/knowledge_base/decisoes.md`;
   - antes de entregar qualquer mudança: `docs/knowledge_base/contribuindo.md`.

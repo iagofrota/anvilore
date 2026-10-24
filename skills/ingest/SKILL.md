@@ -48,7 +48,7 @@ Só depois do aval. O prompt **já deve conter** (senão ele relê tudo e desper
 
 Confira o tamanho da fonte (`wc -c`). Se passar de 400.000 bytes, avise o usuário que o ingest provavelmente vai exigir um contexto grande e pode custar mais — ele decide se segue.
 
-Quando o escritor voltar, **confira você mesmo** o que ele afirma ter feito: `bash scripts/validar-wiki.sh` e `git status`. Relatório de subagente não é prova.
+Quando o escritor voltar, **confira você mesmo** o que ele afirma ter feito: `bun src/cli.ts validar wiki` e `git status`. Relatório de subagente não é prova.
 
 ---
 

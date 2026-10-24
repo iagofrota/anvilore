@@ -9,6 +9,37 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Added
+
+- Comando `anvilore validar [pasta]`: o validador da wiki agora é TypeScript no Bun, no lugar dos
+  scripts em bash e Python. Mantém as mesmas regras e as mesmas saídas (`VALIDACAO: PASS` ou
+  `VALIDACAO: FAIL`, códigos 0 e 1) e acrescenta o que faltava: o YAML do frontmatter é lido pelo
+  próprio Bun, então a checagem de proveniência nunca mais é pulada, e uma página com YAML
+  ilegível reprova nomeando o arquivo.
+- O validador reprova wikilink que não aponta para nenhuma página e página que não aparece no
+  `index.md` (da raiz, na wiki plana, ou da área, quando a área tem um). Wiki existente com link
+  quebrado ou página fora do índice passa a reprovar.
+- Portão humano depois da escrita: página com `generated` precisa de uma verificação humana
+  (`verified` com `by: human:<id>`) igual ou posterior à geração, senão reprova como "página gerada
+  sem aprovação humana". Nenhum programa prova quem escreveu a verificação.
+- Perfil da empresa em `anvilore.toml` (áreas, tipos de página e campos obrigatórios permitidos).
+  Página fora do perfil reprova nomeando o arquivo e o valor; arquivo inválido ou com chave
+  desconhecida também reprova. Sem o arquivo, vale o `SCHEMA.md`.
+- Dois arquivos da mesma pasta que só diferem na caixa (`Pagina.md` e `pagina.md`) reprovam; o slug
+  é comparado com o nome do arquivo em Unicode NFC, então nome decomposto do macOS passa.
+
+### Changed
+
+- `SCHEMA.md` descreve o portão humano, o índice, o resultado dos wikilinks e o `anvilore.toml`;
+  `AGENTS.md` proíbe o agente de escrever uma verificação humana por conta própria.
+- O fechamento da wiki (`scripts/fechar-wiki.sh`) passa a chamar o novo validador e exige o Bun.
+- O teste da tabela de vereditos de `sources[].resource` virou `tests/okf-baseline.test.ts`.
+
+### Removed
+
+- `scripts/validar-wiki.sh`, `scripts/validar-okf.py`, `scripts/resource-baseline-check.py` e os
+  testes em bash que os cobriam.
+
 ## [0.1.0] - 2026-10-24
 
 Primeira versão da base nova do Anvilore, em TypeScript no Bun. Ela ainda não troca os scripts

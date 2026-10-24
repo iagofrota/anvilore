@@ -25,14 +25,14 @@ qualquer página, porque cada um responde, de graça, uma pergunta que você
 responderia caro lendo arquivo por arquivo.
 
 ```bash
-bash scripts/validar-wiki.sh wiki
+bun src/cli.ts validar wiki
 python3 scripts/auditar-wiki.py wiki
 python3 scripts/listar-lacunas.py wiki --consultar
 ```
 
 | Comando | O que responde | Como ler a saída |
 |---|---|---|
-| `scripts/validar-wiki.sh` | invariantes do `SCHEMA.md` — frontmatter ausente, `type` inválido, `slug` divergente, área do frontmatter brigando com o diretório | `VALIDACAO: FAIL` é violação de contrato: **isso vem antes de tudo**, porque uma wiki que não valida torna o resto da varredura ruído |
+| `bun src/cli.ts validar` | invariantes do `SCHEMA.md` — frontmatter ausente ou ilegível, `type` inválido, `slug` divergente, área do frontmatter brigando com o diretório ou fora do `anvilore.toml`, wikilink quebrado, página fora do índice, proveniência malformada e página gerada sem aprovação humana | `VALIDACAO: FAIL` é violação de contrato: **isso vem antes de tudo**, porque uma wiki que não valida torna o resto da varredura ruído |
 | `scripts/auditar-wiki.py` | as cinco categorias estruturais do Passo 2 | sai `1` quando há achado, `0` quando não há; ele **nunca escreve**, só relata |
 | `scripts/listar-lacunas.py … --consultar` | os callouts `[!gap]` e `[!contradiction]` abertos, um por linha, no formato `caminho.md:linha [tipo] texto` | é a dívida que quem cura **declarou** e ainda não fechou |
 
@@ -87,7 +87,7 @@ Campos que o `SCHEMA.md` exige e a página não declara — os comuns (`title`,
 `authors` para `source`; `related_sources`, `related_concepts` para `concept` e
 `entity`). O relatório nomeia os campos ausentes, um a um.
 
-> Esta seção é **mais exigente** que `scripts/validar-wiki.sh` de propósito. O
+> Esta seção é **mais exigente** que `bun src/cli.ts validar` de propósito. O
 > validador cobra invariante: o que reprova o repositório. O lint cobra
 > completude: o que degrada a wiki sem quebrar nada.
 
