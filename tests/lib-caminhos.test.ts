@@ -78,3 +78,21 @@ test("Dado raw como parte do nome do arquivo, Quando pergunto se está em raw, E
   expect(estaEmRaw("wiki/raw.md")).toBe(false);
   expect(estaEmRaw("wiki/notas.raw")).toBe(false);
 });
+
+test("Dado componente raw com ponto, espaço ou unidade do Windows, Quando pergunto se está em raw, Então está", () => {
+  for (const alvo of ["C:\\p\\raw.\\a.md", "C:\\p\\raw \\a.md", "C:raw\\a.md", "p/raw./a.md", "raw:stream", "raw::$INDEX_ALLOCATION", "p/raw.. /a.md"]) {
+    expect(estaEmRaw(alvo)).toBe(true);
+  }
+});
+
+test("Dado caminhos com .., //, ./, UNC ou prefixo \\?\\, Quando pergunto se está em raw, Então está", () => {
+  for (const alvo of ["wiki/../raw/a.md", "raw//a.md", "./raw/a.md", "\\\\srv\\share\\raw\\a.md", "\\\\?\\C:\\p\\raw\\a.md"]) {
+    expect(estaEmRaw(alvo)).toBe(true);
+  }
+});
+
+test("Dado nomes que só lembram raw, Quando pergunto se está em raw, Então não está", () => {
+  for (const alvo of ["rawdata/a.md", "wiki/raw-notas.md", "raw.md", "wiki/raw.md", "notas.raw", "C:\\p\\raw.md", "C:\\p\\a.md"]) {
+    expect(estaEmRaw(alvo)).toBe(false);
+  }
+});

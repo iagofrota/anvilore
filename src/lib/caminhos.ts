@@ -8,8 +8,11 @@ export function chaveDeNome(nome: string): string {
   return nome.toLowerCase().normalize("NFC");
 }
 
-// `raw` entra sem diferenciar caixa e aceita / e \ como separador, porque o hook
-// falha fechado: em disco que não diferencia caixa, Raw/ é o mesmo raw/.
+// O hook falha fechado, então o componente é normalizado como o disco faria:
+// separa por / \ e : (unidade `C:raw`, fluxo `raw:x`), tira pontos e espaços do
+// fim (o Win32 abre `raw.` e `raw ` como `raw`) e ignora a caixa (macOS e Windows).
 export function estaEmRaw(alvo: string): boolean {
-  return alvo.split(/[\\/]/).some((componente) => componente.toLowerCase() === "raw");
+  return alvo
+    .split(/[\\/:]/)
+    .some((componente) => componente.replace(/[. ]+$/, "").toLowerCase() === "raw");
 }

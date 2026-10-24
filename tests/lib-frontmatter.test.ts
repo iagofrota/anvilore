@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { join } from "node:path";
 import { FrontmatterInvalido, extrairCampo, lerFrontmatter, slugDe, temFrontmatter } from "../src/lib/frontmatter";
 
 // Mesmo conteúdo do fixture de tests/test-lib-anvilore.sh.
@@ -116,7 +117,7 @@ test("Dado uma página com CRLF, Quando extraio campo depois do segundo ---, Ent
 test("Dado caminhos variados, Quando calculo o slug, Então só o final .md sai", () => {
   expect(slugDe("pagina.md")).toBe("pagina");
   expect(slugDe("wiki/area/pagina.md")).toBe("pagina");
-  expect(slugDe("C:\\wiki\\area\\pagina.md")).toBe("pagina");
+  expect(slugDe(join("wiki", "area", "pagina.md"))).toBe("pagina");
   expect(slugDe("a.md.md")).toBe("a.md");
   expect(slugDe("sem-extensao")).toBe("sem-extensao");
   expect(slugDe("nota.MD")).toBe("nota.MD");
@@ -184,4 +185,33 @@ test("Dado um campo atribuído depois, Quando consulto .arquivo, Então o chamad
   const erro = new FrontmatterInvalido("quebrou");
   erro.arquivo = "wiki/b.md";
   expect(erro.arquivo).toBe("wiki/b.md");
+});
+
+test("Dado um nome com barra invertida, Quando calculo o slug, Então segue o separador da plataforma", () => {
+  expect(slugDe("a\\b.md")).toBe(process.platform === "win32" ? "b" : "a\\b");
+});
+
+// BOM UTF-8 (readFileSync "utf8" o mantém): divergência intencional do bash.
+
+const comBom = "\uFEFF---\ntype: concept\n---\n";
+
+test("Dado um arquivo com BOM antes do ---, Quando pergunto por frontmatter, Então tem", () => {
+  expect(temFrontmatter(comBom)).toBe(true);
+});
+
+test("Dado um arquivo com BOM antes do ---, Quando extraio um campo, Então vem o valor", () => {
+  expect(extrairCampo(comBom, "type")).toBe("concept");
+});
+
+test("Dado um arquivo com BOM antes do ---, Quando leio o frontmatter, Então vem o objeto", () => {
+  expect(lerFrontmatter(comBom)).toEqual({ type: "concept" });
+});
+
+test("Dado BOM com CRLF, Quando leio o frontmatter, Então vem o objeto", () => {
+  expect(lerFrontmatter(comBom.replaceAll("\n", "\r\n"))).toEqual({ type: "concept" });
+});
+
+test("Dado um BOM sem frontmatter, Quando pergunto por frontmatter, Então não tem", () => {
+  expect(temFrontmatter("\uFEFFSem frontmatter\n")).toBe(false);
+  expect(lerFrontmatter("\uFEFFSem frontmatter\n")).toBeNull();
 });

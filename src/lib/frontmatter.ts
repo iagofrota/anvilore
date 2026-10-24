@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { normalizarFimDeLinha } from "./caminhos";
 
 export class FrontmatterInvalido extends Error {
@@ -12,8 +13,10 @@ export class FrontmatterInvalido extends Error {
 
 const DELIMITADOR = "---";
 
+// Tira o BOM UTF-8 inicial (readFileSync "utf8" o mantém) e normaliza CRLF.
 function linhasDe(conteudo: string): string[] {
-  return normalizarFimDeLinha(conteudo).split("\n");
+  const semBom = conteudo.startsWith("\uFEFF") ? conteudo.slice(1) : conteudo;
+  return normalizarFimDeLinha(semBom).split("\n");
 }
 
 // Valor de `campo: valor` dentro do frontmatter; "" se ausente. Casa o prefixo
@@ -34,8 +37,7 @@ export function temFrontmatter(conteudo: string): boolean {
 }
 
 export function slugDe(caminho: string): string {
-  const base = caminho.split(/[\\/]/).pop() ?? "";
-  return base.endsWith(".md") ? base.slice(0, -3) : base;
+  return basename(caminho, ".md");
 }
 
 // null se não há frontmatter; FrontmatterInvalido se ele existe e não é um mapa YAML válido.
