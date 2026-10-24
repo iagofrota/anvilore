@@ -2,6 +2,7 @@
   "name": "anvilore",
   "version": "0.0.0",
   "private": true,
+  "packageManager": "bun@1.4.1",
   "type": "module",
   "description": "Kit de wiki curada por agente.",
   "license": "MIT",
