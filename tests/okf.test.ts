@@ -57,7 +57,7 @@ describe("classificarRecurso", () => {
   });
 
   test("Dado um caminho com espaço, Quando classifico, Então o espaço não muda a forma", () => {
-    expect(classificarRecurso("raw/meetings/notas de reuniao.md")).toBe("caminho");
+    expect(classificarRecurso("raw/reunioes/notas de reuniao.md")).toBe("caminho");
     expect(classificarRecurso("raw/2026 Q3/notas.md")).toBe("caminho");
   });
 });
@@ -188,7 +188,7 @@ describe("validarProveniencia: formato", () => {
   });
 
   test("Dado os três formatos de ator válidos, Quando valido, Então aprovam", () => {
-    for (const ator of ["human:iago", "process:anvilore-ingest", "claude-opus/2026-09"]) {
+    for (const ator of ["human:ana", "process:anvilore-ingest", "claude-opus/2026-09"]) {
       expect(avaliar({ verified: { by: ator } }).erros).toEqual([]);
     }
   });
@@ -222,7 +222,7 @@ describe("validarProveniencia: formato", () => {
   });
 
   test("Dado verified que é um único mapping, Quando valido, Então é aceito como lista de um", () => {
-    expect(avaliar({ verified: { by: "human:iago", at: "2026-09-03T11:00:00-03:00" } }).erros).toEqual([]);
+    expect(avaliar({ verified: { by: "human:ana", at: "2026-09-03T11:00:00-03:00" } }).erros).toEqual([]);
   });
 
   test("Dado verified que é texto, Quando valido, Então reprova", () => {
@@ -283,8 +283,8 @@ describe("validarProveniencia: formas de timestamp aceitas pelo original (PyYAML
 
   test("Dado um timestamp com Z, Quando comparo, Então vale o instante UTC", () => {
     const g = { by: "process:x", at: "2026-10-24T14:00:00Z" };
-    expect(avaliar({ generated: g, verified: { by: "human:iago", at: "2026-10-24T11:00:00-03:00" } }).erros).toEqual([]);
-    expect(avaliar({ generated: g, verified: { by: "human:iago", at: "2026-10-24T10:59:59-03:00" } }).erros[0]).toContain("sem aprovação humana");
+    expect(avaliar({ generated: g, verified: { by: "human:ana", at: "2026-10-24T11:00:00-03:00" } }).erros).toEqual([]);
+    expect(avaliar({ generated: g, verified: { by: "human:ana", at: "2026-10-24T10:59:59-03:00" } }).erros[0]).toContain("sem aprovação humana");
   });
 
   const rejeitados = ["2026-10-24T11:00:00+0300", "2026-10-24T11:00:00", "2026-10-24", "2026-10-24T11:00Z", "ontem"];
@@ -337,7 +337,7 @@ describe("validarProveniencia: métricas", () => {
   test("Dado geração depois da última verificação, Quando valido, Então só a métrica acusa", () => {
     const r = avaliar({
       generated: { by: "process:x", at: "2026-09-05T10:00:00-03:00" },
-      verified: [{ by: "human:iago", at: "2026-09-03T10:00:00-03:00" }],
+      verified: [{ by: "human:ana", at: "2026-09-03T10:00:00-03:00" }],
     });
     expect(r.geradaAposVerificacao).toBe(true);
   });
@@ -346,7 +346,7 @@ describe("validarProveniencia: métricas", () => {
     const r = avaliar({
       generated: { by: "process:x", at: "2026-09-05T10:00:00-03:00" },
       verified: [
-        { by: "human:iago", at: "2026-09-03T10:00:00-03:00" },
+        { by: "human:ana", at: "2026-09-03T10:00:00-03:00" },
         { by: "human:ana", at: "2026-09-06T10:00:00-03:00" },
       ],
     });
@@ -364,21 +364,21 @@ describe("validarProveniencia: portão humano (R28)", () => {
   });
 
   test("Dado verified humana posterior à geração, Quando valido, Então aprova", () => {
-    expect(avaliar({ generated: gerada, verified: [{ by: "human:iago", at: "2026-09-03T11:00:00-03:00" }] }).erros).toEqual([]);
+    expect(avaliar({ generated: gerada, verified: [{ by: "human:ana", at: "2026-09-03T11:00:00-03:00" }] }).erros).toEqual([]);
   });
 
   test("Dado verified humana no mesmo instante da geração, Quando valido, Então aprova", () => {
-    expect(avaliar({ generated: gerada, verified: [{ by: "human:iago", at: "2026-09-03T10:00:00-03:00" }] }).erros).toEqual([]);
+    expect(avaliar({ generated: gerada, verified: [{ by: "human:ana", at: "2026-09-03T10:00:00-03:00" }] }).erros).toEqual([]);
   });
 
   test("Dado verified humana anterior à geração, Quando valido, Então reprova", () => {
-    expect(avaliar({ generated: gerada, verified: [{ by: "human:iago", at: "2026-09-03T09:59:59-03:00" }] }).erros[0]).toContain("sem aprovação humana");
+    expect(avaliar({ generated: gerada, verified: [{ by: "human:ana", at: "2026-09-03T09:59:59-03:00" }] }).erros[0]).toContain("sem aprovação humana");
   });
 
   test("Dado offsets diferentes, Quando comparo, Então vale o instante e não o texto", () => {
     const g = { by: "process:x", at: "2026-09-03T10:00:00-03:00" };
-    expect(avaliar({ generated: g, verified: [{ by: "human:iago", at: "2026-09-03T13:30:00+00:00" }] }).erros).toEqual([]);
-    expect(avaliar({ generated: g, verified: [{ by: "human:iago", at: "2026-09-03T12:30:00+00:00" }] }).erros[0]).toContain("sem aprovação humana");
+    expect(avaliar({ generated: g, verified: [{ by: "human:ana", at: "2026-09-03T13:30:00+00:00" }] }).erros).toEqual([]);
+    expect(avaliar({ generated: g, verified: [{ by: "human:ana", at: "2026-09-03T12:30:00+00:00" }] }).erros[0]).toContain("sem aprovação humana");
   });
 
   test("Dado verified feita por processo ou gerador, Quando valido, Então não conta como humana", () => {
@@ -388,14 +388,14 @@ describe("validarProveniencia: portão humano (R28)", () => {
   });
 
   test("Dado verified humana sem at, Quando a geração tem at, Então não prova ser posterior e reprova", () => {
-    expect(avaliar({ generated: gerada, verified: [{ by: "human:iago" }] }).erros[0]).toContain("sem aprovação humana");
+    expect(avaliar({ generated: gerada, verified: [{ by: "human:ana" }] }).erros[0]).toContain("sem aprovação humana");
   });
 
   test("Dado várias verificações em que só uma humana é posterior, Quando valido, Então aprova", () => {
     const r = avaliar({
       generated: gerada,
       verified: [
-        { by: "human:iago", at: "2026-09-01T10:00:00-03:00" },
+        { by: "human:ana", at: "2026-09-01T10:00:00-03:00" },
         { by: "process:x", at: "2026-09-04T10:00:00-03:00" },
         { by: "human:ana", at: "2026-09-05T10:00:00-03:00" },
       ],
@@ -404,12 +404,12 @@ describe("validarProveniencia: portão humano (R28)", () => {
   });
 
   test("Dado generated sem at e uma verified humana, Quando valido, Então aprova pela falta de ordem a conferir", () => {
-    expect(avaliar({ generated: { by: "process:x" }, verified: { by: "human:iago" } }).erros).toEqual([]);
+    expect(avaliar({ generated: { by: "process:x" }, verified: { by: "human:ana" } }).erros).toEqual([]);
     expect(avaliar({ generated: { by: "process:x" } }).erros[0]).toContain("sem aprovação humana");
   });
 
   test("Dado generated com at malformado, Quando valido, Então reprova o formato e trata a ordem como desconhecida", () => {
-    const { erros } = avaliar({ generated: { by: "process:x", at: "ontem" }, verified: { by: "human:iago", at: "2026-09-03T11:00:00-03:00" } });
+    const { erros } = avaliar({ generated: { by: "process:x", at: "ontem" }, verified: { by: "human:ana", at: "2026-09-03T11:00:00-03:00" } });
     expect(erros).toHaveLength(1);
     expect(erros[0]).toContain("generated.at sem offset");
   });

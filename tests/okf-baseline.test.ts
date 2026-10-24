@@ -16,7 +16,7 @@ type Fixture = { tipo: "file" | "dir"; caminho: string };
 // Os quatro valores que regrediram de fato quando o espaço em branco decidia antes da forma de
 // caminho. Moram aqui, e não na tabela, para que apagar uma linha exija editar também este arquivo.
 const CANARIOS = [
-  "raw/meetings/notas de reuniao.md",
+  "raw/reunioes/notas de reuniao.md",
   "wiki/_meta/arquivo com espaco.md",
   "raw/2026 Q3/notas.md",
   "raw/notas do dia",

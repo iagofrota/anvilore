@@ -417,7 +417,7 @@ stale_after: 2099-09-03T00:00:00-03:00
   });
 
   test("Dado geração depois da última verificação humana, Quando valido, Então a métrica acusa e o resultado informa", async () => {
-    gravar("a.md", pagina("a", { extra: "generated:\n  by: process:x\n  at: 2026-09-05T10:00:00-03:00\nverified:\n  - by: human:iago\n    at: 2026-09-03T10:00:00-03:00\n" }));
+    gravar("a.md", pagina("a", { extra: "generated:\n  by: process:x\n  at: 2026-09-05T10:00:00-03:00\nverified:\n  - by: human:ana\n    at: 2026-09-03T10:00:00-03:00\n" }));
     gravar("index.md", indice("a"));
     // a verificação humana é anterior à geração: reprova pelo portão, e a métrica também acusa
     const r = await validarWiki(wiki, {});
@@ -439,7 +439,7 @@ stale_after: 2099-09-03T00:00:00-03:00
     expect(rascunho.codigo).toBe(1);
     expect(rascunho.saida).toContain("página gerada sem aprovação humana: rascunho.md");
 
-    const aprovada = await comOkf(`${gerada}verified:\n  - by: human:iago\n    at: 2026-10-24T11:00:00-03:00\n`, "rascunho");
+    const aprovada = await comOkf(`${gerada}verified:\n  - by: human:ana\n    at: 2026-10-24T11:00:00-03:00\n`, "rascunho");
     expect(aprovada.codigo).toBe(0);
   });
 });

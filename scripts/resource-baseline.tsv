@@ -36,14 +36,14 @@
 # --- fixtures: o que existe na raiz sintetica durante a checagem ---
 @fixture	file	raw/existe-okf.md
 @fixture	file	anexos/existe-okf.md
-@fixture	file	raw/meetings/notas com espaco existente.md
+@fixture	file	raw/reunioes/notas com espaco existente.md
 @fixture	file	wiki/_meta/existe.md
 @fixture	dir	raw/dir-existente
 
 # --- Caminhos sob prefixo conhecido, inexistentes — o que o validador sempre reprovou ---
 fail	raw/x.md	harness de revisao anterior; checagem original da lista de prefixos
 fail	wiki/nao/existe.md	harness de revisao anterior; checagem original da lista de prefixos
-fail	raw/meetings/notas de reuniao.md	CANARIO — afrouxado numa rodada anterior de revisao; cenario A8
+fail	raw/reunioes/notas de reuniao.md	CANARIO — afrouxado numa rodada anterior de revisao; cenario A8
 fail	wiki/_meta/arquivo com espaco.md	CANARIO — afrouxado numa rodada anterior de revisao; cenario A8b
 fail	raw/2026 Q3/notas.md	CANARIO — afrouxado numa rodada anterior de revisao; cenario A8b
 fail	raw/notas do dia	CANARIO — afrouxado numa rodada anterior de revisao; cenario A8b
@@ -92,7 +92,7 @@ fail	~/notas.md	til nao e expandido por pathlib: vira caminho inexistente dentro
 # --- Caminhos locais que EXISTEM na fixture — a regra nao pode ter apertado demais ---
 pass	raw/existe-okf.md	cenario A4
 pass	anexos/existe-okf.md	cenario A4: prefixo fora da lista antiga, mas o arquivo existe
-pass	raw/meetings/notas com espaco existente.md	cenario A8c: caminho com espaco que existe passa
+pass	raw/reunioes/notas com espaco existente.md	cenario A8c: caminho com espaco que existe passa
 pass	wiki/_meta/existe.md	caminho sob o vault que existe
 pass	raw/dir-existente	a regra checa existencia, nao tipo
 pass	./raw/existe-okf.md	forma normalizada pelo resolve(): continua dentro da raiz
