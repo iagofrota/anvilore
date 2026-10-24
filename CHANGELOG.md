@@ -26,6 +26,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   `--stdout` para consultar sem gravar e preservação do log do clone quando não há dias fatiados.
   O antigo `scripts/indexar-log.sh` foi removido; a linha "Gerado por" no índice regenerado agora
   aponta para o comando Bun. Arquivos de dia com CRLF mantêm a contagem correta por tipo.
+  Mudou de propósito: arquivo de dia que é symlink agora entra no índice (o antigo o ignorava) e link
+  quebrado gera um `AVISO:` em vez de sumir em silêncio.
 
 ## [0.1.0] - 2026-10-24
 
@@ -34,6 +36,8 @@ antigos em bash e Python: eles continuam sendo o que valida a wiki e protege o `
 
 ### Added
 
+  Mudou de propósito: arquivo de dia que é symlink agora entra no índice (o antigo o ignorava) e link
+  quebrado gera um `AVISO:` em vez de sumir em silêncio.
 - Projeto em TypeScript rodando no Bun, com verificação de tipos e testes que exigem pelo menos
   80% de cobertura.
 - Verificação automática (CI) configurada para rodar os testes em Linux, Windows e macOS a cada

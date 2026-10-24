@@ -3,8 +3,8 @@ import { join } from "node:path";
 
 export type ResultadoIndexarLog = { escreveu: boolean; saida: string; avisos: string[] };
 
-// Arquivo de dia que é symlink é seguido com `stat`, como o glob do script antigo; link quebrado ou que não
-// leva a um arquivo vira aviso, não silêncio.
+// Arquivo de dia que é symlink é seguido com `stat` (regra R58 do porte; o script antigo usava `find -type f` e
+// deixava o link de fora). Link quebrado ou que não leva a um arquivo vira aviso, não silêncio.
 async function arquivosDeDia(wiki: string): Promise<{ arquivos: string[]; avisos: string[] }> {
   const avisos: string[] = [];
   try {
