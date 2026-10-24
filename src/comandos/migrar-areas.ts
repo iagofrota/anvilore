@@ -182,9 +182,12 @@ export async function migrarAreas(wiki: string, opcoes: { simular?: boolean } = 
   }
 
   const entradas = lerMapa(texto);
+  // O diretório de destino é a área mais o diretório da própria página (`sources/x` vai para `area/sources/`).
   for (const { pagina, area } of entradas) {
-    if (areaSaiDaWiki(raiz, area)) {
-      throw new ErroDeMigracao(`área sai da wiki por link simbólico: ${area} (página ${pagina})`);
+    const pastaDaPagina = pagina.includes("/") ? pagina.slice(0, pagina.lastIndexOf("/")) : "";
+    const pastaDeDestino = pastaDaPagina === "" ? area : `${area}/${pastaDaPagina}`;
+    if (areaSaiDaWiki(raiz, pastaDeDestino)) {
+      throw new ErroDeMigracao(`área sai da wiki por link simbólico: ${pastaDeDestino} (página ${pagina})`);
     }
   }
 
