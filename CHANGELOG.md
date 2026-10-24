@@ -21,7 +21,7 @@ antigos em bash e Python: eles continuam sendo o que valida a wiki e protege o `
 - Verificação automática (CI) configurada para rodar os testes em Linux, Windows e macOS a cada
   envio de código, sempre com a mesma versão do Bun. Ela ainda não rodou: o arquivo foi escrito,
   mas não foi enviado ao GitHub. O resultado nos três sistemas está por confirmar na primeira
-  execução.
+  execução. As ações de terceiros do CI estão fixadas por commit, com a versão em comentário.
 - Biblioteca compartilhada para ler e validar páginas da wiki. Foi escrita para funcionar igual em
   Windows, macOS e Linux, inclusive com arquivos salvos no Windows e caminhos escritos no estilo do
   Windows, e tem testes para isso. Por enquanto só rodou no Linux; a confirmação nos outros dois
@@ -29,7 +29,8 @@ antigos em bash e Python: eles continuam sendo o que valida a wiki e protege o `
 - Comando `anvilore checar-release <versao>`. Ele reprova (sai com 1) se a seção da versão neste
   arquivo estiver ausente ou sem item entregue. Também reprova se `docs/knowledge_base/` não
   existir ou não tiver nenhuma página, ou se alguma página não tiver a data em que uma pessoa a
-  revisou (`verified`). No CI, roda em qualquer tag (o `v` da frente é opcional). Como roda depois
+  revisou (`verified`), que precisa ser uma data de calendário real. A versão pedida segue a
+  gramática do SemVer 2.0.0. No CI, roda em qualquer tag (o `v` da frente é opcional). Como roda depois
   que a tag existe, ele avisa, mas não impede: rode-o na sua máquina antes de criar a tag e só
   crie a tag com o CI verde nos três sistemas.
 - Documentação do próprio Anvilore em `docs/knowledge_base/`, escrita para agentes que desenvolvem
