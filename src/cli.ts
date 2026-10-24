@@ -1,11 +1,14 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util";
+import { comandoChecarRelease } from "./comandos/checar-release";
 
 export type Subcomando = (args: string[]) => Promise<number>;
 export type TabelaDeSubcomandos = Record<string, Subcomando>;
 
 // Cada tarefa acrescenta a sua entrada aqui (nome -> função).
-export const subcomandos: TabelaDeSubcomandos = {};
+export const subcomandos: TabelaDeSubcomandos = {
+  "checar-release": comandoChecarRelease,
+};
 
 function listar(tabela: TabelaDeSubcomandos): string {
   const nomes = [...Object.keys(tabela), "--help"];
