@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { indexarLog, comandoIndexarLog } from "../src/comandos/indexar-log";
@@ -200,6 +200,82 @@ test("Dado erro de escrita em log.md, Quando indexo pelo comando, Então saio 1 
   expect(r.erro.join("\n")).toContain(join(wiki, "log.md"));
   expect(r.erro.join("\n")).not.toContain("at ");
 });
+
+const semLink = process.platform === "win32";
+
+test.skipIf(semLink)(
+  "Dado arquivo de dia que é symlink para arquivo (pulado no Windows: criar symlink exige privilégio), Quando indexo, Então o dia entra no índice",
+  async () => {
+    montarDias();
+    writeFileSync(join(temporario, "alvo.md"), "## [2026-11-03] nota | Via link\n");
+    symlinkSync(join("..", "..", "alvo.md"), join(wiki, "log", "log-2026-11-03.md"));
+    const r = await capturar(() => comandoIndexarLog([wiki]));
+    expect(r.codigo).toBe(0);
+    expect(r.erro).toEqual([]);
+    expect(log()).toContain("5 entradas em 4 dias");
+    expect(log()).toContain("- [[log-2026-11-03]] — 1 · nota ×1");
+  },
+);
+
+test.skipIf(semLink)(
+  "Dado arquivo de dia que é link quebrado (pulado no Windows), Quando indexo, Então avisa em stderr nomeando o caminho e indexa o resto",
+  async () => {
+    montarDias();
+    symlinkSync("nao-existe.md", join(wiki, "log", "log-2026-11-04.md"));
+    const r = await capturar(() => comandoIndexarLog([wiki]));
+    expect(r.codigo).toBe(0);
+    expect(r.erro).toEqual([`AVISO: link quebrado: ${join(wiki, "log", "log-2026-11-04.md")}`]);
+    expect(log()).toContain("4 entradas em 3 dias");
+    expect(log()).not.toContain("log-2026-11-04");
+  },
+);
+
+test.skipIf(semLink)(
+  "Dado arquivo de dia que é link para diretório (pulado no Windows), Quando indexo, Então avisa que não é arquivo e segue",
+  async () => {
+    montarDias();
+    mkdirSync(join(temporario, "pasta"));
+    symlinkSync(join("..", "..", "pasta"), join(wiki, "log", "log-2026-11-05.md"));
+    const r = await capturar(() => comandoIndexarLog([wiki]));
+    expect(r.codigo).toBe(0);
+    expect(r.erro).toEqual([`AVISO: não é arquivo: ${join(wiki, "log", "log-2026-11-05.md")}`]);
+    expect(log()).toContain("4 entradas em 3 dias");
+  },
+);
+
+test.skipIf(semLink)(
+  "Dado arquivo de dia que é laço de symlinks (pulado no Windows), Quando indexo, Então avisa que o link é ilegível e segue",
+  async () => {
+    montarDias();
+    symlinkSync("log-2026-11-06.md", join(wiki, "log", "log-2026-11-06.md"));
+    const r = await capturar(() => comandoIndexarLog([wiki]));
+    expect(r.codigo).toBe(0);
+    expect(r.erro).toEqual([`AVISO: link ilegível: ${join(wiki, "log", "log-2026-11-06.md")}: ELOOP`]);
+  },
+);
+
+test.skipIf(semLink)(
+  "Dado só um link quebrado na pasta log, Quando indexo, Então avisa o link, informa que não há o que indexar e preserva log.md",
+  async () => {
+    writeFileSync(join(wiki, "log.md"), "original\n");
+    symlinkSync("nao-existe.md", join(wiki, "log", "log-2026-11-04.md"));
+    const r = await capturar(() => comandoIndexarLog([wiki]));
+    expect(r.codigo).toBe(0);
+    expect(r.erro).toEqual([`AVISO: link quebrado: ${join(wiki, "log", "log-2026-11-04.md")}`]);
+    expect(r.saida.join("\n")).toContain("LOG: nada a indexar");
+    expect(log()).toBe("original\n");
+  },
+);
+
+test.skipIf(semLink)(
+  "Dado link quebrado, Quando uso indexarLog direto, Então o resultado traz o aviso em avisos",
+  async () => {
+    montarDias();
+    symlinkSync("nao-existe.md", join(wiki, "log", "log-2026-11-04.md"));
+    const r = await indexarLog(wiki);
+    expect(r.avisos).toEqual([`link quebrado: ${join(wiki, "log", "log-2026-11-04.md")}`]);
+  },
+);
 
 test("Dado módulo portado, Quando confiro o rodapé, Então preservo os quatro elementos da atribuição B8", () => {
   const codigo = readFileSync(join(import.meta.dir, "..", "src", "comandos", "indexar-log.ts"), "utf8");
