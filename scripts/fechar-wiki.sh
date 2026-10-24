@@ -8,7 +8,7 @@
 #
 # Passos, nesta ordem — PARA no primeiro que falhar:
 #   1. sincronizar-indice      contagem do header a partir do disco
-#   2. indexar-log.sh          reconstroi <WIKI>/log.md
+#   2. indexar-log             reconstroi <WIKI>/log.md
 #   3. validar-wiki.sh         validacao estrutural
 #   4. gate do log do dia      pagina curada alterada hoje exige entrada no log
 #
@@ -46,7 +46,7 @@ bun "$AQUI/../src/cli.ts" sincronizar-indice "$WIKI" \
   || { echo "FECHAMENTO: FAIL no passo sincronizar-indice"; exit 1; }
 
 passo "2/4 indexar-log"
-bash "$AQUI/indexar-log.sh" "$WIKI" \
+bun "$AQUI/../src/cli.ts" indexar-log "$WIKI" \
   || { echo "FECHAMENTO: FAIL no passo indexar-log"; exit 1; }
 
 passo "3/4 validar-wiki"

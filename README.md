@@ -17,7 +17,7 @@ repositório**:
 | `AGENTS.md` | o contrato do agente: o que ele faz, o que não faz |
 | `skills/ingest`, `skills/query`, `skills/lint` | ingerir uma fonte; responder citando página; varrer a wiki atrás de problemas estruturais |
 | `scripts/` | o validador `validar-wiki.sh` e os scripts de manutenção ainda em shell e Python |
-| `src/cli.ts` | comandos em TypeScript no Bun, incluindo `sincronizar-indice` para atualizar a contagem dos índices de área |
+| `src/cli.ts` | comandos em TypeScript no Bun, incluindo `sincronizar-indice` (contagem dos índices de área) e `indexar-log` (regenera `wiki/log.md`) |
 | `hooks/` | a regra "`raw/` é imutável" na forma de hook, com a decisão num script só (`hooks/proteger-raw.sh`) |
 | `instalar.sh` | configura um clone para o agente que você usa: Claude Code, Codex, Gemini ou Copilot |
 | `tests/` | os testes que provam os scripts, o hook e o instalador |
@@ -94,6 +94,10 @@ que ficou invisível na navegação.
 Para conferir as contagens dos índices de área sem escrever, rode
 `bun src/cli.ts sincronizar-indice wiki --checar`. Sem `--checar`, o comando
 atualiza a linha de contagem; uma área sem index.md é ignorada.
+
+Para reconstruir `wiki/log.md` a partir de `wiki/log/log-*.md`, rode
+`bun src/cli.ts indexar-log wiki`. Com `--stdout`, o comando só imprime o índice.
+Se não houver arquivo de dia, preserva `wiki/log.md`.
 
 ## Os quatro níveis
 

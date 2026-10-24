@@ -287,7 +287,8 @@ resultado:
 bash scripts/fechar-wiki.sh wiki
 ```
 
-Ele sincroniza a contagem dos índices, regenera o log a partir do log fatiado
+Ele sincroniza a contagem dos índices, chama `bun src/cli.ts indexar-log` para
+regenerar o log a partir do log fatiado
 (quando houver), roda a validação e cobra a entrada do dia. **Se ele reprovar,
 o lint não terminou** — leia o passo que falhou e resolva antes de dizer ao
 usuário que acabou.

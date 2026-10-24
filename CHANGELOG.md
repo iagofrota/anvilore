@@ -22,6 +22,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   sobrescrita (o comando relata o conflito e sai com 1); área do mapa que escapa da wiki (`..`, caminho absoluto, `\`,
   `:` ou link para fora) reprova antes de mover qualquer coisa; mapa sem marcadores e link quebrado avisam em stderr;
   falha no meio da migração é relatada com o que já foi movido, sem stack trace; `--help` mostra o uso e sai 2.
+- O índice do log da wiki é regenerado por `bun src/cli.ts indexar-log`, com a opção
+  `--stdout` para consultar sem gravar e preservação do log do clone quando não há dias fatiados.
 
 ## [0.1.0] - 2026-10-24
 

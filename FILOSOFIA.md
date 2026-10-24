@@ -85,7 +85,7 @@ A wiki é um diretório de markdown. O validador (`scripts/validar-wiki.sh`) é
 shell puro; a única checagem que pede mais que isso é o perfil de
 proveniência, opcional, e mesmo ele **pula com uma linha `SKIP:`** quando
 falta a dependência, em vez de reprovar. Parte da manutenção usa shell e
-Python de biblioteca padrão; `sincronizar-indice` roda em TypeScript no Bun.
+Python de biblioteca padrão; `sincronizar-indice` e `indexar-log` rodam em TypeScript no Bun.
 Não há servidor, índice binário nem processo
 rodando por trás.
 
