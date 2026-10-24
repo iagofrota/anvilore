@@ -28,6 +28,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   aponta para o comando Bun. Arquivos de dia com CRLF mantêm a contagem correta por tipo.
   Mudou de propósito: arquivo de dia que é symlink agora entra no índice (o antigo o ignorava) e link
   quebrado gera um `AVISO:` em vez de sumir em silêncio.
+- `listar-lacunas` agora roda em TypeScript no Bun; a consulta de callouts continua sem escrever
+  `_meta/`, e a geração atualiza o índice de lacunas.
 
 ## [0.1.0] - 2026-10-24
 

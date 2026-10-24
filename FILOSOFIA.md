@@ -51,7 +51,7 @@ pular.
 
 É também por isso que a dívida é declarada em vez de resolvida no escuro:
 `> [!gap]` e `> [!contradiction]` existem para que o que não se sabe fique
-visível. `scripts/listar-lacunas.py` reúne os callouts abertos num índice, e
+visível. `bun src/cli.ts listar-lacunas` reúne os callouts abertos num índice, e
 o validador conta a dívida sem reprovar por causa dela. Registrar uma
 contradição não é criar uma contradição — é torná-la visível.
 

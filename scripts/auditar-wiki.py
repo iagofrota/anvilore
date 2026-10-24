@@ -17,7 +17,7 @@ Saída: 0 quando não há nenhum achado, 1 quando há, 2 quando a wiki não exis
 Nunca escreve: o relatório vai para a saída padrão e mais nada acontece.
 
 O levantamento dos callouts `[!gap]`/`[!contradiction]` **não** está aqui — ele
-já tem dono, `scripts/listar-lacunas.py`, e a skill chama os dois.
+já tem dono, `bun src/cli.ts listar-lacunas`, e a skill chama os dois.
 
 Adaptações ao anvilore (a origem assumia um índice por assunto e uma camada de
 páginas que este repositório não tem):
@@ -200,7 +200,7 @@ def render(achados: dict[str, list[str]], wiki: Path, hoje: str) -> str:
     saida.append(f"Total: {total} achado(s) estrutural(is).")
     saida.append(
         "A dívida declarada (`[!gap]`, `[!contradiction]`) tem outro dono: "
-        "`python3 scripts/listar-lacunas.py <wiki> --consultar`."
+        "`bun src/cli.ts listar-lacunas <wiki> --consultar`."
     )
     return "\n".join(saida) + "\n"
 

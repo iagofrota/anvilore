@@ -27,14 +27,14 @@ responderia caro lendo arquivo por arquivo.
 ```bash
 bash scripts/validar-wiki.sh wiki
 python3 scripts/auditar-wiki.py wiki
-python3 scripts/listar-lacunas.py wiki --consultar
+bun src/cli.ts listar-lacunas wiki --consultar
 ```
 
 | Comando | O que responde | Como ler a saída |
 |---|---|---|
 | `scripts/validar-wiki.sh` | invariantes do `SCHEMA.md` — frontmatter ausente, `type` inválido, `slug` divergente, área do frontmatter brigando com o diretório | `VALIDACAO: FAIL` é violação de contrato: **isso vem antes de tudo**, porque uma wiki que não valida torna o resto da varredura ruído |
 | `scripts/auditar-wiki.py` | as cinco categorias estruturais do Passo 2 | sai `1` quando há achado, `0` quando não há; ele **nunca escreve**, só relata |
-| `scripts/listar-lacunas.py … --consultar` | os callouts `[!gap]` e `[!contradiction]` abertos, um por linha, no formato `caminho.md:linha [tipo] texto` | é a dívida que quem cura **declarou** e ainda não fechou |
+| `bun src/cli.ts listar-lacunas … --consultar` | os callouts `[!gap]` e `[!contradiction]` abertos, um por linha, no formato `caminho.md:linha [tipo] texto` | é a dívida que quem cura **declarou** e ainda não fechou |
 
 Depois, e só depois:
 
@@ -104,7 +104,7 @@ A varredura do Passo 2 é mecânica. Esta não é: aqui você lê.
 
 ### 3a — Contradições declaradas
 
-Toda linha `[contradiction]` da saída de `scripts/listar-lacunas.py`. Para cada
+Toda linha `[contradiction]` da saída de `bun src/cli.ts listar-lacunas`. Para cada
 uma, abra a página no ponto indicado e descreva **os dois lados**. Seu trabalho
 é trazê-las à superfície para o usuário, não resolvê-las.
 

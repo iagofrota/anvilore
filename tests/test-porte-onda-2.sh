@@ -2,7 +2,7 @@
 # B8-B11 — criterios que valem para o porte inteiro, nao para um script so:
 #   B8  rodape de atribuicao ao wiki-wonka nos scripts restantes
 #   B9  nenhum conteudo pessoal nos scripts nem nos testes
-#   B10 runtime preservado nos scripts restantes: 1 bash + 2 Python 3
+#   B10 runtime preservado nos scripts restantes: 1 bash + 1 Python 3
 #   B11 os dois scripts do nivel 04 NAO foram portados
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
@@ -15,12 +15,10 @@ BASH_PORTADOS=(
   scripts/fechar-wiki.sh
 )
 PY_PORTADOS=(
-  scripts/listar-lacunas.py
   scripts/rejuntar-linhas.py
 )
 PORTADOS=("${BASH_PORTADOS[@]}" "${PY_PORTADOS[@]}")
 TESTES_NOVOS=(
-  tests/test-listar-lacunas.sh
   tests/test-rejuntar-linhas.sh
   tests/test-fechar-wiki.sh
   tests/test-porte-onda-2.sh
@@ -134,7 +132,7 @@ rm -f "$isca"
 # mkdtemp de node:os; a trava de diretorio temporario mora neles.
 
 # ============================================================================
-# B10 — runtime preservado: 1 bash, 2 Python 3
+# B10 — runtime preservado: 1 bash, 1 Python 3
 # ============================================================================
 for s in "${BASH_PORTADOS[@]}"; do
   if [ "$(head -1 "$s")" = "#!/usr/bin/env bash" ]; then
@@ -151,7 +149,7 @@ for s in "${PY_PORTADOS[@]}"; do
   fi
 done
 [ "${#BASH_PORTADOS[@]}" -eq 1 ] && ok "1 script bash" || falha "${#BASH_PORTADOS[@]} scripts bash (esperado 1)"
-[ "${#PY_PORTADOS[@]}" -eq 2 ]   && ok "2 scripts Python 3" || falha "${#PY_PORTADOS[@]} scripts Python 3 (esperado 2)"
+[ "${#PY_PORTADOS[@]}" -eq 1 ]   && ok "1 script Python 3" || falha "${#PY_PORTADOS[@]} scripts Python 3 (esperado 1)"
 
 # Os scripts restantes existem e sao executaveis.
 for s in "${PORTADOS[@]}"; do
