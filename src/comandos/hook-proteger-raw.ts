@@ -47,7 +47,11 @@ const ESCRITA_GLOBAL = new Set([
 ]);
 // PowerShell/cmd: gravam no arquivo que recebem, então, como `cp` e `tee`, julgam-se pelo destino (copiar de raw/ para a wiki é a ingestão).
 const DESTINO_JULGADO = new Set(["copy-item", "cpi", "copy", "out-file", "set-content", "sc", "add-content", "ac", "new-item", "ni", "clear-content", "clc"]);
-const OPCOES_PS_COM_VALOR = new Set(["-path", "-literalpath", "-destination", "-filepath", "-value", "-name", "-itemtype", "-encoding", "-filter", "-include", "-exclude", "-width", "-stream", "-credential"]);
+// Parâmetros do PowerShell que levam valor (nome canônico) e seus apelidos; o PowerShell aceita qualquer prefixo único (-Dest, -Pa) e `-Path:valor`.
+const PARAMETROS_PS = ["path", "literalpath", "destination", "filepath", "value", "name", "itemtype", "encoding", "filter", "include", "exclude", "width", "stream", "credential"];
+const APELIDOS_PS: Record<string, string> = { pspath: "path", lp: "literalpath", type: "itemtype", target: "value" };
+// Estes leem o caminho dos itens que chegam pela pipeline quando não recebem um explícito (`gci raw | Clear-Content`).
+const GRAVA_PELA_PIPELINE = new Set(["set-content", "sc", "add-content", "ac", "clear-content", "clc"]);
 const PALAVRAS_DE_LACO = new Set(["do", "then", "else", "elif", "{", "!", "while", "until", "if"]);
 // sed edita no lugar com -i (agrupado, em qualquer caixa) ou com qualquer prefixo único de --in-place (--i, --in, --in-pl=.bak).
 const sedEmLugar = (args: string[]) => args.some(arg => /^-[a-zA-Z]*[iI]/.test(arg) || (arg.startsWith("--") && arg.length >= 3 && "--in-place".startsWith(arg.split("=")[0]!)));
@@ -200,21 +204,33 @@ function apagaAncestral(verbo: string, args: string[], cwd: string, raiz: string
   return false;
 }
 
+function parametroPs(opcao: string): string | undefined {
+  const nome = opcao.slice(1).toLowerCase();
+  if (nome === "") return undefined;
+  const candidatos = new Set([...PARAMETROS_PS, ...Object.keys(APELIDOS_PS)].filter(parametro => parametro.startsWith(nome)).map(parametro => APELIDOS_PS[parametro] ?? parametro));
+  return candidatos.size === 1 ? [...candidatos][0] : undefined;
+}
+
 // Onde o cmdlet grava: -Destination (cópia) ou -FilePath/-Path/-LiteralPath/-Name (gravação); sem nome, o último (cópia) ou o primeiro posicional.
+// New-Item de link (SymbolicLink, HardLink, Junction) também aponta para o valor de -Value/-Target.
 function destinosDoCmdlet(verbo: string, args: string[]): string[] {
-  const nomeados = new Map<string, string>();
+  const nomeados = new Map<string, string[]>();
   const posicionais: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (/^-[A-Za-z]/.test(arg)) {
-      if (OPCOES_PS_COM_VALOR.has(arg.toLowerCase())) nomeados.set(arg.toLowerCase(), args[++i] ?? "");
+      const dois = arg.indexOf(":");
+      const parametro = parametroPs(dois < 0 ? arg : arg.slice(0, dois));
+      if (parametro !== undefined) nomeados.set(parametro, (dois < 0 ? args[++i] ?? "" : arg.slice(dois + 1)).split(","));
     } else if (!/^\/[A-Za-z]$/.test(arg)) posicionais.push(arg);
   }
-  const copia = ["copy-item", "cpi", "copy"].includes(verbo);
-  const destino = copia
-    ? nomeados.get("-destination") ?? (posicionais.length > 1 || nomeados.has("-path") ? posicionais.at(-1) : undefined)
-    : nomeados.get("-filepath") ?? nomeados.get("-path") ?? nomeados.get("-literalpath") ?? nomeados.get("-name") ?? posicionais[0];
-  return destino === undefined ? [] : [destino];
+  if (["copy-item", "cpi", "copy"].includes(verbo)) {
+    return nomeados.get("destination") ?? (posicionais.length > 1 || nomeados.has("path") ? posicionais.slice(-1) : []);
+  }
+  const nomeadosDeCaminho = ["filepath", "path", "literalpath", "name"].flatMap(parametro => nomeados.get(parametro) ?? []);
+  const destinos = nomeadosDeCaminho.length ? nomeadosDeCaminho : posicionais.slice(0, 1);
+  const link = /^(?:sym|hard|junc)/i.test(nomeados.get("itemtype")?.[0] ?? "");
+  return link ? [...destinos, ...(nomeados.get("value") ?? [])] : destinos;
 }
 
 function desembrulhar(verbo: string, args: string[]): string[] {
@@ -264,7 +280,11 @@ function segmentoEscreve(palavras: string[], cwd: string, contexto: Contexto): b
     }
   }
   if (apagaAncestral(verbo, args, cwd, raiz)) return true;
-  if (DESTINO_JULGADO.has(verbo)) return destinosDoCmdlet(verbo, args).some(destino => escreveEmRaw(destino, cwd) || citaRaw(destino));
+  if (DESTINO_JULGADO.has(verbo)) {
+    const destinos = destinosDoCmdlet(verbo, args);
+    if (destinos.length === 0) return doPipe && GRAVA_PELA_PIPELINE.has(verbo);
+    return destinos.some(destino => escreveEmRaw(destino, cwd) || citaRaw(destino));
+  }
   if (verbo === "cp") {
     const alvos = args.flatMap((arg, i) => {
       if (arg.startsWith("--target-directory=")) return [arg.slice(19)];
@@ -333,6 +353,11 @@ function escritaEmBloco(palavras: string[]): boolean {
   return DESTINO_JULGADO.has(verbo) && destinosDoCmdlet(verbo, palavras.slice(inicio + 1)).some(destino => destino.includes("$"));
 }
 
+function gravaPelaPipeline(palavras: string[]): boolean {
+  const verbo = verboNormalizado(palavras[0] ?? "");
+  return GRAVA_PELA_PIPELINE.has(verbo) && destinosDoCmdlet(verbo, palavras.slice(1)).length === 0;
+}
+
 function citaRawSegmento(palavras: string[], cwd: string): boolean {
   return palavras.slice(1).some(palavra => escreveEmRaw(palavra, cwd) || citaRaw(palavra));
 }
@@ -358,7 +383,7 @@ function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cw
       palavras = [];
       return false;
     }
-    const escreve = segmentoEscreve(palavras, cwd, { raiz, doPipe }) || (listagemAncestral && escritaDeShell(palavras));
+    const escreve = segmentoEscreve(palavras, cwd, { raiz, doPipe }) || (listagemAncestral && (escritaDeShell(palavras) || gravaPelaPipeline(palavras)));
     segmentos.push(palavras);
     palavras = [];
     return escreve;

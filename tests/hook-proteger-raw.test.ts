@@ -540,3 +540,27 @@ test("Dado sed com abreviação de --in-place Quando cita raw Então bloqueia no
     expect(decidir(terminal(comando)).acao).toBe("liberar");
   }
 });
+
+// Revisão automática (rodada 3): destino que vem da pipeline, parâmetros abreviados do PowerShell e links.
+test("Dado cmdlet de gravação sem destino explícito Quando a pipeline traz itens de raw Então bloqueia", () => {
+  for (const comando of ["gci raw | Clear-Content", "gci raw | clc", "gci raw | Set-Content -Value x", "gci raw | Add-Content -Value x", "Get-ChildItem raw\\*.md | Clear-Content -Force"]) {
+    expect(decidir(terminal(comando, "powershell")).acao).toBe("bloquear");
+  }
+  expect(decidir(terminal("gci wiki | Clear-Content", "powershell")).acao).toBe("liberar");
+  expect(decidir(terminal("Get-Content raw\\a.md | Set-Content wiki\\a.md", "powershell")).acao).toBe("liberar");
+  expect(decidir(terminal("gci -Recurse | Clear-Content", "powershell")).acao).toBe("bloquear");
+});
+test("Dado parâmetros abreviados, com dois-pontos ou em lista Quando o destino é raw Então bloqueia e a wiki libera", () => {
+  for (const comando of ["Set-Content -Path:raw\\a.md x", "Set-Content -Pa raw\\a.md -Value x", "Set-Content -PSPath raw\\a.md x", "Copy-Item wiki\\a -Dest raw\\", "Copy-Item wiki\\a -Destination:raw\\", "Copy-Item -Path wiki\\a -De raw\\", "Out-File -File raw\\a.md", "Add-Content -LiteralPath wiki\\a.md,raw\\b.md x", "Out-File -FilePath:raw\\a.md", "New-Item -Pa raw\\x", "ni -Path:raw\\x"]) {
+    expect(decidir(terminal(comando, "powershell")).acao).toBe("bloquear");
+  }
+  for (const comando of ["Copy-Item raw\\a -Dest wiki\\", "Set-Content -Path:wiki\\a.md x", "Out-File -File wiki\\a.md", "Add-Content -LiteralPath wiki\\a.md,wiki\\b.md x"]) {
+    expect(decidir(terminal(comando, "powershell")).acao).toBe("liberar");
+  }
+});
+test("Dado New-Item de link Quando mira raw Então bloqueia e diretório comum na wiki libera", () => {
+  for (const comando of ["New-Item -ItemType SymbolicLink -Path wiki\\x -Target raw\\a", "ni -Type Junction -Path wiki\\x -Value raw", "New-Item -ItemType HardLink -Path wiki\\x -Value raw\\a.md", "New-Item -ItemType Sym -Path wiki\\x -Target raw"]) {
+    expect(decidir(terminal(comando, "powershell")).acao).toBe("bloquear");
+  }
+  expect(decidir(terminal("New-Item -ItemType Directory -Path wiki\\x", "powershell")).acao).toBe("liberar");
+});
