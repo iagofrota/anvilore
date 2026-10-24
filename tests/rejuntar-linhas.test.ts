@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { executar } from "../src/cli";
 import {
   ErroDeRejuntamento,
   comandoRejuntarLinhas,
+  diffUnificado,
+  opcodes,
   rejuntarLinhas,
   rejuntarTexto,
 } from "../src/comandos/rejuntar-linhas";
@@ -286,6 +288,20 @@ describe("rejuntar-linhas: uso e erros", () => {
     expect(hashDe(caminho)).toBe(antes);
   });
 
+  test("Dado uma opção desconhecida, Quando rodo, Então a mensagem vem em português", async () => {
+    const r = await capturar(() => comandoRejuntarLinhas(["a.md", "--sim"]));
+    expect(r.codigo).toBe(2);
+    expect(r.erro).toContain("Opção desconhecida: --sim");
+    expect(r.erro).not.toContain("Unknown option");
+  });
+
+  test("Dado um valor para uma opção que não aceita, Quando rodo, Então a mensagem vem em português", async () => {
+    const r = await capturar(() => comandoRejuntarLinhas(["a.md", "--simular=1"]));
+    expect(r.codigo).toBe(2);
+    expect(r.erro).toContain("A opção --simular não aceita valor");
+    expect(r.erro).not.toContain("does not take");
+  });
+
   test("Dado dois alvos, Quando rodo, Então sai 2", async () => {
     const r = await capturar(() => comandoRejuntarLinhas(["a.md", "b.md"]));
     expect(r.codigo).toBe(2);
@@ -411,12 +427,75 @@ describe("rejuntarTexto: o que se junta e o que se preserva", () => {
 });
 
 describe("rejuntar-linhas: BOM e CRLF no arquivo", () => {
-  test("Dado um arquivo CRLF, Quando rodo, Então ele é reescrito com LF e conta como mudado", async () => {
+  test("Dado um arquivo CRLF com algo a rejuntar, Quando rodo, Então ele é reescrito e continua CRLF", async () => {
     const caminho = join(pasta, "crlf.md");
-    writeFileSync(caminho, "um\r\ndois\r\n");
+    writeFileSync(caminho, "um\r\ndois\r\n\r\ntres\r\nquatro\r\n");
     const r = await rejuntarLinhas(caminho);
     expect(r.mudariam).toEqual([caminho]);
-    expect(readFileSync(caminho, "utf8")).toBe("um dois\n");
+    expect(readFileSync(caminho, "utf8")).toBe("um dois\r\n\r\ntres quatro\r\n");
+  });
+
+  test("Dado um arquivo com CR solto e algo a rejuntar, Quando rodo, Então ele continua com CR solto", async () => {
+    const caminho = join(pasta, "cr.md");
+    writeFileSync(caminho, "um\rdois\r");
+    await rejuntarLinhas(caminho);
+    expect(readFileSync(caminho, "utf8")).toBe("um dois\r");
+  });
+
+  test("Dado um arquivo com fins de linha mistos, Quando rodo, Então prevalece o fim de linha dominante", async () => {
+    const caminho = join(pasta, "misto.md");
+    writeFileSync(caminho, "x\r\ny\r\n\nz\r\nw\r\n");
+    await rejuntarLinhas(caminho);
+    expect(readFileSync(caminho, "utf8")).toBe("x y\r\n\r\nz w\r\n");
+  });
+
+  test("Dado um arquivo CRLF sem nada a rejuntar, Quando rodo, Então conta 0/1 e não grava (hash e mtime iguais)", async () => {
+    const caminho = join(pasta, "limpo-crlf.md");
+    writeFileSync(caminho, "uma linha so\r\n\r\noutra\r\n");
+    const passado = new Date("2020-01-01T00:00:00Z");
+    utimesSync(caminho, passado, passado);
+    const antes = hashDe(caminho);
+    const r = await capturar(() => comandoRejuntarLinhas([caminho]));
+    expect(r.codigo).toBe(0);
+    expect(r.erro).toContain("0/1 arquivos mudaram.");
+    expect(hashDe(caminho)).toBe(antes);
+    expect(statSync(caminho).mtimeMs).toBe(passado.getTime());
+  });
+
+  test("Dado um arquivo com CR solto sem nada a rejuntar, Quando rodo, Então conta 0/1 e não grava", async () => {
+    const caminho = join(pasta, "limpo-cr.md");
+    writeFileSync(caminho, "uma linha so\r\routra\r");
+    const passado = new Date("2020-01-01T00:00:00Z");
+    utimesSync(caminho, passado, passado);
+    const antes = hashDe(caminho);
+    const r = await rejuntarLinhas(caminho);
+    expect(r.mudariam).toEqual([]);
+    expect(hashDe(caminho)).toBe(antes);
+    expect(statSync(caminho).mtimeMs).toBe(passado.getTime());
+  });
+
+  test("Dado um arquivo CRLF sem nada a rejuntar, Quando peço --simular --diff, Então nada é impresso e conta 0/1", async () => {
+    const caminho = join(pasta, "limpo-crlf.md");
+    writeFileSync(caminho, "uma linha so\r\n\r\noutra\r\n");
+    const r = await capturar(() => comandoRejuntarLinhas([caminho, "--simular", "--diff"]));
+    expect(r.saida).toBe("");
+    expect(r.erro).toContain("0/1 arquivos mudariam.");
+  });
+
+  test("Dado um arquivo CRLF com algo a rejuntar, Quando peço o diff, Então só as linhas rejuntadas aparecem, sem CR", async () => {
+    const caminho = join(pasta, "sujo-crlf.md");
+    writeFileSync(caminho, "limpa um\r\n\r\nsuja a\r\nsuja b\r\n\r\nlimpa dois\r\n");
+    const r = await capturar(() => comandoRejuntarLinhas([caminho, "--simular", "--diff"]));
+    expect(r.saida).not.toContain("\r");
+    expect(r.saida).toContain("-suja a\n-suja b\n+suja a suja b");
+    expect(r.saida).not.toContain("-limpa um");
+  });
+
+  test("Dado um arquivo CRLF com BOM e algo a rejuntar, Quando rodo, Então BOM e CRLF sobrevivem", async () => {
+    const caminho = join(pasta, "bom-crlf.md");
+    writeFileSync(caminho, "\ufeffa\r\nb\r\n");
+    await rejuntarLinhas(caminho);
+    expect(readFileSync(caminho, "utf8")).toBe("\ufeffa b\r\n");
   });
 
   test("Dado um arquivo com BOM, Quando rodo, Então o BOM sobrevive na gravação", async () => {
@@ -446,6 +525,107 @@ describe("rejuntar-linhas: diff unificado", () => {
     expect(r.saida).toBe(
       `--- ${caminho}\n+++ ${caminho} (rejuntado)\n@@ -1,2 +1 @@\n-um\n-dois\n\\ No newline at end of file\n+um dois\n\\ No newline at end of file`,
     );
+  });
+});
+
+describe("rejuntar-linhas: diff em memória linear", () => {
+  // Distância de edição por programação dinâmica, o oráculo do tamanho mínimo.
+  function distanciaMinima(a: string[], b: string[]): number {
+    const t = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+    for (let i = 0; i <= a.length; i++) {
+      for (let j = 0; j <= b.length; j++) {
+        if (i === 0 || j === 0) t[i]![j] = i + j;
+        else t[i]![j] = a[i - 1] === b[j - 1] ? t[i - 1]![j - 1]! : 1 + Math.min(t[i - 1]![j]!, t[i]![j - 1]!);
+      }
+    }
+    return t[a.length]![b.length]!;
+  }
+
+  test("Dado 600 pares aleatórios de sequências curtas, Quando calculo os opcodes, Então remontam a segunda sequência com o menor número de edições", () => {
+    let semente = 12345;
+    const sorteio = (limite: number) => {
+      semente = (semente * 1103515245 + 12345) % 2147483648;
+      return semente % limite;
+    };
+    const sequencia = () => Array.from({ length: sorteio(13) }, () => "abcd"[sorteio(4)]!);
+    for (let caso = 0; caso < 600; caso++) {
+      const a = sequencia();
+      const b = sequencia();
+      const remontada: string[] = [];
+      let edicoes = 0;
+      for (const [codigo, i1, i2, j1, j2] of opcodes(a, b)) {
+        if (codigo === "equal") expect(a.slice(i1, i2)).toEqual(b.slice(j1, j2));
+        else edicoes += i2 - i1 + (j2 - j1);
+        remontada.push(...b.slice(j1, j2));
+      }
+      expect(remontada).toEqual(b);
+      expect(edicoes).toBe(distanciaMinima(a, b));
+    }
+  });
+
+  test.skipIf(Bun.which("patch") === null)("Dado dois arquivos com linhas fora de ordem (requer o programa patch), Quando monto o diff, Então ele aplica com patch e reproduz o texto novo", async () => {
+    const antes = Array.from({ length: 40 }, (_, i) => `linha ${i}\n`);
+    const depois = [...antes];
+    depois.splice(30, 0, "nova trinta\n");
+    depois.splice(5, 3);
+    [depois[12], depois[20]] = [depois[20]!, depois[12]!];
+    const original = join(pasta, "o.md");
+    const arquivoDiff = join(pasta, "o.diff");
+    writeFileSync(original, antes.join(""));
+    writeFileSync(arquivoDiff, `${diffUnificado("o.md", "o.md (novo)", antes.join(""), depois.join("")).join("\n")}\n`);
+    const patch = Bun.spawn(["patch", "-s", original, arquivoDiff], { stdout: "pipe", stderr: "pipe" });
+    expect(await patch.exited).toBe(0);
+    expect(readFileSync(original, "utf8")).toBe(depois.join(""));
+  });
+
+  test.skipIf(Bun.which("patch") === null)(
+    "Dado o diff de um arquivo sujo (requer o programa patch), Quando aplico com patch, Então o resultado é o texto rejuntado",
+    async () => {
+      const caminho = pagina();
+      const copia = join(pasta, "copia.md");
+      copyFileSync(caminho, copia);
+      const r = await capturar(() => comandoRejuntarLinhas([caminho, "--simular", "--diff"]));
+      const arquivoDiff = join(pasta, "q.diff");
+      writeFileSync(arquivoDiff, `${r.saida}\n`);
+      const patch = Bun.spawn(["patch", "-s", copia, arquivoDiff], { stdout: "pipe", stderr: "pipe" });
+      expect(await patch.exited).toBe(0);
+      await rejuntarLinhas(caminho);
+      expect(readFileSync(copia, "utf8")).toBe(readFileSync(caminho, "utf8"));
+    },
+  );
+
+  test("Dado 10 mil linhas em ordem inversa, Quando monto o diff num processo à parte, Então o pico de memória fica abaixo de 500 MB e o diff sai", async () => {
+    const modulo = join(import.meta.dir, "..", "src", "comandos", "rejuntar-linhas.ts");
+    const script = `
+      import { diffUnificado } from ${JSON.stringify(modulo)};
+      const linhas = Array.from({ length: 10000 }, (_, i) => "linha " + i + "\\n");
+      const saida = diffUnificado("a", "b", linhas.join(""), [...linhas].reverse().join(""));
+      console.log(JSON.stringify({ rss: process.memoryUsage().rss, linhas: saida.length }));
+    `;
+    const filho = Bun.spawn([process.execPath, "-e", script], { stdout: "pipe", stderr: "pipe" });
+    const texto = await new Response(filho.stdout).text();
+    expect(await filho.exited).toBe(0);
+    const { rss, linhas } = JSON.parse(texto) as { rss: number; linhas: number };
+    expect(linhas).toBeGreaterThan(10000);
+    expect(rss).toBeLessThan(500 * 1024 * 1024);
+  }, 60_000);
+
+  test("Dado 20 mil linhas em parágrafos de duas linhas, Quando peço o diff pela API, Então termina em poucos segundos", async () => {
+    const caminho = join(pasta, "grande.md");
+    writeFileSync(caminho, Array.from({ length: 10000 }, (_, i) => `par ${i} a\npar ${i} b\n`).join("\n") + "\n");
+    const inicio = performance.now();
+    const r = await capturar(() => comandoRejuntarLinhas([caminho, "--simular", "--diff"]));
+    expect(r.codigo).toBe(0);
+    expect(r.erro).toContain("1/1 arquivos mudariam.");
+    expect(performance.now() - inicio).toBeLessThan(10_000);
+  }, 30_000);
+
+  test("Dado separadores exóticos (FF, LS), Quando peço o diff, Então não há marca de falta de quebra e a linha não é partida", async () => {
+    const caminho = join(pasta, "exotico.md");
+    writeFileSync(caminho, "um\fdois\ntres\n");
+    const r = await capturar(() => comandoRejuntarLinhas([caminho, "--simular", "--diff"]));
+    expect(r.saida).not.toContain("No newline");
+    expect(r.saida).toContain("-um\fdois\n-tres\n+um dois tres");
   });
 });
 

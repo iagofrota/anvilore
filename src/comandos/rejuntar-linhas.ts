@@ -192,85 +192,188 @@ function dividirEmLinhas(texto: string): string[] {
   return texto.match(FIM_DE_LINHA) ?? [];
 }
 
-// Newline universal na leitura (CRLF e CR viram LF); o BOM fica de fora da classificação, para não
-// esconder o frontmatter nem um heading na primeira linha, e volta na gravação.
+// Newline universal na leitura, como o `read_text` do original: CRLF e CR viram LF.
+function normalizar(original: string): string {
+  return original.startsWith("\ufeff") ? `\ufeff${original.slice(1).replace(/\r\n?/g, "\n")}` : original.replace(/\r\n?/g, "\n");
+}
+
+// O BOM fica de fora da classificação, para não esconder o frontmatter nem um heading na primeira
+// linha, e volta na saída. A saída é sempre LF; quem grava devolve o fim de linha do arquivo.
 export function rejuntarTexto(original: string): string {
-  const bom = original.startsWith("\ufeff") ? "\ufeff" : "";
-  const texto = original.slice(bom.length).replace(/\r\n?/g, "\n");
+  const normalizado = normalizar(original);
+  const bom = normalizado.startsWith("\ufeff") ? "\ufeff" : "";
+  const texto = normalizado.slice(bom.length);
   const novas = rejuntar(dividirEmLinhas(texto));
   return bom + novas.join("\n") + (texto.endsWith("\n") ? "\n" : "");
+}
+
+// O fim de linha que prevalece no arquivo (empate: LF, depois CRLF), para regravá-lo como estava.
+function fimDeLinhaDominante(texto: string): string {
+  const crlf = texto.match(/\r\n/g)?.length ?? 0;
+  const cr = texto.match(/\r(?!\n)/g)?.length ?? 0;
+  const lf = texto.match(/(?<!\r)\n/g)?.length ?? 0;
+  const maior = Math.max(lf, crlf, cr);
+  return lf === maior ? "\n" : crlf === maior ? "\r\n" : "\r";
 }
 
 type Codigo = "equal" | "delete" | "insert" | "replace";
 type Opcode = [Codigo, number, number, number, number];
 
-// Myers (O(ND)) sobre o miolo que sobra depois de aparar prefixo e sufixo comuns.
-function opcodes(a: string[], b: string[]): Opcode[] {
-  let prefixo = 0;
-  while (prefixo < a.length && prefixo < b.length && a[prefixo] === b[prefixo]) prefixo++;
-  let sufixo = 0;
-  while (sufixo < a.length - prefixo && sufixo < b.length - prefixo && a.at(-1 - sufixo) === b.at(-1 - sufixo)) sufixo++;
-  const ma = a.slice(prefixo, a.length - sufixo);
-  const mb = b.slice(prefixo, b.length - sufixo);
-  const n = ma.length;
-  const m = mb.length;
+const IGUAL = 0;
+const APAGA = 1;
+const INSERE = 2;
 
-  // passos[k]: "=" mantém, "-" apaga de a, "+" insere de b, em ordem.
-  const passos: string[] = [];
-  if (n === 0 || m === 0) {
-    passos.push(...Array<string>(n).fill("-"), ...Array<string>(m).fill("+"));
-  } else {
-    const max = n + m;
-    const deslocamento = max + 1;
-    const v = new Int32Array(2 * max + 3);
-    // Antes de cada rodada d guarda só a janela k in [-d-1, d+1] de V: O(D^2) em vez de O(D*(N+M)).
-    const trilha: Int32Array[] = [];
-    buscar: for (let d = 0; d <= max; d++) {
-      trilha.push(v.slice(deslocamento - d - 1, deslocamento + d + 2));
-      for (let k = -d; k <= d; k += 2) {
-        let x =
-          k === -d || (k !== d && v[deslocamento + k - 1]! < v[deslocamento + k + 1]!)
-            ? v[deslocamento + k + 1]!
-            : v[deslocamento + k - 1]! + 1;
-        let y = x - k;
-        while (x < n && y < m && ma[x] === mb[y]) {
-          x++;
-          y++;
-        }
-        v[deslocamento + k] = x;
-        if (x >= n && y >= m) break buscar;
+// Cobra do meio do Myers (rodando de frente e de trás ao mesmo tempo): devolve onde o melhor caminho
+// entre as duas pontas se cruza, em coordenadas relativas ao trecho, como [x, y, u, v] (cobra de
+// (x, y) a (u, v)). Guarda só duas fileiras V de tamanho O(N+M), nunca o histórico das rodadas.
+function cobraDoMeio(a: Int32Array, aLo: number, aHi: number, b: Int32Array, bLo: number, bHi: number): number[] {
+  const n = aHi - aLo;
+  const m = bHi - bLo;
+  const delta = n - m;
+  const impar = (delta & 1) !== 0;
+  const meio = Math.ceil((n + m) / 2);
+  const deslocamento = meio + 1;
+  const frente = new Int32Array(2 * meio + 3);
+  const tras = new Int32Array(2 * meio + 3);
+  for (let d = 0; d <= meio; d++) {
+    for (let k = -d; k <= d; k += 2) {
+      let x =
+        k === -d || (k !== d && frente[deslocamento + k - 1]! < frente[deslocamento + k + 1]!)
+          ? frente[deslocamento + k + 1]!
+          : frente[deslocamento + k - 1]! + 1;
+      let y = x - k;
+      const x0 = x;
+      const y0 = y;
+      while (x < n && y < m && a[aLo + x] === b[bLo + y]) {
+        x++;
+        y++;
+      }
+      frente[deslocamento + k] = x;
+      if (impar && k >= delta - (d - 1) && k <= delta + (d - 1) && x <= n && y <= m && x + tras[deslocamento + delta - k]! >= n) {
+        return [x0, y0, x, y];
       }
     }
-    let x = n;
-    let y = m;
-    for (let d = trilha.length - 1; d >= 0; d--) {
-      const janela = trilha[d]!;
-      const k = x - y;
-      const veioDeCima = k === -d || (k !== d && janela[k - 1 + d + 1]! < janela[k + 1 + d + 1]!);
-      const kAnterior = veioDeCima ? k + 1 : k - 1;
-      const xAnterior = janela[kAnterior + d + 1]!;
-      const yAnterior = xAnterior - kAnterior;
-      while (x > xAnterior && y > yAnterior) {
-        passos.push("=");
-        x--;
-        y--;
+    for (let k = -d; k <= d; k += 2) {
+      let x =
+        k === -d || (k !== d && tras[deslocamento + k - 1]! < tras[deslocamento + k + 1]!)
+          ? tras[deslocamento + k + 1]!
+          : tras[deslocamento + k - 1]! + 1;
+      let y = x - k;
+      const x0 = x;
+      const y0 = y;
+      while (x < n && y < m && a[aHi - 1 - x] === b[bHi - 1 - y]) {
+        x++;
+        y++;
       }
-      if (d > 0) passos.push(veioDeCima ? "+" : "-");
-      x = xAnterior;
-      y = yAnterior;
+      tras[deslocamento + k] = x;
+      if (!impar && delta - k >= -d && delta - k <= d && x <= n && y <= m && x + frente[deslocamento + delta - k]! >= n) {
+        return [n - x, m - y, n - x0, m - y0];
+      }
     }
-    passos.reverse();
   }
+  throw new Error("cobra do meio não encontrada");
+}
 
+// Divide e conquista sobre a cobra do meio: a memória é linear e o tempo continua O(ND).
+function resolver(a: Int32Array, aLo: number, aHi: number, b: Int32Array, bLo: number, bHi: number, passos: number[]): void {
+  while (aLo < aHi && bLo < bHi && a[aLo] === b[bLo]) {
+    passos.push(IGUAL);
+    aLo++;
+    bLo++;
+  }
+  let comum = 0;
+  while (aHi - comum > aLo && bHi - comum > bLo && a[aHi - 1 - comum] === b[bHi - 1 - comum]) comum++;
+  aHi -= comum;
+  bHi -= comum;
+  if (aLo === aHi) {
+    for (let j = bLo; j < bHi; j++) passos.push(INSERE);
+  } else if (bLo === bHi) {
+    for (let i = aLo; i < aHi; i++) passos.push(APAGA);
+  } else {
+    const [x, y, u, v] = cobraDoMeio(a, aLo, aHi, b, bLo, bHi) as [number, number, number, number];
+    resolver(a, aLo, aLo + x, b, bLo, bLo + y, passos);
+    for (let i = x; i < u; i++) passos.push(IGUAL);
+    resolver(a, aLo + u, aHi, b, bLo + v, bHi, passos);
+  }
+  for (let i = 0; i < comum; i++) passos.push(IGUAL);
+}
+
+// Passos de edição (igual, apaga, insere) entre duas sequências. Linha que só existe de um lado
+// não pode casar com nada: sai do problema antes do Myers e volta como apagada/inserida, o que
+// encolhe o D de um texto em que quase toda linha muda e as linhas em branco seguram o resto.
+function passosDeEdicao(a: string[], b: string[]): number[] {
+  const ids = new Map<string, number>();
+  const idDe = (linha: string) => {
+    let id = ids.get(linha);
+    if (id === undefined) {
+      id = ids.size;
+      ids.set(linha, id);
+    }
+    return id;
+  };
+  const idsA = a.map(idDe);
+  const idsB = b.map(idDe);
+  const emA = new Set(idsA);
+  const emB = new Set(idsB);
+  const mantidasA = idsA.flatMap((id, i) => (emB.has(id) ? [i] : []));
+  const mantidasB = idsB.flatMap((id, j) => (emA.has(id) ? [j] : []));
+
+  const miolo: number[] = [];
+  resolver(
+    Int32Array.from(mantidasA, (i) => idsA[i]!),
+    0,
+    mantidasA.length,
+    Int32Array.from(mantidasB, (j) => idsB[j]!),
+    0,
+    mantidasB.length,
+    miolo,
+  );
+
+  const passos: number[] = [];
+  let i = 0;
+  let j = 0;
+  let ka = 0;
+  let kb = 0;
+  const apagarAte = (limite: number) => {
+    for (; i < limite; i++) passos.push(APAGA);
+  };
+  const inserirAte = (limite: number) => {
+    for (; j < limite; j++) passos.push(INSERE);
+  };
+  for (const passo of miolo) {
+    if (passo !== INSERE) apagarAte(mantidasA[ka]!);
+    if (passo !== APAGA) inserirAte(mantidasB[kb]!);
+    if (passo === IGUAL) {
+      passos.push(IGUAL);
+      i++;
+      j++;
+      ka++;
+      kb++;
+    } else if (passo === APAGA) {
+      passos.push(APAGA);
+      i++;
+      ka++;
+    } else {
+      passos.push(INSERE);
+      j++;
+      kb++;
+    }
+  }
+  apagarAte(a.length);
+  inserirAte(b.length);
+  return passos;
+}
+
+export function opcodes(a: string[], b: string[]): Opcode[] {
+  const passos = passosDeEdicao(a, b);
   const saida: Opcode[] = [];
-  if (prefixo > 0) saida.push(["equal", 0, prefixo, 0, prefixo]);
-  let i = prefixo;
-  let j = prefixo;
+  let i = 0;
+  let j = 0;
   let p = 0;
   while (p < passos.length) {
-    if (passos[p] === "=") {
+    if (passos[p] === IGUAL) {
       let q = p;
-      while (passos[q] === "=") q++;
+      while (passos[q] === IGUAL) q++;
       saida.push(["equal", i, i + (q - p), j, j + (q - p)]);
       i += q - p;
       j += q - p;
@@ -278,8 +381,8 @@ function opcodes(a: string[], b: string[]): Opcode[] {
     } else {
       let apagadas = 0;
       let inseridas = 0;
-      while (p < passos.length && passos[p] !== "=") {
-        if (passos[p] === "-") apagadas++;
+      while (p < passos.length && passos[p] !== IGUAL) {
+        if (passos[p] === APAGA) apagadas++;
         else inseridas++;
         p++;
       }
@@ -289,7 +392,6 @@ function opcodes(a: string[], b: string[]): Opcode[] {
       j += inseridas;
     }
   }
-  if (sufixo > 0) saida.push(["equal", a.length - sufixo, a.length, b.length - sufixo, b.length]);
   return saida;
 }
 
@@ -323,11 +425,16 @@ function faixa(inicio: number, fim: number): string {
   return `${comprimento === 0 ? inicio : inicio + 1},${comprimento}`;
 }
 
+// O diff divide só em LF, como o `patch`: um FF ou LS dentro da linha não a parte nem ganha marca.
+function dividirNoLf(texto: string): string[] {
+  return texto.match(/[^\n]*\n|[^\n]+/g) ?? [];
+}
+
 // Diff unificado (3 linhas de contexto). Uma linha sem LF final ganha a marca do `diff` do GNU, que
 // o `difflib` deixava de fora, colando a linha seguinte nela.
-function diffUnificado(de: string, para: string, antes: string, depois: string): string[] {
-  const a = dividirEmLinhas(antes);
-  const b = dividirEmLinhas(depois);
+export function diffUnificado(de: string, para: string, antes: string, depois: string): string[] {
+  const a = dividirNoLf(antes);
+  const b = dividirNoLf(depois);
   const saida = [`--- ${de}`, `+++ ${para}`];
   const linha = (marca: string, texto: string) => {
     if (texto.endsWith("\n")) saida.push(marca + texto.slice(0, -1));
@@ -424,20 +531,23 @@ export async function rejuntarLinhas(alvo: string, opcoes: OpcoesDeRejuntamento 
         .map((relativo) => join(alvo, ...relativo))
     : [alvo];
 
-  const mudados: { arquivo: string; original: string; novo: string }[] = [];
+  // Compara e faz o diff no espaço normalizado (LF): arquivo CRLF/CR sem nada a rejuntar não muda,
+  // e o que muda é regravado com o fim de linha que já tinha.
+  const mudados: { arquivo: string; original: string; novo: string; fimDeLinha: string }[] = [];
   for (const arquivo of arquivos) {
-    const original = await lerUtf8(arquivo);
+    const lido = await lerUtf8(arquivo);
+    const original = normalizar(lido);
     const novo = rejuntarTexto(original);
-    if (novo !== original) mudados.push({ arquivo, original, novo });
+    if (novo !== original) mudados.push({ arquivo, original, novo, fimDeLinha: fimDeLinhaDominante(lido) });
   }
 
-  for (const { arquivo, original, novo } of mudados) {
+  for (const { arquivo, original, novo, fimDeLinha } of mudados) {
     if (opcoes.simular) {
       if (opcoes.diff) for (const linha of diffUnificado(arquivo, `${arquivo} (rejuntado)`, original, novo)) console.log(linha);
       continue;
     }
     try {
-      await writeFile(arquivo, novo, "utf8");
+      await writeFile(arquivo, fimDeLinha === "\n" ? novo : novo.replaceAll("\n", fimDeLinha), "utf8");
     } catch (erro) {
       throw new ErroDeRejuntamento(`não foi possível gravar ${arquivo}: ${codigoDe(erro)}`);
     }
@@ -446,6 +556,14 @@ export async function rejuntarLinhas(alvo: string, opcoes: OpcoesDeRejuntamento 
 }
 
 const USO = "Uso: anvilore rejuntar-linhas <arquivo-ou-diretório> [--simular] [--diff]";
+
+// O `parseArgs` fala inglês; a CLI fala português.
+function mensagemDeArgumentos(erro: NodeJS.ErrnoException): string {
+  const opcao = /'([^']+)'/.exec(erro.message)?.[1] ?? "";
+  if (erro.code === "ERR_PARSE_ARGS_UNKNOWN_OPTION") return `Opção desconhecida: ${opcao}`;
+  if (erro.code === "ERR_PARSE_ARGS_INVALID_OPTION_VALUE") return `A opção ${opcao} não aceita valor`;
+  return "Argumentos inválidos";
+}
 
 export async function comandoRejuntarLinhas(args: string[]): Promise<number> {
   let parsed;
@@ -461,7 +579,7 @@ export async function comandoRejuntarLinhas(args: string[]): Promise<number> {
       allowPositionals: true,
     });
   } catch (erro) {
-    console.error(`${(erro as Error).message}\n${USO}`);
+    console.error(`${mensagemDeArgumentos(erro as NodeJS.ErrnoException)}\n${USO}`);
     return 2;
   }
   const { values, positionals } = parsed;
