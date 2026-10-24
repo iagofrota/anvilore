@@ -6,7 +6,9 @@ export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
 type Mapa = Record<string, unknown>;
 type Token = { texto: string; operador: boolean };
 
-const CHAVES = new Set(["file_path", "filepath", "notebook_path", "notebookpath", "absolute_path", "absolutepath", "path"]);
+const CHAVES = new Set(["file_path", "filepath", "notebook_path", "notebookpath", "absolute_path", "absolutepath", "path",
+  // destino de ferramentas que movem, copiam ou exportam (o caminho de origem pode estar fora de raw/)
+  "destination", "destinationpath", "destination_path", "dest", "new_path", "newpath", "old_path", "oldpath", "target_path", "targetpath", "output_path", "outputpath"]);
 const TERMINAIS = new Set(["bash", "exec_command", "shell_command", "shell", "local_shell", "run_shell_command", "powershell", "run_in_terminal"]);
 const LEITORES = new Set(["read", "read_file", "view", "read_notebook", "list_dir", "glob", "grep"]);
 const MUDAM_DIRETORIO = new Set(["cd", "chdir", "pushd", "set-location", "sl"]);
@@ -216,10 +218,12 @@ export function decidir(payload: string): Decisao {
     if (!mapa(entrada)) throw new Error("argumentos da ferramenta ilegíveis");
     const cwd = String(entrada.workdir ?? entrada.cwd ?? entrada.directory ?? entrada.dir_path ?? dados.cwd ?? "");
     if (LEITORES.has(nome)) return { acao: "liberar", motivo: "ferramenta de leitura" };
-    if (TERMINAIS.has(nome) || "command" in entrada || "cmd" in entrada) return decidirTerminal(entrada.command ?? entrada.cmd, cwd);
-    const caminhos = caminhosDe(dados);
+    // Os caminhos vêm dos argumentos já decodificados (toolArgs do Copilot é texto) e do payload; o caminho em raw/ bloqueia
+    // mesmo que a ferramenta também tenha um comando.
+    const caminhos = [...new Set(caminhosDe([dados, entrada]))];
     const alvo = caminhos.find(caminho => escreveEmRaw(caminho, cwd));
     if (alvo !== undefined) return { acao: "bloquear", motivo: `caminho dentro de raw/: ${alvo}` };
+    if (TERMINAIS.has(nome) || "command" in entrada || "cmd" in entrada) return decidirTerminal(entrada.command ?? entrada.cmd, cwd);
     if (caminhos.length) return { acao: "liberar", motivo: caminhos.join(" ") };
     return citaRaw(payload)
       ? { acao: "bloquear", motivo: "payload sem caminho isolável que cita raw/ (falha fechado)" }

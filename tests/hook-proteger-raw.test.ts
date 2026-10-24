@@ -264,3 +264,29 @@ test("Dado less ou more com opção de saída Quando cita raw Então bloqueia e 
   expect(decidir(terminal("less raw/a.md")).acao).toBe("bloquear");
   expect(decidir(terminal("cat raw/a.md | head")).acao).toBe("liberar");
 });
+
+// Grupo B — rota do payload: command + caminho (I1), toolArgs do Copilot (I2), destino em outra chave (M3).
+test("Dado ferramenta de editor com command e path Quando o path cai em raw Então bloqueia mesmo com command inofensivo", () => {
+  expect(decidir(JSON.stringify({ tool_name: "str_replace_editor", tool_input: { command: "create", path: "raw/a.md", file_text: "x" } })).acao).toBe("bloquear");
+  expect(decidir(JSON.stringify({ tool_name: "str_replace_editor", tool_input: { command: "create", path: "wiki/a.md", file_text: "cita raw/a.md" } })).acao).toBe("liberar");
+  expect(decidir(JSON.stringify({ tool_name: "Edit", tool_input: { command: null, file_path: "raw/a.md" } })).acao).toBe("bloquear");
+  expect(decidir(JSON.stringify({ tool_name: "Edit", tool_input: { command: null, file_path: "wiki/a.md" } })).acao).toBe("liberar");
+});
+test("Dado terminal com caminho de arquivo no payload Quando um dos dois cai em raw Então bloqueia", () => {
+  expect(decidir(JSON.stringify({ tool_name: "Bash", tool_input: { command: "ls", file_path: "raw/a.md" } })).acao).toBe("bloquear");
+  expect(decidir(JSON.stringify({ tool_name: "Bash", tool_input: { command: "rm raw/a", file_path: "wiki/a.md" } })).acao).toBe("bloquear");
+  expect(decidir(JSON.stringify({ tool_name: "Bash", tool_input: { command: "ls", file_path: "wiki/a.md" } })).acao).toBe("liberar");
+});
+test("Dado toolArgs do Copilot em texto Quando a página da wiki cita raw no conteúdo Então libera e o caminho em raw bloqueia", () => {
+  const copilot = (nome: string, args: unknown) => JSON.stringify({ toolName: nome, toolArgs: JSON.stringify(args) });
+  expect(decidir(copilot("create", { path: "wiki/a.md", file_text: "original_file: raw/a.pdf" })).acao).toBe("liberar");
+  expect(decidir(copilot("edit", { path: "wiki/a.md", old_str: "x", new_str: "resource: raw/a.pdf" })).acao).toBe("liberar");
+  expect(decidir(copilot("create", { path: "raw/a.md", file_text: "x" })).acao).toBe("bloquear");
+  expect(decidir(copilot("edit", { path: "C:\\p\\raw\\a.md", old_str: "x", new_str: "y" })).acao).toBe("bloquear");
+});
+test("Dado ferramenta com caminho fora de raw e destino em outra chave Quando o destino cai em raw Então bloqueia", () => {
+  for (const chave of ["destination", "destinationPath", "dest", "new_path", "newPath", "old_path", "target_path", "output_path"]) {
+    expect(decidir(JSON.stringify({ tool_name: "mcp_mover", tool_input: { path: "wiki/a", [chave]: "raw/a" } })).acao).toBe("bloquear");
+    expect(decidir(JSON.stringify({ tool_name: "mcp_mover", tool_input: { path: "wiki/a", [chave]: "wiki/b" } })).acao).toBe("liberar");
+  }
+});
