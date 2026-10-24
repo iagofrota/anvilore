@@ -101,9 +101,11 @@ else
 fi
 
 # A skill tem de citar os scripts REAIS deste repositorio, nao os da origem.
-for script in "$VARREDURA" scripts/validar-wiki.sh; do
+for script in "$VARREDURA" scripts/validar-wiki.sh "src/cli.ts listar-lacunas"; do
   grep -qF "$script" "$SKILL" && ok "a skill cita $script" || falha "a skill nao cita $script"
 done
+grep -qF "scripts/listar-lacunas.py" "$SKILL" && falha "a skill cita o caminho removido scripts/listar-lacunas.py" \
+                                              || ok "a skill nao cita scripts/listar-lacunas.py"
 for alheio in wiki-validate.sh wiki-log-index.sh daily-lint.sh; do
   grep -qF "$alheio" "$SKILL" && falha "a skill cita script da origem: $alheio" \
                               || ok "a skill nao cita $alheio"

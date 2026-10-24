@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { listarLacunas, comandoListarLacunas } from "../src/comandos/listar-lacunas";
@@ -155,4 +155,113 @@ test("Dado o CLI, Quando executo listar-lacunas --consultar, Então o subcomando
   const r = await capturar(() => executar(["listar-lacunas", wiki, "--consultar", "--tipos", "contradiction"]));
   expect(r.codigo).toBe(0);
   expect(r.saida).toEqual(["beta/concepts/c.md:15 [contradiction] A fonte P afirma W; a fonte Q afirma o contrario."]);
+});
+
+// Criar symlink no Windows pode exigir modo de desenvolvedor ou privilégio elevado.
+const testeSymlink = process.platform === "win32" ? test.skip : test;
+
+testeSymlink("Dado página .md em symlink, Quando consulto, Então o callout aparece pelo caminho do link", async () => {
+  const alvo = join(raiz, "alvo.md");
+  writeFileSync(alvo, "> [!gap] Vem do link.\n");
+  symlinkSync(alvo, join(wiki, "alfa", "link.md"));
+  const linhas = await listarLacunas(wiki, { consultar: true });
+  expect(linhas).toContain("alfa/link.md:1 [gap] Vem do link.");
+});
+
+testeSymlink("Dado symlink .md quebrado, Quando consulto, Então avisa o caminho e continua", async () => {
+  const link = join(wiki, "alfa", "quebrado.md");
+  symlinkSync(join(raiz, "ausente.md"), link);
+  const r = await capturar(() => comandoListarLacunas([wiki, "--consultar"]));
+  expect(r.codigo).toBe(0);
+  expect(r.erro).toEqual([`AVISO: symlink quebrado: ${link}`]);
+  expect(r.saida.join("\n")).toContain("alfa/concepts/a.md:10");
+});
+
+testeSymlink("Dado diretório em symlink, Quando consulto, Então as páginas aparecem pelo caminho do link", async () => {
+  const alvo = join(raiz, "compartilhada");
+  mkdirSync(alvo);
+  writeFileSync(join(alvo, "p.md"), "> [!gap] Vem do diretório linkado.\n");
+  symlinkSync(alvo, join(wiki, "gama"));
+  const linhas = await listarLacunas(wiki, { consultar: true, area: "gama" });
+  expect(linhas).toEqual(["gama/p.md:1 [gap] Vem do diretório linkado."]);
+});
+
+testeSymlink("Dado symlink de diretório que aponta para um ancestral, Quando consulto, Então avisa o ciclo e termina", async () => {
+  const ciclo = join(wiki, "alfa", "volta");
+  symlinkSync(wiki, ciclo);
+  const r = await capturar(() => comandoListarLacunas([wiki, "--consultar"]));
+  expect(r.codigo).toBe(0);
+  expect(r.erro).toEqual([`AVISO: symlink em ciclo: ${ciclo}`]);
+  expect(r.saida.join("\n").split("\n")).toHaveLength(4);
+});
+
+testeSymlink("Dado symlink que aponta para si mesmo, Quando consulto, Então avisa como link quebrado e continua", async () => {
+  const link = join(wiki, "alfa", "si.md");
+  symlinkSync(link, link);
+  const r = await capturar(() => comandoListarLacunas([wiki, "--consultar"]));
+  expect(r.codigo).toBe(0);
+  expect(r.erro).toEqual([`AVISO: symlink quebrado: ${link}`]);
+});
+
+test("Dado quatro callouts e --limite -1 separado, Quando consulto, Então retorna todos menos o último", async () => {
+  const r = await capturar(() => comandoListarLacunas([wiki, "--consultar", "--limite", "-1"]));
+  expect(r.codigo).toBe(0);
+  expect(r.erro).toEqual([]);
+  expect(r.saida.join("\n").split("\n")).toEqual([
+    "alfa/concepts/a.md:10 [gap] Falta a definicao de X.",
+    "alfa/sources/b.md:10 [gap] Nenhuma fonte cobre Y.",
+    "beta/concepts/c.md:10 [gap] Falta medir Z.",
+  ]);
+});
+
+test.each([
+  ["CR solitário", "\r"],
+  ["form feed", "\f"],
+  ["separador Unicode", "\u2028"],
+] as const)("Dado texto com %s, Quando consulto, Então numero o callout como splitlines do Python", async (_nome, separador) => {
+  gravar("extremos/separador.md", `Prosa${separador}> [!gap] Separado.${separador}`);
+  expect(await listarLacunas(wiki, { consultar: true, area: "extremos" })).toEqual([
+    "extremos/separador.md:2 [gap] Separado.",
+  ]);
+});
+
+test("Dado BOM antes de callout na primeira linha, Quando consulto, Então ele não é reconhecido", async () => {
+  gravar("extremos/bom.md", "\uFEFF> [!gap] Oculto.\n> [!gap] Visível.\n");
+  expect(await listarLacunas(wiki, { consultar: true, area: "extremos" })).toEqual([
+    "extremos/bom.md:2 [gap] Visível.",
+  ]);
+});
+
+test("Dado --tipos com valor desconhecido, Quando executo, Então reprova com saída 2", async () => {
+  const r = await capturar(() => comandoListarLacunas([wiki, "--consultar", "--tipos", "gap,note"]));
+  expect(r.codigo).toBe(2);
+  expect(r.saida).toEqual([]);
+  expect(r.erro.join("\n")).toContain("tipo de callout inválido: note");
+});
+
+test("Dado --limite com texto, Quando executo, Então reprova sem ler a wiki", async () => {
+  const r = await capturar(() => comandoListarLacunas([wiki, "--limite", "abc"]));
+  expect(r).toEqual({ codigo: 2, saida: [], erro: ["argumento inválido para --limite"] });
+  expect(existsSync(join(wiki, "_meta"))).toBe(false);
+});
+
+test("Dado opção desconhecida, Quando executo, Então reprova nomeando a opção", async () => {
+  const r = await capturar(() => comandoListarLacunas([wiki, "--desconhecido"]));
+  expect(r.codigo).toBe(2);
+  expect(r.saida).toEqual([]);
+  expect(r.erro.join("\n")).toContain("--desconhecido");
+});
+
+test("Dado dois caminhos de wiki, Quando executo, Então reprova com o uso", async () => {
+  const r = await capturar(() => comandoListarLacunas([wiki, join(raiz, "outra")]));
+  expect(r.codigo).toBe(2);
+  expect(r.saida).toEqual([]);
+  expect(r.erro.join("\n")).toContain("Uso: anvilore listar-lacunas");
+});
+
+test("Dado --help, Quando executo, Então mostro o uso sem ler a wiki", async () => {
+  const r = await capturar(() => comandoListarLacunas([join(raiz, "ausente"), "--help"]));
+  expect(r.codigo).toBe(0);
+  expect(r.erro).toEqual([]);
+  expect(r.saida.join("\n")).toContain("Uso: anvilore listar-lacunas");
 });

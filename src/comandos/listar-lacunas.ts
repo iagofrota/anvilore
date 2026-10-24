@@ -1,8 +1,7 @@
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, join, relative, sep } from "node:path";
 import { parseArgs } from "node:util";
-import { linhasDe } from "../lib/frontmatter";
-import { diretorioDeTipo, nomeReservado } from "../lib/reservados";
+import { DIR_META, diretorioDeTipo, nomeReservado } from "../lib/reservados";
 
 type Tipo = "gap" | "contradiction";
 type Opcoes = { stdout?: boolean; tipos?: Tipo[]; consultar?: boolean; area?: string; buscar?: string; limite?: number };
@@ -12,19 +11,41 @@ const CALLOUT = /^>\s*\[!([a-z]+)\]\s?(.*)$/;
 const CITACAO = /^>\s?(.*)$/;
 const GERADOR = "src/comandos/listar-lacunas.ts";
 
-async function paginasMarkdown(pasta: string): Promise<string[]> {
+function tipoValido(valor: string): valor is Tipo {
+  return valor === "gap" || valor === "contradiction";
+}
+
+// R58: symlink é seguido com stat; link que não resolve avisa em vez de sumir.
+const LINK_QUEBRADO = new Set(["ENOENT", "ELOOP", "ENOTDIR"]);
+
+async function paginasMarkdown(pasta: string, ancestrais: ReadonlySet<string> = new Set()): Promise<string[]> {
+  const caminhosReais = new Set(ancestrais).add(await realpath(pasta));
   const paginas: string[] = [];
   for (const entrada of await readdir(pasta, { withFileTypes: true })) {
-    if (entrada.name === "_meta") continue;
+    if (entrada.name === DIR_META) continue;
     const caminho = join(pasta, entrada.name);
-    if (entrada.isDirectory()) paginas.push(...await paginasMarkdown(caminho));
-    else if (entrada.isFile() && entrada.name.endsWith(".md")) paginas.push(caminho);
+    let alvo: { isDirectory(): boolean; isFile(): boolean } = entrada;
+    if (entrada.isSymbolicLink()) {
+      try {
+        alvo = await stat(caminho);
+      } catch (erro) {
+        if (!LINK_QUEBRADO.has((erro as NodeJS.ErrnoException).code ?? "")) throw erro;
+        console.error(`AVISO: symlink quebrado: ${caminho}`);
+        continue;
+      }
+      if (alvo.isDirectory() && caminhosReais.has(await realpath(caminho))) {
+        console.error(`AVISO: symlink em ciclo: ${caminho}`);
+        continue;
+      }
+    }
+    if (alvo.isDirectory()) paginas.push(...await paginasMarkdown(caminho, caminhosReais));
+    else if (alvo.isFile() && entrada.name.endsWith(".md")) paginas.push(caminho);
   }
   return paginas.sort();
 }
 
-function extrair(texto: string, tipos: ReadonlySet<string>): { linha: number; tipo: Tipo; texto: string }[] {
-  const linhas = linhasDe(texto);
+function extrair(texto: string, tipos: ReadonlySet<Tipo>): { linha: number; tipo: Tipo; texto: string }[] {
+  const linhas = texto.split(/\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]/);
   const achados: { linha: number; tipo: Tipo; texto: string }[] = [];
   for (let i = 0; i < linhas.length;) {
     const abertura = CALLOUT.exec(linhas[i]!);
@@ -39,8 +60,8 @@ function extrair(texto: string, tipos: ReadonlySet<string>): { linha: number; ti
       corpo.push(continuacao[1]!.trim());
       i++;
     }
-    if (tipos.has(tipo)) {
-      achados.push({ linha, tipo: tipo as Tipo, texto: corpo.filter(Boolean).join(" ").replace(/\s+/g, " ").trim() });
+    if (tipoValido(tipo) && tipos.has(tipo)) {
+      achados.push({ linha, tipo, texto: corpo.filter(Boolean).join(" ").replace(/\s+/g, " ").trim() });
     }
   }
   return achados;
@@ -119,8 +140,8 @@ export async function listarLacunas(wiki: string, opcoes: Opcoes = {}): Promise<
 
   const relatorio = render(achados, dataLocal());
   if (opcoes.stdout) return [relatorio];
-  const destino = join(wiki, "_meta", "lacunas.md");
-  await mkdir(join(wiki, "_meta"), { recursive: true });
+  const destino = join(wiki, DIR_META, "lacunas.md");
+  await mkdir(join(wiki, DIR_META), { recursive: true });
   await writeFile(destino, relatorio, "utf8");
   return [`${destino}: ${achados.length} callout(s) em ${new Set(achados.map((a) => a.rel)).size} página(s)`];
 }
@@ -131,7 +152,16 @@ export async function comandoListarLacunas(args: string[]): Promise<number> {
   let wiki: string;
   let opcoes: Opcoes;
   try {
-    const parsed = parseArgs({ args, allowPositionals: true, options: {
+    const argumentos = args.flatMap((arg, indice) => {
+      if ((arg === "--limite" || arg === "--limit") && /^-\d+$/.test(args[indice + 1] ?? "")) {
+        return [`${arg}=${args[indice + 1]}`];
+      }
+      if (indice > 0 && (args[indice - 1] === "--limite" || args[indice - 1] === "--limit") && /^-\d+$/.test(arg)) {
+        return [];
+      }
+      return [arg];
+    });
+    const parsed = parseArgs({ args: argumentos, allowPositionals: true, options: {
       stdout: { type: "boolean" }, consultar: { type: "boolean" },
       tipos: { type: "string" }, types: { type: "string" },
       area: { type: "string" }, buscar: { type: "string" }, find: { type: "string" },
@@ -142,10 +172,13 @@ export async function comandoListarLacunas(args: string[]): Promise<number> {
     wiki = parsed.positionals[0] ?? "wiki";
     const valorLimite = parsed.values.limite ?? parsed.values.limit;
     if (valorLimite !== undefined && !/^[+-]?\d+$/.test(valorLimite)) throw new Error("argumento inválido para --limite");
+    const tipos = (parsed.values.tipos ?? parsed.values.types)?.split(",").map((tipo) => tipo.trim()).filter(Boolean);
+    const invalido = tipos?.find((tipo) => !tipoValido(tipo));
+    if (invalido !== undefined) throw new Error(`tipo de callout inválido: ${invalido}`);
     opcoes = {
       stdout: parsed.values.stdout,
       consultar: parsed.values.consultar,
-      tipos: (parsed.values.tipos ?? parsed.values.types)?.split(",").map((t) => t.trim()).filter(Boolean) as Tipo[] | undefined,
+      tipos: tipos?.filter(tipoValido),
       area: parsed.values.area,
       buscar: parsed.values.buscar ?? parsed.values.find,
       limite: valorLimite === undefined ? undefined : Number(valorLimite),

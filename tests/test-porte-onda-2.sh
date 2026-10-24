@@ -63,6 +63,23 @@ for s in "${PORTADOS[@]}"; do
   fi
 done
 
+# O modulo TypeScript derivado de wiki-wonka carrega a mesma atribuicao, no fim.
+TS_DERIVADOS=(src/comandos/listar-lacunas.ts)
+for s in "${TS_DERIVADOS[@]}"; do
+  for elemento in "${ELEMENTOS[@]}"; do
+    if grep -qF -- "$elemento" "$s"; then
+      ok "$(basename "$s"): cita '$elemento'"
+    else
+      falha "$(basename "$s"): sem '$elemento'"
+    fi
+  done
+  if tail -6 "$s" | grep -qF 'cooperacode/wiki-wonka'; then
+    ok "$(basename "$s"): rodape nas ultimas linhas"
+  else
+    falha "$(basename "$s"): atribuicao nao esta no rodape"
+  fi
+done
+
 # ============================================================================
 # B9 — nada do vault privado nos scripts nem nos testes novos
 # ============================================================================
