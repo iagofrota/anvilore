@@ -32,6 +32,9 @@ function pagina(frontmatter: string): string {
 }
 
 describe("checarRelease: CHANGELOG", () => {
+  // KB existente e vazia, para isolar o que estes testes cobrem.
+  beforeEach(() => mkdirSync(join(raiz, "docs", "knowledge_base"), { recursive: true }));
+
   test("Dado a versão 0.1.0 sem seção no CHANGELOG, Quando checo, Então reprova e nomeia a versão", () => {
     gravar("CHANGELOG.md", changelog("## [0.0.9] - 2026-01-01\n\n### Added\n\n- antigo\n"));
     const r = checarRelease(raiz, "0.1.0");
@@ -80,8 +83,68 @@ describe("checarRelease: CHANGELOG", () => {
   });
 
   test("Dado CHANGELOG com CRLF e BOM, Quando checo, Então lê a seção normalmente", () => {
-    const texto = `﻿${changelog("## [0.1.0] - 2026-10-23\n\n### Added\n\n- Projeto Bun.\n")}`.replaceAll("\n", "\r\n");
+    const texto = `\uFEFF${changelog("## [0.1.0] - 2026-10-23\n\n### Added\n\n- Projeto Bun.\n")}`.replaceAll("\n", "\r\n");
     gravar("CHANGELOG.md", texto);
+    expect(checarRelease(raiz, "0.1.0").ok).toBe(true);
+  });
+
+  test("Dado a seção só com Nada ainda, Quando checo, Então reprova", () => {
+    gravar("CHANGELOG.md", changelog("## [0.1.0]\n\n### Added\n\n- Nada ainda.\n"));
+    expect(checarRelease(raiz, "0.1.0").ok).toBe(false);
+  });
+
+  test.each(["nada", "TBD", "TODO", "-", "...", "N/A.", "Nada."])(
+    "Dado o item vazio de sentido %p, Quando checo, Então reprova",
+    (item) => {
+      gravar("CHANGELOG.md", changelog(`## [0.1.0]\n\n- ${item}\n`));
+      expect(checarRelease(raiz, "0.1.0").ok).toBe(false);
+    },
+  );
+
+  test("Dado um item só dentro de bloco de código, Quando checo, Então reprova", () => {
+    gravar("CHANGELOG.md", changelog("## [0.1.0]\n\n```\n- exemplo\n```\n\n~~~\n- outro\n~~~\n"));
+    expect(checarRelease(raiz, "0.1.0").ok).toBe(false);
+  });
+
+  test("Dado um item só dentro de comentário HTML, Quando checo, Então reprova", () => {
+    gravar("CHANGELOG.md", changelog("## [0.1.0]\n\n<!--\n- escondido\n-->\n<!-- - aqui também -->\n"));
+    expect(checarRelease(raiz, "0.1.0").ok).toBe(false);
+  });
+
+  test("Dado um item depois do fim do bloco de código e do comentário, Quando checo, Então passa", () => {
+    gravar("CHANGELOG.md", changelog("## [0.1.0]\n\n```\n- exemplo\n```\n<!-- x -->\n- real\n"));
+    expect(checarRelease(raiz, "0.1.0").ok).toBe(true);
+  });
+
+  test("Dado o título ## [0.1.0] só dentro de bloco de código, Quando checo, Então não conta como seção", () => {
+    gravar("CHANGELOG.md", changelog("```\n## [0.1.0]\n\n- item\n```\n"));
+    const r = checarRelease(raiz, "0.1.0");
+    expect(r.ok).toBe(false);
+    expect(r.problemas.join("\n")).toContain("não tem a seção");
+  });
+
+  test("Dado o título ## [0.1.0] só dentro de comentário HTML, Quando checo, Então não conta como seção", () => {
+    gravar("CHANGELOG.md", changelog("<!--\n## [0.1.0]\n- item\n-->\n"));
+    expect(checarRelease(raiz, "0.1.0").ok).toBe(false);
+  });
+
+  test("Dado um ## dentro de bloco de código na seção, Quando checo, Então não encerra a seção", () => {
+    gravar("CHANGELOG.md", changelog("## [0.1.0]\n\n```\n## falso\n```\n- real\n"));
+    expect(checarRelease(raiz, "0.1.0").ok).toBe(true);
+  });
+
+  test("Dado Não resolvido com um #### e um item, Quando checo, Então o item continua não contando como entregue", () => {
+    gravar("CHANGELOG.md", changelog("## [0.1.0]\n\n### Não resolvido nesta versão\n\n#### Detalhes\n\n- x\n"));
+    expect(checarRelease(raiz, "0.1.0").ok).toBe(false);
+  });
+
+  test("Dado Nao resolvido sem acento em caixa alta, Quando checo, Então também não conta como entregue", () => {
+    gravar("CHANGELOG.md", changelog("## [0.1.0]\n\n### NAO RESOLVIDO\n\n- x\n"));
+    expect(checarRelease(raiz, "0.1.0").ok).toBe(false);
+  });
+
+  test("Dado um ### novo depois do Não resolvido, Quando checo, Então os itens dele contam", () => {
+    gravar("CHANGELOG.md", changelog(`## [0.1.0]\n\n${naoResolvido}### Added\n\n- real\n`));
     expect(checarRelease(raiz, "0.1.0").ok).toBe(true);
   });
 
@@ -96,44 +159,72 @@ describe("checarRelease: knowledge base", () => {
 
   beforeEach(() => gravar("CHANGELOG.md", changelogOk));
 
-  test("Dado que docs/knowledge_base não existe, Quando checo, Então não reprova por isso", () => {
+  test("Dado que docs/knowledge_base não existe, Quando checo, Então reprova dizendo que ela não existe", () => {
+    const r = checarRelease(raiz, "0.1.0");
+    expect(r.ok).toBe(false);
+    expect(r.problemas.join("\n")).toContain("docs/knowledge_base não existe");
+  });
+
+  test("Dado uma knowledge base existente e vazia, Quando checo, Então passa", () => {
+    mkdirSync(join(raiz, "docs", "knowledge_base"), { recursive: true });
     expect(checarRelease(raiz, "0.1.0")).toEqual({ ok: true, problemas: [] });
   });
 
-  test("Dado uma página marcada como gerada e sem verified, Quando checo, Então reprova nomeando a página", () => {
+  test("Dado uma página com verified em AAAA-MM-DD, Quando checo, Então passa", () => {
+    gravar("docs/knowledge_base/decisoes.md", pagina("generated: 2026-10-23\nverified: 2026-10-24"));
+    expect(checarRelease(raiz, "0.1.0")).toEqual({ ok: true, problemas: [] });
+  });
+
+  test("Dado uma página sem generated mas com verified, Quando checo, Então passa", () => {
+    gravar("docs/knowledge_base/livre.md", pagina("verified: 2026-10-24"));
+    expect(checarRelease(raiz, "0.1.0").ok).toBe(true);
+  });
+
+  test("Dado uma página gerada e sem verified, Quando checo, Então reprova nomeando a página e pedindo revisão humana com data", () => {
     gravar("docs/knowledge_base/decisoes.md", pagina("generated: 2026-10-23"));
     const r = checarRelease(raiz, "0.1.0");
     expect(r.ok).toBe(false);
-    expect(r.problemas.join("\n")).toContain("decisoes.md");
-  });
-
-  test("Dado uma página gerada com verified vazio, Quando checo, Então reprova", () => {
-    gravar("docs/knowledge_base/decisoes.md", pagina("generated: 2026-10-23\nverified:"));
-    expect(checarRelease(raiz, "0.1.0").ok).toBe(false);
-  });
-
-  test("Dado uma página gerada com verified falso, Quando checo, Então reprova", () => {
-    gravar("docs/knowledge_base/decisoes.md", pagina("generated: 2026-10-23\nverified: false"));
-    expect(checarRelease(raiz, "0.1.0").ok).toBe(false);
-  });
-
-  test("Dado uma página gerada com verified preenchido, Quando checo, Então passa", () => {
-    gravar("docs/knowledge_base/decisoes.md", pagina("generated: 2026-10-23\nverified: 2026-10-24"));
-    expect(checarRelease(raiz, "0.1.0").ok).toBe(true);
-  });
-
-  test("Dado uma página sem generated, Quando checo, Então não é afetada", () => {
-    gravar("docs/knowledge_base/livre.md", pagina("title: Livre"));
-    gravar("docs/knowledge_base/sem-frontmatter.md", "Só texto.\n");
-    expect(checarRelease(raiz, "0.1.0").ok).toBe(true);
-  });
-
-  test("Dado páginas em subpasta e arquivos que não são .md, Quando checo, Então só as .md entram", () => {
-    gravar("docs/knowledge_base/sub/fundo.md", pagina("generated: 2026-10-23"));
-    gravar("docs/knowledge_base/nota.txt", "generated: 2026-10-23");
-    const r = checarRelease(raiz, "0.1.0");
     expect(r.problemas).toHaveLength(1);
-    expect(r.problemas[0]).toContain("sub/fundo.md");
+    expect(r.problemas[0]).toContain("decisoes.md");
+    expect(r.problemas[0]).toContain("revisão humana");
+    expect(r.problemas[0]).toContain("AAAA-MM-DD");
+  });
+
+  test("Dado uma página sem generated e sem verified, Quando checo, Então reprova", () => {
+    gravar("docs/knowledge_base/livre.md", pagina("title: Livre"));
+    expect(checarRelease(raiz, "0.1.0").problemas.join("\n")).toContain("livre.md");
+  });
+
+  test("Dado uma página sem frontmatter, Quando checo, Então reprova nomeando a página", () => {
+    gravar("docs/knowledge_base/solta.md", "Só texto.\n");
+    const r = checarRelease(raiz, "0.1.0");
+    expect(r.ok).toBe(false);
+    expect(r.problemas[0]).toContain("solta.md");
+  });
+
+  test.each(["TODO", "no", "true", "false", "0", "{}", "''", "", "2026-1-5", "24/10/2026", "2026-10-24T10:00"])(
+    "Dado verified %p, Quando checo, Então reprova",
+    (valor) => {
+      gravar("docs/knowledge_base/a.md", pagina(`generated: 2026-10-23\nverified: ${valor}`));
+      const r = checarRelease(raiz, "0.1.0");
+      expect(r.ok).toBe(false);
+      expect(r.problemas[0]).toContain("a.md");
+    },
+  );
+
+  test("Dado verified com data entre aspas, Quando checo, Então passa", () => {
+    gravar("docs/knowledge_base/a.md", pagina('verified: "2026-10-24"'));
+    expect(checarRelease(raiz, "0.1.0").ok).toBe(true);
+  });
+
+  test("Dado páginas em subpasta, extensão .MD e arquivos que não são .md, Quando checo, Então só as .md entram", () => {
+    gravar("docs/knowledge_base/sub/fundo.md", pagina("generated: 2026-10-23"));
+    gravar("docs/knowledge_base/MAIUSCULA.MD", pagina("title: x"));
+    gravar("docs/knowledge_base/nota.txt", "qualquer coisa");
+    const r = checarRelease(raiz, "0.1.0");
+    expect(r.problemas).toHaveLength(2);
+    expect(r.problemas.join("\n")).toContain("sub/fundo.md");
+    expect(r.problemas.join("\n")).toContain("MAIUSCULA.MD");
   });
 
   test("Dado uma página com frontmatter inválido, Quando checo, Então reprova nomeando o arquivo em vez de pular", () => {
@@ -171,8 +262,25 @@ describe("subcomando checar-release", () => {
       });
   }
 
+  test.each(["Unreleased", "v0.1.0", "0.1", "abc", "1.0.0 "])(
+    "Dado a versão %p que não é SemVer, Quando rodo checar-release, Então devolve 2 com mensagem",
+    async (versao) => {
+      const r = await capturar(() => comandoChecarRelease([versao], raiz));
+      expect(r.codigo).toBe(2);
+      expect(r.erro.join("\n")).toContain("SemVer");
+    },
+  );
+
+  test("Dado uma versão com pré-lançamento, Quando rodo checar-release, Então aceita o formato", async () => {
+    gravar("CHANGELOG.md", changelog("## [0.1.0-rc.1]\n\n- item\n"));
+    mkdirSync(join(raiz, "docs", "knowledge_base"), { recursive: true });
+    const r = await capturar(() => comandoChecarRelease(["0.1.0-rc.1"], raiz));
+    expect(r.codigo).toBe(0);
+  });
+
   test("Dado a release pronta, Quando rodo checar-release 0.1.0, Então imprime uma linha de sucesso e devolve 0", async () => {
     gravar("CHANGELOG.md", changelog("## [0.1.0]\n\n- item\n"));
+    mkdirSync(join(raiz, "docs", "knowledge_base"), { recursive: true });
     const r = await capturar(() => comandoChecarRelease(["0.1.0"], raiz));
     expect(r.codigo).toBe(0);
     expect(r.saida).toHaveLength(1);

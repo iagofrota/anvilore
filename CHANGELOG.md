@@ -11,28 +11,22 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Added
 
-- Projeto em TypeScript rodando no Bun, com checagem de tipos e testes que exigem pelo menos
+- Projeto em TypeScript rodando no Bun, com verificação de tipos e testes que exigem pelo menos
   80% de cobertura.
 - Verificação automática (CI) que roda os testes em Linux, Windows e macOS a cada envio de
   código, sempre com a mesma versão do Bun.
-- Biblioteca compartilhada para ler e validar páginas da wiki, que funciona igual nos três
-  sistemas: aceita arquivos com fim de linha do Windows e com marca de ordem de bytes (BOM), e
-  reconhece a pasta `raw` também em caminhos escritos no estilo do Windows.
+- Biblioteca compartilhada para ler e validar páginas da wiki, que funciona igual em Windows,
+  macOS e Linux, inclusive para arquivos salvos no Windows e para caminhos escritos no estilo
+  do Windows.
 - Comando `anvilore checar-release <versao>`: impede a release se a seção da versão no
-  `CHANGELOG.md` estiver ausente ou vazia, ou se houver página da knowledge base escrita por
-  agente que nenhuma pessoa revisou. No CI, roda só quando uma tag de versão é criada.
-
-### Changed
-
-- Nada ainda.
-
-### Fixed
-
-- Nada ainda.
+  `CHANGELOG.md` estiver ausente ou sem nenhum item entregue, ou se alguma página de
+  `docs/knowledge_base/` não tiver a data em que uma pessoa a revisou (`verified`). No CI, roda
+  só quando uma tag de versão é criada.
 
 ### Não resolvido nesta versão
 
-- O Anvilore **não protege contra vazamento de documentos internos**. Ele organiza e protege os
-  arquivos originais contra alteração, mas não impede que o conteúdo de uma wiki seja copiado,
-  enviado a um serviço externo ou lido por quem não deveria. Não use o Anvilore, nesta versão,
-  como garantia de sigilo.
+- O Anvilore **não protege contra vazamento de documentos internos**. Ele impede que o agente
+  altere os arquivos originais em `raw/` pelas ferramentas de edição; escrita feita por comando
+  de terminal ainda não é barrada. Nada impede que o conteúdo de uma wiki seja copiado, enviado
+  a um serviço externo ou lido por quem não deveria. Não use o Anvilore, nesta versão, como
+  garantia de sigilo.

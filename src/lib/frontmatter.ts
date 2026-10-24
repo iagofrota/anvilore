@@ -14,7 +14,7 @@ export class FrontmatterInvalido extends Error {
 const DELIMITADOR = "---";
 
 // Tira o BOM UTF-8 inicial (readFileSync "utf8" o mantém) e normaliza CRLF.
-function linhasDe(conteudo: string): string[] {
+export function linhasDe(conteudo: string): string[] {
   const semBom = conteudo.startsWith("\uFEFF") ? conteudo.slice(1) : conteudo;
   return normalizarFimDeLinha(semBom).split("\n");
 }
