@@ -11,7 +11,7 @@ const raiz = resolve(import.meta.dir, "..");
 let tmp: string, destino: string, lar: string;
 let consoleCapturado: ReturnType<typeof capturarConsole>;
 const ambiente = { ...process.env };
-const comandoRelativo = "bun ./src/cli.ts hook proteger-raw";
+const comandoRelativo = "bun ./src/cli.ts hook proteger-raw || exit 2";
 const pathOriginal = valorDoPath(ambiente);
 const real = (caminho: string) => realpathSync.native(caminho);
 const comBarras = (texto: string) => texto.replaceAll("\\", "/");
@@ -335,7 +335,7 @@ test("Dado ajuda do instalador Quando consulto Então mostra destinos por agente
 test("Dado configuração Claude Quando instalo Então aponta para o hook único", async () => {
   await rodar();
   const config = JSON.parse(readFileSync(join(destino, ".claude/settings.json"), "utf8"));
-  expect(config.hooks.PreToolUse[0].hooks[0].command).toBe('bun "$CLAUDE_PROJECT_DIR"/src/cli.ts hook proteger-raw');
+  expect(config.hooks.PreToolUse[0].hooks[0].command).toBe('bun "$CLAUDE_PROJECT_DIR"/src/cli.ts hook proteger-raw || exit 2');
   expect(config.hooks.PreToolUse[0].matcher).toBe("Write|Edit|NotebookEdit|Bash");
 });
 
@@ -501,7 +501,7 @@ for (const alvo of ["claude", "gemini", "copilot"] as const) {
     const config = lerConfig(antigas[alvo]);
     const lista = alvo === "claude" ? config.hooks.PreToolUse : alvo === "gemini" ? config.hooks.BeforeTool : config.hooks.preToolUse;
     expect(lista).toHaveLength(1);
-    expect(texto.split("src/cli.ts hook proteger-raw\"").length - 1).toBe(1);
+    expect(texto.split("|| exit 2").length - 1).toBe(1);
     const antes = captura(destino);
     expect((await rodar([alvo])).veredito).toBe("INALTERADO");
     expect(captura(destino)).toEqual(antes);
@@ -548,5 +548,13 @@ test("Dado destino sem o comando do hook Quando instalo Então recusa dizendo qu
 test("Dado a forma versionada do Claude Quando leio hooks.json Então usa o subcomando e inclui o terminal no matcher", () => {
   const forma = JSON.parse(readFileSync(join(raiz, "hooks/hooks.json"), "utf8"));
   expect(forma.hooks.PreToolUse[0].matcher).toBe("Write|Edit|NotebookEdit|Bash");
-  expect(forma.hooks.PreToolUse[0].hooks[0].command).toBe('bun "$CLAUDE_PROJECT_DIR"/src/cli.ts hook proteger-raw');
+  expect(forma.hooks.PreToolUse[0].hooks[0].command).toBe('bun "$CLAUDE_PROJECT_DIR"/src/cli.ts hook proteger-raw || exit 2');
+});
+
+(process.platform === "win32" ? test.skip : test)("Dado o runtime ausente Quando o comando instalado falha Então o wrapper converte em saída 2 (fecha em vez de abrir)", () => {
+  const forma = JSON.parse(readFileSync(join(raiz, "hooks/hooks.json"), "utf8"));
+  const comando: string = forma.hooks.PreToolUse[0].hooks[0].command;
+  expect(comando.endsWith("|| exit 2")).toBe(true);
+  const r = Bun.spawnSync(["/bin/sh", "-c", comando.replace(/^bun /, "programa-que-nao-existe ")], { env: { ...process.env, CLAUDE_PROJECT_DIR: raiz }, stdout: "pipe", stderr: "pipe" });
+  expect(r.exitCode).toBe(2);
 });

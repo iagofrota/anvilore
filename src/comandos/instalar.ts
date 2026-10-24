@@ -97,7 +97,8 @@ export async function ligarArquivo(origem: string, link: string): Promise<Estado
   return ligarPublicamente(origem, link, false);
 }
 
-const COMANDO_HOOK = "bun ./src/cli.ts hook proteger-raw";
+// `|| exit 2`: se o Bun faltar ou o comando quebrar, o agente recebe bloqueio em vez de seguir sem proteção.
+const COMANDO_HOOK = "bun ./src/cli.ts hook proteger-raw || exit 2";
 const HOOK_ANTIGO = "hooks/proteger-raw.sh";
 
 // A decisão mora em `anvilore hook proteger-raw`; estas formas só apontam para lá.

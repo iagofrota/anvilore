@@ -12,12 +12,14 @@ const LEITORES = new Set(["read", "read_file", "view", "read_notebook", "list_di
 const MUDAM_DIRETORIO = new Set(["cd", "chdir", "pushd", "set-location", "sl"]);
 const LEITURAS_TERMINAL = new Set([
   "cat", "rg", "grep", "ls", "head", "tail", "wc", "echo", "printf", "pwd", "stat", "file", "diff", "less", "more",
-  "sort", "uniq", "cut", "tree", "du", "sha256sum", "md5sum", "shasum", "basename", "dirname", "realpath", "readlink",
-  "nl", "tac", "od", "xxd", "strings", "test", "[", "true", "false",
+  "cut", "du", "sha256sum", "md5sum", "shasum", "basename", "dirname", "realpath", "readlink",
+  "nl", "tac", "od", "strings", "test", "[", "true", "false",
   "get-content", "gc", "type", "dir", "get-childitem", "gci", "select-string", "sls", "get-item", "gi", "get-filehash",
 ]);
 const GIT_ESCREVE = new Set(["rm", "mv", "checkout", "restore", "clean", "apply"]);
 const FIND_ESCREVE = /^-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/;
+// Comando w/W/e de sed no começo, depois de ; ou { e com endereço opcional, ou flag w de s///.
+const SED_ESCREVE = /(?:^|[;{}\n])\s*(?:[0-9$]+(?:,[0-9$]+)?|\/[^/]*\/)?\s*[wWe]\s+\S|\/[gpiImMx0-9]*w\s*\S/;
 const MENSAGEM = "Bloqueado: `raw/` é imutável para o agente. A camada de fontes é da pessoa que cura — acrescente o arquivo à mão e peça uma ingestão.";
 
 function mapa(valor: unknown): valor is Mapa {
@@ -106,14 +108,21 @@ function segmentoEscreve(palavras: string[], cwd: string): boolean {
   if (inicio < 0) return false;
   const comando = palavras.slice(inicio);
   const args = comando.slice(1);
-  if (!args.some(palavra => escreveEmRaw(palavra, cwd) || citaRaw(palavra))) return false;
   const verbo = comando[0]!.split(/[\\/]/).pop()!.toLowerCase().replace(/\.exe$/, "");
   if (verbo === "cp") {
-    const alvos = args.flatMap((arg, i) => args[i - 1] === "-t" || args[i - 1] === "--target-directory" ? [arg]
-      : arg.startsWith("--target-directory=") ? [arg.slice(19)] : []);
-    return [...alvos, args.at(-1) ?? ""].some(alvo => escreveEmRaw(alvo, cwd));
+    const alvos = args.flatMap((arg, i) => {
+      if (arg.startsWith("--target-directory=")) return [arg.slice(19)];
+      if (arg === "--target-directory" || /^-[a-zA-Z]*t$/.test(arg)) return [args[i + 1] ?? ""];
+      const agrupado = /^-[a-zA-Z]*?t(.+)$/.exec(arg);
+      return agrupado ? [agrupado[1]!] : [];
+    });
+    return (alvos.length ? alvos : [args.at(-1) ?? ""]).some(alvo => escreveEmRaw(alvo, cwd));
   }
-  if (verbo === "sed" || verbo === "perl") return args.some(arg => /^--in-place(?:=|$)/.test(arg) || /^-[a-z]*i/.test(arg));
+  if (!args.some(palavra => escreveEmRaw(palavra, cwd) || citaRaw(palavra))) return false;
+  if (verbo === "rg") return args.some(arg => arg === "--pre" || arg.startsWith("--pre="));
+  // Interpretadores com script próprio escrevem onde quiserem: citando raw/, só passa sed sem -i e sem comando w/e.
+  if (verbo === "perl") return true;
+  if (verbo === "sed") return args.some(arg => /^--in-place(?:=|$)/.test(arg) || /^-[a-z]*i/.test(arg) || SED_ESCREVE.test(arg));
   if (verbo === "git") return GIT_ESCREVE.has(subcomandoGit(args) ?? "");
   if (verbo === "find") return args.some(arg => FIND_ESCREVE.test(arg));
   return !LEITURAS_TERMINAL.has(verbo);

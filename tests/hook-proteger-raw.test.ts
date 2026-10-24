@@ -99,7 +99,7 @@ for (const [verbo, comando] of escritas) {
     expect(decidir(terminal(comando.replaceAll("raw/", "wiki/"))).acao).toBe("liberar");
   });
 }
-for (const comando of ["cat raw/a.md", "rg palavra raw/", "ls raw/", "head raw/a.md", "wc -l raw/a.md", "git log -- raw/a.md", "cp raw/a.md wiki/copia.md", "sed 's/a/b/' raw/a.md", "perl -pe 's/a/b/' raw/a.md"]) {
+for (const comando of ["cat raw/a.md", "rg palavra raw/", "ls raw/", "head raw/a.md", "wc -l raw/a.md", "git log -- raw/a.md", "cp raw/a.md wiki/copia.md", "sed 's/a/b/' raw/a.md"]) {
   test(`Dado leitura ${comando} Quando decido Então libera`, () => {
     expect(decidir(terminal(comando)).acao).toBe("liberar");
   });
@@ -227,3 +227,14 @@ test("Dado o comando hook em processo Quando a entrada bloqueia libera ou não p
   expect(consoleCapturado.erros.join("\n")).toContain("falha fechada");
   expect(await comandoHook(["outro"])).toBe(2);
 });
+
+for (const comando of ["sort -o raw/a.md wiki/b.md", "uniq wiki/a.md raw/b.md", "tree -o raw/a.txt wiki", "xxd wiki/a.bin raw/a.hex", "rg --pre ./apaga.sh palavra raw/", "perl -e 'unlink q(raw/a)' raw/", "perl script.pl raw/a.md", "perl -pe 's/a/b/' raw/a.md", "sed -n 'w raw/saida' wiki/a.md", "sed 's/a/b/w raw/saida' wiki/a.md", "sed -n '/x/w raw/o' wiki/a.md", "sed -e '1e rm raw/a' wiki/a.md", "cp -rt raw/ wiki/a.md", "cp -t raw/ wiki/a.md", "cp -traw/ wiki/a.md", "cp -rtraw/ wiki/a.md"]) {
+  test(`Dado verbo com opção de saída ou execução ${comando} Quando cita raw Então bloqueia`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  });
+}
+for (const comando of ["sed -n 's/novo/velho/p' raw/a.md", "sed -n '1,3p' raw/a.md", "rg palavra raw/", "cp -r raw/a.md wiki/copia.md", "cp -rt wiki/ raw/a.md"]) {
+  test(`Dado leitura com sed rg ou cp ${comando} Quando decido Então libera`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("liberar");
+  });
+}

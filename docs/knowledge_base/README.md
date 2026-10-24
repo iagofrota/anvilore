@@ -25,7 +25,8 @@ Peças que existem hoje no repositório:
   e `skills/lint/SKILL.md`.
 - Validador da wiki (`anvilore validar`), em TypeScript: `src/comandos/validar.ts`, `src/lib/okf.ts` e
   `src/lib/perfil.ts`. Os scripts de manutenção, ainda em bash e Python: `scripts/`.
-- Proteção de `raw/` como hook: `hooks/proteger-raw.sh`.
+- Proteção de `raw/` como hook, em TypeScript: `anvilore hook proteger-raw`, em
+  `src/comandos/hook-proteger-raw.ts`, chamado pelas formas de `hooks/`.
 - Instalador para Claude Code, Codex, Gemini e Copilot: `anvilore instalar`, em
   `src/comandos/instalar.ts`, com fusão em `src/lib/fundir-json.ts` e `src/lib/fundir-bloco.ts`.
 - O porte para TypeScript no Bun, em andamento: `src/cli.ts` (tabela de subcomandos), a biblioteca

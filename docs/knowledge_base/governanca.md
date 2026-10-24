@@ -16,7 +16,7 @@ fica para depois (veja a última seção).
 
 | Trava | O que faz | Onde |
 |---|---|---|
-| Hook `proteger-raw` | Bloqueia (saída 2) a escrita em `raw/` feita pelas ferramentas de edição de arquivo. Sem caminho isolável no payload, bloqueia se o texto citar `raw/`. | `hooks/proteger-raw.sh`, linhas 27 a 32 e 115 a 127; `hooks/hooks.json`, linha 6 |
+| Hook `proteger-raw` | Bloqueia (saída 2) a escrita em `raw/` feita pelas ferramentas de edição de arquivo e por comando de terminal (limites na seção abaixo). Sem caminho isolável no payload, bloqueia se o texto citar `raw/`; JSON ilegível bloqueia sempre. | `src/comandos/hook-proteger-raw.ts`, linhas 177 a 198; `hooks/hooks.json`, linha 6 |
 | Validador da wiki (`anvilore validar`) | Reprova página sem frontmatter ou com frontmatter que não lê (YAML inválido nunca é pulado), com `type` inválido, com `slug` diferente do nome do arquivo (comparado em Unicode NFC), com `area` em conflito com o diretório, dois arquivos da mesma pasta que só diferem na caixa, wikilink que não resolve, página fora do index.md aplicável e campo de proveniência malformado. Reprova wiki inexistente e diretório sem nenhum arquivo `.md`; uma wiki só com index.md e log.md passa. Sem o Bun o comando não roda, e nunca imprime PASS. | `src/comandos/validar.ts`, linhas 100 a 244 |
 | Portão humano, depois da escrita | Reprova a página com `generated` em mapping e sem uma entrada `verified` com `by: human:<id>` e `at` igual ou posterior a `generated.at`. A mensagem é "página gerada sem aprovação humana". | `src/lib/okf.ts`, linhas 148 a 194 |
 | Perfil da empresa | Um anvilore.toml na raiz do projeto restringe áreas, tipos de página e campos obrigatórios; reprova nomeando arquivo e valor. Arquivo ilegível, chave desconhecida ou valor que não é lista de textos também reprova. | `src/lib/perfil.ts`, linhas 28 a 54; `src/comandos/validar.ts`, linhas 189 a 191 e 204 a 212 |
@@ -26,8 +26,9 @@ fica para depois (veja a última seção).
 | Trava de release | Reprova versão sem seção no CHANGELOG, seção vazia, pasta desta KB ausente ou sem página, ou página sem `verified`. | `src/comandos/checar-release.ts` |
 | CI (configurado, ainda não executado) | Está configurado para rodar `bun run checar` e `checar-docs` em Linux, Windows e macOS a cada push e pull request, e `checar-release` em tag. A primeira execução ainda não aconteceu: a confirmar. | `.github/workflows/ci.yml` |
 
-O `hooks/proteger-raw.sh` falha fechado: se não consegue ler o caminho no payload, a decisão passa
-a ser sobre o texto inteiro, e "não achei caminho" nunca vira "pode passar" (linhas 115 a 127). O
+O hook falha fechado: se não consegue ler o caminho no payload, a decisão passa
+a ser sobre o texto inteiro, e "não achei caminho" nunca vira "pode passar"
+(`src/comandos/hook-proteger-raw.ts`, linhas 192 a 194). O
 validador também não imprime PASS quando o diretório não existe (`src/comandos/validar.ts`, linhas
 104 a 107) nem quando um arquivo, o anvilore.toml ou o YAML do frontmatter não lê: cada um vira um
 erro que nomeia o arquivo.
@@ -37,23 +38,39 @@ erro que nomeia o arquivo.
 Cada item abaixo foi conferido no código. Onde a conferência foi uma busca que não achou nada, isso
 está dito.
 
-### 1. O hook cobre só as ferramentas de edição
+### 1. O hook cobre o terminal só pelo texto do comando
 
-- O Claude Code liga o hook só para `Write|Edit|NotebookEdit` (`hooks/hooks.json`, linha 6). Escrita
-  feita por **comando de terminal** não passa pelo hook e não é barrada.
-- Os outros agentes seguem o mesmo desenho: o Codex usa o matcher `apply_patch|Edit|Write` e o
-  Gemini usa `write_file|replace` (`hooks/README.md`, tabela "As formas por agente";
-  `src/comandos/instalar.ts`, função `configuracaoDoHook`). Nenhum matcher cita ferramenta de terminal.
-- O evento do Copilot não tem `matcher` e roda em toda chamada de ferramenta (`hooks/README.md`,
-  trecho "Este evento não tem `matcher`"; `src/comandos/instalar.ts`, função `configuracaoDoHook`). Pelo código, um comando de
-  terminal que chegue ao hook cairia na checagem do texto inteiro (`hooks/proteger-raw.sh`, linhas
-  124 a 126). Isso é leitura do código: o Copilot nunca foi executado (`hooks/README.md`, final).
-- A comparação de caminho do hook é sensível à caixa (`hooks/proteger-raw.sh`, linha 29), e o
-  próprio script declara que o alvo é Linux (linha 19).
-- Três textos dizem "recusa qualquer escrita em `raw/`": o `README.md` (seção "Os quatro níveis"),
-  o cabeçalho de `hooks/proteger-raw.sh` (linha 2) e a descrição em `hooks/hooks.json` (linha 5).
-  Leia como "qualquer escrita por ferramenta de edição". O `CHANGELOG.md` (seção "Não resolvido
-  nesta versão") já diz o alcance certo.
+- O hook é o subcomando `anvilore hook proteger-raw` (`src/comandos/hook-proteger-raw.ts`). O Claude
+  Code o liga para `Write|Edit|NotebookEdit|Bash` (`hooks/hooks.json`, linha 6); o Codex usa
+  `apply_patch|Edit|Write|Bash` e o Gemini `write_file|replace|run_shell_command`
+  (`src/comandos/instalar.ts`, função `configuracaoDoHook`, linha 105). O evento do Copilot não tem
+  `matcher` e roda em toda chamada de ferramenta. A forma instalada termina em `|| exit 2`
+  (`src/comandos/instalar.ts`, linha 101): se o Bun faltar, o agente recebe bloqueio em vez de seguir
+  sem proteção.
+- Para o terminal, o hook lê o comando (`src/comandos/hook-proteger-raw.ts`, `segmentoEscreve` e
+  `terminalEscreve`, linhas 106 a 164). Bloqueia redirecionamento `>`/`>>`, `tee`, `mv`, `cp` com
+  destino em `raw/`, `rm`, `rmdir`, `sed -i` (e `sed` com comando `w`/`e`), `perl` com qualquer
+  script, `truncate`, `touch`, `ln`, `chmod`, `find -delete`/`-exec`, `git mv`/`rm`/`checkout`/
+  `restore`/`clean`/`apply` e os equivalentes de PowerShell. Leitura (`cat`, `rg`, `ls`, `head`,
+  `wc`, `git log`, `Get-Content`) passa. Verbo desconhecido que cita `raw/` é bloqueado. `cd raw`
+  torna relativos os caminhos seguintes.
+- **Custo:** falso positivo em comando complexo ou de verbo desconhecido que cite `raw/` (por exemplo
+  `python ler.py raw/a.md`). O dono escolheu esse lado de propósito.
+- **Limites, não tratados:** o hook não executa nem expande shell. Variável (`d=raw; rm $d/a`), glob
+  que monte o nome (`rm r*/a`), subshell, script externo (`bash limpa.sh`), `sed -e` com script
+  montado por pedaços, `git -c alias...` e `git reset`/`stash`/`merge` sem citar `raw/` passam. Comando
+  ilegível (aspas abertas, `$(...)`, crase) bloqueia só se citar `raw/`; bloquear todos tornaria o
+  terminal inutilizável. O hook cobre o erro do agente, não um agente hostil; garantia contra isso
+  exige permissão de sistema de arquivos.
+- Pelo código (`src/comandos/hook-proteger-raw.ts`, linhas 186 a 194), ferramentas de leitura passam
+  mesmo apontando para `raw/`, e payload sem caminho isolável bloqueia se citar `raw/`. Só a forma do
+  Claude Code foi exercitada de ponta a ponta com agente real; terminal em Codex, Gemini e Copilot
+  segue a documentação de cada um e nunca foi executado (`hooks/README.md`, final).
+- A comparação de caminho ignora a caixa (`estaEmRaw`, `src/lib/caminhos.ts`): Raw/a.md é bloqueado,
+  e no Linux uma pasta legítima chamada `Raw` também seria.
+- Três textos dizem "recusa qualquer escrita em `raw/`": o `README.md` (seção "Os quatro níveis"), a
+  descrição em `hooks/hooks.json` (linha 5) e este arquivo. Leia como "escrita por ferramenta de edição
+  ou por comando de terminal que o hook consiga ler", nos limites acima.
 
 ### 2. O portão humano só vale para a página que declara `generated`
 

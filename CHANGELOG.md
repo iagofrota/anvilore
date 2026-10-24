@@ -11,6 +11,12 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Added
 
+- Comando `anvilore hook proteger-raw`: o hook que recusa escrita em `raw/` agora é TypeScript no Bun,
+  no lugar de `hooks/proteger-raw.sh` (sem `jq` nem Python). Mantém os códigos 0 e 2, a mensagem de
+  bloqueio e o rastro `ANVILORE_LOG_HOOK`. Passa a avaliar também o comando de terminal de cada agente
+  (`>`/`>>`, `tee`, `mv`, `cp`, `rm`, `sed -i`, `touch`, `git mv`/`rm`…), bloqueia `C:\\p\\raw\\a.md` e payload
+  ilegível, e libera leitura. A reinstalação troca a entrada do hook antigo pela nova em Claude,
+  Gemini e Copilot. O CI imprime a latência do hook (mediana e p95) em cada sistema.
 - Comando `anvilore instalar`: configura Claude Code, Codex, Gemini e Copilot usando Bun.
   Preserva preferências, recusa conflitos, simula sem escrever e não altera arquivos ao repetir.
   As skills continuam ligadas à fonte; no Windows, diretórios usam junções. Falhas de ligação

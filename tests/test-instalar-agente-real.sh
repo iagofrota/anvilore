@@ -54,7 +54,7 @@
 #     instalador exige `AGENTS.md` para reconhecer um clone — e porque a sonda
 #     de leitura de skill, que vem antes, nao tem nada com isso.)
 #
-#     ASSENTAR A ASERCAO NO RASTRO — `hooks/proteger-raw.sh` registra cada
+#     ASSENTAR A ASERCAO NO RASTRO — `anvilore hook proteger-raw` registra cada
 #     invocacao em `ANVILORE_LOG_HOOK` quando essa variavel aponta para um
 #     arquivo. A asercao passa a ser sobre o que o hook FEZ, nao sobre a
 #     ausencia de um arquivo no disco. Ausencia e compativel com o hook nunca
@@ -105,9 +105,9 @@ CONFIG="$ALVO/.claude/settings.json"
 # mede; so decora.
 SONDA="$TMP/sonda.log"
 printf '{"tool_name":"Write","tool_input":{"file_path":"raw/sonda.md"}}' \
-  | ANVILORE_LOG_HOOK="$SONDA" bash "$ALVO/hooks/proteger-raw.sh" >/dev/null 2>&1
+  | ANVILORE_LOG_HOOK="$SONDA" bun "$ALVO/src/cli.ts" hook proteger-raw >/dev/null 2>&1
 printf '{"tool_name":"Write","tool_input":{"file_path":"wiki/sonda.md"}}' \
-  | ANVILORE_LOG_HOOK="$SONDA" bash "$ALVO/hooks/proteger-raw.sh" >/dev/null 2>&1
+  | ANVILORE_LOG_HOOK="$SONDA" bun "$ALVO/src/cli.ts" hook proteger-raw >/dev/null 2>&1
 if grep -qE 'BLOQUEADO.*raw/sonda\.md' "$SONDA" 2>/dev/null \
    && grep -qE 'PASSOU.*wiki/sonda\.md' "$SONDA" 2>/dev/null; then
   ok "D5 (instrumento): o rastro do hook registra os dois veredictos e os distingue"
@@ -119,7 +119,7 @@ fi
 # tamanho do arquivo de sonda, nao afirmado em prosa.
 antes_sonda="$(wc -c < "$SONDA")"
 printf '{"tool_name":"Write","tool_input":{"file_path":"raw/sonda.md"}}' \
-  | bash "$ALVO/hooks/proteger-raw.sh" >/dev/null 2>&1
+  | bun "$ALVO/src/cli.ts" hook proteger-raw >/dev/null 2>&1
 depois_sonda="$(wc -c < "$SONDA")"
 [ "$antes_sonda" = "$depois_sonda" ] \
   && ok "D5 (instrumento): sem ANVILORE_LOG_HOOK o hook nao escreve rastro" \

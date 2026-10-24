@@ -12,9 +12,9 @@ descreve um recurso futuro.
 
 `raw/` é escrito só pela pessoa. `wiki/` é escrito só pelo agente. O
 `AGENTS.md` declara isso numa tabela de três linhas, e `hooks/` transforma a
-declaração em recusa: `hooks/proteger-raw.sh` lê o payload que o agente
-entrega antes de executar uma ferramenta de escrita e sai com código `2`
-quando o caminho alvo está dentro de `raw/`.
+declaração em recusa: `anvilore hook proteger-raw` lê o payload que o agente
+entrega antes de executar uma ferramenta de escrita (ou um comando de
+terminal) e sai com código `2` quando o alvo está dentro de `raw/`.
 
 **Por quê:** `raw/` é a evidência, e a evidência não pode ser editável por
 quem a interpreta. Um agente que pode reescrever a fonte pode, com a melhor
@@ -113,8 +113,8 @@ O método não pertence a nenhuma CLI. `anvilore instalar` configura quatro
 provedores — Claude Code, Codex, Gemini e Copilot — a partir de **uma fonte
 só**: as skills são instaladas por link simbólico para `skills/<nome>` (ou,
 no caso do Gemini, por um comando que aponta para o mesmo `SKILL.md`), e cada
-forma de configuração de hook referencia `hooks/proteger-raw.sh` **por
-caminho**, sem reimplementar a decisão. O texto de instruções da skill de
+forma de configuração de hook chama `anvilore hook proteger-raw`, **um
+subcomando só**, sem reimplementar a decisão. O texto de instruções da skill de
 lint não cita provedor nenhum, e `tests/test-porte-onda-3.sh` cobra isso —
 com uma isca plantada, para provar que a varredura pega o que procura.
 

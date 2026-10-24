@@ -18,7 +18,7 @@ repositório**:
 | `skills/ingest`, `skills/query`, `skills/lint` | ingerir uma fonte; responder citando página; varrer a wiki atrás de problemas estruturais |
 | `src/` | o comando `anvilore` em TypeScript, que roda no [Bun](https://bun.sh); traz o validador (`validar`) e o instalador (`instalar`) |
 | `scripts/` | os scripts de manutenção (índice, log, lacunas, áreas) |
-| `hooks/` | a regra "`raw/` é imutável" na forma de hook, com a decisão num script só (`hooks/proteger-raw.sh`) |
+| `hooks/` | a regra "`raw/` é imutável" na forma de hook; a decisão mora num subcomando só (`anvilore hook proteger-raw`, em `src/comandos/hook-proteger-raw.ts`) |
 | `anvilore instalar` | configura um clone para o agente que você usa: Claude Code, Codex, Gemini ou Copilot |
 | `tests/` | os testes que provam os scripts, o hook e o instalador |
 | `docs/knowledge_base/` | a documentação do próprio Anvilore, escrita para agentes que desenvolvem o projeto ou respondem dúvidas sobre ele |
@@ -118,8 +118,8 @@ válida e continua validando.
 
 A governança do nível 03 está no repositório: `skills/lint` varre a wiki e
 separa o que dá para corrigir sem julgamento do que precisa de quem cura;
-`hooks/proteger-raw.sh` recusa qualquer escrita dentro de `raw/`, na forma
-de configuração de cada agente; e `tests/` prova os scripts, o hook e o
+`anvilore hook proteger-raw` recusa escrita dentro de `raw/` (por ferramenta
+de edição e por comando de terminal), na forma de configuração de cada agente; e `tests/` prova os scripts, o hook e o
 instalador.
 
 O nível 04 (índice de busca dedicado, backup, automação de manutenção) não
