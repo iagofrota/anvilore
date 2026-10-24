@@ -40,11 +40,16 @@ function ausente(erro: unknown): boolean {
   return (erro as NodeJS.ErrnoException).code === "ENOENT";
 }
 
+// O Windows não aceita estes nomes de arquivo, com ou sem extensão (`nul.txt`).
+const RESERVADOS_DO_WINDOWS = /^(con|prn|aux|nul|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3])$/i;
+
 function validarNome(nome: string): void {
   if (nome.trim() === "") throw new Error("nome de área vazio");
-  // Nada de separador, unidade (`C:`) ou `..`; ponto e espaço no fim o Windows descarta.
-  if (/[\\/:]/.test(nome) || nome.includes("..") || nome === "." || /[. ]$/.test(nome)) {
-    throw new Error(`nome de área inválido: '${nome}' (sem '/', '\\', ':', '..', nem ponto ou espaço no fim)`);
+  // Nada de separador, unidade (`C:`), `..`, caractere proibido no Windows ou de controle; ponto e
+  // espaço no fim o Windows descarta, e nome começando com ponto é oculto (`.obsidian` é do Obsidian).
+  const base = nome.split(".")[0]!.trimEnd();
+  if (/[\\/:<>"|?*\u0000-\u001f]/.test(nome) || nome.includes("..") || nome.startsWith(".") || /[. ]$/.test(nome) || RESERVADOS_DO_WINDOWS.test(base)) {
+    throw new Error(`nome de área inválido: '${nome}' (sem '/', '\\', ':', '..', '<>"|?*', controle, ponto no início ou no fim, espaço no fim, nem nomes do Windows como nul e con)`);
   }
   if (nomeReservado(chaveDeNome(nome))) throw new Error(`nome de área reservado: '${nome}'`);
   if (diretorioDeTipo(chaveDeNome(nome))) throw new Error(`'${nome}' é nome de diretório de tipo, não de área`);
@@ -60,6 +65,37 @@ function unicas(areas: string[]): string[] {
     porChave.set(chaveDeNome(nome), nome);
   }
   return [...porChave.values()];
+}
+
+export async function conferirRaiz(raiz: string): Promise<void> {
+  let info;
+  try {
+    info = await stat(raiz);
+  } catch (erro) {
+    if (ausente(erro)) throw new Error(`raiz inexistente: ${raiz}`);
+    throw erro;
+  }
+  if (!info.isDirectory()) throw new Error(`raiz não é um diretório: ${raiz}`);
+}
+
+// `wiki/` ausente é normal (nasce com a primeira área); link quebrado ou arquivo no lugar dele não é.
+async function conferirWiki(wiki: string): Promise<void> {
+  let info;
+  try {
+    info = await lstat(wiki);
+  } catch (erro) {
+    if (ausente(erro)) return;
+    throw erro;
+  }
+  if (info.isSymbolicLink()) {
+    try {
+      info = await stat(wiki);
+    } catch (erro) {
+      if (ausente(erro)) throw new Error(`wiki é um link simbólico quebrado: ${wiki}`);
+      throw erro;
+    }
+  }
+  if (!info.isDirectory()) throw new Error(`wiki existe e não é um diretório: ${wiki}`);
 }
 
 async function conferirConflitosNoDisco(wiki: string, areas: string[]): Promise<void> {
@@ -97,13 +133,15 @@ async function estadoDaArea(caminho: string): Promise<"ausente" | "diretorio" | 
   return "diretorio";
 }
 
-async function criarTipo(area: string, caminho: string): Promise<boolean> {
+async function criarTipo(area: string, tipo: string, caminho: string): Promise<boolean> {
   try {
     if ((await stat(caminho)).isDirectory()) return false;
-    throw new Error(`wiki/${area}/${caminho.split(/[\\/]/).pop()} existe e não é um diretório`);
+    throw new Error(`wiki/${area}/${tipo} existe e não é um diretório`);
   } catch (erro) {
     if (!ausente(erro)) throw erro;
   }
+  // `stat` não achou: se o caminho existe mesmo assim, é um link que não leva a lugar nenhum.
+  if (await lstat(caminho).then(() => true, () => false)) throw new Error(`wiki/${area}/${tipo} é um link simbólico quebrado`);
   await mkdir(caminho, { recursive: true });
   return true;
 }
@@ -112,7 +150,9 @@ export async function inicializar({ raiz, areas }: OpcoesInit): Promise<Resultad
   if (areas.length === 0) throw new Error("nenhuma área escolhida");
   for (const nome of areas) validarNome(nome);
   const nomes = unicas(areas);
+  await conferirRaiz(raiz);
   const wiki = join(raiz, "wiki");
+  await conferirWiki(wiki);
   await conferirConflitosNoDisco(wiki, nomes);
 
   const resultado: ResultadoInit = { criadas: [], jaExistiam: [], avisos: [] };
@@ -123,7 +163,7 @@ export async function inicializar({ raiz, areas }: OpcoesInit): Promise<Resultad
       continue;
     }
     let criou = false;
-    for (const tipo of TIPOS) criou = (await criarTipo(area, join(caminho, tipo))) || criou;
+    for (const tipo of TIPOS) criou = (await criarTipo(area, tipo, join(caminho, tipo))) || criou;
     (criou ? resultado.criadas : resultado.jaExistiam).push(area);
   }
   return resultado;
@@ -173,6 +213,14 @@ function contar(n: number): string {
   return `${n} ${n === 1 ? "área criada" : "áreas criadas"}`;
 }
 
+function raizPadrao(): string {
+  try {
+    return process.cwd();
+  } catch (erro) {
+    throw new Error(`diretório atual inacessível: ${motivo(erro)}`);
+  }
+}
+
 function proximoPasso(raiz: string): string {
   if (existsSync(join(raiz, "raw", "exemplo", "llm-wiki.md"))) {
     return "Próximo passo: peça ao seu agente para seguir skills/ingest/SKILL.md e ingerir raw/exemplo/llm-wiki.md.";
@@ -200,7 +248,6 @@ export async function comandoInit(args: string[], ambiente: AmbienteInit = {}): 
     return 2;
   }
 
-  const raiz = ambiente.raiz ?? process.cwd();
   const interativo = ambiente.interativo ?? Boolean(process.stdin.isTTY);
   if (areasPedidas === undefined && !interativo) {
     console.error("Sem terminal para perguntar as áreas: informe --areas a,b,c.");
@@ -209,15 +256,20 @@ export async function comandoInit(args: string[], ambiente: AmbienteInit = {}): 
   }
 
   try {
+    const raiz = ambiente.raiz ?? raizPadrao();
+    await conferirRaiz(raiz);
     const areas = areasPedidas !== undefined
       ? areasPedidas.split(",").map((nome) => nome.trim())
       : await perguntarAreas(ambiente.entrada ?? process.stdin, ambiente.saida ?? process.stdout);
     const { criadas, jaExistiam, avisos } = await inicializar({ raiz, areas });
-    for (const aviso of avisos) console.log(`AVISO: ${aviso}`);
+    for (const aviso of avisos) console.warn(`AVISO: ${aviso}`);
+    if (criadas.length + jaExistiam.length === 0) {
+      console.error("Nenhuma área criada; veja os avisos acima.");
+      return 1;
+    }
     if (jaExistiam.length > 0) console.log(`Já existiam: ${jaExistiam.join(", ")}.`);
-    console.log(criadas.length > 0
-      ? `Pronto: ${contar(criadas.length)} em wiki/ (${criadas.join(", ")}).`
-      : "Pronto: nada novo a criar; as áreas pedidas já existiam.");
+    console.log(criadas.length > 0 ? `Pronto: ${contar(criadas.length)} em wiki/ (${criadas.join(", ")}).` : "Pronto: nada novo a criar.");
+    if (avisos.length > 0) console.warn(`Atenção: ${avisos.length} ${avisos.length === 1 ? "área não criada" : "áreas não criadas"}; veja os avisos acima.`);
     console.log(proximoPasso(raiz));
     return 0;
   } catch (erro) {

@@ -23,7 +23,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - Comando `anvilore init`: o onboarding de áreas. Pergunta no terminal (aceitar as áreas padrão,
   tirar algumas, adicionar outras) ou recebe `--areas a,b,c`, cria `wiki/<área>/{sources,entities,concepts}`
   e termina com a mensagem de sucesso e o próximo passo. Recusa nome reservado, nome com `..`, `/`,
-  `\` ou `:` e nomes que só diferem na caixa; repetir não altera nada. Sem terminal e sem `--areas`,
+  `\` ou `:`, nomes proibidos no Windows (`nul`, `con`, `a<b`), nomes ocultos e nomes que só diferem
+  na caixa; raiz inexistente reprova antes de escrever; repetir não altera nada. Sem terminal e sem `--areas`,
   reprova em vez de esperar.
 - Comando `anvilore instalar`: configura Claude Code, Codex, Gemini e Copilot usando Bun.
   Preserva preferências, recusa conflitos, simula sem escrever e não altera arquivos ao repetir.

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough, Readable } from "node:stream";
 import { AREAS_PADRAO, comandoInit, inicializar } from "../src/comandos/init";
-import { executar } from "../src/cli";
+import { subcomandos } from "../src/cli";
 import { capturarConsole } from "./apoio/console";
 
 let raiz: string;
@@ -93,6 +93,18 @@ describe("inicializar", () => {
     });
   }
 
+  for (const nome of ["nul", "CON", "com1", "Lpt9", "nul.txt", "aux.", "a<b", 'a"b', "a|b", "a?b", "a*b", "a\u0001b", ".obsidian", ".git"]) {
+    test(`Dado o nome ${JSON.stringify(nome)} proibido no Windows ou oculto, Quando inicializar, Então recusa`, async () => {
+      await expect(inicializar({ raiz, areas: [nome] })).rejects.toThrow(/inválido/);
+      expect(existsSync(join(raiz, "wiki"))).toBe(false);
+    });
+  }
+
+  test("Dado nomes que só começam como um reservado do Windows, Quando inicializar, Então aceita", async () => {
+    const r = await inicializar({ raiz, areas: ["console", "comp", "com10", "lpt0", "novo-nul"] });
+    expect(r.criadas).toEqual(["console", "comp", "com10", "lpt0", "novo-nul"]);
+  });
+
   test("Dado nome com ponto ou espaço no fim, Quando inicializar, Então recusa porque o Windows os descarta", async () => {
     await expect(inicializar({ raiz, areas: ["saude."] })).rejects.toThrow(/inválido/);
     await expect(inicializar({ raiz, areas: ["saude "] })).rejects.toThrow(/inválido/);
@@ -138,6 +150,35 @@ describe("inicializar", () => {
     } finally {
       rmSync(alvo, { recursive: true, force: true });
     }
+  });
+
+  test("Dado raiz inexistente, Quando inicializar, Então recusa e não cria nada", async () => {
+    const inexistente = join(raiz, "nao", "existe");
+    await expect(inicializar({ raiz: inexistente, areas: ["pessoal"] })).rejects.toThrow(/raiz inexistente.*existe/);
+    expect(existsSync(join(raiz, "nao"))).toBe(false);
+  });
+
+  test("Dado raiz que é arquivo, Quando inicializar, Então recusa dizendo que não é diretório", async () => {
+    const arquivo = join(raiz, "arquivo");
+    writeFileSync(arquivo, "x");
+    await expect(inicializar({ raiz: arquivo, areas: ["pessoal"] })).rejects.toThrow(/raiz não é um diretório/);
+  });
+
+  test("Dado wiki que é link simbólico quebrado, Quando inicializar, Então recusa com o caminho e não cria nada", async () => {
+    symlinkSync(join(raiz, "nao-existe"), join(raiz, "wiki"), process.platform === "win32" ? "junction" : "dir");
+    await expect(inicializar({ raiz, areas: ["pessoal"] })).rejects.toThrow(/wiki.*link simbólico quebrado/);
+    expect(existsSync(join(raiz, "nao-existe"))).toBe(false);
+  });
+
+  test("Dado wiki que é arquivo, Quando inicializar, Então recusa dizendo que não é diretório", async () => {
+    writeFileSync(join(raiz, "wiki"), "x");
+    await expect(inicializar({ raiz, areas: ["pessoal"] })).rejects.toThrow(/wiki.*não é um diretório/);
+  });
+
+  test("Dado tipo que é link simbólico quebrado dentro da área, Quando inicializar, Então recusa com o caminho", async () => {
+    mkdirSync(join(raiz, "wiki", "pessoal"), { recursive: true });
+    symlinkSync(join(raiz, "nao-existe"), join(raiz, "wiki", "pessoal", "sources"), process.platform === "win32" ? "junction" : "dir");
+    await expect(inicializar({ raiz, areas: ["pessoal"] })).rejects.toThrow(/wiki.pessoal.sources.*link simbólico quebrado/);
   });
 
   test("Dado área que é link simbólico quebrado, Quando inicializar, Então avisa e não cria", async () => {
@@ -196,6 +237,46 @@ describe("comandoInit", () => {
   test("Dado várias áreas criadas, Quando rodar, Então a mensagem usa o plural", async () => {
     await comandoInit(["--areas", "pessoal,saude"], { raiz });
     expect(console_.saida.join("\n")).toContain("Pronto: 2 áreas criadas em wiki/ (pessoal, saude).");
+  });
+
+  test("Dado raiz inexistente, Quando rodar, Então devolve 1 nomeando a raiz e não cria nada", async () => {
+    const inexistente = join(raiz, "nao", "existe");
+    expect(await comandoInit(["--areas", "pessoal"], { raiz: inexistente })).toBe(1);
+    expect(console_.erros.join("\n")).toMatch(/raiz inexistente.*existe/);
+    expect(console_.saida.join("\n")).not.toContain("Pronto");
+    expect(existsSync(join(raiz, "nao"))).toBe(false);
+  });
+
+  test("Dado única área pedida que é link quebrado, Quando rodar, Então avisa em stderr, não diz pronto nem já existiam e devolve 1", async () => {
+    mkdirSync(join(raiz, "wiki"), { recursive: true });
+    symlinkSync(join(raiz, "nao-existe"), join(raiz, "wiki", "saude"), process.platform === "win32" ? "junction" : "dir");
+    expect(await comandoInit(["--areas", "saude"], { raiz })).toBe(1);
+    expect(console_.avisos.join("\n")).toMatch(/AVISO: .*saude.*quebrado/);
+    expect(console_.erros.join("\n")).toContain("Nenhuma área criada");
+    const saida = console_.saida.join("\n");
+    expect(saida).not.toContain("Pronto");
+    expect(saida).not.toContain("Já existiam");
+    expect(saida).not.toContain("Próximo passo");
+  });
+
+  test("Dado uma área boa e uma quebrada, Quando rodar, Então cria a boa, avisa da outra e devolve 0", async () => {
+    mkdirSync(join(raiz, "wiki"), { recursive: true });
+    symlinkSync(join(raiz, "nao-existe"), join(raiz, "wiki", "saude"), process.platform === "win32" ? "junction" : "dir");
+    expect(await comandoInit(["--areas", "pessoal,saude"], { raiz })).toBe(0);
+    expect(console_.avisos.join("\n")).toMatch(/AVISO: .*saude.*quebrado/);
+    expect(console_.avisos.join("\n")).toContain("1 área não criada");
+    expect(console_.saida.join("\n")).toContain("Pronto: 1 área criada em wiki/ (pessoal).");
+  });
+
+  test("Dado área existente e outra quebrada, Quando rodar, Então não diz que tudo já existia", async () => {
+    await comandoInit(["--areas", "pessoal"], { raiz });
+    symlinkSync(join(raiz, "nao-existe"), join(raiz, "wiki", "saude"), process.platform === "win32" ? "junction" : "dir");
+    console_.saida.length = 0;
+    expect(await comandoInit(["--areas", "pessoal,saude"], { raiz })).toBe(0);
+    const saida = console_.saida.join("\n");
+    expect(saida).toContain("Já existiam: pessoal.");
+    expect(saida).not.toContain("as áreas pedidas já existiam");
+    expect(console_.avisos.join("\n")).toContain("1 área não criada");
   });
 
   test("Dado --areas _meta, Quando rodar, Então devolve 1, nomeia o motivo e não imprime sucesso", async () => {
@@ -303,6 +384,28 @@ describe("comandoInit interativo", () => {
     expect(existsSync(join(raiz, "wiki"))).toBe(false);
   });
 
+  test("Dado raiz inexistente e terminal, Quando rodar, Então reprova antes de perguntar", async () => {
+    const { saida, texto } = saidaMudaEcoada();
+    const codigo = await comandoInit([], { raiz: join(raiz, "nao-existe"), interativo: true, entrada: Readable.from([]), saida });
+    expect(codigo).toBe(1);
+    expect(console_.erros.join("\n")).toMatch(/raiz inexistente/);
+    expect(texto()).toBe("");
+  });
+
+  test.skipIf(process.platform === "win32")("Dado diretório atual removido, Quando rodar sem raiz, Então devolve 1 com mensagem e sem stack trace", async () => {
+    const antes = process.cwd();
+    const sumido = mkdtempSync(join(tmpdir(), "anvilore-init-sumido-"));
+    process.chdir(sumido);
+    rmSync(sumido, { recursive: true, force: true });
+    try {
+      expect(await comandoInit(["--areas", "pessoal"])).toBe(1);
+    } finally {
+      process.chdir(antes);
+    }
+    expect(console_.erros.length).toBe(1);
+    expect(console_.erros[0]).not.toContain("\n    at ");
+  });
+
   test("Dado --areas e terminal, Quando rodar, Então não pergunta nada", async () => {
     const { saida, texto } = saidaMudaEcoada();
     const codigo = await comandoInit(["--areas", "saude"], { raiz, interativo: true, entrada: Readable.from([]), saida });
@@ -312,14 +415,29 @@ describe("comandoInit interativo", () => {
 });
 
 describe("cli", () => {
-  test("Dado o subcomando init na tabela, Quando executar com --areas, Então cria as áreas no cwd", async () => {
-    const antes = process.cwd();
-    process.chdir(raiz);
-    try {
-      expect(await executar(["init", "--areas", "pessoal"])).toBe(0);
-    } finally {
-      process.chdir(antes);
-    }
+  const cli = join(import.meta.dir, "..", "src", "cli.ts");
+
+  async function rodar(...args: string[]) {
+    const processo = Bun.spawn([process.execPath, cli, ...args], { cwd: raiz, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    const [saida, erro, codigo] = await Promise.all([new Response(processo.stdout).text(), new Response(processo.stderr).text(), processo.exited]);
+    return { saida, erro, codigo };
+  }
+
+  test("Dado a tabela de subcomandos, Então init aponta para comandoInit", () => {
+    expect(subcomandos.init).toBe(comandoInit);
+  });
+
+  test("Dado o subcomando init de verdade, Quando rodar com --areas, Então cria as áreas no diretório atual", async () => {
+    const r = await rodar("init", "--areas", "pessoal");
+    expect(r.codigo).toBe(0);
+    expect(r.saida).toContain("Pronto: 1 área criada em wiki/ (pessoal).");
     expect(listar(join(raiz, "wiki", "pessoal"))).toEqual(TIPOS);
+  });
+
+  test("Dado o subcomando init de verdade, Quando rodar sem --areas e sem terminal, Então reprova com 2 sem esperar", async () => {
+    const r = await rodar("init");
+    expect(r.codigo).toBe(2);
+    expect(r.erro).toContain("--areas");
+    expect(existsSync(join(raiz, "wiki"))).toBe(false);
   });
 });
