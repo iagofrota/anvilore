@@ -29,8 +29,12 @@ function motivoSemSymlink(criar: () => void): string | null {
 }
 
 const sonda = mkdtempSync(join(tmpdir(), "anvilore-sonda-symlink-"));
-const semSymlink = motivoSemSymlink(() => symlinkSync(join(sonda, "alvo"), join(sonda, "elo")));
-rmSync(sonda, { recursive: true, force: true });
+let semSymlink: string | null;
+try {
+  semSymlink = motivoSemSymlink(() => symlinkSync(join(sonda, "alvo"), join(sonda, "elo")));
+} finally {
+  rmSync(sonda, { recursive: true, force: true });
+}
 if (semSymlink !== null) {
   console.warn(`PULADO: link simbólico indisponível neste ambiente (${semSymlink}); o teste do link quebrado não roda`);
 }
