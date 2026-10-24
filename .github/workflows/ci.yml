@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  testes:
+    name: testes (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Tipos, testes e cobertura (limite 0.8 em bunfig.toml)
+        run: bun run checar
+      - name: Checar links e referências da knowledge base
+        run: bun src/cli.ts checar-docs
+      - name: Checar a release (em qualquer tag; o v da frente é opcional)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: bun src/cli.ts checar-release "${GITHUB_REF_NAME#v}"

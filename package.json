@@ -1,0 +1,19 @@
+{
+  "name": "anvilore",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "bun@1.4.1",
+  "type": "module",
+  "description": "Kit de wiki curada por agente.",
+  "license": "MIT",
+  "bin": {
+    "anvilore": "src/cli.ts"
+  },
+  "scripts": {
+    "checar": "tsc --noEmit && bun test --coverage"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "typescript": "^7.0.2"
+  }
+}

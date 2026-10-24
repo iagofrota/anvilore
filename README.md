@@ -20,6 +20,7 @@ repositório**:
 | `hooks/` | a regra "`raw/` é imutável" na forma de hook, com a decisão num script só (`hooks/proteger-raw.sh`) |
 | `instalar.sh` | configura um clone para o agente que você usa: Claude Code, Codex, Gemini ou Copilot |
 | `tests/` | os testes que provam os scripts, o hook e o instalador |
+| `docs/knowledge_base/` | a documentação do próprio Anvilore, escrita para agentes que desenvolvem o projeto ou respondem dúvidas sobre ele |
 
 O repositório carrega só o método. O conteúdo — as fontes que você ingere,
 as páginas que o agente escreve — é seu, fica de fora do git por padrão
