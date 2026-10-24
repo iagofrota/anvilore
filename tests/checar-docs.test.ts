@@ -231,6 +231,18 @@ describe("checarDocs: a própria knowledge base", () => {
     expect(r.problemas.join("\n")).toContain("docs/knowledge_base");
   });
 
+  test("Dado um repositório sem docs/knowledge_base, Quando checo, Então a mensagem traz o cwd e manda rodar na raiz do repositório", () => {
+    const texto = checarDocs(raiz).problemas.join("\n");
+    expect(texto).toContain(process.cwd());
+    expect(texto).toContain("rode na raiz do repositório");
+  });
+
+  test("Dado uma pasta chamada x.md na knowledge base, Quando checo, Então ela é ignorada e nada lança exceção", () => {
+    mkdirSync(join(raiz, "docs", "knowledge_base", "x.md"), { recursive: true });
+    kb("README.md", "# Ok\n");
+    expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+  });
+
   test("Dado docs/knowledge_base existente e sem páginas, Quando checo, Então reprova", () => {
     mkdirSync(join(raiz, "docs", "knowledge_base"), { recursive: true });
     const r = checarDocs(raiz);

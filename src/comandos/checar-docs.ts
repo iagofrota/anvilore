@@ -1,11 +1,11 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { linhasDe } from "../lib/frontmatter";
+import { PASTA_DA_KB, listarPaginasDaKb } from "../lib/knowledge-base";
 import { linhasVisiveis } from "../lib/markdown";
 
 export type ResultadoDocs = { ok: boolean; problemas: string[] };
 
-const PASTA_DA_KB = "docs/knowledge_base";
 // `[texto](alvo)` ou `![texto](alvo)`, com título opcional entre aspas duplas ou simples. O texto pode
 // atravessar linhas, mas não um parágrafo (linha em branco). O alvo não tem espaço nem `)`.
 const LINK = /!?\[(?:[^\]\n]|\n(?!\s*\n))*\]\(([^)\s]+)(?:\s+(?:"[^"]*"|'[^']*'))?\)/g;
@@ -38,13 +38,6 @@ function decodificar(alvo: string): string {
   } catch {
     return alvo;
   }
-}
-
-function paginasDaKb(pasta: string): string[] {
-  return (readdirSync(pasta, { recursive: true, encoding: "utf8" }) as string[])
-    .map((relativo) => relativo.replaceAll("\\", "/"))
-    .filter((relativo) => relativo.toLowerCase().endsWith(".md") && statSync(join(pasta, relativo)).isFile())
-    .sort();
 }
 
 function foraDaRaiz(raiz: string, caminho: string): boolean {
@@ -99,14 +92,9 @@ function conferirPagina(raiz: string, pasta: string, pagina: string): string[] {
 }
 
 export function checarDocs(raiz: string): ResultadoDocs {
-  const pasta = join(raiz, "docs", "knowledge_base");
-  if (!existsSync(pasta) || !statSync(pasta).isDirectory()) {
-    return { ok: false, problemas: [`${PASTA_DA_KB} não existe`] };
-  }
-  const paginas = paginasDaKb(pasta);
-  if (paginas.length === 0) {
-    return { ok: false, problemas: [`${PASTA_DA_KB} não tem nenhuma página .md`] };
-  }
+  const { paginas, problemas: daLista } = listarPaginasDaKb(raiz);
+  if (daLista.length > 0) return { ok: false, problemas: daLista };
+  const pasta = join(raiz, ...PASTA_DA_KB.split("/"));
   const problemas = paginas.flatMap((pagina) => conferirPagina(raiz, pasta, pagina));
   return { ok: problemas.length === 0, problemas };
 }

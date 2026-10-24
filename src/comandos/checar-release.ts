@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FrontmatterInvalido, lerFrontmatter, linhasDe } from "../lib/frontmatter";
+import { PASTA_DA_KB, listarPaginasDaKb } from "../lib/knowledge-base";
 import { linhasVisiveis } from "../lib/markdown";
 
 export type ResultadoRelease = { ok: boolean; problemas: string[] };
@@ -52,22 +53,14 @@ function checarChangelog(raiz: string, versao: string): string[] {
   return [];
 }
 
-function paginasDaKb(pasta: string): string[] {
-  return (readdirSync(pasta, { recursive: true, encoding: "utf8" }) as string[])
-    .map((relativo) => relativo.replaceAll("\\", "/"))
-    .filter((relativo) => relativo.toLowerCase().endsWith(".md"))
-    .sort();
-}
-
 // Toda página exige `verified: AAAA-MM-DD`: a data em que uma pessoa a revisou.
 // `generated` é só informativo.
 function checarKnowledgeBase(raiz: string): string[] {
-  const pasta = join(raiz, "docs", "knowledge_base");
-  if (!existsSync(pasta)) return ["docs/knowledge_base não existe"];
-
-  const problemas: string[] = [];
-  for (const pagina of paginasDaKb(pasta)) {
-    const nome = `docs/knowledge_base/${pagina}`;
+  const lista = listarPaginasDaKb(raiz);
+  const pasta = join(raiz, ...PASTA_DA_KB.split("/"));
+  const problemas = [...lista.problemas];
+  for (const pagina of lista.paginas) {
+    const nome = `${PASTA_DA_KB}/${pagina}`;
     try {
       const campos = lerFrontmatter(readFileSync(join(pasta, pagina), "utf8"));
       const verified = campos?.verified;
@@ -89,7 +82,7 @@ export function checarRelease(raiz: string, versao: string): ResultadoRelease {
 
 export async function comandoChecarRelease(args: string[], raiz: string = process.cwd()): Promise<number> {
   const versao = args[0];
-  if (versao === undefined || versao === "") {
+  if (versao === undefined || versao === "" || args.length > 1 || versao === "--help") {
     console.error("Uso: anvilore checar-release <versao>");
     return 2;
   }

@@ -31,9 +31,13 @@ function pagina(frontmatter: string): string {
   return `---\n${frontmatter}\n---\n\nCorpo.\n`;
 }
 
+function kbRevisada(): void {
+  gravar("docs/knowledge_base/README.md", pagina("generated: 2026-10-23\nverified: 2026-10-24"));
+}
+
 describe("checarRelease: CHANGELOG", () => {
-  // KB existente e vazia, para isolar o que estes testes cobrem.
-  beforeEach(() => mkdirSync(join(raiz, "docs", "knowledge_base"), { recursive: true }));
+  // KB com uma página revisada, para isolar o que estes testes cobrem.
+  beforeEach(kbRevisada);
 
   test("Dado a versão 0.1.0 sem seção no CHANGELOG, Quando checo, Então reprova e nomeia a versão", () => {
     gravar("CHANGELOG.md", changelog("## [0.0.9] - 2026-01-01\n\n### Added\n\n- antigo\n"));
@@ -165,9 +169,37 @@ describe("checarRelease: knowledge base", () => {
     expect(r.problemas.join("\n")).toContain("docs/knowledge_base não existe");
   });
 
-  test("Dado uma knowledge base existente e vazia, Quando checo, Então passa", () => {
+  test("Dado uma knowledge base existente e vazia, Quando checo, Então reprova dizendo que não há página e não afirma revisão", () => {
     mkdirSync(join(raiz, "docs", "knowledge_base"), { recursive: true });
-    expect(checarRelease(raiz, "0.1.0")).toEqual({ ok: true, problemas: [] });
+    const r = checarRelease(raiz, "0.1.0");
+    expect(r.ok).toBe(false);
+    expect(r.problemas).toEqual(["docs/knowledge_base não tem nenhuma página .md"]);
+  });
+
+  test("Dado uma knowledge base só com arquivos que não são .md, Quando checo, Então reprova", () => {
+    gravar("docs/knowledge_base/nota.txt", "qualquer coisa");
+    expect(checarRelease(raiz, "0.1.0").problemas.join("\n")).toContain("nenhuma página");
+  });
+
+  test("Dado docs/knowledge_base como arquivo, Quando checo, Então reprova sem lançar exceção", () => {
+    gravar("docs/knowledge_base", "isto é um arquivo");
+    const r = checarRelease(raiz, "0.1.0");
+    expect(r.ok).toBe(false);
+    expect(r.problemas.join("\n")).toContain("não é uma pasta");
+  });
+
+  test("Dado uma pasta chamada x.md na knowledge base, Quando checo, Então ela é ignorada e o resto é conferido sem exceção", () => {
+    mkdirSync(join(raiz, "docs", "knowledge_base", "x.md"), { recursive: true });
+    gravar("docs/knowledge_base/real.md", pagina("generated: 2026-10-23"));
+    const r = checarRelease(raiz, "0.1.0");
+    expect(r.problemas).toHaveLength(1);
+    expect(r.problemas[0]).toContain("real.md");
+  });
+
+  test("Dado que docs/knowledge_base não existe, Quando checo, Então a mensagem traz o cwd e manda rodar na raiz do repositório", () => {
+    const texto = checarRelease(raiz, "0.1.0").problemas.join("\n");
+    expect(texto).toContain(process.cwd());
+    expect(texto).toContain("rode na raiz do repositório");
   });
 
   test("Dado uma página com verified em AAAA-MM-DD, Quando checo, Então passa", () => {
@@ -273,14 +305,14 @@ describe("subcomando checar-release", () => {
 
   test("Dado uma versão com pré-lançamento, Quando rodo checar-release, Então aceita o formato", async () => {
     gravar("CHANGELOG.md", changelog("## [0.1.0-rc.1]\n\n- item\n"));
-    mkdirSync(join(raiz, "docs", "knowledge_base"), { recursive: true });
+    kbRevisada();
     const r = await capturar(() => comandoChecarRelease(["0.1.0-rc.1"], raiz));
     expect(r.codigo).toBe(0);
   });
 
   test("Dado a release pronta, Quando rodo checar-release 0.1.0, Então imprime uma linha de sucesso e devolve 0", async () => {
     gravar("CHANGELOG.md", changelog("## [0.1.0]\n\n- item\n"));
-    mkdirSync(join(raiz, "docs", "knowledge_base"), { recursive: true });
+    kbRevisada();
     const r = await capturar(() => comandoChecarRelease(["0.1.0"], raiz));
     expect(r.codigo).toBe(0);
     expect(r.saida).toHaveLength(1);
@@ -300,6 +332,22 @@ describe("subcomando checar-release", () => {
     const r = await capturar(() => comandoChecarRelease([], raiz));
     expect(r.codigo).toBe(2);
     expect(r.erro.join("\n")).toContain("Uso: anvilore checar-release <versao>");
+  });
+
+  test("Dado um argumento extra além da versão, Quando rodo checar-release, Então recusa com o uso e devolve 2, sem conferir a release", async () => {
+    gravar("CHANGELOG.md", changelog("## [0.1.0]\n\n- item\n"));
+    kbRevisada();
+    const r = await capturar(() => comandoChecarRelease(["0.1.0", "outra"], raiz));
+    expect(r.codigo).toBe(2);
+    expect(r.saida).toEqual([]);
+    expect(r.erro.join("\n")).toContain("Uso: anvilore checar-release <versao>");
+  });
+
+  test("Dado --help, Quando rodo checar-release, Então imprime o uso e devolve 2, sem acusar versão inválida", async () => {
+    const r = await capturar(() => comandoChecarRelease(["--help"], raiz));
+    expect(r.codigo).toBe(2);
+    expect(r.erro.join("\n")).toContain("Uso: anvilore checar-release <versao>");
+    expect(r.erro.join("\n")).not.toContain("Versão inválida");
   });
 
   test("Dado a tabela do CLI, Quando executo checar-release sem versão, Então o subcomando está registrado e devolve 2", async () => {
