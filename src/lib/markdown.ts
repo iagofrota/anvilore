@@ -17,34 +17,74 @@ function fechaCerca(linha: string, cerca: Cerca): boolean {
   return texto.length >= cerca.tamanho && [...texto].every((c) => c === cerca.caractere);
 }
 
+// Início do fecho de um código em linha: a próxima sequência de crases com exatamente `tamanho`
+// crases (regra de code span do CommonMark). Sequências de outro comprimento são conteúdo.
+function acharFecho(linha: string, de: number, tamanho: number): number {
+  let i = de;
+  while (i < linha.length) {
+    if (linha[i] !== "`") {
+      i++;
+      continue;
+    }
+    let fim = i;
+    while (linha[fim] === "`") fim++;
+    if (fim - i === tamanho) return i;
+    i = fim;
+  }
+  return -1;
+}
+
+// Tira os comentários HTML da linha lendo da esquerda para a direita, para que `<!--` dentro de código
+// em linha não abra comentário. Só enxerga código em linha dentro de uma linha (é o subconjunto que o
+// leitor cobre); o conteúdo do código é mantido, porque quem lê as menções entre crases precisa dele.
+// Dentro de comentário não existe código em linha: o `-->` fecha mesmo entre crases.
+function tirarComentarios(linha: string, emComentario: boolean): { texto: string; emComentario: boolean } {
+  let i = 0;
+  if (emComentario) {
+    const fim = linha.indexOf("-->");
+    if (fim === -1) return { texto: "", emComentario: true };
+    i = fim + 3;
+  }
+  let texto = "";
+  while (i < linha.length) {
+    if (linha[i] === "`") {
+      let fimDaSequencia = i;
+      while (linha[fimDaSequencia] === "`") fimDaSequencia++;
+      const tamanho = fimDaSequencia - i;
+      const fecho = acharFecho(linha, fimDaSequencia, tamanho);
+      // Sem fecho do mesmo comprimento, as crases são texto comum.
+      const ate = fecho === -1 ? fimDaSequencia : fecho + tamanho;
+      texto += linha.slice(i, ate);
+      i = ate;
+    } else if (linha.startsWith("<!--", i)) {
+      const fim = linha.indexOf("-->", i + 4);
+      if (fim === -1) return { texto, emComentario: true };
+      i = fim + 3;
+    } else {
+      texto += linha[i];
+      i++;
+    }
+  }
+  return { texto, emComentario: false };
+}
+
 // Esvazia o que o Markdown não renderiza como texto (bloco de código cercado e
 // comentário HTML), mantendo o número de linhas.
 export function linhasVisiveis(linhas: string[]): string[] {
   let cerca: Cerca | null = null;
   let emComentario = false;
   return linhas.map((original) => {
-    let linha = original;
     if (cerca !== null) {
-      if (fechaCerca(linha, cerca)) cerca = null;
+      if (fechaCerca(original, cerca)) cerca = null;
       return "";
     }
-    if (emComentario) {
-      const fim = linha.indexOf("-->");
-      if (fim === -1) return "";
-      emComentario = false;
-      linha = linha.slice(fim + 3);
-    }
-    linha = linha.replace(/<!--.*?-->/g, "");
-    const abertura = linha.indexOf("<!--");
-    if (abertura !== -1) {
-      emComentario = true;
-      linha = linha.slice(0, abertura);
-    }
-    const aberta = abreCerca(linha);
+    const limpa = tirarComentarios(original, emComentario);
+    emComentario = limpa.emComentario;
+    const aberta = abreCerca(limpa.texto);
     if (aberta !== null) {
       cerca = aberta;
       return "";
     }
-    return linha;
+    return limpa.texto;
   });
 }

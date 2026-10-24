@@ -41,6 +41,12 @@ antigos em bash e Python: eles continuam sendo o que valida a wiki e protege o `
   que aponta para fora do repositório. Recusa argumento extra. Está configurado para rodar no CI em
   Linux, Windows e macOS a cada envio de código (ainda não executado).
 
+### Fixed
+
+- `checar-docs` e `checar-release` não perdem mais o resto da página quando ela cita `<!--` entre
+  crases (código em linha): antes, esse trecho era lido como início de comentário HTML e escondia
+  as linhas seguintes, e um link quebrado depois dele passava sem aviso.
+
 ### Não resolvido nesta versão
 
 - O Anvilore **não protege contra vazamento de documentos internos**. Ele impede que o agente
