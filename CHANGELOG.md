@@ -17,8 +17,9 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   próprio Bun, então a checagem de proveniência nunca mais é pulada, e uma página com YAML
   ilegível reprova nomeando o arquivo.
 - O validador reprova wikilink que não aponta para nenhuma página e página que não aparece no
-  `index.md` (da raiz, na wiki plana, ou da área, quando a área tem um). Wiki existente com link
-  quebrado ou página fora do índice passa a reprovar.
+  `index.md` (o da área, quando a área tem um; senão o da raiz). Wiki sem nenhum `index.md` passa
+  com um aviso de que o índice não foi conferido. Wiki existente com link quebrado ou página fora
+  do índice passa a reprovar.
 - Portão humano depois da escrita: página com `generated` precisa de uma verificação humana
   (`verified` com `by: human:<id>`) igual ou posterior à geração, senão reprova como "página gerada
   sem aprovação humana". Nenhum programa prova quem escreveu a verificação.

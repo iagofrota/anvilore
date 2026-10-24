@@ -169,9 +169,10 @@ não são páginas (não são alvo de link).
 
 Toda página de conteúdo aparece no `index.md` como `[[slug]]`. A página da wiki plana (solta na
 raiz ou sob `sources/`, `concepts/`, `entities/`) é conferida contra o `wiki/index.md`; a página
-de uma área é conferida contra o `wiki/<área>/index.md`. Uma área sem `index.md` próprio não é
-erro: não há índice a conferir, e o mesmo vale para uma wiki sem `index.md`. O validador reprova
-a página que falta no índice aplicável.
+de uma área é conferida contra o `wiki/<área>/index.md` se ele existir e, se não existir, contra o
+`wiki/index.md`. O validador reprova a página que falta no índice aplicável. Uma wiki sem nenhum
+`index.md` aplicável não reprova, mas o validador **avisa** ("sem index.md: conferência do índice
+não feita"): a conferência não é feita em silêncio.
 
 ## Perfil da empresa (opcional)
 

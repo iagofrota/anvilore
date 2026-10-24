@@ -29,7 +29,7 @@ montar_wiki() {
     > "$w/alfa/concepts/conceito.md"
   printf -- '---\ntitle: "Fonte"\nslug: fonte\ntype: source\narea: alfa\ntags: []\n---\n\nCorpo.\n' \
     > "$w/alfa/sources/fonte.md"
-  printf '# Indice\n\nPaginas desta wiki.\n' > "$w/index.md"
+  printf '# Indice\n\nPaginas desta wiki.\n\n- [[conceito]]\n- [[fonte]]\n' > "$w/index.md"
   printf '# Log\n' > "$w/log.md"
   printf -- '---\ntype: log-day\ndate: %s\n---\n\n# Log — %s\n\n## [%s] ingest | Fechamento do dia\n\nCorpo.\n' \
     "$HOJE" "$HOJE" "$HOJE" > "$w/log/log-$HOJE.md"

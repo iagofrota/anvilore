@@ -17,9 +17,9 @@ fica para depois (veja a última seção).
 | Trava | O que faz | Onde |
 |---|---|---|
 | Hook `proteger-raw` | Bloqueia (saída 2) a escrita em `raw/` feita pelas ferramentas de edição de arquivo. Sem caminho isolável no payload, bloqueia se o texto citar `raw/`. | `hooks/proteger-raw.sh`, linhas 27 a 32 e 115 a 127; `hooks/hooks.json`, linha 6 |
-| Validador da wiki (`anvilore validar`) | Reprova página sem frontmatter ou com frontmatter que não lê (YAML inválido nunca é pulado), com `type` inválido, com `slug` diferente do nome do arquivo (comparado em Unicode NFC), com `area` em conflito com o diretório, dois arquivos da mesma pasta que só diferem na caixa, wikilink que não resolve, página fora do index.md aplicável e campo de proveniência malformado. Reprova wiki inexistente e diretório sem nenhum arquivo `.md`; uma wiki só com index.md e log.md passa. Sem o Bun o comando não roda, e nunca imprime PASS. | `src/comandos/validar.ts`, linhas 91 a 210 |
+| Validador da wiki (`anvilore validar`) | Reprova página sem frontmatter ou com frontmatter que não lê (YAML inválido nunca é pulado), com `type` inválido, com `slug` diferente do nome do arquivo (comparado em Unicode NFC), com `area` em conflito com o diretório, dois arquivos da mesma pasta que só diferem na caixa, wikilink que não resolve, página fora do index.md aplicável e campo de proveniência malformado. Reprova wiki inexistente e diretório sem nenhum arquivo `.md`; uma wiki só com index.md e log.md passa. Sem o Bun o comando não roda, e nunca imprime PASS. | `src/comandos/validar.ts`, linhas 92 a 215 |
 | Portão humano, depois da escrita | Reprova a página com `generated` em mapping e sem uma entrada `verified` com `by: human:<id>` e `at` igual ou posterior a `generated.at`. A mensagem é "página gerada sem aprovação humana". | `src/lib/okf.ts`, linhas 144 a 185 |
-| Perfil da empresa | Um anvilore.toml na raiz do projeto restringe áreas, tipos de página e campos obrigatórios; reprova nomeando arquivo e valor. Arquivo ilegível, chave desconhecida ou valor que não é lista de textos também reprova. | `src/lib/perfil.ts`, linhas 28 a 54; `src/comandos/validar.ts`, linhas 159 a 161 e 174 a 182 |
+| Perfil da empresa | Um anvilore.toml na raiz do projeto restringe áreas, tipos de página e campos obrigatórios; reprova nomeando arquivo e valor. Arquivo ilegível, chave desconhecida ou valor que não é lista de textos também reprova. | `src/lib/perfil.ts`, linhas 28 a 54; `src/comandos/validar.ts`, linhas 160 a 162 e 175 a 183 |
 | Tipos e cobertura | `tsc --noEmit` e testes com cobertura mínima de 80% no geral. | `package.json` (script `checar`); `bunfig.toml`, linha 2 |
 | Checagem de links | Reprova link e menção a arquivo inexistente nesta pasta. | `src/comandos/checar-docs.ts` |
 | Trava de release | Reprova versão sem seção no CHANGELOG, seção vazia, pasta desta KB ausente ou sem página, ou página sem `verified`. | `src/comandos/checar-release.ts` |
@@ -28,7 +28,7 @@ fica para depois (veja a última seção).
 O `hooks/proteger-raw.sh` falha fechado: se não consegue ler o caminho no payload, a decisão passa
 a ser sobre o texto inteiro, e "não achei caminho" nunca vira "pode passar" (linhas 115 a 127). O
 validador também não imprime PASS quando o diretório não existe (`src/comandos/validar.ts`, linhas
-95 a 99) nem quando um arquivo, o anvilore.toml ou o YAML do frontmatter não lê: cada um vira um
+96 a 99) nem quando um arquivo, o anvilore.toml ou o YAML do frontmatter não lê: cada um vira um
 erro que nomeia o arquivo.
 
 ## O que hoje não é imposto
@@ -75,12 +75,12 @@ está dito.
 ### 3. A navegação é conferida com limites
 
 - O validador reprova wikilink quebrado e página fora do índice (`src/comandos/validar.ts`, linhas
-  190 a 206). A regra foi portada de `scripts/auditar-wiki.py` (linhas 151 a 164), que continua
+  191 a 211). A regra foi portada de `scripts/auditar-wiki.py` (linhas 151 a 164), que continua
   existindo como relatório e é chamado pela skill de lint (`skills/lint/SKILL.md`, linhas 27 a 37).
 - A página da wiki plana é conferida contra o `wiki/index.md`; a de uma área, contra o
-  `wiki/<área>/index.md`. Uma área sem index.md próprio não é conferida: a página dela pode
-  estar listada só no `wiki/index.md`, ou em lugar nenhum, e o validador não vê. Wiki sem nenhum
-  index.md também passa.
+  `wiki/<área>/index.md` se ele existir e, se não, contra o `wiki/index.md`. Wiki sem nenhum
+  index.md aplicável passa, mas o validador imprime o aviso "sem index.md: conferência do índice
+  não feita".
 - Só `[[slug]]`, `[[slug|rótulo]]` e `[[slug#seção]]` são links. Link com caminho
   ([[sources/x]]), link markdown e wikilink dentro de bloco de código, código em linha ou
   comentário HTML não são conferidos.

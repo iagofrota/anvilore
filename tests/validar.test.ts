@@ -539,10 +539,28 @@ describe("validar: wikilinks e índice (R29)", () => {
     expect((await rodar()).saida).toContain("página fora do índice: sources/s.md");
   });
 
-  test("Dado uma wiki sem nenhum index.md, Quando valido, Então a falta do índice não reprova", async () => {
+  test("Dada uma wiki sem index.md, Quando valido, Então avisa que a conferência do índice não foi feita e não reprova", async () => {
     gravar("a.md", pagina("a"));
     const r = await rodar();
     expect(r.codigo).toBe(0);
+    expect(r.saida).toContain("AVISO: sem index.md: conferência do índice não feita");
+    expect(r.saida).toContain("VALIDACAO: PASS");
+    expect((await validarWiki(wiki, {})).avisos).toEqual(["sem index.md: conferência do índice não feita"]);
+  });
+
+  test("Dada uma wiki com index.md, Quando valido, Então não há aviso", async () => {
+    gravar("a.md", pagina("a"));
+    gravar("index.md", indice("a"));
+    expect((await validarWiki(wiki, {})).avisos).toEqual([]);
+  });
+
+  test("Dada uma wiki só com o index.md de uma área, Quando a página de outra área não tem índice, Então avisa", async () => {
+    gravar("x/concepts/a.md", pagina("a", { extra: "area: x\n" }));
+    gravar("x/index.md", indice("a"));
+    gravar("y/concepts/b.md", pagina("b", { extra: "area: y\n" }));
+    const r = await validarWiki(wiki, {});
+    expect(r.ok).toBe(true);
+    expect(r.avisos).toHaveLength(1);
   });
 
   test("Dado uma área com index.md que não lista a página, Quando valido, Então reprova", async () => {
@@ -559,9 +577,15 @@ describe("validar: wikilinks e índice (R29)", () => {
     expect((await rodar()).codigo).toBe(0);
   });
 
-  test("Dado uma área sem index.md próprio, Quando valido, Então não reprova por fora do índice", async () => {
+  test("Dada página de área sem index próprio e ausente do wiki/index.md, Quando valido, Então reprova", async () => {
     gravar("exemplo/concepts/a.md", pagina("a", { extra: "area: exemplo\n" }));
     gravar("index.md", "# Indice\n");
+    expect((await rodar()).saida).toContain("página fora do índice: exemplo/concepts/a.md");
+  });
+
+  test("Dada página de área sem index próprio e listada no wiki/index.md, Quando valido, Então passa", async () => {
+    gravar("exemplo/concepts/a.md", pagina("a", { extra: "area: exemplo\n" }));
+    gravar("index.md", indice("a"));
     expect((await rodar()).codigo).toBe(0);
   });
 

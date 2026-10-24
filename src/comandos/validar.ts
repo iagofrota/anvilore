@@ -10,6 +10,7 @@ import { diretorioDeTipo, nomeReservado } from "../lib/reservados";
 export type ResultadoValidacao = {
   ok: boolean;
   erros: string[];
+  avisos: string[];
   paginas: number;
   gaps: number;
   contradicoes: number;
@@ -89,7 +90,7 @@ function conflitosDeCaixa(arquivos: string[]): string[] {
 }
 
 export async function validarWiki(dir: string, perfil?: Perfil): Promise<ResultadoValidacao> {
-  const resultado: ResultadoValidacao = { ok: false, erros: [], paginas: 0, gaps: 0, contradicoes: 0, vencidas: 0, geradasAposVerificacao: 0 };
+  const resultado: ResultadoValidacao = { ok: false, erros: [], avisos: [], paginas: 0, gaps: 0, contradicoes: 0, vencidas: 0, geradasAposVerificacao: 0 };
   const { erros } = resultado;
 
   // Uma wiki que não existe não é uma wiki limpa: nunca vira PASS.
@@ -195,15 +196,19 @@ export async function validarWiki(dir: string, perfil?: Perfil): Promise<Resulta
     }
   }
 
-  // Índice: a página de uma área aparece no index.md da área; a da wiki plana, no index.md da
-  // raiz. Sem o index.md aplicável não há o que conferir (área sem índice próprio não é erro).
+  // Índice: a página de uma área aparece no index.md da área, se ele existir, ou no index.md da
+  // raiz; a da wiki plana, no da raiz. Sem nenhum index.md aplicável a conferência não é feita,
+  // e isso é avisado, não calado.
   const listadosPor = new Map<string, Set<string>>();
   for (const rel of indices) listadosPor.set(rel, new Set(alvosDe(textos.get(rel)!).map(chaveDeNome)));
+  let semIndice = false;
   for (const rel of conteudo) {
     const area = areaDoDiretorio(rel.split("/"));
-    const listados = listadosPor.get(area === "" ? NOME_DO_INDICE : `${area}/${NOME_DO_INDICE}`);
-    if (listados !== undefined && !listados.has(chaveDeNome(slugDe(rel)))) erros.push(`página fora do índice: ${rel}`);
+    const listados = listadosPor.get(`${area}/${NOME_DO_INDICE}`) ?? listadosPor.get(NOME_DO_INDICE);
+    if (listados === undefined) semIndice = true;
+    else if (!listados.has(chaveDeNome(slugDe(rel)))) erros.push(`página fora do índice: ${rel}`);
   }
+  if (semIndice) resultado.avisos.push("sem index.md: conferência do índice não feita");
 
   resultado.ok = erros.length === 0;
   return resultado;
@@ -218,6 +223,7 @@ export async function comandoValidar(args: string[], base: string = process.cwd(
   const r = await validarWiki(resolve(base, dir));
   // O caminho que a pessoa digitou, não o absoluto, é o que ela reconhece na mensagem.
   for (const erro of r.erros) console.log(`ERRO: ${erro.replace(resolve(base, dir), dir)}`);
+  for (const aviso of r.avisos) console.log(`AVISO: ${aviso}`);
   if (r.paginas === 0) {
     console.log("VALIDACAO: FAIL");
     return 1;
