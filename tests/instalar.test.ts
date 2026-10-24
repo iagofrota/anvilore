@@ -239,6 +239,15 @@ test("Dado arquivo solto e pasta oculta em skills Quando instalo Então ignora e
   expect(existsSync(join(destino, ".claude/skills/.oculta"))).toBe(false);
 });
 
+test("Dado skill ligada a um diretório Quando instalo Então segue o link e instala a skill", () => {
+  const copia = copiarFonte();
+  const externa = join(tmp, "skill-externa"); mkdirSync(externa);
+  writeFileSync(join(externa, "SKILL.md"), "---\nname: ligada\ndescription: Skill ligada\n---\nCONTEUDO VIVO\n");
+  symlinkSync(externa, join(copia, "skills/ligada"), process.platform === "win32" ? "junction" : "dir");
+  expect(executarCopia(copia).exitCode).toBe(0);
+  expect(readFileSync(join(destino, ".claude/skills/ligada/SKILL.md"), "utf8")).toContain("CONTEUDO VIVO");
+});
+
 test("Dado ANVILORE_DESTINO Quando instalo sem a flag Então escreve no destino da variável e preserva a fonte", () => {
   const copia = copiarFonte();
   process.env.ANVILORE_DESTINO = destino;

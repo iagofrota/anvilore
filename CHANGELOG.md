@@ -43,6 +43,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
+- O instalador também segue skills que são links simbólicos para diretórios.
 - O instalador ignora arquivos soltos e pastas ocultas em skills, segue para os demais agentes
   após um erro e entrega o resumo com as causas das falhas. A descrição do Gemini vem só do
   frontmatter; os testes de isolamento e paridade voltaram a conferir o que o instalador faz.

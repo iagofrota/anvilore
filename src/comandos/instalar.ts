@@ -227,10 +227,11 @@ async function instalarEsqueleto(contexto: Contexto): Promise<void> {
 
 async function listarSkills(): Promise<string[]> {
   const entradas = await readdir(join(fonte, "skills"), { withFileTypes: true });
-  const nomes = entradas.filter(entrada => entrada.isDirectory() && !entrada.name.startsWith("."))
+  const nomes = entradas.filter(entrada => !entrada.name.startsWith("."))
     .map(entrada => entrada.name).sort();
   const skills: string[] = [];
   for (const nome of nomes) {
+    if (!(await stat(join(fonte, "skills", nome))).isDirectory()) continue;
     if ((await informacao(join(fonte, "skills", nome, "SKILL.md")))?.isFile()) skills.push(nome);
   }
   return skills;
