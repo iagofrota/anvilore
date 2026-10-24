@@ -42,13 +42,16 @@ export async function extrairFormas(clone: string): Promise<Forma[]> {
   const gemini = JSON.parse(ler(".gemini/settings.json")).hooks.BeforeTool[0].hooks[0];
   const copilot = JSON.parse(ler(".github/copilot/settings.json")).hooks.preToolUse[0];
   const windows = process.platform === "win32";
-  const comBarras = ["bash", "pwsh", ...(windows ? ["cmd"] : [])];
+  // `|| exit 2` serve a sh e cmd. No PowerShell `exit` não é comando dentro de `||` e `-Command` devolve 1 em vez do código do
+  // bun (medido com pwsh 7.5.0): o hook não bloqueia. É um limite conhecido de Codex e Gemini, medido aqui como INFO.
+  const comBarras = ["bash", ...(windows ? ["cmd"] : [])];
+  const powershell = ["pwsh", ...(windows ? ["powershell"] : [])];
   return [
     { agente: "claude", campo: "command", comando: claude.command, shells: ["bash"] },
-    { agente: "codex", campo: "command", comando: codex.command, shells: comBarras, informativos: windows ? ["powershell"] : [] },
-    { agente: "gemini", campo: "command", comando: gemini.command, shells: comBarras, informativos: windows ? ["powershell"] : [] },
+    { agente: "codex", campo: "command", comando: codex.command, shells: comBarras, informativos: powershell },
+    { agente: "gemini", campo: "command", comando: gemini.command, shells: comBarras, informativos: powershell },
     { agente: "copilot", campo: "bash", comando: copilot.bash, shells: ["bash"] },
-    { agente: "copilot", campo: "powershell", comando: copilot.powershell, shells: ["pwsh", ...(windows ? ["powershell"] : [])] },
+    { agente: "copilot", campo: "powershell", comando: copilot.powershell, shells: powershell },
   ];
 }
 
@@ -86,9 +89,11 @@ function resolverShell(nome: string): { exe: string; args: (comando: string) => 
 export async function rodarCenarios(formas: Forma[], cwd: string = raiz): Promise<number> {
   const dirBun = dirname(Bun.which("bun") ?? process.execPath);
   let falhas = 0;
-  const relatar = (linha: string, falhou: boolean, informativo: boolean) => {
+  const recorte = (texto: string) => texto.trim().replace(/\s+/g, " ").slice(0, 600);
+  const relatar = (linha: string, falhou: boolean, informativo: boolean, detalhes: string[] = []) => {
     if (falhou && !informativo) falhas++;
     console.log(`${falhou ? (informativo ? "INFO" : "FALHA") : "ok"}: ${linha}`);
+    if (falhou) for (const detalhe of detalhes) console.log(`    ${detalhe}`);
   };
   for (const forma of formas) {
     const rotulo = `${forma.agente}.${forma.campo}`;
@@ -96,30 +101,40 @@ export async function rodarCenarios(formas: Forma[], cwd: string = raiz): Promis
       const shell = resolverShell(nome);
       if (!shell) {
         // No CI (ANVILORE_EXIGIR_SHELLS=1) a ausência de um shell exigido reprova; fora dele, é um aviso em voz alta.
-        relatar(`${rotulo} em ${nome}: shell indisponível neste sistema`, true, informativo || process.env.ANVILORE_EXIGIR_SHELLS !== "1");
+        relatar(`${rotulo} em ${nome}: shell indisponível neste sistema`, true, informativo || process.env.ANVILORE_EXIGIR_SHELLS !== "1",
+          [`PATH: ${valorDoPath() ?? "(vazio)"}`, `plataforma: ${process.platform}`]);
         continue;
       }
-      const rodar = (payload: string, env: Ambiente) => Bun.spawnSync([shell.exe, ...shell.args(forma.comando)], {
-        cwd, env: { ...env, CLAUDE_PROJECT_DIR: cwd }, stdin: Buffer.from(payload), stdout: "pipe", stderr: "pipe",
-      }).exitCode;
-      const casos: Array<[string, number | undefined, number, Ambiente]> = [
-        ["escrita em raw", 2, rodar(PAYLOADS["escrita em raw"], process.env), process.env],
-        ["escrita em wiki", 0, rodar(PAYLOADS["escrita em wiki"], process.env), process.env],
-        ["sem bun no PATH", undefined, rodar(PAYLOADS["escrita em raw"], ambienteSemBun(process.env, dirBun)), process.env],
+      const rodar = (payload: string, env: Ambiente) => {
+        const r = Bun.spawnSync([shell.exe, ...shell.args(forma.comando)], {
+          cwd, env: { ...env, CLAUDE_PROJECT_DIR: cwd }, stdin: Buffer.from(payload), stdout: "pipe", stderr: "pipe",
+        });
+        return { codigo: r.exitCode, stdout: r.stdout.toString(), stderr: r.stderr.toString() };
+      };
+      const casos: Array<[string, number | undefined, string, Ambiente]> = [
+        ["escrita em raw", 2, PAYLOADS["escrita em raw"], process.env],
+        ["escrita em wiki", 0, PAYLOADS["escrita em wiki"], process.env],
+        ["sem bun no PATH", undefined, PAYLOADS["escrita em raw"], ambienteSemBun(process.env, dirBun)],
       ];
-      for (const [cenario, esperado, obtido] of casos) {
-        const falhou = esperado === undefined ? obtido === 0 : obtido !== esperado;
-        relatar(`${rotulo} em ${nome}: ${cenario} → saída ${obtido} (esperado ${esperado ?? "diferente de 0"})`, falhou, informativo);
+      for (const [cenario, esperado, payload, env] of casos) {
+        const r = rodar(payload, env);
+        const falhou = esperado === undefined ? r.codigo === 0 : r.codigo !== esperado;
+        relatar(`${rotulo} em ${nome}: ${cenario} → saída ${r.codigo} (esperado ${esperado ?? "diferente de 0"})`, falhou, informativo, [
+          `shell: ${shell.exe} ${shell.args("<comando>").slice(0, -1).join(" ")}`, `comando: ${forma.comando}`, `cwd: ${cwd}`,
+          `saída: ${r.codigo}`, `stdout: ${recorte(r.stdout)}`, `stderr: ${recorte(r.stderr)}`,
+        ]);
       }
     }
   }
   return falhas ? 1 : 0;
 }
 
-export async function provar(): Promise<number> {
+// `apenas`: restringe a prova a estes shells (o teste do `bun test` usa só o bash; a etapa do CI roda a matriz inteira).
+export async function provar(apenas?: string[]): Promise<number> {
   const { tmp, clone } = await prepararClone();
   try {
-    return await rodarCenarios(await extrairFormas(clone), clone);
+    const formas = (await extrairFormas(clone)).map(f => apenas ? { ...f, shells: f.shells.filter(s => apenas.includes(s)), informativos: [] } : f);
+    return await rodarCenarios(formas, clone);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

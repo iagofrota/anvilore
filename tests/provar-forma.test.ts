@@ -24,11 +24,12 @@ test("Dado um ambiente com bun no PATH Quando tiro o bun Então nenhuma entrada 
   expect(env.PATH).toBe(outro); expect(env.HOME).toBe("/h");
 });
 
-test("Dado as formas instaladas Quando as executo no shell real deste sistema Então bloqueia raw, libera wiki e não libera sem bun", async () => {
+test("Dado as formas instaladas Quando as executo no shell real deste sistema Então bloqueia raw, libera wiki e não libera sem bun (bash)", async () => {
   const consoleCapturado = capturarConsole();
   try {
-    expect(await provar()).toBe(0);
+    const codigo = await provar(["bash"]);
     const saida = consoleCapturado.saida.join("\n");
+    if (codigo !== 0) throw new Error(`a prova da forma instalada reprovou no bash:\n${saida}`);
     expect(saida).toContain("bash");
     expect(saida).toMatch(/claude\.command.*escrita em raw.*saída 2/);
     expect(saida).toMatch(/gemini\.command.*sem bun.*saída 2/);
@@ -67,4 +68,38 @@ test("Dado o CI Quando chega à prova da forma instalada Então a etapa roda sem
   const prova = etapas.find(etapa => etapa.name?.startsWith("Provar a forma instalada do hook"));
   expect(prova?.if).toBe("always()");
   expect(prova?.run).toBe("bun scripts/provar-forma-instalada.ts");
+});
+
+test("Dado as formas do Codex e do Gemini Quando extraio Então o PowerShell é só informativo e o Copilot o exige", async () => {
+  const { tmp, clone } = await prepararClone();
+  const formas = await extrairFormas(clone).finally(() => rmSync(tmp, { recursive: true, force: true }));
+  for (const agente of ["codex", "gemini"]) {
+    const f = formas.find(x => x.agente === agente && x.campo === "command")!;
+    expect(f.shells).not.toContain("pwsh"); expect(f.informativos).toContain("pwsh");
+  }
+  const ps = formas.find(x => x.agente === "copilot" && x.campo === "powershell")!;
+  expect(ps.shells).toContain("pwsh"); expect(ps.informativos ?? []).not.toContain("pwsh");
+});
+
+test("Dado uma falha da prova Quando ela é impressa Então traz shell, comando, saída, stdout e stderr", async () => {
+  const consoleCapturado = capturarConsole();
+  try {
+    const f: Forma = { agente: "falso", campo: "command", comando: "echo para-o-stdout; echo para-o-stderr >&2; exit 0", shells: ["bash"] };
+    expect(await rodarCenarios([f])).toBe(1);
+    const saida = consoleCapturado.saida.join("\n");
+    expect(saida).toMatch(/FALHA: falso\.command em bash: escrita em raw/);
+    expect(saida).toContain("shell: ");
+    expect(saida).toContain("comando: echo para-o-stdout");
+    expect(saida).toContain("stdout: para-o-stdout");
+    expect(saida).toContain("stderr: para-o-stderr");
+    expect(saida).toContain("saída: 0");
+  } finally { consoleCapturado.restaurar(); }
+});
+
+test("Dado o shell pedido ausente Quando a prova explica Então lista onde procurou", async () => {
+  const consoleCapturado = capturarConsole();
+  try {
+    await rodarCenarios([{ agente: "falso", campo: "command", comando: "exit 2", shells: ["pwsh-que-nao-existe"] }]);
+    expect(consoleCapturado.saida.join("\n")).toContain("PATH:");
+  } finally { consoleCapturado.restaurar(); }
 });
