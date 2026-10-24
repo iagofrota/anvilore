@@ -295,7 +295,12 @@ function verboNormalizado(palavra: string): string {
   return palavra.replace(/^\\/, "").split(/[\\/]/).pop()!.toLowerCase().replace(/\.exe$/, "");
 }
 
-function escritaDeShell(palavras: string[]): boolean {
+function escritaDeShell(original: string[]): boolean {
+  // Blocos de script do PowerShell (`% { Remove-Item $_ }`, `ForEach-Object -Process { ... }`): as chaves podem vir coladas à palavra.
+  const palavras = original.flatMap(palavra => palavra.split(/([{}])/).filter(parte => parte !== ""));
+  for (let i = 0; i < palavras.length; i++) {
+    if (palavras[i] === "{" && escritaEmBloco(palavras.slice(i + 1))) return true;
+  }
   let comando = palavras;
   for (;;) {
     const inicio = comando.findIndex(palavra => !/^[A-Za-z_]\w*=/.test(palavra) && !PALAVRAS_DE_LACO.has(palavra));
@@ -314,6 +319,16 @@ function escritaDeShell(palavras: string[]): boolean {
     if (!resto.length) return false;
     comando = resto;
   }
+}
+
+// Primeiro comando dentro de um bloco `{ ... }`. Num bloco alimentado por raw/, gravar em caminho montado a partir do item (`$_.FullName`)
+// escreve em raw/, então um destino com variável conta como escrita.
+function escritaEmBloco(palavras: string[]): boolean {
+  if (escritaDeShell(palavras)) return true;
+  const inicio = palavras.findIndex(palavra => palavra !== "{");
+  if (inicio < 0) return false;
+  const verbo = verboNormalizado(palavras[inicio]!);
+  return DESTINO_JULGADO.has(verbo) && destinosDoCmdlet(verbo, palavras.slice(inicio + 1)).some(destino => destino.includes("$"));
 }
 
 function citaRawSegmento(palavras: string[], cwd: string): boolean {

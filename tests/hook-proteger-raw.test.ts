@@ -507,3 +507,26 @@ for (const comando of ["Copy-Item wiki\\a.md raw\\a.md", "Copy-Item -Path wiki\\
     expect(decidir(terminal(comando, "powershell")).acao).toBe("bloquear");
   });
 }
+
+// Rodada 3 — C1: cmdlet de escrita dentro do bloco de script de ForEach-Object / % / -Process.
+for (const comando of ["Get-ChildItem raw -Filter *.tmp | ForEach-Object { Remove-Item $_.FullName }", "gci raw\\*.bak | % { rm $_ }", "gci raw | %{Remove-Item $_}", "gci raw | ForEach-Object -Process { Remove-Item -LiteralPath $_.FullName }", "gci raw | ForEach-Object { Move-Item $_.FullName wiki }", "gci raw | ForEach-Object { Set-Content -Path $_.FullName -Value x }", "gci raw | % { Out-File $_.FullName }", "gci raw | % { Rename-Item $_.FullName x }", "gci raw | % { if ($true) { Remove-Item $_ } }", "gci raw | Where-Object { $true } | ForEach-Object { del $_ }", "gci raw | % { Write-Host $_; Remove-Item $_ }", "gci raw | foreach { Remove-Item $_ }"]) {
+  test(`Dado bloco de script do PowerShell ${comando} Quando age sobre itens de raw Então bloqueia`, () => {
+    expect(decidir(terminal(comando, "powershell")).acao).toBe("bloquear");
+  });
+}
+test("Dado argv do Codex com powershell.exe -Command e bloco Quando remove itens de raw Então bloqueia", () => {
+  const payload = JSON.stringify({ tool_name: "shell", tool_input: { command: ["powershell.exe", "-Command", "gci raw | % { Remove-Item $_ }"] } });
+  expect(decidir(payload).acao).toBe("bloquear");
+  expect(decidir(JSON.stringify({ tool_name: "shell", tool_input: { command: ["powershell.exe", "-Command", "gci raw | % { $_.Name }"] } })).acao).toBe("liberar");
+});
+test("Dado listagem recursiva do projeto Quando o bloco do ForEach-Object remove Então bloqueia (forma R64)", () => {
+  for (const comando of ["Get-ChildItem -Recurse -Filter *.tmp | ForEach-Object { Remove-Item $_.FullName }", "gci -r | % { rm $_ }", "Get-ChildItem . -Recurse | ForEach-Object { Move-Item $_.FullName x }"]) {
+    expect(decidir(terminal(comando, "powershell")).acao).toBe("bloquear");
+  }
+  expect(decidir(terminal("Get-ChildItem wiki -Recurse | ForEach-Object { Remove-Item $_.FullName }", "powershell")).acao).toBe("liberar");
+});
+for (const comando of ["gci raw | % { $_.Name }", "gci raw | ForEach-Object { Get-Content $_.FullName }", "gci raw | ForEach-Object { Copy-Item $_.FullName wiki\\ }", "gci raw | % { $_.Length }", "gci raw | Where-Object { $_.Length -gt 10 }", "gci raw | % { Set-Content -Path wiki\\x -Value $_.Name }", "gci wiki | % { Remove-Item $_.FullName }", "find raw -name x | wc -l"]) {
+  test(`Dado bloco de script que só lê ou grava fora de raw ${comando} Quando decido Então libera (controle)`, () => {
+    expect(decidir(terminal(comando, "powershell")).acao).toBe("liberar");
+  });
+}
