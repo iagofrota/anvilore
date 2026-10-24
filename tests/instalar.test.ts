@@ -11,6 +11,7 @@ const raiz = resolve(import.meta.dir, "..");
 let tmp: string, destino: string, lar: string;
 let consoleCapturado: ReturnType<typeof capturarConsole>;
 const ambiente = { ...process.env };
+const comandoRelativo = "bun ./src/cli.ts hook proteger-raw";
 const pathOriginal = valorDoPath(ambiente);
 const real = (caminho: string) => realpathSync.native(caminho);
 const comBarras = (texto: string) => texto.replaceAll("\\", "/");
@@ -20,8 +21,8 @@ beforeEach(() => {
   destino = join(tmp, "clone com espaço"); lar = join(tmp, "lar");
   mkdirSync(lar); mkdirSync(destino);
   writeFileSync(join(destino, "AGENTS.md"), "Contrato local");
-  mkdirSync(join(destino, "skills")); mkdirSync(join(destino, "hooks"));
-  writeFileSync(join(destino, "hooks/proteger-raw.sh"), "hook");
+  mkdirSync(join(destino, "skills")); mkdirSync(join(destino, "src"));
+  writeFileSync(join(destino, "src/cli.ts"), "cli");
   const bin = join(tmp, "bin"); mkdirSync(bin);
   for (const alvo of ["claude", "codex", "gemini", "copilot"]) {
     writeFileSync(join(bin, process.platform === "win32" ? `${alvo}.cmd` : alvo), "echo teste\n", { mode: 0o755 });
@@ -54,9 +55,9 @@ test("Dado destino com espaço Quando instalo quatro agentes e repito Então INA
   const r = await rodar(["claude", "codex", "gemini", "copilot"]);
   expect(r.codigo).toBe(0); expect(r.veredito).toBe("MUDOU");
   expect(JSON.parse(readFileSync(join(destino, ".claude/settings.json"), "utf8")).hooks.PreToolUse.length).toBe(1);
-  expect(readFileSync(join(destino, ".codex/config.toml"), "utf8")).toContain('matcher = "apply_patch|Edit|Write"');
+  expect(readFileSync(join(destino, ".codex/config.toml"), "utf8")).toContain('matcher = "apply_patch|Edit|Write|Bash"');
   expect(JSON.parse(readFileSync(join(destino, ".gemini/settings.json"), "utf8")).context.fileName).toEqual(["AGENTS.md", "GEMINI.md"]);
-  expect(JSON.parse(readFileSync(join(destino, ".github/copilot/settings.json"), "utf8")).hooks.preToolUse[0].bash).toBe("./hooks/proteger-raw.sh");
+  expect(JSON.parse(readFileSync(join(destino, ".github/copilot/settings.json"), "utf8")).hooks.preToolUse[0].bash).toBe(comandoRelativo);
   const antes = captura(destino);
   expect((await rodar(["claude", "codex", "gemini", "copilot"])).veredito).toBe("INALTERADO");
   expect(captura(destino)).toEqual(antes); expect(readdirSync(lar)).toEqual([]);
@@ -334,19 +335,22 @@ test("Dado ajuda do instalador Quando consulto Então mostra destinos por agente
 test("Dado configuração Claude Quando instalo Então aponta para o hook único", async () => {
   await rodar();
   const config = JSON.parse(readFileSync(join(destino, ".claude/settings.json"), "utf8"));
-  expect(config.hooks.PreToolUse[0].hooks[0].command).toBe('"$CLAUDE_PROJECT_DIR"/hooks/proteger-raw.sh');
+  expect(config.hooks.PreToolUse[0].hooks[0].command).toBe('bun "$CLAUDE_PROJECT_DIR"/src/cli.ts hook proteger-raw');
+  expect(config.hooks.PreToolUse[0].matcher).toBe("Write|Edit|NotebookEdit|Bash");
 });
 
 test("Dado configuração Gemini Quando instalo Então aponta para o hook único", async () => {
   await rodar(["gemini"]);
   const config = JSON.parse(readFileSync(join(destino, ".gemini/settings.json"), "utf8"));
-  expect(config.hooks.BeforeTool[0].hooks[0].command).toBe("./hooks/proteger-raw.sh");
+  expect(config.hooks.BeforeTool[0].hooks[0].command).toBe(comandoRelativo);
+  expect(config.hooks.BeforeTool[0].matcher).toBe("write_file|replace|run_shell_command");
 });
 
 test("Dado configuração Codex Quando instalo Então aponta para o hook único", async () => {
   await rodar(["codex"]);
   const config = Bun.TOML.parse(readFileSync(join(destino, ".codex/config.toml"), "utf8"));
-  expect(config).toHaveProperty("hooks.PreToolUse.0.hooks.0.command", "./hooks/proteger-raw.sh");
+  expect(config).toHaveProperty("hooks.PreToolUse.0.hooks.0.command", comandoRelativo);
+  expect(config).toHaveProperty("hooks.PreToolUse.0.matcher", "apply_patch|Edit|Write|Bash");
 });
 
 function arquivosEm(dir: string): string[] {
@@ -355,10 +359,10 @@ function arquivosEm(dir: string): string[] {
 test("Dado as formas instaladas Quando procuro a decisão do hook Então ela mora em um único arquivo", async () => {
   await rodar(["claude", "codex", "gemini", "copilot"]);
   const donos = ["src", "hooks", "skills"].flatMap(dir => arquivosEm(join(raiz, dir)).map(rel => `${dir}/${rel}`))
-    .filter(rel => readFileSync(join(raiz, rel), "utf8").includes("escreve_em_raw"));
-  expect(donos).toEqual(["hooks/proteger-raw.sh"]);
+    .filter(rel => readFileSync(join(raiz, rel), "utf8").includes("escreveEmRaw"));
+  expect(donos).toEqual(["src/comandos/hook-proteger-raw.ts"]);
   for (const rel of [".claude/settings.json", ".codex/config.toml", ".gemini/settings.json", ".github/copilot/settings.json"]) {
-    expect(readFileSync(join(destino, rel), "utf8")).not.toMatch(/escreve_em_raw|Bloqueado:/);
+    expect(readFileSync(join(destino, rel), "utf8")).not.toMatch(/escreveEmRaw|Bloqueado:/);
   }
 });
 
@@ -468,4 +472,81 @@ test("Dado ambiente com PATH em qualquer caixa Quando leio o valor Então devolv
   expect(valorDoPath({ PATH: "a", Path: "b" })).toBe("a");
   expect(valorDoPath({ path: "c", OUTRA: "x" })).toBe("c");
   expect(valorDoPath({ OUTRA: "x" })).toBeUndefined();
+});
+
+// R52: configurações escritas pela versão anterior, que apontavam para hooks/proteger-raw.sh.
+const antigas = {
+  claude: ".claude/settings.json",
+  gemini: ".gemini/settings.json",
+  copilot: ".github/copilot/settings.json",
+} as const;
+function configuracaoAntiga(alvo: keyof typeof antigas): unknown {
+  switch (alvo) {
+    case "claude": return { hooks: { PreToolUse: [{ description: "Recusa qualquer escrita em raw/ — antiga", matcher: "Write|Edit|NotebookEdit", hooks: [{ type: "command", command: '"$CLAUDE_PROJECT_DIR"/hooks/proteger-raw.sh' }] }] } };
+    case "gemini": return { context: { fileName: ["AGENTS.md", "GEMINI.md"] }, hooks: { BeforeTool: [{ matcher: "write_file|replace", hooks: [{ name: "proteger-raw", type: "command", command: "./hooks/proteger-raw.sh" }] }] } };
+    case "copilot": return { hooks: { preToolUse: [{ type: "command", bash: "./hooks/proteger-raw.sh" }] } };
+  }
+}
+function lerConfig(rel: string) { return JSON.parse(readFileSync(join(destino, rel), "utf8")); }
+function gravarConfig(rel: string, conteudo: unknown) {
+  mkdirSync(join(destino, rel, ".."), { recursive: true }); writeFileSync(join(destino, rel), JSON.stringify(conteudo, null, 2) + "\n");
+}
+
+for (const alvo of ["claude", "gemini", "copilot"] as const) {
+  test(`Dado configuração antiga do ${alvo} com hook para o script removido Quando reinstalo Então troca a entrada velha pela nova sem acumular`, async () => {
+    gravarConfig(antigas[alvo], configuracaoAntiga(alvo));
+    expect((await rodar([alvo])).codigo).toBe(0);
+    const texto = readFileSync(join(destino, antigas[alvo]), "utf8");
+    expect(texto).not.toContain("hooks/proteger-raw.sh");
+    const config = lerConfig(antigas[alvo]);
+    const lista = alvo === "claude" ? config.hooks.PreToolUse : alvo === "gemini" ? config.hooks.BeforeTool : config.hooks.preToolUse;
+    expect(lista).toHaveLength(1);
+    expect(texto.split("src/cli.ts hook proteger-raw\"").length - 1).toBe(1);
+    const antes = captura(destino);
+    expect((await rodar([alvo])).veredito).toBe("INALTERADO");
+    expect(captura(destino)).toEqual(antes);
+  });
+}
+
+test("Dado configuração antiga com entradas pessoais Quando reinstalo Então só a entrada do hook antigo sai", async () => {
+  const antiga = configuracaoAntiga("claude") as { hooks: { PreToolUse: unknown[] } };
+  antiga.hooks.PreToolUse.push({ matcher: "Bash", hooks: [{ type: "command", command: "meu-linter.sh" }] });
+  antiga.hooks.PreToolUse.push({ matcher: "Write", hooks: [{ type: "command", command: "meu-hook.sh" }, { type: "command", command: "./hooks/proteger-raw.sh" }] });
+  gravarConfig(antigas.claude, { pessoal: "meu", ...antiga, hooks: { ...antiga.hooks, PostToolUse: [{ matcher: "Edit" }] } });
+  expect((await rodar(["claude"])).codigo).toBe(0);
+  const config = lerConfig(antigas.claude);
+  expect(config.pessoal).toBe("meu"); expect(config.hooks.PostToolUse).toEqual([{ matcher: "Edit" }]);
+  expect(config.hooks.PreToolUse).toContainEqual({ matcher: "Bash", hooks: [{ type: "command", command: "meu-linter.sh" }] });
+  expect(config.hooks.PreToolUse).toContainEqual({ matcher: "Write", hooks: [{ type: "command", command: "meu-hook.sh" }] });
+  expect(JSON.stringify(config)).not.toContain("hooks/proteger-raw.sh");
+  expect(config.hooks.PreToolUse).toHaveLength(3);
+});
+
+test("Dado bloco antigo do Codex Quando reinstalo Então o bloco é trocado inteiro", async () => {
+  mkdirSync(join(destino, ".codex"));
+  writeFileSync(join(destino, ".codex/config.toml"), `model = 'meu'\n\n# <<< anvilore\n[[hooks.PreToolUse]]\nmatcher = "apply_patch|Edit|Write"\n\n[[hooks.PreToolUse.hooks]]\ntype = "command"\ncommand = "./hooks/proteger-raw.sh"\n# >>> anvilore\n`);
+  expect((await rodar(["codex"])).codigo).toBe(0);
+  const texto = readFileSync(join(destino, ".codex/config.toml"), "utf8");
+  expect(texto).toContain("model = 'meu'"); expect(texto).not.toContain("hooks/proteger-raw.sh");
+  expect(texto.split("[[hooks.PreToolUse]]").length - 1).toBe(1);
+  expect(texto).toContain(comandoRelativo);
+});
+
+test("Dado configuração antiga e simulação Quando instalo Então nada é escrito e o veredito é MUDOU", async () => {
+  gravarConfig(antigas.copilot, configuracaoAntiga("copilot"));
+  const antes = captura(destino);
+  expect((await rodar(["copilot"], true)).veredito).toBe("MUDOU");
+  expect(captura(destino)).toEqual(antes);
+});
+
+test("Dado destino sem o comando do hook Quando instalo Então recusa dizendo que falta src/cli.ts", async () => {
+  rmSync(join(destino, "src"), { recursive: true });
+  const r = await rodar();
+  expect(r.codigo).toBe(1); expect(comBarras(r.mensagens.join("\n"))).toContain("src/cli.ts");
+});
+
+test("Dado a forma versionada do Claude Quando leio hooks.json Então usa o subcomando e inclui o terminal no matcher", () => {
+  const forma = JSON.parse(readFileSync(join(raiz, "hooks/hooks.json"), "utf8"));
+  expect(forma.hooks.PreToolUse[0].matcher).toBe("Write|Edit|NotebookEdit|Bash");
+  expect(forma.hooks.PreToolUse[0].hooks[0].command).toBe('bun "$CLAUDE_PROJECT_DIR"/src/cli.ts hook proteger-raw');
 });

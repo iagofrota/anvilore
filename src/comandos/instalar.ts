@@ -97,7 +97,10 @@ export async function ligarArquivo(origem: string, link: string): Promise<Estado
   return ligarPublicamente(origem, link, false);
 }
 
-// A Tarefa 8 troca só estas formas; a decisão continua no hook.
+const COMANDO_HOOK = "bun ./src/cli.ts hook proteger-raw";
+const HOOK_ANTIGO = "hooks/proteger-raw.sh";
+
+// A decisão mora em `anvilore hook proteger-raw`; estas formas só apontam para lá.
 export async function configuracaoDoHook(alvo: Alvo): Promise<Fragmento & { arquivo: string }> {
   switch (alvo) {
     case "claude":
@@ -105,14 +108,14 @@ export async function configuracaoDoHook(alvo: Alvo): Promise<Fragmento & { arqu
     case "codex":
       return {
         arquivo: ".codex/config.toml",
-        bloco: `# Recusa escrita do agente em raw/. A decisão mora em hooks/proteger-raw.sh;
+        bloco: `# Recusa escrita do agente em raw/. A decisão mora em \`anvilore hook proteger-raw\`;
 # esta forma só aponta para lá.
 [[hooks.PreToolUse]]
-matcher = "apply_patch|Edit|Write"
+matcher = "apply_patch|Edit|Write|Bash"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = "./hooks/proteger-raw.sh"`,
+command = "${COMANDO_HOOK}"`,
       };
     case "gemini":
       return {
@@ -121,8 +124,8 @@ command = "./hooks/proteger-raw.sh"`,
           context: { fileName: ["AGENTS.md", "GEMINI.md"] },
           hooks: {
             BeforeTool: [{
-              matcher: "write_file|replace",
-              hooks: [{ name: "proteger-raw", type: "command", command: "./hooks/proteger-raw.sh" }],
+              matcher: "write_file|replace|run_shell_command",
+              hooks: [{ name: "proteger-raw", type: "command", command: COMANDO_HOOK }],
             }],
           },
         },
@@ -130,7 +133,7 @@ command = "./hooks/proteger-raw.sh"`,
     case "copilot":
       return {
         arquivo: ".github/copilot/settings.json",
-        json: { hooks: { preToolUse: [{ type: "command", bash: "./hooks/proteger-raw.sh" }] } },
+        json: { hooks: { preToolUse: [{ type: "command", bash: COMANDO_HOOK }] } },
       };
   }
 }
@@ -164,7 +167,7 @@ async function validarDestino(opcoes: OpcoesInstalacao): Promise<string> {
   for (const lar of [process.env.HOME, process.env.USERPROFILE]) {
     if (lar && destino === await realpath(lar)) throw new Error("o destino é o seu HOME; use um clone do anvilore");
   }
-  for (const exigido of ["AGENTS.md", "skills", "hooks/proteger-raw.sh"]) {
+  for (const exigido of ["AGENTS.md", "skills", "src/cli.ts"]) {
     if (!(await informacao(join(destino, exigido)))) throw new Error(`destino não parece um clone do anvilore (falta '${exigido}')`);
   }
   if (opcoes.alvos.some(alvo => !alvosConhecidos.includes(alvo))) throw new Error("alvo desconhecido");
@@ -179,6 +182,32 @@ async function escrever(contexto: Contexto, rel: string, texto: string): Promise
   await writeFile(caminho, texto);
 }
 
+function apontaParaHookAntigo(valor: unknown): boolean {
+  return typeof valor === "string" && valor.includes(HOOK_ANTIGO);
+}
+
+// R52: a fusão de listas só acrescenta, então a entrada que aponta para o script removido sai antes dela.
+export function tirarHookAntigo(config: unknown): unknown {
+  if (config === null || typeof config !== "object" || Array.isArray(config)) return config;
+  const hooks = (config as { hooks?: unknown }).hooks;
+  if (hooks === null || typeof hooks !== "object" || Array.isArray(hooks)) return config;
+  const novos: Record<string, unknown> = {};
+  for (const [evento, entradas] of Object.entries(hooks)) {
+    if (!Array.isArray(entradas)) { novos[evento] = entradas; continue; }
+    novos[evento] = entradas.flatMap((entrada: unknown) => {
+      if (entrada === null || typeof entrada !== "object") return [entrada];
+      const { command, bash, hooks: internos } = entrada as { command?: unknown; bash?: unknown; hooks?: unknown };
+      if (apontaParaHookAntigo(command) || apontaParaHookAntigo(bash)) return [];
+      if (!Array.isArray(internos)) return [entrada];
+      const restantes = internos.filter((interno: { command?: unknown; bash?: unknown } | null) =>
+        !apontaParaHookAntigo(interno?.command) && !apontaParaHookAntigo(interno?.bash));
+      if (restantes.length === internos.length) return [entrada];
+      return restantes.length ? [{ ...entrada, hooks: restantes }] : [];
+    });
+  }
+  return { ...config, hooks: novos };
+}
+
 async function configurar(contexto: Contexto, rel: string, fragmento: Fragmento): Promise<void> {
   try {
     let atual: string | undefined;
@@ -189,7 +218,7 @@ async function configurar(contexto: Contexto, rel: string, fragmento: Fragmento)
     }
     const novo = fragmento.bloco !== undefined
       ? fundirBloco(atual ?? "", "anvilore", fragmento.bloco, "#").resultado
-      : JSON.stringify(fundirJson(atual === undefined ? {} : JSON.parse(atual), fragmento.json).resultado, null, 2) + "\n";
+      : JSON.stringify(fundirJson(atual === undefined ? {} : tirarHookAntigo(JSON.parse(atual)), fragmento.json).resultado, null, 2) + "\n";
     if (atual === novo) contexto.relatorio.mensagens.push(`inalterado: ${rel}`);
     else await escrever(contexto, rel, novo);
   } catch (erro) {

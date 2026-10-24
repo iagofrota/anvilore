@@ -1,0 +1,223 @@
+import { appendFile } from "node:fs/promises";
+import { posix } from "node:path";
+import { estaEmRaw } from "../lib/caminhos";
+
+export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
+type Mapa = Record<string, unknown>;
+type Token = { texto: string; operador: boolean };
+
+const CHAVES = new Set(["file_path", "filepath", "notebook_path", "notebookpath", "absolute_path", "absolutepath", "path"]);
+const TERMINAIS = new Set(["bash", "exec_command", "shell_command", "shell", "local_shell", "run_shell_command", "powershell", "run_in_terminal"]);
+const LEITORES = new Set(["read", "read_file", "view", "read_notebook", "list_dir", "glob", "grep"]);
+const MUDAM_DIRETORIO = new Set(["cd", "chdir", "pushd", "set-location", "sl"]);
+const LEITURAS_TERMINAL = new Set([
+  "cat", "rg", "grep", "ls", "head", "tail", "wc", "echo", "printf", "pwd", "stat", "file", "diff", "less", "more",
+  "sort", "uniq", "cut", "tree", "du", "sha256sum", "md5sum", "shasum", "basename", "dirname", "realpath", "readlink",
+  "nl", "tac", "od", "xxd", "strings", "test", "[", "true", "false",
+  "get-content", "gc", "type", "dir", "get-childitem", "gci", "select-string", "sls", "get-item", "gi", "get-filehash",
+]);
+const GIT_ESCREVE = new Set(["rm", "mv", "checkout", "restore", "clean", "apply"]);
+const FIND_ESCREVE = /^-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/;
+const MENSAGEM = "Bloqueado: `raw/` é imutável para o agente. A camada de fontes é da pessoa que cura — acrescente o arquivo à mão e peça uma ingestão.";
+
+function mapa(valor: unknown): valor is Mapa {
+  return valor !== null && typeof valor === "object" && !Array.isArray(valor);
+}
+
+function citaRaw(texto: string): boolean {
+  return texto.split(/[\s"'`=<>;|&()[\]{}]+/).some(estaEmRaw);
+}
+
+// Caminho que cai em raw/: o próprio caminho, ou um relativo com o diretório de trabalho já dentro de raw/.
+function escreveEmRaw(caminho: string, cwd: string): boolean {
+  return estaEmRaw(caminho) || (estaEmRaw(cwd) && !/^(?:[a-z]:|[\\/])/i.test(caminho));
+}
+
+function caminhosDe(valor: unknown): string[] {
+  if (Array.isArray(valor)) return valor.flatMap(caminhosDe);
+  if (!mapa(valor)) return [];
+  return Object.entries(valor).flatMap(([chave, conteudo]) => {
+    if (CHAVES.has(chave.toLowerCase())) return typeof conteudo === "string" && conteudo.trim() ? [conteudo] : caminhosDe(conteudo);
+    return caminhosDe(conteudo);
+  });
+}
+
+// Reconhece palavras, aspas e operadores; não executa nem expande código de shell.
+function tokenizar(comando: string): Token[] {
+  const tokens: Token[] = [];
+  let palavra = "", aspas = "";
+  function guardar() {
+    if (palavra) tokens.push({ texto: palavra, operador: false });
+    palavra = "";
+  }
+  for (let i = 0; i < comando.length; i++) {
+    const caractere = comando[i]!;
+    const seguinte = comando[i + 1] ?? "";
+    if (aspas) {
+      if (caractere === aspas) aspas = "";
+      else if (aspas === '"' && caractere === "\\" && /["\\$`]/.test(seguinte) && seguinte) palavra += comando[++i];
+      else palavra += caractere;
+    } else if (caractere === "'" || caractere === '"') {
+      aspas = caractere;
+    } else if (caractere === "\\" && seguinte && /[\s'";|&<>\\]/.test(seguinte)) {
+      palavra += comando[++i];
+    } else if (caractere === "`" || caractere === "(" || caractere === ")" || (caractere === "$" && /[({]/.test(seguinte) && seguinte)) {
+      throw new Error("subshell ou expansão não interpretável");
+    } else if (/[;|&<>\n]/.test(caractere)) {
+      guardar();
+      const operador = caractere === "\n" ? ";" : caractere + (seguinte === caractere ? comando[++i] : "");
+      tokens.push({ texto: operador, operador: true });
+    } else if (/\s/.test(caractere)) {
+      guardar();
+    } else {
+      palavra += caractere;
+    }
+  }
+  if (aspas) throw new Error("aspas sem fechamento no terminal");
+  guardar();
+  if (!tokens.length) throw new Error("comando de terminal vazio");
+  return tokens;
+}
+
+function tokensDoComando(comando: unknown): Token[] {
+  if (typeof comando === "string") return tokenizar(comando);
+  if (!Array.isArray(comando) || !comando.length || !comando.every(item => typeof item === "string")) {
+    throw new Error("comando de terminal ilegível");
+  }
+  const argv: string[] = comando;
+  if (/^(?:bash|sh|zsh|powershell)(?:\.exe)?$/i.test(argv[0]!)) {
+    const argumento = argv.findIndex(item => /^(?:-[a-z]*c|-command)$/i.test(item));
+    const script = argv[argumento + 1];
+    if (argumento >= 0 && script !== undefined) return tokenizar(script);
+  }
+  return argv.map(texto => ({ texto, operador: false }));
+}
+
+function subcomandoGit(args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "-C" || args[i] === "-c") i++;
+    else if (!args[i]!.startsWith("-")) return args[i];
+  }
+  return undefined;
+}
+
+function segmentoEscreve(palavras: string[], cwd: string): boolean {
+  const inicio = palavras.findIndex(palavra => !/^[A-Za-z_]\w*=/.test(palavra));
+  if (inicio < 0) return false;
+  const comando = palavras.slice(inicio);
+  const args = comando.slice(1);
+  if (!args.some(palavra => escreveEmRaw(palavra, cwd) || citaRaw(palavra))) return false;
+  const verbo = comando[0]!.split(/[\\/]/).pop()!.toLowerCase().replace(/\.exe$/, "");
+  if (verbo === "cp") {
+    const alvos = args.flatMap((arg, i) => args[i - 1] === "-t" || args[i - 1] === "--target-directory" ? [arg]
+      : arg.startsWith("--target-directory=") ? [arg.slice(19)] : []);
+    return [...alvos, args.at(-1) ?? ""].some(alvo => escreveEmRaw(alvo, cwd));
+  }
+  if (verbo === "sed" || verbo === "perl") return args.some(arg => /^--in-place(?:=|$)/.test(arg) || /^-[a-z]*i/.test(arg));
+  if (verbo === "git") return GIT_ESCREVE.has(subcomandoGit(args) ?? "");
+  if (verbo === "find") return args.some(arg => FIND_ESCREVE.test(arg));
+  return !LEITURAS_TERMINAL.has(verbo);
+}
+
+function terminalEscreve(comando: unknown, cwdInicial: string): boolean {
+  let cwd = cwdInicial;
+  let palavras: string[] = [];
+  const tokens = tokensDoComando(comando);
+  function fechar(): boolean {
+    const verbo = palavras[0]?.toLowerCase();
+    if (verbo !== undefined && MUDAM_DIRETORIO.has(verbo)) {
+      const alvo = (palavras[1] ?? "").replaceAll("\\", "/");
+      cwd = /^(?:[a-z]:|\/)/i.test(alvo) || !cwd ? posix.normalize(alvo || ".") : posix.normalize(`${cwd.replaceAll("\\", "/")}/${alvo}`);
+      palavras = [];
+      return false;
+    }
+    const escreve = segmentoEscreve(palavras, cwd);
+    palavras = [];
+    return escreve;
+  }
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]!;
+    if (!token.operador) {
+      palavras.push(token.texto);
+      continue;
+    }
+    if (/^>{1,2}$/.test(token.texto)) {
+      let alvo = tokens[i + 1];
+      if (alvo?.operador && /^[|&]$/.test(alvo.texto)) alvo = tokens[i + 2];
+      if (alvo !== undefined && !alvo.operador && escreveEmRaw(alvo.texto, cwd)) return true;
+    } else if ([";", "|", "||", "&&", "&"].includes(token.texto) && fechar()) return true;
+  }
+  return fechar();
+}
+
+function textoDoComando(comando: unknown): string {
+  return typeof comando === "string" ? comando : JSON.stringify(comando) ?? "";
+}
+
+function decidirTerminal(comando: unknown, cwd: string): Decisao {
+  const motivo = `terminal: ${textoDoComando(comando)}`;
+  try {
+    return { acao: terminalEscreve(comando, cwd) ? "bloquear" : "liberar", motivo };
+  } catch (erro) {
+    // Comando que não dá para ler só falha fechado quando cita raw/; sem isso, todo $(...) seria recusado.
+    const cita = citaRaw(textoDoComando(comando));
+    return { acao: cita ? "bloquear" : "liberar", motivo: `${motivo} (${(erro as Error).message})` };
+  }
+}
+
+export function decidir(payload: string): Decisao {
+  try {
+    const dados: unknown = JSON.parse(payload);
+    if (!mapa(dados)) throw new Error("payload deve ser um objeto JSON");
+    const nome = String(dados.tool_name ?? dados.toolName ?? "").toLowerCase();
+    let entrada = dados.tool_input ?? dados.toolInput ?? dados.toolArgs ?? dados.tool_args ?? dados.arguments ?? {};
+    if (typeof entrada === "string" && ("toolArgs" in dados || "tool_args" in dados || "arguments" in dados)) entrada = JSON.parse(entrada);
+    if (!mapa(entrada)) throw new Error("argumentos da ferramenta ilegíveis");
+    const cwd = String(entrada.workdir ?? entrada.cwd ?? entrada.directory ?? entrada.dir_path ?? dados.cwd ?? "");
+    if (LEITORES.has(nome)) return { acao: "liberar", motivo: "ferramenta de leitura" };
+    if (TERMINAIS.has(nome) || "command" in entrada || "cmd" in entrada) return decidirTerminal(entrada.command ?? entrada.cmd, cwd);
+    const caminhos = caminhosDe(dados);
+    const alvo = caminhos.find(caminho => escreveEmRaw(caminho, cwd));
+    if (alvo !== undefined) return { acao: "bloquear", motivo: `caminho dentro de raw/: ${alvo}` };
+    if (caminhos.length) return { acao: "liberar", motivo: caminhos.join(" ") };
+    return citaRaw(payload)
+      ? { acao: "bloquear", motivo: "payload sem caminho isolável que cita raw/ (falha fechado)" }
+      : { acao: "liberar", motivo: "payload sem caminho isolável, sem citação a raw/" };
+  } catch (erro) {
+    return { acao: "bloquear", motivo: `falha fechada: ${erro instanceof Error ? erro.message : String(erro)}` };
+  }
+}
+
+export async function executarProtecao(payload: string): Promise<number> {
+  const decisao = decidir(payload);
+  const log = process.env.ANVILORE_LOG_HOOK;
+  if (log && !estaEmRaw(log)) {
+    try {
+      const motivo = decisao.motivo.replace(/[\r\n\t]/g, " ");
+      await appendFile(log, `${Math.floor(Date.now() / 1000)}\t${decisao.acao === "bloquear" ? "BLOQUEADO" : "PASSOU"}\t${motivo}\n`);
+    } catch { /* O rastro observa; sua falha não muda a decisão. */ }
+  }
+  if (decisao.acao === "liberar") return 0;
+  console.error(MENSAGEM);
+  console.error(`Motivo: ${decisao.motivo}`);
+  return 2;
+}
+
+export async function comandoHook(args: string[]): Promise<number> {
+  if (args.length !== 1 || args[0] !== "proteger-raw") {
+    console.error("Uso: anvilore hook proteger-raw (payload JSON na entrada padrão)");
+    return 2;
+  }
+  try {
+    return await executarProtecao(await Bun.stdin.text());
+  } catch {
+    console.error(MENSAGEM);
+    console.error("Motivo: não foi possível ler a entrada padrão (falha fechada)");
+    return 2;
+  }
+}
+
+// Este módulo é obra derivada de `wiki-wonka`
+// (https://github.com/cooperacode/wiki-wonka) (Coopera Code, licença MIT),
+// traduzido para português do Brasil e adaptado. Aviso de copyright original
+// em `LICENSE`.
