@@ -103,6 +103,13 @@ function dentroDe(raizReal: string, caminhoReal: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
+// Página (origem ou destino) que é symlink para fora da wiki: injetar `area:` nela escreveria fora da wiki.
+function garantirDentroDaWiki(raizReal: string, caminho: string, pagina: string): void {
+  if (!dentroDe(raizReal, realpathSync(caminho))) {
+    throw new ErroDeMigracao(`${pagina} é link simbólico para fora da wiki: ${caminho}`);
+  }
+}
+
 // Segue os segmentos que já existem: um link no caminho da área que aponte para fora da wiki (ou para lugar
 // nenhum) levaria a página para fora dela. O que ainda não existe será criado como diretório comum.
 function areaSaiDaWiki(raiz: string, area: string): boolean {
@@ -181,6 +188,7 @@ export async function migrarAreas(wiki: string, opcoes: { simular?: boolean } = 
     }
   }
 
+  const raizReal = realpathSync(raiz);
   for (const { pagina, area } of entradas) {
     const origem = join(raiz, `${pagina}.md`);
     const destino = join(raiz, area, `${pagina}.md`);
@@ -192,6 +200,7 @@ export async function migrarAreas(wiki: string, opcoes: { simular?: boolean } = 
           if (ehLinkQuebrado(caminho)) resultado.avisos.push(`link quebrado: ${caminho}`);
         }
         if (ehArquivo(destino)) {
+          garantirDentroDaWiki(raizReal, destino, pagina);
           if (!simular) await injetarArea(destino, area);
           resultado.relato.push(`ja migrada: ${rotulo}`);
           resultado.jaMigradas.push(pagina);
@@ -201,8 +210,9 @@ export async function migrarAreas(wiki: string, opcoes: { simular?: boolean } = 
         }
         continue;
       }
-      // Nunca sobrescreve: origem e destino ao mesmo tempo é decisão de gente.
-      if (existsSync(destino)) {
+      garantirDentroDaWiki(raizReal, origem, pagina);
+      // Nunca sobrescreve: origem e destino ao mesmo tempo é decisão de gente (link quebrado também ocupa o nome).
+      if (existsSync(destino) || ehLinkQuebrado(destino)) {
         resultado.relato.push(`conflito (origem e destino existem, nada foi movido): ${rotulo}`);
         resultado.conflitos.push(pagina);
         continue;

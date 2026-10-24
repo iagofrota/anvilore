@@ -433,7 +433,7 @@ describe("migrar-areas: falha no meio do laço", () => {
   });
 
   test.skipIf(process.platform === "win32")(
-    "Dado uma página que é symlink relativo (pulado no Windows: criar symlink exige privilégio), Quando migro, Então relata a falha com o que já foi movido em vez de stack trace",
+    "Dado uma página que é symlink relativo para fora da wiki (pulado no Windows: criar symlink exige privilégio), Quando migro, Então falha antes de mover o link, com o que já foi movido e sem stack trace",
     async () => {
       gravar("a.md", "type: x\n");
       gravar("real.md", "type: x\n", join(tmp, "fora"));
@@ -443,8 +443,8 @@ describe("migrar-areas: falha no meio do laço", () => {
       const r = await capturar(() => comandoMigrarAreas([wiki]));
       expect(r.codigo).toBe(1);
       expect(r.saida).toContain("movida: a → alfa/a");
-      // o link foi movido e só a injeção de area: falhou, então ele consta entre as movidas
-      expect(r.erro[0]).toMatch(/^FAIL: link: .+; já movidas: a, link$/);
+      expect(r.erro[0]).toMatch(/^FAIL: link: .+; já movidas: a$/);
+      expect(existsSync(join(wiki, "link.md"))).toBe(true);
       expect(existsSync(join(wiki, "b.md"))).toBe(true);
     },
   );
@@ -545,6 +545,94 @@ describe("migrar-areas: links simbólicos (R58)", () => {
       const r = await capturar(() => comandoMigrarAreas([wiki]));
       expect(r.codigo).toBe(0);
       expect(existsSync(join(wiki, "grupo", "a.md"))).toBe(true);
+    },
+  );
+});
+
+describe("migrar-areas: página symlink não escreve fora da wiki", () => {
+  const semLink = process.platform === "win32";
+  const ALVO = "type: x\nCorpo fora da wiki.\n";
+
+  function alvoFora(): string {
+    gravar("real.md", ALVO, join(tmp, "fora"));
+    return join(tmp, "fora", "real.md");
+  }
+
+  test.skipIf(semLink)(
+    "Dado a origem que é symlink para fora da wiki (pulado no Windows), Quando migro, Então reprova nomeando a página, nada é escrito fora e o link fica onde estava",
+    async () => {
+      const alvo = alvoFora();
+      symlinkSync(join("..", "fora", "real.md"), join(wiki, "link.md"));
+      mapa(["| link | alfa |"]);
+      const r = await capturar(() => comandoMigrarAreas([wiki]));
+      expect(r.codigo).toBe(1);
+      expect(r.erro).toHaveLength(1);
+      expect(r.erro[0]).toMatch(/^FAIL: link: .*fora da wiki.*; já movidas: nenhuma$/);
+      expect(readFileSync(alvo, "utf8")).toBe(ALVO);
+      expect(existsSync(join(wiki, "link.md"))).toBe(true);
+      expect(existsSync(join(wiki, "alfa", "link.md"))).toBe(false);
+    },
+  );
+
+  test.skipIf(semLink)(
+    "Dado o destino já migrado que é symlink para fora da wiki (pulado no Windows), Quando migro, Então reprova sem injetar area: no alvo",
+    async () => {
+      const alvo = alvoFora();
+      mkdirSync(join(wiki, "alfa"));
+      symlinkSync(alvo, join(wiki, "alfa", "link.md"));
+      mapa(["| link | alfa |"]);
+      const r = await capturar(() => comandoMigrarAreas([wiki]));
+      expect(r.codigo).toBe(1);
+      expect(r.erro[0]).toMatch(/^FAIL: link: .*fora da wiki/);
+      expect(readFileSync(alvo, "utf8")).toBe(ALVO);
+    },
+  );
+
+  test.skipIf(semLink)(
+    "Dado --simular com origem e destino symlinks para fora (pulado no Windows), Quando simulo, Então reprova igual à execução real e não escreve nada",
+    async () => {
+      const alvo = alvoFora();
+      symlinkSync(alvo, join(wiki, "link.md"));
+      mkdirSync(join(wiki, "beta"));
+      symlinkSync(alvo, join(wiki, "beta", "outro.md"));
+      mapa(["| link | alfa |"]);
+      const a = await capturar(() => comandoMigrarAreas([wiki, "--simular"]));
+      expect(a.codigo).toBe(1);
+      expect(a.erro[0]).toMatch(/^FAIL: link: .*fora da wiki/);
+      mapa(["| outro | beta |"]);
+      const b = await capturar(() => comandoMigrarAreas([wiki, "--simular"]));
+      expect(b.codigo).toBe(1);
+      expect(b.erro[0]).toMatch(/^FAIL: outro: .*fora da wiki/);
+      expect(readFileSync(alvo, "utf8")).toBe(ALVO);
+      expect(existsSync(join(wiki, "alfa"))).toBe(false);
+    },
+  );
+
+  test.skipIf(semLink)(
+    "Dado a origem que é symlink absoluto para dentro da wiki (pulado no Windows), Quando migro, Então segue normalmente",
+    async () => {
+      mkdirSync(join(wiki, "real"));
+      gravar("real/alvo.md", "type: x\n");
+      symlinkSync(join(wiki, "real", "alvo.md"), join(wiki, "link.md"));
+      mapa(["| link | alfa |"]);
+      const r = await capturar(() => comandoMigrarAreas([wiki]));
+      expect(r.codigo).toBe(0);
+      expect(r.saida).toContain("movida: link → alfa/link");
+      expect(ler("real/alvo.md")).toBe("type: x\narea: alfa\n");
+    },
+  );
+
+  test.skipIf(semLink)(
+    "Dado um destino que é link quebrado (pulado no Windows), Quando migro, Então é conflito e a origem não é movida",
+    async () => {
+      gravar("a.md", "type: x\n");
+      mkdirSync(join(wiki, "alfa"));
+      symlinkSync("nao-existe.md", join(wiki, "alfa", "a.md"));
+      mapa(["| a | alfa |"]);
+      const r = await capturar(() => comandoMigrarAreas([wiki]));
+      expect(r.codigo).toBe(1);
+      expect(r.saida).toContain("conflito (origem e destino existem, nada foi movido): a → alfa/a");
+      expect(existsSync(join(wiki, "a.md"))).toBe(true);
     },
   );
 });
