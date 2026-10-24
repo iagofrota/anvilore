@@ -27,8 +27,8 @@ Peças que existem hoje no repositório:
 - Proteção de `raw/` como hook: `hooks/proteger-raw.sh`.
 - Instalador para Claude Code, Codex, Gemini e Copilot: `instalar.sh`.
 - O porte para TypeScript no Bun, em andamento: `src/cli.ts` (tabela de subcomandos), a biblioteca
-  em `src/lib/` e dois subcomandos, `checar-docs` e `checar-release`, em `src/comandos/`. Os
-  scripts, o hook e o instalador acima ainda não foram substituídos.
+  em `src/lib/` e os subcomandos `checar-docs`, `checar-release` e `fatiar-log`, em `src/comandos/`.
+  Os scripts, o hook e o instalador acima, salvo o `fatiar-log`, ainda não foram substituídos.
 
 ## Para onde ir com cada pergunta
 

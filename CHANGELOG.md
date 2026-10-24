@@ -9,6 +9,12 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Changed
+
+- O fatiamento do `wiki/log.md` em um arquivo por dia agora é o comando `bun src/cli.ts fatiar-log [WIKI]`
+  (antes, `scripts/fatiar-log.py`). Mesmo comportamento: migração única que recusa rodar se algum arquivo
+  de destino já existir e relata em voz alta o preâmbulo que não vai para nenhum arquivo de dia.
+
 ## [0.1.0] - 2026-10-24
 
 Primeira versão da base nova do Anvilore, em TypeScript no Bun. Ela ainda não troca os scripts

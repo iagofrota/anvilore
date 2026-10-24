@@ -19,7 +19,6 @@ BASH_PORTADOS=(
 )
 PY_PORTADOS=(
   scripts/listar-lacunas.py
-  scripts/fatiar-log.py
   scripts/rejuntar-linhas.py
 )
 PORTADOS=("${BASH_PORTADOS[@]}" "${PY_PORTADOS[@]}")
@@ -27,7 +26,6 @@ TESTES_NOVOS=(
   tests/test-sincronizar-indice.sh
   tests/test-listar-lacunas.sh
   tests/test-indexar-log.sh
-  tests/test-fatiar-log.sh
   tests/test-rejuntar-linhas.sh
   tests/test-migrar-areas.sh
   tests/test-fechar-wiki.sh
@@ -137,7 +135,7 @@ rm -f "$isca"
 
 # Nenhuma fixture de teste escreve dentro do wiki/ versionado: os testes que
 # movem e fatiam arquivos precisam viver em diretorio temporario.
-for f in tests/test-fatiar-log.sh tests/test-migrar-areas.sh; do
+for f in tests/test-migrar-areas.sh; do
   if grep -qE 'mktemp -d' "$f"; then
     ok "$(basename "$f"): opera em diretorio temporario"
   else
@@ -163,7 +161,7 @@ for s in "${PY_PORTADOS[@]}"; do
   fi
 done
 [ "${#BASH_PORTADOS[@]}" -eq 4 ] && ok "4 scripts bash" || falha "${#BASH_PORTADOS[@]} scripts bash (esperado 4)"
-[ "${#PY_PORTADOS[@]}" -eq 3 ]   && ok "3 scripts Python 3" || falha "${#PY_PORTADOS[@]} scripts Python 3 (esperado 3)"
+[ "${#PY_PORTADOS[@]}" -eq 2 ]   && ok "2 scripts Python 3" || falha "${#PY_PORTADOS[@]} scripts Python 3 (esperado 2)"
 
 # Os 7 existem e sao executaveis.
 for s in "${PORTADOS[@]}"; do
