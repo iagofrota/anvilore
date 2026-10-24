@@ -22,6 +22,11 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   `CHANGELOG.md` estiver ausente ou sem nenhum item entregue, ou se alguma página de
   `docs/knowledge_base/` não tiver a data em que uma pessoa a revisou (`verified`). No CI, roda
   só quando uma tag de versão é criada.
+- Documentação do próprio Anvilore em `docs/knowledge_base/`, escrita para agentes que desenvolvem o
+  projeto ou respondem dúvidas sobre ele, e uma seção no `AGENTS.md` que aponta para ela. As
+  páginas ainda esperam a revisão de uma pessoa.
+- Comando `anvilore checar-docs`: reprova link quebrado e menção a arquivo inexistente nas páginas
+  de `docs/knowledge_base/`. Roda no CI em Linux, Windows e macOS a cada envio de código.
 
 ### Não resolvido nesta versão
 
