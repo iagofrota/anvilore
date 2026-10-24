@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { comandoBaseline, conferirBaseline } from "../src/comandos/baseline";
+import { join, posix, win32 } from "node:path";
+import { comandoBaseline, conferirBaseline, problemaDeFixture } from "../src/comandos/baseline";
 import { classificarRecurso, validarRecurso } from "../src/lib/okf";
 import { executar, subcomandos } from "../src/cli";
 
@@ -174,6 +174,76 @@ describe("tabela ilegível ou fora do formato", () => {
   test("Dado comentários, linhas em branco e CRLF, Quando confiro, Então são ignorados e a tabela é lida", async () => {
     const r = await conferirBaseline(variacao((t) => `# nota\r\n\r\n${t.replaceAll("\n", "\r\n")}`));
     expect(r).toMatchObject({ ok: true, divergencias: [] });
+  });
+});
+
+const RAIZ = { posix: "/tmp/base/repo", win32: "C:\\Temp\\base\\repo" } as const;
+
+describe("fixture contida na raiz temporária", () => {
+  test.each([
+    ["raw/existe-okf.md"],
+    ["raw/reunioes/notas com espaco existente.md"],
+    ["wiki/_meta/existe.md"],
+    ["raw/dir-existente"],
+  ])("Dado a fixture %j, Quando resolvo em posix e em win32, Então fica dentro da raiz", (caminho) => {
+    expect(problemaDeFixture(caminho, RAIZ.posix, posix)).toBeNull();
+    expect(problemaDeFixture(caminho, RAIZ.win32, win32)).toBeNull();
+  });
+
+  test("Dado ..\\..\\escape.txt, Quando resolvo com path.win32, Então escapa da raiz e reprova (o que o path.join deixava passar)", () => {
+    const alvo = win32.resolve(RAIZ.win32, "..\\..\\escape.txt");
+    expect(win32.relative(RAIZ.win32, alvo).startsWith("..")).toBe(true);
+    expect(problemaDeFixture("..\\..\\escape.txt", RAIZ.win32, win32)).toContain("contida na raiz");
+  });
+
+  test.each([
+    ["../../escape.txt", "contida na raiz"],
+    ["raw/../../escape.txt", "contida na raiz"],
+    ["raw/../ok.md", "contida na raiz"],
+    ["..\\escape.txt", "contida na raiz"],
+    ["raw\\..\\..\\escape.txt", "contida na raiz"],
+    ["/etc/passwd", "contida na raiz"],
+    ["\\\\servidor\\share\\x", "contida na raiz"],
+    ["C:\\Windows\\x", "contida na raiz"],
+    ["C:x", "contida na raiz"],
+    ["raw/arquivo:fluxo", "contida na raiz"],
+    ["raw\\x.md", "contida na raiz"],
+    ["", "contida na raiz"],
+  ])("Dado a fixture %j, Quando resolvo em posix e em win32, Então reprova nas duas plataformas", (caminho, trecho) => {
+    expect(problemaDeFixture(caminho, RAIZ.posix, posix)).toContain(trecho);
+    expect(problemaDeFixture(caminho, RAIZ.win32, win32)).toContain(trecho);
+  });
+
+  test.each([["CON"], ["raw/nul.txt"], ["Prn"], ["aux.md"], ["raw/COM1"], ["lpt9.log"], ["raw/com0.md"]])(
+    "Dado o nome reservado do Windows %j, Quando resolvo, Então reprova nas duas plataformas", (caminho) => {
+      expect(problemaDeFixture(caminho, RAIZ.posix, posix)).toContain("nome reservado do Windows");
+      expect(problemaDeFixture(caminho, RAIZ.win32, win32)).toContain("nome reservado do Windows");
+    });
+
+  test.each([["raw./x.md"], ["raw /x.md"], ["raw/x."], ["raw/a?b.md"], ["raw/a*b.md"], ['raw/a"b.md'], ["raw/a<b.md"], ["raw/a|b.md"]])(
+    "Dado o nome %j que o Windows normaliza ou recusa, Quando resolvo, Então reprova", (caminho) => {
+      expect(problemaDeFixture(caminho, RAIZ.win32, win32)).toContain("nome reservado do Windows");
+    });
+
+  test.each([
+    "@fixture\tfile\t..\\..\\escape.txt\n",
+    "@fixture\tdir\tC:\\x\n",
+    "@fixture\tfile\traw/CON\n",
+    "@fixture\tfile\traw/a:b\n",
+    "@fixture\tfile\t/abs\n",
+  ])("Dado o TSV %j, Quando confiro, Então reprova com a linha, sai 1 e não escreve nada fora da raiz", async (conteudo) => {
+    const fora = join(tmpdir(), "escape.txt");
+    const existia = existsSync(fora);
+    writeFileSync(tsv, `${conteudo}`);
+    const r = await conferirBaseline(tsv);
+    expect(r.ok).toBe(false);
+    expect(r.relato).toEqual([]);
+    expect(r.divergencias).toHaveLength(1);
+    expect(r.divergencias[0]).toMatch(new RegExp(`^FAIL: ${tsv.replace(/[\\.]/g, "\\$&")}:1: fixture `));
+    expect(existsSync(fora)).toBe(existia);
+    const saida = await capturar(() => comandoBaseline([tsv]));
+    expect(saida.codigo).toBe(1);
+    expect(saida.saida).toEqual([]);
   });
 });
 

@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, posix, win32 } from "node:path";
 import { parseArgs } from "node:util";
 import { classificarRecurso, validarRecurso } from "../lib/okf";
 
@@ -30,6 +30,28 @@ const MINIMO_DE_VALORES = 26;
 
 class BaselineInvalido extends Error {}
 
+const RAIZ_POSIX = "/tmp/anvilore-baseline/repo";
+const RAIZ_WIN32 = "C:\\Temp\\anvilore-baseline\\repo";
+const NOME_RESERVADO = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
+
+// A fixture é criada com writeFileSync: um caminho que escapa da raiz temporária sobrescreveria
+// arquivo alheio. A tabela é a mesma em qualquer sistema, então a checagem roda com as regras
+// de caminho do posix e do win32, resolvendo o alvo e exigindo que continue dentro da raiz.
+export function problemaDeFixture(caminho: string, raiz: string, modulo: typeof posix): string | null {
+  const fora = `fixture tem de ser relativa e contida na raiz: ${caminho}`;
+  if (caminho === "" || /[\\:]/.test(caminho) || modulo.isAbsolute(caminho) || caminho.startsWith("/")) return fora;
+  const segmentos = caminho.split("/");
+  if (segmentos.some((s) => s === "" || s === "." || s === "..")) return fora;
+  const alvo = modulo.resolve(raiz, caminho);
+  const relativo = modulo.relative(raiz, alvo);
+  if (relativo === "" || relativo.startsWith("..") || modulo.isAbsolute(relativo)) return fora;
+  // O Windows apara ponto e espaço finais e trata estes nomes como dispositivos, com ou sem extensão.
+  if (segmentos.some((s) => NOME_RESERVADO.test(s.split(".")[0]!) || /[. ]$/.test(s) || /[<>"|?*]/.test(s))) {
+    return `fixture com nome reservado do Windows: ${caminho}`;
+  }
+  return null;
+}
+
 function carregar(texto: string, tsv: string): { fixtures: Fixture[]; entradas: Entrada[] } {
   const fixtures: Fixture[] = [];
   const entradas: Entrada[] = [];
@@ -42,7 +64,8 @@ function carregar(texto: string, tsv: string): { fixtures: Fixture[]; entradas: 
     if (campos[0] === "@fixture") {
       const [, tipo, caminho] = campos;
       if (campos.length !== 3 || (tipo !== "file" && tipo !== "dir")) throw invalido('@fixture espera "@fixture<TAB>file|dir<TAB>caminho"');
-      if (caminho!.startsWith("/") || caminho!.split("/").includes("..")) throw invalido(`fixture tem de ser relativa e contida na raiz: ${caminho}`);
+      const problema = problemaDeFixture(caminho!, RAIZ_POSIX, posix) ?? problemaDeFixture(caminho!, RAIZ_WIN32, win32);
+      if (problema !== null) throw invalido(problema);
       fixtures.push({ tipo, caminho: caminho! });
       return;
     }
