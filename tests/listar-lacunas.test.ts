@@ -218,6 +218,15 @@ testeSymlink("Dado symlink que aponta para si mesmo, Quando consulto, Então avi
   expect(r.erro).toEqual([`AVISO: symlink quebrado: ${link}`]);
 });
 
+test("Dado um diretório chamado x.md na wiki, Quando consulto, Então avisa o caminho em stderr e não o trata como página", async () => {
+  const pasta = join(wiki, "alfa", "pasta.md");
+  mkdirSync(pasta);
+  const r = await capturar(() => comandoListarLacunas([wiki, "--consultar"]));
+  expect(r.codigo).toBe(0);
+  expect(r.erro).toEqual([`AVISO: diretório com nome de página ignorado: ${pasta}`]);
+  expect(r.saida.join("\n")).not.toContain("pasta");
+});
+
 test("Dado quatro callouts e --limite -1 separado, Quando consulto, Então retorna todos menos o último", async () => {
   const r = await capturar(() => comandoListarLacunas([wiki, "--consultar", "--limite", "-1"]));
   expect(r.codigo).toBe(0);

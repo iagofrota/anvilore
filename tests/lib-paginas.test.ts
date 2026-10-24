@@ -73,9 +73,17 @@ test("Dado ignorar para um nome, Quando listo, Então o diretório inteiro fica 
   expect(await relativas((nome) => nome === "log")).toEqual(["keep/p.md"]);
 });
 
-test("Dado um diretório chamado como página, Quando listo, Então desce nele e não o lista", async () => {
+test("Dado um diretório chamado como página, Quando listo, Então avisa, não o lista e desce nele", async () => {
   gravar("pasta.md/dentro.md");
-  expect(await relativas()).toEqual(["pasta.md/dentro.md"]);
+  const erro = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    expect(await relativas()).toEqual(["pasta.md/dentro.md"]);
+    expect(erro.mock.calls.map((c) => c.join(" "))).toEqual([
+      `AVISO: diretório com nome de página ignorado: ${join(raiz, "pasta.md")}`,
+    ]);
+  } finally {
+    erro.mockRestore();
+  }
 });
 
 const testeSymlink = process.platform === "win32" ? test.skip : test;

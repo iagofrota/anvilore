@@ -390,6 +390,13 @@ test("Dado um arquivo no lugar da wiki, Quando audito, Então sai 2", async () =
   expect((await auditarWiki(arquivo, HOJE)).codigo).toBe(2);
 });
 
+test("Dado um diretório chamado x.md na wiki, Quando executo auditar, Então avisa o caminho em stderr e não o trata como página", async () => {
+  mkdirSync(join(W, "exemplo", "pasta.md"));
+  const r = await capturar(() => comandoAuditar([W]));
+  expect(r.erro).toEqual([`AVISO: diretório com nome de página ignorado: ${join(W, "exemplo", "pasta.md")}`]);
+  expect(r.saida.join("\n")).not.toContain("pasta");
+});
+
 // Symlinks (R58/R61) -----------------------------------------------------
 
 const testeSymlink = process.platform === "win32" ? test.skip : test;

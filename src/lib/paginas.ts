@@ -40,7 +40,11 @@ export async function paginasMarkdown(pasta: string, ignorar: (nome: string) => 
         continue;
       }
     }
-    if (alvo.isDirectory()) paginas.push(...await paginasMarkdown(caminho, ignorar));
+    if (alvo.isDirectory()) {
+      // O Python listava `x.md` (diretório) e quebrava ao ler; aqui desce nele, mas não pula em silêncio.
+      if (entrada.name.endsWith(".md")) console.error(`AVISO: diretório com nome de página ignorado: ${caminho}`);
+      paginas.push(...await paginasMarkdown(caminho, ignorar));
+    }
     else if (alvo.isFile() && entrada.name.endsWith(".md")) paginas.push(caminho);
   }
   return paginas;

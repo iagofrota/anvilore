@@ -39,8 +39,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   `--diff` usa memória linear e a mensagem de opção inválida vem em português.
 - A auditoria estrutural da wiki agora é `bun src/cli.ts auditar [WIKI]` (antes, `scripts/auditar-wiki.py`). Mesmas
   cinco seções, mesmas mensagens e mesmos códigos de saída (0 sem achado, 1 com achado, 2 wiki inexistente); continua
-  sem escrever. Mudou de propósito: página que é symlink entra pelo caminho do link, link quebrado e symlink de
-  diretório geram um `AVISO:` em vez de sumir em silêncio, e erro de leitura sai 2 com mensagem em vez de traceback;
+  sem escrever. Mudou de propósito: página que é symlink entra pelo caminho do link, link quebrado, symlink de
+  diretório e diretório com nome de página (`x.md`) geram um `AVISO:` em vez de sumir em silêncio, e erro de leitura sai 2 com mensagem em vez de traceback;
   `--help` mostra o uso e sai 2.
 
 ## [0.1.0] - 2026-10-24
