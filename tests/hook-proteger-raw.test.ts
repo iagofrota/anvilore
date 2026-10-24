@@ -327,3 +327,24 @@ for (const comando of ["rm -rf wiki/tmp", "rm -f *.tmp", "rm -rf node_modules", 
     expect(decidir(terminal(comando)).acao).toBe("liberar");
   });
 }
+
+// Grupo E — argumentos do próprio envolvedor e cd -.
+for (const comando of ["env -C raw rm a", "env --chdir=raw rm a", "env -S 'rm raw/a'", "xargs -a raw/lista rm", "sudo -D raw rm a", "nice -n 5 -C raw rm a", "timeout -k raw 5 rm a"]) {
+  test(`Dado envolvedor cujas opções citam raw ${comando} Quando executa escrita Então bloqueia`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  });
+}
+test("Dado envolvedor sem comando Quando recebe pipe com raw Então só o xargs, que repete a entrada, libera", () => {
+  expect(decidir(terminal("cat raw/cmds | parallel")).acao).toBe("bloquear");
+  expect(decidir(terminal("cat raw/cmds | sudo -s")).acao).toBe("bloquear");
+  expect(decidir(terminal("cat raw/cmds | env")).acao).toBe("bloquear");
+  expect(decidir(terminal("cat raw/cmds | xargs")).acao).toBe("liberar");
+  expect(decidir(terminal("cat wiki/cmds | parallel")).acao).toBe("liberar");
+  expect(decidir(terminal("env")).acao).toBe("liberar");
+});
+test("Dado cd - e popd Quando voltam a raw Então o diretório anterior é seguido", () => {
+  expect(decidir(terminal("cd raw && cd ../wiki && cd - && rm a")).acao).toBe("bloquear");
+  expect(decidir(terminal("cd raw && cd ../wiki && popd && touch a")).acao).toBe("bloquear");
+  expect(decidir(terminal("cd wiki && cd raw && cd - && touch a")).acao).toBe("liberar");
+  expect(decidir(terminal("cd raw && cd - && touch a")).acao).toBe("liberar");
+});

@@ -11,7 +11,7 @@ const CHAVES = new Set(["file_path", "filepath", "notebook_path", "notebookpath"
   "destination", "destinationpath", "destination_path", "dest", "new_path", "newpath", "old_path", "oldpath", "target_path", "targetpath", "output_path", "outputpath"]);
 const TERMINAIS = new Set(["bash", "exec_command", "shell_command", "shell", "local_shell", "run_shell_command", "powershell", "run_in_terminal"]);
 const LEITORES = new Set(["read", "read_file", "view", "read_notebook", "list_dir", "glob", "grep"]);
-const MUDAM_DIRETORIO = new Set(["cd", "chdir", "pushd", "set-location", "sl"]);
+const MUDAM_DIRETORIO = new Set(["cd", "chdir", "pushd", "popd", "set-location", "sl"]);
 const LEITURAS_TERMINAL = new Set([
   "cat", "rg", "grep", "ls", "head", "tail", "wc", "echo", "printf", "pwd", "stat", "file", "diff",
   "cut", "du", "sha256sum", "md5sum", "shasum", "basename", "dirname", "realpath", "readlink",
@@ -165,7 +165,11 @@ function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar
   const verbo = comando[0]!.split(/[\\/]/).pop()!.toLowerCase().replace(/\.exe$/, "");
   if (ENVOLVEDORES.has(verbo)) {
     const resto = desembrulhar(args);
-    return resto.length ? segmentoEscreve(resto, cwd, doPipe, forcar || doPipe) : false;
+    // Opções do próprio envolvedor também podem apontar para raw/ (`env -C raw`, `xargs -a raw/lista`).
+    if (args.slice(0, args.length - resto.length).some(arg => escreveEmRaw(arg, cwd) || citaRaw(arg))) return true;
+    // Sem comando, só o xargs é inofensivo (repete a entrada); `parallel`, `sudo -s` e `env` lendo raw/ pelo pipe não são.
+    if (!resto.length) return doPipe && verbo !== "xargs";
+    return segmentoEscreve(resto, cwd, doPipe, forcar || doPipe);
   }
   if (doPipe && SHELLS.has(verbo)) return true;
   if (apagaAncestral(verbo, args, cwd)) return true;
@@ -178,7 +182,7 @@ function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar
     });
     return (alvos.length ? alvos : [args.at(-1) ?? ""]).some(alvo => escreveEmRaw(alvo, cwd));
   }
-  if (!forcar && !args.some(palavra => escreveEmRaw(palavra, cwd) || citaRaw(palavra))) return false;
+  if (!forcar && !estaEmRaw(comando[0]!) && !args.some(palavra => escreveEmRaw(palavra, cwd) || citaRaw(palavra))) return false;
   if (verbo === "rg") return args.some(arg => arg === "--pre" || arg.startsWith("--pre="));
   // Interpretadores com script próprio escrevem onde quiserem: citando raw/, só passa sed sem -i e sem comando w/e.
   if (verbo === "perl") return true;
@@ -200,13 +204,18 @@ function terminalEscreve(comando: unknown, cwdInicial: string): boolean {
   let cwd = cwdInicial;
   let palavras: string[] = [];
   let doPipe = false;
+  let anterior: string | undefined;
   const tokens = tokensDoComando(comando);
   function fechar(): boolean {
     const verbo = palavras[0]?.toLowerCase();
     if (verbo !== undefined && MUDAM_DIRETORIO.has(verbo)) {
       const alvos = palavras.slice(1).filter(palavra => !palavra.startsWith("-") || palavra === "-");
-      const alvo = (alvos[0] ?? "").replaceAll("\\", "/");
-      if (alvo !== "-") cwd = /^(?:[a-z]:|\/)/i.test(alvo) || !cwd ? posix.normalize(alvo || ".") : posix.normalize(`${cwd.replaceAll("\\", "/")}/${alvo}`);
+      const alvo = verbo === "popd" ? "-" : (alvos[0] ?? "").replaceAll("\\", "/");
+      const antes = cwd;
+      if (alvo === "-") {
+        if (anterior !== undefined) cwd = anterior;
+      } else cwd = /^(?:[a-z]:|\/)/i.test(alvo) || !cwd ? posix.normalize(alvo || ".") : posix.normalize(`${cwd.replaceAll("\\", "/")}/${alvo}`);
+      anterior = antes;
       palavras = [];
       return false;
     }
