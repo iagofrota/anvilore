@@ -4,6 +4,7 @@ import { comandoChecarDocs } from "./comandos/checar-docs";
 import { comandoChecarRelease } from "./comandos/checar-release";
 import { comandoFatiarLog } from "./comandos/fatiar-log";
 import { comandoSincronizarIndice } from "./comandos/sincronizar-indice";
+import { comandoMigrarAreas } from "./comandos/migrar-areas";
 
 export type Subcomando = (args: string[]) => Promise<number>;
 export type TabelaDeSubcomandos = Record<string, Subcomando>;
@@ -14,6 +15,7 @@ export const subcomandos: TabelaDeSubcomandos = {
   "checar-release": comandoChecarRelease,
   "fatiar-log": comandoFatiarLog,
   "sincronizar-indice": comandoSincronizarIndice,
+  "migrar-areas": comandoMigrarAreas,
 };
 
 function listar(tabela: TabelaDeSubcomandos): string {

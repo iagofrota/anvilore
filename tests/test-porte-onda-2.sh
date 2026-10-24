@@ -2,7 +2,7 @@
 # B8-B11 — criterios que valem para o porte inteiro, nao para um script so:
 #   B8  rodape de atribuicao ao wiki-wonka nos scripts restantes
 #   B9  nenhum conteudo pessoal nos scripts nem nos testes
-#   B10 runtime preservado nos scripts restantes: 3 bash + 2 Python 3
+#   B10 runtime preservado nos scripts restantes: 2 bash + 2 Python 3
 #   B11 os dois scripts do nivel 04 NAO foram portados
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
@@ -13,7 +13,6 @@ falha() { echo "  FALHA: $*"; falhas=$((falhas+1)); }
 
 BASH_PORTADOS=(
   scripts/indexar-log.sh
-  scripts/migrar-areas.sh
   scripts/fechar-wiki.sh
 )
 PY_PORTADOS=(
@@ -25,7 +24,6 @@ TESTES_NOVOS=(
   tests/test-listar-lacunas.sh
   tests/test-indexar-log.sh
   tests/test-rejuntar-linhas.sh
-  tests/test-migrar-areas.sh
   tests/test-fechar-wiki.sh
   tests/test-porte-onda-2.sh
 )
@@ -134,18 +132,11 @@ fi
 rm -f "$isca"
 [ "$nao_rastreados" -gt 0 ] && echo "  nota: $nao_rastreados arquivo(s) ainda nao rastreado(s) — varridos na arvore de trabalho"
 
-# Nenhuma fixture de teste escreve dentro do wiki/ versionado: os testes que
-# movem e fatiam arquivos precisam viver em diretorio temporario.
-for f in tests/test-migrar-areas.sh; do
-  if grep -qE 'mktemp -d' "$f"; then
-    ok "$(basename "$f"): opera em diretorio temporario"
-  else
-    falha "$(basename "$f"): nao usa mktemp -d — pode tocar o wiki/ real"
-  fi
-done
+# Os testes que movem e fatiam arquivos (migrar-areas, fatiar-log) agora sao .test.ts e usam
+# mkdtemp de node:os; a trava de diretorio temporario mora neles.
 
 # ============================================================================
-# B10 — runtime preservado: 3 bash, 2 Python 3
+# B10 — runtime preservado: 2 bash, 2 Python 3
 # ============================================================================
 for s in "${BASH_PORTADOS[@]}"; do
   if [ "$(head -1 "$s")" = "#!/usr/bin/env bash" ]; then
@@ -161,6 +152,10 @@ for s in "${PY_PORTADOS[@]}"; do
     falha "$(basename "$s"): shebang '$(head -1 "$s")' (esperado python3)"
   fi
 done
+[ "${#BASH_PORTADOS[@]}" -eq 2 ] && ok "2 scripts bash" || falha "${#BASH_PORTADOS[@]} scripts bash (esperado 2)"
+[ "${#PY_PORTADOS[@]}" -eq 2 ]   && ok "2 scripts Python 3" || falha "${#PY_PORTADOS[@]} scripts Python 3 (esperado 2)"
+
+# Os scripts restantes existem e sao executaveis.
 for s in "${PORTADOS[@]}"; do
   [ -f "$s" ] || { falha "$s nao existe"; continue; }
   [ -x "$s" ] && ok "$(basename "$s"): executavel" || falha "$(basename "$s"): sem bit de execucao"

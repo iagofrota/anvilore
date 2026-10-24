@@ -61,7 +61,7 @@ Os quatro níveis do `README.md` não são um roteiro a cumprir: cada um só
 existe porque o anterior doeu em algum ponto nomeado. A estrutura de áreas
 temáticas é o caso mais claro — o campo `area` é **opcional** no `SCHEMA.md`,
 e uma wiki plana, com as páginas soltas na raiz de `wiki/`, continua válida e
-continua validando. Quando a dor chegar, `scripts/migrar-areas.sh` move as
+continua validando. Quando a dor chegar, `bun src/cli.ts migrar-areas` move as
 páginas para as áreas e injeta o campo no frontmatter, com `--simular` para
 ver antes.
 

@@ -16,6 +16,10 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   de destino já existir e relata em voz alta o preâmbulo que não vai para nenhum arquivo de dia.
 - A contagem dos índices de área agora é sincronizada pelo comando TypeScript
   `anvilore sincronizar-indice`, com modo `--checar` que não escreve.
+- A migração de páginas para as áreas da wiki agora é o comando `bun src/cli.ts migrar-areas [WIKI] [--simular]`
+  (antes, `scripts/migrar-areas.sh`). Mesmo mapa de roteamento e mesmas mensagens; usa `git mv` quando a página é
+  versionada e `rename` quando não é. Mudou só um caso destrutivo: se a página existir na origem e no destino, ela
+  não é mais sobrescrita; o comando relata o conflito e sai com 1.
 
 ## [0.1.0] - 2026-10-24
 
