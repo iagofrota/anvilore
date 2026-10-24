@@ -88,11 +88,22 @@ function resolverShell(nome: string): { exe: string; args: (comando: string) => 
 export async function rodarCenarios(formas: Forma[], cwd: string = raiz): Promise<number> {
   const dirBun = dirname(Bun.which("bun") ?? process.execPath);
   let falhas = 0;
+  // Comandos de anotação do GitHub Actions: uma linha só, com %, CR e LF escapados (propriedades também escapam : e ,).
+  const escapar = (texto: string, propriedade = false) => {
+    const base = texto.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
+    return propriedade ? base.replaceAll(":", "%3A").replaceAll(",", "%2C") : base;
+  };
+  const anotar = (nivel: "error" | "warning", titulo: string, mensagem: string) => {
+    if (process.env.GITHUB_ACTIONS === "true") console.log(`::${nivel} title=${escapar(titulo, true)}::${escapar(mensagem)}`);
+  };
   const recorte = (texto: string) => texto.trim().replace(/\s+/g, " ").slice(0, 600);
-  const relatar = (linha: string, falhou: boolean, informativo: boolean, detalhes: string[] = []) => {
+  const relatar = (linha: string, falhou: boolean, informativo: boolean, detalhes: string[] = [], anotacao?: { titulo: string; mensagem: string }) => {
     if (falhou && !informativo) falhas++;
     console.log(`${falhou ? (informativo ? "INFO" : "FALHA") : "ok"}: ${linha}`);
-    if (falhou) for (const detalhe of detalhes) console.log(`    ${detalhe}`);
+    if (falhou) {
+      for (const detalhe of detalhes) console.log(`    ${detalhe}`);
+      if (anotacao) anotar(informativo ? "warning" : "error", anotacao.titulo, anotacao.mensagem);
+    }
   };
   for (const forma of formas) {
     const rotulo = `${forma.agente}.${forma.campo}`;
@@ -101,7 +112,8 @@ export async function rodarCenarios(formas: Forma[], cwd: string = raiz): Promis
       if (!shell) {
         // No CI (ANVILORE_EXIGIR_SHELLS=1) a ausência de um shell exigido reprova; fora dele, é um aviso em voz alta.
         relatar(`${rotulo} em ${nome}: shell indisponível neste sistema`, true, informativo || process.env.ANVILORE_EXIGIR_SHELLS !== "1",
-          [`PATH: ${valorDoPath() ?? "(vazio)"}`, `plataforma: ${process.platform}`]);
+          [`PATH: ${valorDoPath() ?? "(vazio)"}`, `plataforma: ${process.platform}`],
+          { titulo: `${rotulo}/${nome}`, mensagem: `shell indisponível em ${process.platform}` });
         continue;
       }
       const rodar = (payload: string, env: Ambiente) => {
@@ -121,7 +133,10 @@ export async function rodarCenarios(formas: Forma[], cwd: string = raiz): Promis
         relatar(`${rotulo} em ${nome}: ${cenario} → saída ${r.codigo} (esperado ${esperado ?? "diferente de 0"})`, falhou, informativo || (cenario === "sem bun no PATH" && forma.semBunInformativo === true), [
           `shell: ${shell.exe} ${shell.args("<comando>").slice(0, -1).join(" ")}`, `comando: ${forma.comando}`, `cwd: ${cwd}`,
           `saída: ${r.codigo}`, `stdout: ${recorte(r.stdout)}`, `stderr: ${recorte(r.stderr)}`,
-        ]);
+        ], {
+          titulo: `${rotulo}/${nome}`,
+          mensagem: `${cenario}: esperado ${esperado ?? "diferente de 0"} obtido ${r.codigo}; stdout=${recorte(r.stdout)}; stderr=${recorte(r.stderr)}`,
+        });
       }
     }
   }

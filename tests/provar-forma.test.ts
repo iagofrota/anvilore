@@ -107,3 +107,39 @@ test("Dado o shell pedido ausente Quando a prova explica Então lista onde procu
     expect(consoleCapturado.saida.join("\n")).toContain("PATH:");
   } finally { consoleCapturado.restaurar(); }
 });
+
+// Anotações do GitHub Actions: o líder lê só as anotações da API pública, então cada falha ou INFO precisa de uma linha curta.
+test("Dado o GitHub Actions Quando um caso falha ou vira INFO Então emite ::error e ::warning numa linha só, escapados", async () => {
+  const consoleCapturado = capturarConsole();
+  const antes = process.env.GITHUB_ACTIONS;
+  process.env.GITHUB_ACTIONS = "true";
+  try {
+    const falha: Forma = { agente: "falso", campo: "command", comando: "echo 100%; echo 'linha1\nlinha2' >&2; exit 0", shells: ["bash"] };
+    const info: Forma = { agente: "info", campo: "command", comando: "exit 0", shells: [], informativos: ["bash"] };
+    expect(await rodarCenarios([falha, info])).toBe(1);
+    const linhas = consoleCapturado.saida.join("\n").split("\n");
+    const erros = linhas.filter(l => l.startsWith("::error "));
+    const avisos = linhas.filter(l => l.startsWith("::warning "));
+    expect(erros.length).toBeGreaterThan(0); expect(avisos.length).toBeGreaterThan(0);
+    expect(erros[0]).toMatch(/^::error title=falso\.command\/bash::escrita em raw: esperado 2 obtido 0; stdout=.*; stderr=/);
+    expect(erros[0]).toContain("100%25"); expect(erros[0]).toContain("stderr=linha1 linha2");
+    expect(avisos[0]).toMatch(/^::warning title=info\.command\/bash::/);
+    expect(erros.every(l => !l.includes("\n"))).toBe(true);
+  } finally {
+    if (antes === undefined) delete process.env.GITHUB_ACTIONS; else process.env.GITHUB_ACTIONS = antes;
+    consoleCapturado.restaurar();
+  }
+});
+
+test("Dado fora do GitHub Actions Quando um caso falha Então não emite comandos de anotação", async () => {
+  const consoleCapturado = capturarConsole();
+  const antes = process.env.GITHUB_ACTIONS;
+  delete process.env.GITHUB_ACTIONS;
+  try {
+    await rodarCenarios([{ agente: "falso", campo: "command", comando: "exit 0", shells: ["bash"] }]);
+    expect(consoleCapturado.saida.join("\n")).not.toContain("::error");
+  } finally {
+    if (antes !== undefined) process.env.GITHUB_ACTIONS = antes;
+    consoleCapturado.restaurar();
+  }
+});
