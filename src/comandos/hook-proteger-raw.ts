@@ -18,9 +18,22 @@ const LEITURAS_TERMINAL = new Set([
   "nl", "tac", "od", "strings", "test", "[", "true", "false",
   "get-content", "gc", "type", "dir", "get-childitem", "gci", "select-string", "sls", "get-item", "gi", "get-filehash",
 ]);
-// Verbos que executam outro comando: o que importa é o comando de dentro. `OPCOES_COM_VALOR` são as opções que levam argumento próprio.
+// Verbos que executam outro comando: o que importa é o comando de dentro (as opções de cada um estão em OPCOES_ENVOLVEDOR).
 const ENVOLVEDORES = new Set(["xargs", "parallel", "env", "nice", "nohup", "time", "sudo", "doas", "command", "builtin", "exec", "timeout", "stdbuf", "ionice", "setsid"]);
-const OPCOES_COM_VALOR = new Set(["-I", "-n", "-P", "-L", "-d", "-E", "-s", "-a", "-u", "-g", "-C", "-i", "-l", "-S", "-k"]);
+// Opções de cada envolvedor que levam argumento próprio, e quantos posicionais vêm antes do comando (timeout: a duração).
+const OPCOES_ENVOLVEDOR: Record<string, { valor: string[]; posicionais?: number }> = {
+  env: { valor: ["-u", "--unset", "-C", "--chdir", "-S", "--split-string"] },
+  timeout: { valor: ["-s", "--signal", "-k", "--kill-after"], posicionais: 1 },
+  nice: { valor: ["-n", "--adjustment"] },
+  ionice: { valor: ["-c", "-n", "-p", "-P", "-u", "--class", "--classdata"] },
+  sudo: { valor: ["-u", "-g", "-C", "-h", "-p", "-r", "-t", "-U", "-D", "-R", "-T", "--user", "--group", "--chdir"] },
+  doas: { valor: ["-u", "-C"] },
+  time: { valor: ["-o", "-f", "--output", "--format"] },
+  stdbuf: { valor: ["-i", "-o", "-e"] },
+  xargs: { valor: ["-I", "-n", "-P", "-L", "-d", "-E", "-s", "-a", "-l", "-i"] },
+  parallel: { valor: ["-j", "-S", "-a", "-N", "-n", "-L", "-I"] },
+  exec: { valor: ["-a"] },
+};
 const VERBOS_APAGAR = new Set(["rm", "rmdir", "rd", "del", "erase", "remove-item", "ri"]);
 // Atribuição de variável antes do comando que não é só locale: pode apontar programa externo (GIT_*, PAGER, HOME, XDG_CONFIG_HOME...).
 const ambienteInseguro = (atribuicao: string) => /^[A-Za-z_]\w*=/.test(atribuicao) && !/^(?:LC_\w+|LANG|LANGUAGE|TZ|TERM|NO_COLOR|COLUMNS|LINES)=/.test(atribuicao);
@@ -163,13 +176,19 @@ function apagaAncestral(verbo: string, args: string[], cwd: string): boolean {
   return false;
 }
 
-function desembrulhar(args: string[]): string[] {
+function desembrulhar(verbo: string, args: string[]): string[] {
+  const { valor, posicionais = 0 } = OPCOES_ENVOLVEDOR[verbo] ?? { valor: [] };
+  let pular = posicionais;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (/^[A-Za-z_]\w*=/.test(arg)) continue;
     if (arg === "--") return args.slice(i + 1);
-    if (!arg.startsWith("-")) return args.slice(i);
-    if (OPCOES_COM_VALOR.has(arg)) i++;
+    if (arg.startsWith("-")) {
+      if (valor.includes(arg)) i++;
+      continue;
+    }
+    if (pular > 0) { pular--; continue; }
+    return args.slice(i);
   }
   return [];
 }
@@ -181,9 +200,9 @@ function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar
   if (inicio < 0) return false;
   const comando = palavras.slice(inicio);
   const args = comando.slice(1);
-  const verbo = comando[0]!.split(/[\\/]/).pop()!.toLowerCase().replace(/\.exe$/, "");
+  const verbo = verboNormalizado(comando[0]!);
   if (ENVOLVEDORES.has(verbo)) {
-    const resto = desembrulhar(args);
+    const resto = desembrulhar(verbo, args);
     // Opções do próprio envolvedor também podem apontar para raw/ (`env -C raw`, `xargs -a raw/lista`).
     if (args.slice(0, args.length - resto.length).some(arg => escreveEmRaw(arg, cwd) || citaRaw(arg) || arg.toLowerCase().includes("raw"))) return true;
     // Sem comando, só o xargs é inofensivo (repete a entrada); `parallel`, `sudo -s` e `env` lendo raw/ pelo pipe não são.
@@ -248,7 +267,7 @@ function escritaDeShell(palavras: string[]): boolean {
       if (["node", "bun", "deno", "ruby", "php"].includes(verbo)) return args.some(arg => /^(?:-e|--eval|-r|-p|--print)$/.test(arg));
       return false;
     }
-    const resto = desembrulhar(comando.slice(1));
+    const resto = desembrulhar(verbo, comando.slice(1));
     if (!resto.length) return false;
     comando = resto;
   }

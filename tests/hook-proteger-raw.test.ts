@@ -430,3 +430,15 @@ for (const comando of ["rg x raw/ > /tmp/saida", "cat raw/a.md | wc -l", "cat ra
     expect(decidir(terminal(comando, comando.includes("\\") || /Get-|gci|dir /.test(comando) ? "powershell" : "Bash")).acao).toBe("liberar");
   });
 }
+
+// R66 parte 2 — opções por envolvedor (RI1).
+for (const comando of ["env -i bash -c 'rm raw/a'", "env -i rm raw/a", "env -u FOO rm raw/a", "env -- rm raw/a", "env -0 rm raw/a", "timeout 10 rm -rf .", "timeout -s KILL 5 find . -delete", "timeout --signal=KILL 5 rm raw/a", "timeout -k 3 10 rm raw/a", "nice -n 5 rm raw/a", "nice -5 rm raw/a", "ionice -c3 rm raw/a", "sudo -u root rm -rf .", "sudo -E rm raw/a", "sudo -g wheel -u root rm raw/a", "nohup rm raw/a", "time rm raw/a", "time -p rm raw/a", "command rm raw/a", "exec rm raw/a", "\\rm raw/a", "stdbuf -oL rm raw/a", "stdbuf -o L rm raw/a", "xargs -n 1 rm raw/a", "cat raw/lista | xargs -I{} -P 4 rm {}", "setsid rm raw/a", "doas -u root rm raw/a", "env FOO=1 -i rm raw/a"]) {
+  test(`Dado envolvedor com as próprias opções ${comando} Quando o comando de dentro escreve Então bloqueia`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  });
+}
+for (const comando of ["env -i cat raw/a.md", "env -u FOO cat raw/a.md", "timeout 10 cat raw/a.md", "timeout -s KILL 5 rg x raw/", "nice -n 5 rg x raw/", "ionice -c3 cat raw/a.md", "sudo -u root cat raw/a.md", "time -p cat raw/a.md", "command cat raw/a.md", "stdbuf -oL cat raw/a.md", "doas -u root ls raw/", "timeout 10 rm -f wiki/a.md", "env -i rm wiki/a.md"]) {
+  test(`Dado envolvedor com leitura ${comando} Quando decido Então libera (controle)`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("liberar");
+  });
+}
