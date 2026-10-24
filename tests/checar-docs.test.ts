@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { checarDocs, comandoChecarDocs } from "../src/comandos/checar-docs";
 import { executar, subcomandos } from "../src/cli";
 
@@ -61,6 +61,82 @@ describe("checarDocs: referências", () => {
     gravar("README.md", "");
     kb("README.md", "Veja [a raiz](../../README.md).\n");
     kb("sub/pagina.md", "Veja [a raiz](../../../README.md) e [a irmã](../README.md).\n");
+    expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+  });
+
+  test("Dado um link cujo texto atravessa a linha, Quando o alvo não existe, Então reprova apontando a linha onde o link começa", () => {
+    kb("README.md", "# T\n\nLeia [as decisões do\nprojeto](nao-existe-1.md) com calma.\n");
+    const r = checarDocs(raiz);
+    expect(r.ok).toBe(false);
+    expect(r.problemas).toHaveLength(1);
+    expect(r.problemas[0]).toContain("docs/knowledge_base/README.md");
+    expect(r.problemas[0]).toContain("nao-existe-1.md");
+    expect(r.problemas[0]).toContain("linha 3");
+  });
+
+  test("Dado um link cujo texto atravessa a linha, Quando o alvo existe, Então passa", () => {
+    kb("outra.md", "");
+    kb("README.md", "Leia [as decisões do\nprojeto](outra.md).\n");
+    expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+  });
+
+  test("Dado um colchete aberto e uma linha em branco antes do link, Quando checo, Então o link não começa no colchete solto", () => {
+    kb("README.md", "Sobrou um [colchete\n\nOutro parágrafo [x](nao-existe-2.md).\n");
+    const r = checarDocs(raiz);
+    expect(r.problemas).toHaveLength(1);
+    expect(r.problemas[0]).toContain("linha 3");
+  });
+
+  test("Dado um link com título entre aspas simples, Quando checo, Então só o alvo é conferido", () => {
+    gravar("LICENSE", "");
+    kb("README.md", "[a](../../LICENSE 'licença') [b](nao-existe-3.md 'título')\n");
+    const r = checarDocs(raiz);
+    expect(r.problemas).toHaveLength(1);
+    expect(r.problemas[0]).toContain("nao-existe-3.md");
+  });
+
+  test("Dado um link entre crases que atravessa a linha, Quando checo, Então ele não conta como link", () => {
+    kb("README.md", "Escreva `[texto\nlongo](nao-existe-4.md)` assim.\n");
+    expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+  });
+
+  test("Dado um link que resolve para fora da raiz do repositório, Quando o arquivo existe na máquina, Então reprova nomeando a página e o alvo", () => {
+    const fora = `externo-${process.pid}.md`;
+    const caminhoFora = join(dirname(raiz), fora);
+    writeFileSync(caminhoFora, "");
+    try {
+      kb("README.md", `[x](../../../${fora})\n`);
+      const r = checarDocs(raiz);
+      expect(r.ok).toBe(false);
+      expect(r.problemas).toHaveLength(1);
+      expect(r.problemas[0]).toContain("docs/knowledge_base/README.md");
+      expect(r.problemas[0]).toContain(`../../../${fora}`);
+      expect(r.problemas[0]).toContain("fora da raiz");
+    } finally {
+      rmSync(caminhoFora, { force: true });
+    }
+  });
+
+  test("Dado uma menção entre crases que sai da raiz, Quando checo, Então reprova nomeando a página e o alvo", () => {
+    const fora = `externo-mencao-${process.pid}.md`;
+    const caminhoFora = join(dirname(raiz), fora);
+    writeFileSync(caminhoFora, "");
+    try {
+      kb("README.md", `Veja \`../${fora}\`.\n`);
+      const r = checarDocs(raiz);
+      expect(r.ok).toBe(false);
+      expect(r.problemas).toHaveLength(1);
+      expect(r.problemas[0]).toContain("docs/knowledge_base/README.md");
+      expect(r.problemas[0]).toContain(`../${fora}`);
+      expect(r.problemas[0]).toContain("fora da raiz");
+    } finally {
+      rmSync(caminhoFora, { force: true });
+    }
+  });
+
+  test("Dado um link que sobe da página e volta para dentro da raiz, Quando o arquivo existe, Então passa", () => {
+    gravar("README.md", "");
+    kb("README.md", `[x](../../../${basename(raiz)}/README.md)\n`);
     expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
   });
 
@@ -205,6 +281,15 @@ describe("comandoChecarDocs", () => {
     expect(r.codigo).toBe(1);
     expect(r.erro).toHaveLength(2);
     expect(r.saida).toEqual([]);
+  });
+
+  test("Dado um argumento qualquer, Quando rodo o subcomando, Então recusa com o uso no stderr e código 2, sem conferir a KB", async () => {
+    kb("README.md", "`src/falta.ts`\n");
+    const r = await capturar(() => comandoChecarDocs(["qualquer-coisa"], raiz));
+    expect(r.codigo).toBe(2);
+    expect(r.saida).toEqual([]);
+    expect(r.erro.join("\n")).toContain("Uso: anvilore checar-docs");
+    expect(r.erro.join("\n")).not.toContain("src/falta.ts");
   });
 
   test("Dado o subcomando checar-docs, Quando consulto a tabela da CLI, Então ele está registrado e roda", async () => {

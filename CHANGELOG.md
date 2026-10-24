@@ -26,7 +26,9 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   projeto ou respondem dúvidas sobre ele, e uma seção no `AGENTS.md` que aponta para ela. As
   páginas ainda esperam a revisão de uma pessoa.
 - Comando `anvilore checar-docs`: reprova link quebrado e menção a arquivo inexistente nas páginas
-  de `docs/knowledge_base/`. Roda no CI em Linux, Windows e macOS a cada envio de código.
+  de `docs/knowledge_base/`, inclusive o link cujo texto passa para a linha seguinte e o que aponta
+  para fora do repositório. Recusa argumento extra. Roda no CI em Linux, Windows e macOS a cada
+  envio de código.
 
 ### Não resolvido nesta versão
 

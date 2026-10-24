@@ -47,9 +47,11 @@ nem CI neles quando o risco foi levantado. Cada item diz o que a biblioteca em `
 | Maiúsculas e minúsculas: o disco padrão não diferencia Pagina.md de pagina.md | `chaveDeNome` (`src/lib/caminhos.ts`) compara em minúsculas. | O validador em TypeScript, que apontaria o conflito por caixa, ainda não foi portado. |
 | Nome de arquivo com acento decomposto (`e` mais acento no lugar de `é`) | `chaveDeNome` normaliza para NFC antes de comparar. `slugDe` (`src/lib/frontmatter.ts`) tira a extensão do nome. | Idem. |
 
-A comparação de `raw` do hook é feita sem diferenciar caixa em `estaEmRaw`, porque no macOS e no
-Windows Raw/a.md é a mesma pasta `raw/`. No Linux, uma pasta chamada Raw ficaria bloqueada
-(falha fechada, de propósito).
+A função `estaEmRaw` (`src/lib/caminhos.ts`), que o futuro hook em TypeScript vai usar, ignora a
+caixa, porque no macOS e no Windows Raw/a.md é a mesma pasta `raw/`. Com ela, no Linux uma pasta
+chamada Raw seria bloqueada (falha fechada, de propósito). O hook **ativo**,
+`hooks/proteger-raw.sh`, diferencia a caixa (linha 29): hoje Raw/a.md passa por ele. Veja
+[governanca.md](governanca.md).
 
 ## O que esta página não afirma
 

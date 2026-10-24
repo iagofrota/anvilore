@@ -24,7 +24,9 @@ bun run checar
 - Para conferir esta pasta: `bun src/cli.ts checar-docs`. Para simular a trava de release:
   `bun src/cli.ts checar-release 0.1.0`.
 - Os testes antigos em bash continuam em `tests/test-*.sh`, para o código que ainda é bash. Rode
-  cada um com `bash tests/test-validar-wiki.sh`, por exemplo. Só valem em Linux.
+  cada um com `bash tests/test-validar-wiki.sh`, por exemplo. O alvo deles é Linux: o instalador
+  declara isso (`instalar.sh`, linhas 21 e 22) e `tests/test-instalar.sh` confere que o `--help`
+  diz Linux e não promete Windows nem macOS (linhas 96 a 100).
 
 O CI roda `bun run checar` e `checar-docs` em Ubuntu, Windows e macOS a cada push e pull request
 (`.github/workflows/ci.yml`). Uma mudança que passa só no seu sistema não está pronta.
@@ -52,7 +54,8 @@ O CI roda `bun run checar` e `checar-docs` em Ubuntu, Windows e macOS a cada pus
 ## CHANGELOG a cada mudança
 
 Toda mudança acrescenta uma linha em `[Unreleased]` do `CHANGELOG.md`, no momento em que é feita, em
-linguagem simples (quem lê é o gestor, não só o programador). O formato é o Keep a Changelog, com
+linguagem simples (quem lê é o gestor, não só o programador; decisão do dono do projeto em
+2026-10-23). O formato é o Keep a Changelog, com
 Versionamento Semântico.
 
 ## Knowledge base junto com o código
@@ -61,11 +64,22 @@ Versionamento Semântico.
 - Cada página cita os arquivos que sustentam o que diz. Para apontar uma linha, escreva "linha N"
   no texto, fora das crases, porque o `checar-docs` confere que o arquivo existe, e um arquivo com
   o número da linha colado ao nome não existe.
+- Prefira a âncora estável a "linha N": o nome da função, o título da seção, a chave do campo.
+  Linha envelhece a cada edição do arquivo citado, e o `CHANGELOG.md` muda a cada tarefa; cite-o
+  pelo título da seção. Quem muda um arquivo que alguma página cita por linha reconfere a citação
+  (`sed -n` na linha) no mesmo commit.
 - Link relativo (`[texto](pagina.md)`) resolve a partir da página. Menção entre crases resolve a
   partir da raiz do repositório e só conta quando parece caminho: sem espaço, sem `*`, `<` ou `>`,
   que não seja URL, e que contenha `/` ou termine em extensão de arquivo conhecida. A âncora
-  (`#...`) é descartada, e blocos de código cercados são ignorados. Veja o código em
+  (`#...`) é descartada, e blocos de código cercados são ignorados. Link e menção que resolvem
+  para fora da raiz do repositório reprovam, mesmo que o arquivo exista na máquina. O texto de um
+  link pode atravessar linhas; o problema aponta a linha onde o link começa. Veja o código em
   `src/comandos/checar-docs.ts`.
+- **O que o `checar-docs` não confere** (não é suportado hoje; não conte com ele): link de
+  referência (`[texto][ref]` com `[ref]: alvo`), alvo entre `<...>` (`<a b.md>`), texto de link
+  com colchete dentro (`[a [b] c](x.md)`), e menção a dotfile ou a nome sem extensão e sem barra
+  (`.gitignore`, `LICENSE`). Para esses, a conferência é da revisão por pessoa. Uma extensão fora da
+  lista fechada de `src/comandos/checar-docs.ts` também não conta.
 - Um agente pode redigir a página, com `generated: AAAA-MM-DD` no cabeçalho. **Só uma pessoa
   acrescenta `verified: AAAA-MM-DD`**, depois de ler a página e conferir os arquivos citados.
   Agente nenhum deve pôr esse campo.
@@ -87,6 +101,6 @@ Hoje `checar-release 0.1.0` reprova, porque a seção `[0.1.0]` ainda não exist
 desta pasta foi revisada por pessoa. Isso é o comportamento esperado, e não deve ser contornado
 acrescentando `verified` sem revisão.
 
-**Publicar exige aprovação explícita do dono do projeto, a cada vez:** criar tag, publicar pacote,
-abrir release no GitHub e enviar mudança de workflow. Preparar a release é trabalho do
-contribuidor; publicá-la, não.
+**Publicar exige aprovação explícita do dono do projeto, a cada vez** (decisão do dono do projeto
+em 2026-10-23): criar tag, publicar pacote, abrir release no GitHub e enviar mudança de workflow.
+Preparar a release é trabalho do contribuidor; publicá-la, não.

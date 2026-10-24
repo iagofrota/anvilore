@@ -31,7 +31,7 @@ Para a linhagem do método e a argumentação completa das posições de design,
   nem a macOS. O CI já roda nos três sistemas (`.github/workflows/ci.yml`). Os detalhes e os riscos
   estão em [plataformas.md](plataformas.md).
 
-## Não fundir buscas
+## Não fundir buscas (sentido a confirmar pelo dono)
 
 - A busca da wiki é o índice (`wiki/index.md`) mais `rg`, sem índice de busca dedicado
   (`skills/query/SKILL.md`, "Sem um indexador dedicado
@@ -40,6 +40,8 @@ Para a linhagem do método e a argumentação completa das posições de design,
 - Nenhum arquivo do repositório registra a regra "não fundir buscas" com essas palavras, nem diz
   quem a decidiu e quando. Esta página descreve o comportamento que o repositório mostra e não
   afirma data nem autoria da decisão.
+- **Pendência:** o dono do projeto precisa confirmar o que "não fundir buscas" significa e quando
+  foi decidido, antes de esta página receber `verified`.
 
 ## Curadoria humana não é opcional
 

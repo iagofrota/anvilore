@@ -17,7 +17,7 @@ fica para depois (veja a última seção).
 | Trava | O que faz | Onde |
 |---|---|---|
 | Hook `proteger-raw` | Bloqueia (saída 2) a escrita em `raw/` feita pelas ferramentas de edição de arquivo. Sem caminho isolável no payload, bloqueia se o texto citar `raw/`. | `hooks/proteger-raw.sh`, linhas 27 a 32 e 115 a 127; `hooks/hooks.json`, linha 6 |
-| Validador da wiki | Reprova página sem frontmatter, com `type` inválido, com `slug` diferente do nome do arquivo ou com `area` em conflito com o diretório. Reprova wiki inexistente e wiki sem nenhuma página. | `scripts/validar-wiki.sh`, linhas 14 a 18, 33 a 55 e 63 a 67 |
+| Validador da wiki | Reprova página sem frontmatter, com `type` inválido, com `slug` diferente do nome do arquivo ou com `area` em conflito com o diretório. Reprova wiki inexistente e diretório sem nenhum arquivo `.md`; uma wiki só com index.md e log.md passa. | `scripts/validar-wiki.sh`, linhas 14 a 18, 33 a 55 e 63 a 67 |
 | Tipos e cobertura | `tsc --noEmit` e testes com cobertura mínima de 80% no geral. | `package.json` (script `checar`); `bunfig.toml`, linha 2 |
 | Checagem de links | Reprova link e menção a arquivo inexistente nesta pasta. | `src/comandos/checar-docs.ts` |
 | Trava de release | Reprova versão sem seção no CHANGELOG, seção vazia ou página desta pasta sem `verified`. | `src/comandos/checar-release.ts` |
@@ -45,10 +45,10 @@ está dito.
   124 a 126). Isso é leitura do código: o Copilot nunca foi executado (`hooks/README.md`, final).
 - A comparação de caminho do hook é sensível à caixa (`hooks/proteger-raw.sh`, linha 29), e o
   próprio script declara que o alvo é Linux (linha 19).
-- Três textos dizem "recusa qualquer escrita em `raw/`": `README.md` (linha 115), o cabeçalho de
-  `hooks/proteger-raw.sh` (linha 2) e a descrição em `hooks/hooks.json` (linha 5). Leia como
-  "qualquer escrita por ferramenta de edição". O `CHANGELOG.md` (linhas 28 a 30) já diz o alcance
-  certo.
+- Três textos dizem "recusa qualquer escrita em `raw/`": o `README.md` (seção "Os quatro níveis"),
+  o cabeçalho de `hooks/proteger-raw.sh` (linha 2) e a descrição em `hooks/hooks.json` (linha 5).
+  Leia como "qualquer escrita por ferramenta de edição". O `CHANGELOG.md` (seção "Não resolvido
+  nesta versão") já diz o alcance certo.
 
 ### 2. O portão humano da ingestão é só texto
 
@@ -74,7 +74,8 @@ está dito.
 
 - Se `python3` não existe, o validador não checa o perfil e não avisa (`scripts/validar-wiki.sh`,
   linhas 72 a 78). Se existe `python3` mas não PyYAML, o validador OKF emite uma linha `SKIP:` e
-  segue (linhas 75 a 77).
+  sai com 0 (`scripts/validar-okf.py`, linhas 244 a 247), e o validador da wiki repete a linha na
+  saída e segue (`scripts/validar-wiki.sh`, linha 84).
 - O porte para TypeScript existe para acabar com esse pulo: o Bun lê YAML sozinho. Enquanto o
   validador novo não substitui o antigo, a limitação vale.
 
@@ -87,22 +88,24 @@ está dito.
 ### 6. Cobertura de 95% em lógica crítica ainda não é imposta
 
 - O limite que roda é de 80% no geral (`bunfig.toml`, linha 2). A meta de 95% para validação e
-  proteção de `raw/` é uma meta declarada pelo dono do projeto para esta versão; nenhum arquivo do
-  repositório a registra e não há mecanismo por arquivo que a imponha hoje.
+  proteção de `raw/` é uma meta declarada (decisão do dono do projeto em 2026-10-23) para esta
+  versão; nenhum arquivo do repositório a registra e não há mecanismo por arquivo que a imponha
+  hoje.
 
 ## O que o Anvilore não resolve: vazamento
 
 **O Anvilore não protege contra vazamento de documentos internos.** O `CHANGELOG.md` diz o mesmo
-em "Não resolvido nesta versão" (linhas 26 a 32).
+na seção "Não resolvido nesta versão".
 
 - Nada no repositório impede que o agente copie o conteúdo de `raw/` ou de `wiki/` para um serviço
   externo, para outra ferramenta ou para uma resposta. A busca por termos como segredo, sigilo,
   confidencial e sanitização em `scripts/`, `hooks/`, `src/`, `skills/` e `instalar.sh` não
   retorna nada.
 - Nada varre o conteúdo à procura de dados sensíveis antes ou depois da ingestão.
-- O que existe é higiene, e não proteção: o `.gitignore` deixa as fontes e as páginas de quem usa
-  fora do git por padrão (`.gitignore`, linhas 1 a 6), e o `README.md` diz que o conteúdo não sai
-  da máquina a menos que a pessoa publique. Isso não impede o agente de enviar o conteúdo a outro
+- O que existe é higiene, e não proteção: o `.gitignore` deixa as fontes de `raw/` fora do git por
+  padrão (`.gitignore`, linhas 1 a 6), e as páginas de quem usa ficam de fora pelo `wiki/.gitignore`,
+  que ignora tudo e reabre só o esqueleto versionado. O `README.md` diz que o conteúdo não sai da
+  máquina a menos que a pessoa publique. Isso não impede o agente de enviar o conteúdo a outro
   lugar.
 - Não use o Anvilore, nesta versão, como garantia de sigilo. Para uso em empresa, a decisão sobre
   o que pode ser ingerido continua sendo da pessoa e da política da empresa.
