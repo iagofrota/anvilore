@@ -30,6 +30,8 @@ describe("checarDocs: referências", () => {
     ["M7 cerca depois de comentário", "<!-- c --> ~~~\n[x](sonda.md)\n~~~"],
     ["M8 comentário em span multilinha", "`codigo\ntexto <!--`\n[x](sonda.md)"],
     ["M9 comentário inline sem fecho", "texto <!-- aberto\n[x](sonda.md)"],
+    ["comentário inline só fecha em outro parágrafo", "texto <!-- aberto\n\n[x](sonda.md)\n-->"],
+    ["comentário inline só fecha depois de cerca", "texto <!-- aberto\n~~~\ncódigo -->\n~~~\n[x](sonda.md)"],
   ]) {
     test(`Dado ${caso} Quando checo Então o link quebrado real reprova`, () => {
       kb("README.md", entrada!);
@@ -402,6 +404,51 @@ describe("checarDocs: links inline CommonMark", () => {
       expect(r.problemas[0]).toContain("link para sonda.md quebrado");
     });
   }
+});
+
+describe("checarDocs: referências CommonMark", () => {
+  for (const uso of ["[x][ref]", "[ref][]", "[ref]", "![x][ref]", "![ref][]", "![ref]"]) {
+    test(`Dado ${uso} antes da definição Quando o alvo falta Então reprova na linha do uso`, () => {
+      kb("README.md", `${uso}\n\n[ref]: ausente.md "título"`);
+      expect(checarDocs(raiz).problemas).toEqual([
+        "docs/knowledge_base/README.md: link para ausente.md quebrado (linha 1)",
+      ]);
+    });
+    test(`Dado ${uso} antes da definição Quando o alvo existe e há sonda Então reprova só a sonda`, () => {
+      kb("existe.md", "");
+      kb("README.md", `${uso} [sonda](sonda.md)\n\n[ref]: existe.md 'título'`);
+      expect(checarDocs(raiz).problemas).toEqual([
+        "docs/knowledge_base/README.md: link para sonda.md quebrado (linha 1)",
+      ]);
+    });
+  }
+  for (const definicao of [
+    "[ref]: ausente.md", "  [ref]: <meu arquivo.md> (título)",
+    '[ref]:\n  ausente.md\n  "título"', "[ref]: guide(v2).md 'título'",
+  ]) {
+    test(`Dado definição sem uso ${JSON.stringify(definicao)} Quando checo Então seu destino é conferido`, () => {
+      kb("README.md", definicao);
+      const r = checarDocs(raiz);
+      expect(r.ok).toBe(false);
+      expect(r.problemas).toHaveLength(1);
+      expect(r.problemas[0]).toContain("linha 1");
+    });
+  }
+  test("Dado rótulos com caixa e espaços diferentes Quando uso referência multilinha Então resolve a definição normalizada", () => {
+    kb("README.md", "[x][  REF\n  A ]\n\n[ref a]: ausente.md");
+    expect(checarDocs(raiz).problemas[0]).toContain("ausente.md quebrado (linha 1)");
+  });
+  test("Dado definição repetida Quando uso a referência Então a primeira vence e a segunda também é conferida", () => {
+    kb("existe.md", "");
+    kb("README.md", "[x]\n\n[x]: existe.md\n[x]: ausente.md");
+    expect(checarDocs(raiz).problemas).toEqual([
+      "docs/knowledge_base/README.md: link para ausente.md quebrado (linha 4)",
+    ]);
+  });
+  test("Dado referências indefinidas e definições em código Quando checo Então não inventa links", () => {
+    kb("README.md", "[x][ref] [x][] [x]\n\n`[ref]: ausente.md`\n\n```\n[x]: ausente.md\n```");
+    expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+  });
 });
 
 describe("checarDocs: a própria knowledge base", () => {

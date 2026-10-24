@@ -89,14 +89,22 @@ Versionamento Semântico.
 - Links inline e imagens aceitam parênteses balanceados no destino, destino entre ângulos
   (inclusive com espaços), colchetes balanceados no texto e título entre aspas duplas, simples
   ou parênteses. Uma linha em branco encerra o link (`src/lib/markdown.ts`).
+- Links e imagens por referência aceitam as formas cheia, colapsada e curta. As definições
+  da página são reunidas antes dos usos; caixa e espaços do rótulo são normalizados, e a
+  primeira definição vence. Todo destino de definição é conferido, mesmo sem uso e mesmo
+  em uma definição repetida. O diagnóstico aponta a primeira ocorrência do alvo na página
+  (`src/lib/markdown.ts`; `src/comandos/checar-docs.ts`).
 - **Nome hipotético ou relativo a outra pasta, entre crases, reprova como falso positivo.** Se a
   menção parece caminho e não existe a partir da raiz, o `checar-docs` não sabe que era um
   exemplo ou que o arquivo mora em outra pasta. Há duas saídas: escrever o caminho a partir da raiz
   (com a pasta, em vez do nome solto do arquivo, como `docs/knowledge_base/decisoes.md`) ou escrever o nome sem crases.
 - **O que o `checar-docs` não confere** (não é suportado hoje; não conte com ele): link de
-  referência (`[texto][ref]` com `[ref]: alvo`), autolinks, links em HTML cru e menção a dotfile ou a nome sem extensão e sem barra
+  autolink, links em HTML cru e menção a dotfile ou a nome sem extensão e sem barra
   (`.gitignore`, `LICENSE`). Para esses, a conferência é da revisão por pessoa. Uma extensão fora da
-  lista fechada de `src/comandos/checar-docs.ts` também não conta.
+  lista fechada de `src/comandos/checar-docs.ts` também não conta. O leitor não é um parser completo:
+  não interpreta listas, citações em bloco e código indentado, nem decodifica entidades HTML nos
+  destinos. Definições por referência dentro desses contêineres não têm suporte; prefira
+  definições no início de um parágrafo comum.
 - **A caixa do nome só é conferida no Linux.** No macOS e no Windows o disco não diferencia
   maiúsculas de minúsculas: `[x](Decisoes.md)` para o arquivo decisoes.md passa lá e reprova no
   Linux. Quem pega é o job Ubuntu do CI.

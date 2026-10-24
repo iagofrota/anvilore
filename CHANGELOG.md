@@ -11,6 +11,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
+- Links e imagens por referência agora têm seus destinos conferidos, inclusive quando a
+  definição aparece depois do uso ou não é usada na página.
 - A checagem de links entende destinos com parênteses balanceados, espaços entre ângulos,
   títulos entre parênteses e texto com colchetes internos, sem cortar o nome do arquivo.
 - A checagem de documentação mantém links visíveis depois de crases escapadas, comentários
