@@ -285,7 +285,7 @@ Depois rode o ritual de fechamento, que reconstrói o que é derivado e valida o
 resultado:
 
 ```bash
-bash scripts/fechar-wiki.sh wiki
+bun src/cli.ts fechar wiki
 ```
 
 Ele sincroniza a contagem dos índices, chama `bun src/cli.ts indexar-log` para

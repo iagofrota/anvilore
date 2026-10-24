@@ -113,7 +113,12 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 - `SCHEMA.md` descreve o portão humano, o índice, o resultado dos wikilinks e o `anvilore.toml`;
   `AGENTS.md` proíbe o agente de escrever uma verificação humana por conta própria.
-- O fechamento da wiki (`scripts/fechar-wiki.sh`) passa a chamar o novo validador e exige o Bun.
+- O ritual de fechamento agora é o comando `bun src/cli.ts fechar [WIKI]` (antes, `scripts/fechar-wiki.sh`). Mesmos
+  quatro passos, mesma ordem e mesmos tokens (`FECHAMENTO: OK`, `FECHAMENTO: FAIL no passo ...`), e para no primeiro
+  que falha; chama o novo validador e as funções dos outros passos direto, sem subprocesso. O gate do log do dia
+  compara a data de modificação com a meia-noite local, segue arquivo `.md` que é symlink e avisa em stderr de link
+  quebrado ou de diretório symlink não seguido; erro ao varrer reprova o gate em vez de passar calado.
+  `ANVILORE_PULAR_GATE_LOG=1` continua pulando só o gate. `--help` mostra o uso e sai 2.
 - O teste da tabela de vereditos de `sources[].resource` virou `tests/okf-baseline.test.ts`.
 
 ### Fixed
