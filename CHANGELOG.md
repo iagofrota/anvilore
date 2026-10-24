@@ -23,6 +23,9 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   A rodada de correção da revisão fechou furos do terminal (pipe para `xargs`, git por lista de leitura, `cd` com
   opção, `git clean -x` e apagar ancestral de `raw/`) e a forma instalada passa a fechar no Windows (Claude
   `onFailure: "block"`, Copilot com `powershell`); o CI prova a forma gravada em cada shell.
+  A rodada 2 amplia a regra do terminal (verbo de escrita em qualquer segmento de um comando que cita `raw/`), abre cada
+  envolvedor com as próprias opções, resolve o ancestral de `raw/` contra o `cwd`, dá ao Codex um `command_windows`
+  em PowerShell e faz o `doctor` avisar Claude Code anterior à 2.1.295.
 - Comando `anvilore init`: o onboarding de áreas. Pergunta no terminal (aceitar as áreas padrão,
   tirar algumas, adicionar outras) ou recebe `--areas a,b,c`, cria `wiki/<área>/{sources,entities,concepts}`
   e termina com a mensagem de sucesso e o próximo passo. Recusa nome reservado, nome com `..`, `/`,

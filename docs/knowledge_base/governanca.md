@@ -16,7 +16,7 @@ fica para depois (veja a última seção).
 
 | Trava | O que faz | Onde |
 |---|---|---|
-| Hook `proteger-raw` | Bloqueia (saída 2) a escrita em `raw/` feita pelas ferramentas de edição de arquivo e por comando de terminal (limites na seção abaixo). Sem caminho isolável no payload, bloqueia se o texto citar `raw/`; JSON ilegível bloqueia sempre. | `src/comandos/hook-proteger-raw.ts`, linhas 285 a 308; `hooks/hooks.json`, linha 6 |
+| Hook `proteger-raw` | Bloqueia (saída 2) a escrita em `raw/` feita pelas ferramentas de edição de arquivo e por comando de terminal (limites na seção abaixo). Sem caminho isolável no payload, bloqueia se o texto citar `raw/`; JSON ilegível bloqueia sempre. | `src/comandos/hook-proteger-raw.ts`, linhas 366 a 389; `hooks/hooks.json`, linha 6 |
 | Validador da wiki (`anvilore validar`) | Reprova página sem frontmatter ou com frontmatter que não lê (YAML inválido nunca é pulado), com `type` inválido, com `slug` diferente do nome do arquivo (comparado em Unicode NFC), com `area` em conflito com o diretório, dois arquivos da mesma pasta que só diferem na caixa, wikilink que não resolve, página fora do index.md aplicável e campo de proveniência malformado. Reprova wiki inexistente e diretório sem nenhum arquivo `.md`; uma wiki só com index.md e log.md passa. Sem o Bun o comando não roda, e nunca imprime PASS. | `src/comandos/validar.ts`, linhas 100 a 244 |
 | Portão humano, depois da escrita | Reprova a página com `generated` em mapping e sem uma entrada `verified` com `by: human:<id>` e `at` igual ou posterior a `generated.at`. A mensagem é "página gerada sem aprovação humana". | `src/lib/okf.ts`, linhas 148 a 194 |
 | Perfil da empresa | Um anvilore.toml na raiz do projeto restringe áreas, tipos de página e campos obrigatórios; reprova nomeando arquivo e valor. Arquivo ilegível, chave desconhecida ou valor que não é lista de textos também reprova. | `src/lib/perfil.ts`, linhas 28 a 54; `src/comandos/validar.ts`, linhas 189 a 191 e 204 a 212 |
@@ -29,7 +29,7 @@ fica para depois (veja a última seção).
 
 O hook falha fechado: se não consegue ler o caminho no payload, a decisão passa
 a ser sobre o texto inteiro, e "não achei caminho" nunca vira "pode passar"
-(`src/comandos/hook-proteger-raw.ts`, linhas 302 a 304). O
+(`src/comandos/hook-proteger-raw.ts`, linha 384). O
 validador também não imprime PASS quando o diretório não existe (`src/comandos/validar.ts`, linhas
 104 a 107) nem quando um arquivo, o anvilore.toml ou o YAML do frontmatter não lê: cada um vira um
 erro que nomeia o arquivo.
@@ -44,54 +44,64 @@ está dito.
 - O hook é o subcomando `anvilore hook proteger-raw` (`src/comandos/hook-proteger-raw.ts`). O Claude
   Code o liga para `Write|Edit|NotebookEdit|Bash` (`hooks/hooks.json`, linha 6); o Codex usa
   `apply_patch|Edit|Write|Bash` e o Gemini `write_file|replace|run_shell_command`
-  (`src/comandos/instalar.ts`, função `configuracaoDoHook`, linha 118). O evento do Copilot não tem
-  `matcher` e roda em toda chamada de ferramenta. A forma instalada fecha quando o comando falha
-  (`src/comandos/instalar.ts`, linhas 99 a 112): `|| exit 2` no Claude e no campo `bash` do Copilot; campo
-  `powershell` no Copilot; `shell: "bash"` e `onFailure: "block"` no Claude. Codex e Gemini (R65) levam o caminho absoluto
-  do clone e `; exit $LASTEXITCODE`, **sem `||`**: com `|| exit 2` o PowerShell devolve 1 no lugar do 2 do bun, e o Gemini
-  trata 1 como aviso. **Limite declarado:** com o `bun` ausente, Codex e Gemini ficam sem o hook (o shell devolve 127, 1 ou 0,
-  nunca 2); a mitigação é o `anvilore doctor`, que trata o `bun` como pré-requisito e sai 1 se faltar. O que isso garante em
-  cada sistema, e o que o CI prova, está em [plataformas.md](plataformas.md).
-- Para o terminal, o hook lê o comando (`src/comandos/hook-proteger-raw.ts`, `segmentoEscreve` e
-  `terminalEscreve`, linhas 171 a 268). Bloqueia redirecionamento `>`/`>>`, `tee`, `mv`, `cp` com destino em
-  `raw/`, `rm`, `rmdir`, `sed -i` (e `sed` com comando `w`/`e`), `perl` com qualquer script, `truncate`,
-  `touch`, `ln`, `chmod`, `find -delete`/`-exec`, `git` com qualquer subcomando que não seja de leitura
-  (`log`, `show`, `diff`, `status`, `blame`, `grep`, `ls-files`, `ls-tree`, `rev-parse`, `cat-file`, `describe`,
-  `shortlog`, `reflog`, `rev-list`, `add`, `commit`, `branch`, `tag`) e os equivalentes de PowerShell. Leitura
-  (`cat`, `rg`, `ls`, `head`, `wc`, `Get-Content`) passa. Verbo desconhecido que cita `raw/` é bloqueado. `cd raw`
-  (com ou sem opção, `cd -` e `popd`) torna relativos os caminhos seguintes. Um segmento de pipe que age sobre o
-  que o anterior listou de `raw/` (`find raw | xargs rm`, `ls raw | parallel rm`, `| sh`) bloqueia. `env`, `sudo`,
-  `nice`, `time`, `xargs` e semelhantes são abertos para ver o comando de dentro.
-- **Escopo ampliado (R64):** também sem citar `raw/`, bloqueia `git clean` com `-x`/`-X`, e `rm -r`,
-  `rmdir` e `find ... -delete`/`-exec rm` cujo alvo é `.`, `..`, `*`, `./*`, a pasta de trabalho ou um caminho
-  absoluto ancestral dela. **Custo:** limpeza ampla legítima (`rm -rf *` na raiz) é bloqueada; quem faz é a pessoa,
-  à mão. Depois de `cd wiki`, `.` e `*` valem para `wiki` e passam.
-- **Custo (falso positivo):** comando de verbo desconhecido que cite `raw/` (`python ler.py raw/a.md`), `perl` de
-  leitura, `sort raw/a.md`, `git clone` para fora de `raw/` citando-o, e o `apply_patch` do Codex numa página da
-  wiki cujo patch cita `raw/` (`+original_file: raw/a.pdf`): o patch vira texto de comando e bloqueia. O dono
-  escolheu esse lado de propósito.
-- **Limites reais que sobram (cada um passa):**
-  - variável: `d=raw; rm $d/a`;
-  - subshell ou expansão que monta o nome: `rm $(printf r%s aw)/a`;
-  - glob que monta o nome: `rm r*/a`, `rm ra[w]/a`;
-  - script externo: `bash limpa.sh`, `python apaga.py`;
-  - ofuscação: `> r\aw/a`, `> $'raw/a'`;
-  - `sed -f script` e `sed` com a flag `w` sob delimitador que não seja `/`; `cp -- -t` com arquivo chamado `-t`;
-  - git que roda programa por configuração ou ambiente: `git config`, `git -c alias...` num comando que não cita
-    `raw/`; variável exportada antes (`export PAGER=...; git log raw/`);
-  - destino em chave de payload desconhecida: uma ferramenta de MCP com `path` em `wiki/` e o destino em
-    `chave_estranha: raw/a` (as chaves `destination`, `dest`, `new_path`, `target_path`, `output_path` e parentes
-    estão cobertas);
-  - R64 só cobre `.`, `..`, `*`, a pasta de trabalho e seus ancestrais: `rm -rf wi*/..` passa; `grep -rl x . | xargs sed
-    -i` (sem citar `raw/`) passa;
-  - `xargs rm < lista` com a lista fora de `raw/` e os caminhos de `raw/` dentro dela.
-  Comando ilegível (aspas abertas, `$(...)`, crase) bloqueia só se citar `raw/`; bloquear todos tornaria o terminal
-  inutilizável. O hook cobre o erro do agente, não um agente hostil; garantia contra isso exige permissão de
-  sistema de arquivos.
-- Pelo código (`src/comandos/hook-proteger-raw.ts`, linhas 285 a 308), ferramentas de leitura passam mesmo
+  (`src/comandos/instalar.ts`, função `configuracaoDoHook`, linha 121). O evento do Copilot não tem
+  `matcher` e roda em toda chamada de ferramenta.
+- **O que a forma instalada garante em cada agente** (detalhe e prova do CI em [plataformas.md](plataformas.md)):
+  Claude Code leva `|| exit 2`, `shell: "bash"` e `onFailure: "block"` (esta chave pede a 2.1.295; o `doctor` avisa
+  se o `claude --version` for anterior); Copilot leva `bash` com `|| exit 2` e `powershell` com
+  `if ($LASTEXITCODE -ne 0) { exit 2 }`; Codex leva `command` com `; exit $LASTEXITCODE` e `command_windows` com a
+  forma PowerShell, que fecha até sem o `bun`; Gemini leva só `command` com `; exit $LASTEXITCODE`. **Limite
+  declarado:** com o `bun` ausente, Codex (fora do Windows) e Gemini ficam sem o hook (o shell devolve 127 ou 0, nunca
+  2); a mitigação real é o `anvilore doctor`, que trata o `bun` como pré-requisito e sai 1 se faltar. O hook não
+  detecta sozinho que o `bun` sumiu.
+- **Como o terminal é julgado** (`src/comandos/hook-proteger-raw.ts`, `segmentoEscreve`, `escritaDeShell` e
+  `terminalEscreve`, linhas 218 a 360):
+  - o alvo de redirecionamento, de `tee`, de `cp`/`mv`/`ln`, de `sed -i` e de `git` que não seja de leitura é julgado
+    pelo caminho, e `cd raw` (com ou sem opção, `cd -`, `popd`) torna relativos os caminhos seguintes;
+  - **regra ampla (R66):** se o comando cita `raw/` em qualquer posição (inclusive como leitura) e algum segmento
+    (pipe, `;`, `&&`, laço `while`/`for`/`do`, `xargs`, `find -exec`, `sh -c`) tem um verbo de escrita ou remoção
+    (`rm`, `rmdir`, `mv`, `ln`, `touch`, `truncate`, `dd`, `install`, `rsync`, `chmod`, `chown`, `shred`, `perl`,
+    `sed -i`, `python -c`, `node -e` e os cmdlets do PowerShell `Remove-Item`, `Move-Item`, `Copy-Item`,
+    `Rename-Item`, `Set-Content`, `Add-Content`, `Out-File`, `New-Item`, `Clear-Content` e seus apelidos), bloqueia.
+    `cp` e `tee` ficam de fora dessa regra e são julgados pelo destino, porque copiar de `raw/` para a wiki é o uso
+    normal da ingestão. Redirecionamento continua julgado pelo alvo (`rg x raw/ > /tmp/out` passa);
+  - `env`, `sudo`, `nice`, `timeout`, `time`, `xargs`, `busybox`... são abertos com as opções de cada um para ver o
+    comando de dentro; `git` só passa pela lista de leitura (`log`, `show`, `diff`, `status`, `blame`, `grep`,
+    `ls-files`, `ls-tree`, `rev-parse`, `cat-file`, `describe`, `shortlog`, `reflog`, `rev-list`, `add`, `commit`,
+    `branch`, `tag`), e `-c`, `--exec-path`, `GIT_*`, `--output` e `grep -O` bloqueiam;
+  - **R64/R66:** também sem citar `raw/`, bloqueia `git clean -x`/`-X` e `rm -r`, `rmdir`, `find ... -delete`/
+    `-exec <verbo de escrita>` e `Get-ChildItem -Recurse | <cmdlet de escrita>` cujo alvo é a raiz do projeto
+    (o `cwd` do payload), um ancestral dela, `.`, `..` ou `*`; caminho relativo é resolvido contra o `cwd`.
+    **Custo:** limpeza ampla legítima na raiz é bloqueada; quem faz é a pessoa, à mão.
+- **Custos (falso positivo), escolhidos de propósito:** comando de verbo desconhecido que cita `raw/`
+  (`python ler.py raw/a.md`), `perl` de leitura, `sort raw/a.md`, `rm wiki/x.md; cat raw/y.md` (a regra ampla
+  não separa leitura de escrita no mesmo comando), o `apply_patch` do Codex e o heredoc numa página da wiki cujo texto
+  cita `raw/` (`+original_file: raw/a.pdf`): o texto vira comando e bloqueia.
+- **Regra de parada (R66).** Depois da rodada 2, a revisão só trata como bloqueante um **falso liberar** que (a) um
+  agente plausivelmente emitiria para escrever em `raw/` e (b) não pertença a uma das classes abaixo, que o hook
+  declara não cobrir. O hook cobre o erro do agente, não um agente hostil.
+- **Classes de limite (cada uma passa, de propósito):**
+  1. *Variável e expansão:* `d=raw; rm $d/a`, `rm -rf "$PWD"`, `rm $(printf r%s aw)/a`, `rm r*/a`, `rm ra[w]/a`,
+     `export PAGER=rm; git log raw/`.
+  2. *Script externo:* `bash limpa.sh`, `make clean`, `npm run limpa`, hook de commit do git.
+  3. *Alias, função e configuração:* `alias rm=...`, `git config`/`git -c alias...` numa chamada que não cita `raw/`.
+  4. *Codificação e ofuscação:* `> r\aw/a`, `> $'raw/a'`, `echo cm0gcmF3L2E= | base64 -d | sh` (o `sh` lendo o pipe só é visto
+     quando um segmento anterior cita `raw/`).
+  5. *Interpretador com código vindo de arquivo ou de stdin:* `python apaga.py`, `node limpa.js`, `sed -f script`,
+     `bash < comandos.txt`, `xargs rm < lista` com a lista fora de `raw/`.
+  6. *Destino em chave de payload desconhecida:* uma ferramenta de MCP com `path` em `wiki/` e o destino em
+     `chave_estranha: raw/a` (as chaves `destination`, `dest`, `new_path`, `target_path`, `output_path` e parentes
+     estão cobertas).
+  7. *Escopo do R64:* só `.`, `..`, `*`, a raiz do projeto e seus ancestrais; `mv * ../outro/`, `rsync --delete vazio/ ./`
+     e `rm -rf wi*/..` passam; sem `cwd` no payload, `cd .. && rm -rf <repo>` passa.
+- **Mitigação real além do hook: nenhuma no código.** `raw/` não é protegido pelo git: `.gitignore` tem `raw/*`, então o git
+  não rastreia as fontes (não acusa mudança nem restaura arquivo apagado); `anvilore validar` e `scripts/fechar-wiki.sh` não
+  olham `raw/`. O que sobra é o `AGENTS.md` (proíbe em prosa), este hook e o que a pessoa fizer fora do kit:
+  permissão de somente leitura no sistema de arquivos para o usuário do agente e cópia de segurança das fontes.
+- Pelo código (`src/comandos/hook-proteger-raw.ts`, linhas 366 a 389), ferramentas de leitura passam mesmo
   apontando para `raw/`; o caminho vem dos campos de caminho (inclusive os de `toolArgs` do Copilot, decodificados)
   e, se algum cai em `raw/`, bloqueia mesmo que a ferramenta também tenha um comando. Payload sem caminho isolável
-  bloqueia se citar `raw/` (linhas 302 a 304). Só a forma do Claude Code foi exercitada de ponta a ponta com agente
+  bloqueia se citar `raw/` (linha 384). Só a forma do Claude Code foi exercitada de ponta a ponta com agente
   real; o terminal em Codex, Gemini e Copilot segue a documentação de cada um e nunca foi executado
   (`hooks/README.md`, final).
 - A comparação de caminho ignora a caixa (`estaEmRaw`, `src/lib/caminhos.ts`): Raw/a.md é bloqueado, e no Linux uma
@@ -175,6 +185,7 @@ na seção "Não resolvido nesta versão".
 
 ## Se alguém perguntar "o raw está protegido?"
 
-Resposta honesta: contra edição pelas ferramentas de edição do agente, sim, no Linux, para o
-Claude Code testado de ponta a ponta. Contra escrita por terminal, não. Contra cópia ou vazamento
-do conteúdo, não.
+Resposta honesta: contra edição pelas ferramentas de edição do agente e contra a maior parte dos comandos de terminal que o
+hook consegue ler, sim, dentro das classes de limite da seção 1 e do `bun` presente; só o Claude Code foi testado de ponta a
+ponta com agente real. Contra um agente que monte o comando de forma que o hook não lê, contra apagar a pasta por fora do kit e
+contra cópia ou vazamento do conteúdo, não. O git não é uma segunda trava: as fontes estão ignoradas por ele.

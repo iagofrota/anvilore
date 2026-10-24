@@ -73,16 +73,16 @@ seguido de um comando com caminho relativo conta como escrita em `raw/`.
 Comando que não dá para ler (aspas abertas, `$(...)`, crase) bloqueia **só se
 citar `raw/`**; sem citação, passa.
 
-Limites, ditos de propósito: o hook não executa nem expande shell. Não são vistos, por exemplo:
-variável (`d=raw; rm $d/a`), subshell que monte o caminho (`rm $(printf r%s aw)/a`), script externo
-(`bash limpa.sh`, `python apaga.py`), glob que monte o nome (`rm r*/a`), ofuscação (`> r\aw/a`,
-`> $'raw/a'`), `sed -f script` e `git -c`/`git config` que mudem o programa de um comando de leitura que
-não cite `raw/`. Comando que alcança `raw/` sem nomeá-lo só é pego nos casos do R64: `git clean -x`/`-X` e
-`rm -r`/`find -delete` cujo alvo é `.`, `..`, `*`, a pasta de trabalho ou um ancestral dela. O caminho que chega
-por pipe a `xargs`, `parallel`, `sh` ou `find -exec` é visto quando um segmento anterior cita `raw/`; `xargs rm
-< lista` com a lista fora de `raw/` não é. Quem precisa de garantia contra um agente hostil tem de usar
-permissão de sistema de arquivos; o hook cobre o erro do agente, não o adversário. Lista completa, com
-exemplos, em `docs/knowledge_base/governanca.md`.
+**Regra ampla:** se o comando cita `raw/` em qualquer posição e algum segmento (pipe, `;`, laço, `xargs`, `find -exec`) tem
+um verbo de escrita ou remoção, ou um cmdlet de escrita do PowerShell, bloqueia (`cp` e `tee` são julgados pelo destino).
+Custo: `rm wiki/x.md; cat raw/y.md` também bloqueia.
+
+Limites, ditos de propósito: o hook não executa nem expande shell. Não são vistos, em sete classes: variável e expansão
+(`d=raw; rm $d/a`), script externo (`bash limpa.sh`), alias e configuração (`git -c`), codificação (`> r\aw/a`),
+interpretador com código vindo de arquivo (`python apaga.py`, `sed -f`), destino em chave de payload desconhecida e o que
+fica fora do R64 (`mv * ../x`). Quem precisa de garantia contra um agente hostil tem de usar permissão de sistema de
+arquivos; o hook cobre o erro do agente, não o adversário. Lista completa, com exemplos, a regra de parada da revisão e a
+mitigação real (o git **não** é uma segunda trava: `raw/*` está ignorado) em `docs/knowledge_base/governanca.md`.
 
 ### Como saber que o hook rodou — `ANVILORE_LOG_HOOK`
 
@@ -136,9 +136,12 @@ matcher = "apply_patch|Edit|Write|Bash"
 [[hooks.PreToolUse.hooks]]
 type = "command"
 command = "bun \"<raiz do clone>/src/cli.ts\" hook proteger-raw; exit $LASTEXITCODE"
+command_windows = "bun \"<raiz do clone>/src/cli.ts\" hook proteger-raw; if ($LASTEXITCODE -ne 0) { exit 2 }"
 ```
 
-Fonte: <https://learn.chatgpt.com/docs/hooks> (acesso em 2026-09-22). O matcher
+Fonte: <https://learn.chatgpt.com/docs/hooks> (acesso em 2026-09-22 e 2026-10-24). `commandWindows`
+(`command_windows` em TOML) é a substituição só para Windows; a página não diz qual shell roda o hook, por isso a forma do
+Windows é PowerShell e mapeia qualquer falha, inclusive `bun` ausente, para a saída 2. O matcher
 de edição de arquivo aceita `apply_patch`, `Edit` e `Write`; os três entram,
 porque o mesmo agente edita por mais de um caminho.
 
