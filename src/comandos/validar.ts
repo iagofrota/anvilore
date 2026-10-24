@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { type Dirent, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { FrontmatterInvalido, lerFrontmatter, linhasDe, slugDe } from "../lib/frontmatter";
 import { linhasVisiveis } from "../lib/markdown";
@@ -25,11 +25,19 @@ const NOME_DO_INDICE = "index.md";
 const USO = "Uso: anvilore validar [diretorio]";
 
 // Caminhos relativos à wiki, com `/`, em ordem alfabética: a saída não depende do sistema.
-function listarMarkdown(dir: string, prefixo = ""): string[] {
+// Pasta ilegível vira erro que a nomeia, em vez de derrubar o comando.
+function listarMarkdown(dir: string, erros: string[], prefixo = ""): string[] {
   const achados: string[] = [];
-  for (const entrada of readdirSync(join(dir, prefixo), { withFileTypes: true })) {
+  let entradas: Dirent[];
+  try {
+    entradas = readdirSync(join(dir, prefixo), { withFileTypes: true });
+  } catch (erro) {
+    erros.push(`nao foi possivel ler o diretorio: ${prefixo === "" ? dir : prefixo} (${(erro as Error).message})`);
+    return achados;
+  }
+  for (const entrada of entradas) {
     const rel = prefixo === "" ? entrada.name : `${prefixo}/${entrada.name}`;
-    if (entrada.isDirectory()) achados.push(...listarMarkdown(dir, rel));
+    if (entrada.isDirectory()) achados.push(...listarMarkdown(dir, erros, rel));
     else if (entrada.isFile() && entrada.name.endsWith(".md")) achados.push(rel);
   }
   return achados.sort();
@@ -98,7 +106,7 @@ export async function validarWiki(dir: string, perfil?: Perfil): Promise<Resulta
     erros.push(`diretorio nao encontrado: ${dir}`);
     return resultado;
   }
-  const arquivos = listarMarkdown(dir);
+  const arquivos = listarMarkdown(dir, erros);
   resultado.paginas = arquivos.length;
   // Conta index.md e log.md de propósito: uma wiki recém-criada só tem esses dois e é válida.
   // Zero arquivo, porém, significa diretório errado ou wiki sumida.
@@ -135,6 +143,27 @@ export async function validarWiki(dir: string, perfil?: Perfil): Promise<Resulta
     if (emDiretorioReservado(partes)) continue;
     if (nome === NOME_DO_INDICE) indices.push(rel);
     else if (nome !== "log.md") conteudo.push(rel);
+  }
+
+  // O validar-okf.py antigo varria todo .md: index.md, log.md e os reservados não são cobrados de
+  // type/slug/área/índice, mas o YAML e a proveniência deles são. Sem YAML que não lê, sem pular.
+  const naoConteudo = new Set([...textos.keys()].filter((rel) => !conteudo.includes(rel)));
+  for (const rel of naoConteudo) {
+    let frontmatter: Record<string, unknown> | null;
+    try {
+      frontmatter = lerFrontmatter(textos.get(rel)!);
+    } catch (erro) {
+      if (!(erro instanceof FrontmatterInvalido)) throw erro;
+      // Só YAML que não lê reprova aqui. Sem fechamento ou fora de mapa é markdown comum (uma régua
+      // `---` no log), como o original tratava.
+      if (erro.cause !== undefined) erros.push(`frontmatter YAML invalido, nao foi possivel ler: ${rel} (${erro.message})`);
+      continue;
+    }
+    if (frontmatter === null) continue;
+    const proveniencia = validarProveniencia(frontmatter, rel, raizDoProjeto, new Date(), false);
+    erros.push(...proveniencia.erros);
+    if (proveniencia.vencida) resultado.vencidas++;
+    if (proveniencia.geradaAposVerificacao) resultado.geradasAposVerificacao++;
   }
 
   for (const rel of conteudo) {

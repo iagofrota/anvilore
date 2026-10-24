@@ -444,6 +444,101 @@ stale_after: 2099-09-03T00:00:00-03:00
   });
 });
 
+describe("validar: proveniência também nos arquivos fora das páginas de conteúdo", () => {
+  test("Dado YAML inválido num index.md, Quando valido, Então reprova nomeando o arquivo", async () => {
+    gravar("a.md", pagina("a"));
+    gravar("index.md", "---\nsources: [nao-fecha\n---\n\n- [[a]]\n");
+    const r = await rodar();
+    expect(r.codigo).toBe(1);
+    expect(r.saida).toContain("frontmatter YAML invalido, nao foi possivel ler: index.md");
+  });
+
+  test("Dado YAML inválido num log.md, Quando valido, Então reprova nomeando o arquivo", async () => {
+    gravar("log.md", "---\nx: [y\n---\n");
+    expect((await rodar()).saida).toContain("nao foi possivel ler: log.md");
+  });
+
+  test("Dado resource inexistente em _meta/, Quando valido, Então reprova nomeando o arquivo e o caminho", async () => {
+    gravar("index.md", "# Indice\n");
+    gravar("_meta/x.md", "---\nsources:\n  - resource: raw/nao/existe.md\n---\n");
+    const r = await rodar();
+    expect(r.codigo).toBe(1);
+    expect(r.saida).toContain("sources[].resource inexistente: _meta/x.md");
+  });
+
+  test("Dado YAML inválido em log/, Quando valido, Então reprova", async () => {
+    gravar("index.md", "# Indice\n");
+    gravar("log/2026-09-05.md", "---\nx: [y\n---\n");
+    expect((await rodar()).saida).toContain("log/2026-09-05.md");
+  });
+
+  test("Dado stale_after vencido num reservado, Quando valido, Então conta na métrica sem reprovar", async () => {
+    gravar("index.md", "# Indice\n");
+    gravar("_meta/x.md", "---\nstale_after: 2000-01-01T00:00:00-03:00\n---\n");
+    const r = await validarWiki(wiki, {});
+    expect(r).toMatchObject({ ok: true, vencidas: 1 });
+  });
+
+  test("Dado frontmatter sem fechamento ou que não é mapa num reservado ou index, Quando valido, Então segue pulando como o original (é só markdown comum)", async () => {
+    gravar("index.md", "---\n\n# Indice com régua\n");
+    gravar("log.md", "---\n- a\n---\n");
+    gravar("_meta/x.md", "---\ntexto solto\n---\n");
+    expect((await validarWiki(wiki, {})).erros).toEqual([]);
+  });
+
+  test("Dado generated sem aprovação humana num index.md ou reservado, Quando valido, Então o portão não se aplica (não são páginas)", async () => {
+    gravar("index.md", "---\ngenerated:\n  by: process:x\n  at: 2026-10-24T10:00:00-03:00\n---\n");
+    gravar("_meta/x.md", "---\ngenerated:\n  by: process:x\n---\n");
+    expect((await validarWiki(wiki, {})).erros).toEqual([]);
+  });
+
+  test("Dado index.md e reservados sem frontmatter, Quando valido, Então continuam isentos de type, slug e índice", async () => {
+    gravar("index.md", "# Indice\n");
+    gravar("log.md", "# Log\n");
+    gravar("_meta/x.md", "# x\n");
+    gravar("exemplo/index.md", "# Indice da área\n");
+    gravar("exemplo/concepts/a.md", pagina("a", { extra: "area: exemplo\n" }));
+    gravar("exemplo/index.md", indice("a"));
+    expect((await validarWiki(wiki, {})).erros).toEqual([]);
+  });
+});
+
+describe("validar: diretório ilegível", () => {
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "Dada uma subpasta sem permissão de leitura, Quando valido, Então reprova nomeando a pasta, com VALIDACAO: FAIL e código 1",
+    async () => {
+      gravar("a.md", pagina("a"));
+      gravar("index.md", indice("a"));
+      gravar("fechada/x.md", pagina("x"));
+      chmodSync(join(wiki, "fechada"), 0o000);
+      try {
+        const r = await rodar();
+        expect(r.codigo).toBe(1);
+        expect(r.saida).toContain("nao foi possivel ler o diretorio: fechada");
+        expect(r.saida).toContain("VALIDACAO: FAIL");
+      } finally {
+        chmodSync(join(wiki, "fechada"), 0o755);
+      }
+    },
+  );
+
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "Dada a própria pasta da wiki sem permissão de leitura, Quando valido, Então reprova com VALIDACAO: FAIL",
+    async () => {
+      gravar("a.md", pagina("a"));
+      chmodSync(wiki, 0o000);
+      try {
+        const r = await rodar();
+        expect(r.codigo).toBe(1);
+        expect(r.saida).toContain("VALIDACAO: FAIL");
+        expect(r.saida).toContain("nao foi possivel ler o diretorio");
+      } finally {
+        chmodSync(wiki, 0o755);
+      }
+    },
+  );
+});
+
 describe("validar: wikilinks e índice (R29)", () => {
   test("Dado um wikilink que não resolve, Quando valido, Então reprova nomeando a página e o alvo", async () => {
     gravar("a.md", pagina("a", { corpo: "Veja [[fantasma]].\n" }));
@@ -497,6 +592,14 @@ describe("validar: wikilinks e índice (R29)", () => {
     gravar("x/concepts/a.md", pagina("a", { extra: "area: x\n", corpo: "[[b]]\n" }));
     gravar("y/concepts/b.md", pagina("b", { extra: "area: y\n" }));
     expect((await validarWiki(wiki, {})).erros).toEqual([]);
+  });
+
+  test("Dado wikilink com caminho para página que existe, Quando valido, Então reprova como quebrado (o link é só o slug)", async () => {
+    gravar("sources/x.md", pagina("x", { tipo: "source" }));
+    gravar("a.md", pagina("a", { corpo: "Veja [[sources/x]].\n" }));
+    gravar("index.md", indice("a", "x"));
+    const { erros } = await validarWiki(wiki, {});
+    expect(erros).toEqual(["wikilink quebrado [[sources/x]] em a.md: nenhuma pagina com esse slug"]);
   });
 
   test("Dado wikilink para index ou log, Quando valido, Então não resolve: não são páginas", async () => {

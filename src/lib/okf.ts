@@ -13,7 +13,11 @@ type Mapa = Record<string, unknown>;
 
 const ATOR = /^(human:[a-z0-9_-]+|process:[a-z0-9_-]+|[a-z0-9_-]+\/[a-z0-9._-]+)$/i;
 const ATOR_HUMANO = /^human:[a-z0-9_-]+$/i;
-const TIMESTAMP_COM_OFFSET = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})([+-])(\d{2}):(\d{2})$/;
+// As formas que o PyYAML do validador antigo convertia em datetime com offset: separador T, t ou
+// espaço, mês/dia/hora com um ou dois dígitos, fração de segundo e fuso `Z`, `±H`, `±HH` ou
+// `±HH:MM` (com espaços antes). `+0300`, sem fuso, ou só data continuavam fora.
+const TIMESTAMP_COM_OFFSET = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[Tt]|\s+)(\d{1,2}):(\d{2}):(\d{2})(?:\.\d*)?\s*(?:(Z)|([+-])(\d{1,2})(?::(\d{2}))?)$/;
+const DATA_LEGADA = /^\d{4}-\d{2}-\d{2}$/;
 // Esquema de URI. `C:\notas.md` casa de propósito: a letra de unidade vira url, como no baseline.
 const ESQUEMA_DE_URI = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 const EXTENSAO_DE_ARQUIVO = /\.[A-Za-z][A-Za-z0-9]{0,7}$/;
@@ -60,8 +64,8 @@ function lerTimestamp(valor: unknown, campo: string, arquivo: string): Instante 
   const texto = String(valor);
   const partes = TIMESTAMP_COM_OFFSET.exec(texto);
   if (partes === null) return { erro: `${campo} sem offset explicito: ${arquivo} (valor: ${texto})` };
-  const [ano, mes, dia, hora, minuto, segundo, offsetHoras, offsetMinutos] = [1, 2, 3, 4, 5, 6, 8, 9].map((i) => Number(partes[i]));
-  const sinal = partes[7] === "-" ? -1 : 1;
+  const [ano, mes, dia, hora, minuto, segundo, offsetHoras, offsetMinutos] = [1, 2, 3, 4, 5, 6, 9, 10].map((i) => Number(partes[i] ?? 0));
+  const sinal = partes[8] === "-" ? -1 : 1;
   const valido =
     mes! >= 1 && mes! <= 12 && dia! >= 1 && dia! <= diasDoMes(ano!, mes!) &&
     hora! <= 23 && minuto! <= 59 && segundo! <= 59 && offsetHoras! <= 23 && offsetMinutos! <= 59;
@@ -141,7 +145,7 @@ function lerVerificacoes(verified: unknown, arquivo: string): Verificacoes {
 // vencimento e "gerada depois da última verificação" são métricas. Única exceção que reprova
 // por falta de campo: página com `generated` em mapping exige uma verificação humana nunca
 // anterior à geração (R28). Quem escreve `verified: human:...` não é provado por programa nenhum.
-export function validarProveniencia(frontmatter: Mapa, arquivo: string, raiz: string, agora: Date = new Date()): Proveniencia {
+export function validarProveniencia(frontmatter: Mapa, arquivo: string, raiz: string, agora: Date = new Date(), portaoHumano = true): Proveniencia {
   const erros: string[] = [];
   let vencida = false;
 
@@ -150,6 +154,11 @@ export function validarProveniencia(frontmatter: Mapa, arquivo: string, raiz: st
   const generated = frontmatter.generated;
   let geradoEm: Date | null = null;
   const geradaEmMapa = ehMapa(generated);
+  // Só a data legada AAAA-MM-DD é isenta; qualquer outro `generated` que não seja o mapping
+  // {by, at} reprova, para o portão humano não ser contornável por um campo malformado.
+  if (portaoHumano && generated != null && !geradaEmMapa && !(typeof generated === "string" && DATA_LEGADA.test(generated))) {
+    erros.push(`generated deve ser mapping (by, at) ou a data AAAA-MM-DD: ${arquivo}`);
+  }
   if (geradaEmMapa) {
     if (!("by" in generated)) erros.push(`generated sem by: ${arquivo}`);
     else {
@@ -175,7 +184,7 @@ export function validarProveniencia(frontmatter: Mapa, arquivo: string, raiz: st
     else vencida = agora >= lido.data;
   }
 
-  if (geradaEmMapa) {
+  if (portaoHumano && geradaEmMapa) {
     const aprovada = verificacoes.humanas.some((quando) => geradoEm === null || (quando !== null && quando >= geradoEm));
     if (!aprovada) erros.push(`página gerada sem aprovação humana: ${arquivo}`);
   }

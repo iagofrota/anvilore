@@ -96,7 +96,9 @@ stale_after: 2027-02-28T00:00:00-03:00        # instante absoluto, ISO 8601 com 
 
 **Timestamps:** os campos novos (`generated.at`, `verified[].at`, `stale_after`,
 `sources[].last_modified`) usam ISO 8601 **com offset explícito**
-(`2026-09-03T10:30:00-03:00`). Os campos de data existentes (`date_ingested`)
+(`2026-09-03T10:30:00-03:00`). Também valem `Z` (`2026-09-03T13:30:00Z`), `±HH` (`-03`), fração de
+segundo e o espaço no lugar do `T`; `+0300` (sem dois-pontos), hora sem fuso e só a data não valem.
+Um dia ou uma hora que não existe no calendário reprova. Os campos de data existentes (`date_ingested`)
 seguem `AAAA-MM-DD`, inalterados.
 
 **Métricas** (só informam; não reprovam, com a exceção do portão humano abaixo): quantas
@@ -109,8 +111,11 @@ só vale depois de uma pessoa a aprovar: ela precisa de uma entrada em `verified
 "página gerada sem aprovação humana". Se `generated` não traz `at`, não há ordem a conferir e
 basta uma entrada `human:<id>`. Uma verificação feita por `process:<id>` ou por
 `<produtor>/<versão>` não conta. Página sem `generated` (escrita à mão) não é afetada, e um
-`generated` escalar (`generated: AAAA-MM-DD`, o formato da documentação do próprio projeto) não
-é proveniência e fica de fora. **Limite:** nenhum programa prova quem escreveu `verified`; um
+`generated` só com a data (`generated: AAAA-MM-DD`, o formato da documentação do próprio projeto)
+não é proveniência e fica de fora. Qualquer outro `generated` que não seja o mapping `by`/`at` (uma
+lista, um texto livre) reprova: o portão não pode ser contornado por um campo malformado. O
+portão vale para página de conteúdo; `index.md`, `log.md` e `_meta/`/`log/` só têm o YAML e a
+proveniência conferidos. **Limite:** nenhum programa prova quem escreveu `verified`; um
 agente que escreva `verified: human:…` por conta própria viola este contrato, e o validador
 não o detecta.
 

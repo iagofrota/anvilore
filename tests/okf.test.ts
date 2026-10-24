@@ -264,6 +264,61 @@ describe("validarProveniencia: formato", () => {
   });
 });
 
+describe("validarProveniencia: formas de timestamp aceitas pelo original (PyYAML)", () => {
+  const aceitos = [
+    "2026-10-24T11:00:00Z",
+    "2026-10-24T11:00:00+03:00",
+    "2026-10-24T11:00:00-03:00",
+    "2026-10-24T11:00:00+03",
+    "2026-10-24T11:00:00.5+03:00",
+    "2026-10-24 11:00:00 +03:00",
+    "2026-10-24t11:00:00Z",
+    "2026-1-2 1:02:03 -3",
+  ];
+  for (const ts of aceitos) {
+    test(`Dado o timestamp ${ts}, Quando valido, Então tem offset explícito e aprova`, () => {
+      expect(avaliar({ stale_after: ts }).erros).toEqual([]);
+    });
+  }
+
+  test("Dado um timestamp com Z, Quando comparo, Então vale o instante UTC", () => {
+    const g = { by: "process:x", at: "2026-10-24T14:00:00Z" };
+    expect(avaliar({ generated: g, verified: { by: "human:iago", at: "2026-10-24T11:00:00-03:00" } }).erros).toEqual([]);
+    expect(avaliar({ generated: g, verified: { by: "human:iago", at: "2026-10-24T10:59:59-03:00" } }).erros[0]).toContain("sem aprovação humana");
+  });
+
+  const rejeitados = ["2026-10-24T11:00:00+0300", "2026-10-24T11:00:00", "2026-10-24", "2026-10-24T11:00Z", "ontem"];
+  for (const ts of rejeitados) {
+    test(`Dado o timestamp ${ts}, Quando valido, Então o PyYAML também o deixava sem offset e reprova`, () => {
+      expect(avaliar({ stale_after: ts }).erros[0]).toContain("sem offset explicito");
+    });
+  }
+});
+
+describe("validarProveniencia: forma do generated", () => {
+  test("Dado generated em lista, Quando valido, Então reprova nomeando o arquivo em vez de pular o portão", () => {
+    const [erro] = avaliar({ generated: [{ by: "claude-opus/4", at: "2026-10-24T10:00:00-03:00" }] }).erros;
+    expect(erro).toContain("generated deve ser mapping");
+    expect(erro).toContain("pagina.md");
+  });
+
+  test("Dado generated em texto livre ou número, Quando valido, Então reprova", () => {
+    expect(avaliar({ generated: "claude-opus/4" }).erros[0]).toContain("generated deve ser mapping");
+    expect(avaliar({ generated: 2026 }).erros[0]).toContain("generated deve ser mapping");
+    expect(avaliar({ generated: true }).erros[0]).toContain("generated deve ser mapping");
+  });
+
+  test("Dado a data legada AAAA-MM-DD, Quando valido, Então é isenta de propósito", () => {
+    expect(avaliar({ generated: "2026-10-24" }).erros).toEqual([]);
+  });
+
+  test("Dado generated fora de página de conteúdo (portão desligado), Quando valido, Então não há exigência de aprovação nem de forma", () => {
+    expect(validarProveniencia({ generated: ["x"] }, "_meta/x.md", raiz, new Date(), false).erros).toEqual([]);
+    expect(validarProveniencia({ generated: { by: "process:x" } }, "_meta/x.md", raiz, new Date(), false).erros).toEqual([]);
+    expect(validarProveniencia({ generated: { by: "ruim" } }, "_meta/x.md", raiz, new Date(), false).erros[0]).toContain("generated.by");
+  });
+});
+
 describe("validarProveniencia: métricas", () => {
   test("Dado stale_after no passado, Quando valido, Então a página vence sem reprovar", () => {
     const r = avaliar({ stale_after: "2000-01-01T00:00:00-03:00" });
