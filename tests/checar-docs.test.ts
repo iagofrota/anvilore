@@ -71,6 +71,36 @@ describe("checarDocs: referências", () => {
   });
 
   for (const [caso, entrada] of [
+    ["A04 texto de link em duas linhas de uma citação", "> [texto\n> longo](sonda.md)"],
+    ["R11 citação dentro de citação", "> > [a\n> > b](sonda.md)"],
+    ["R12 item dentro de citação continuado", "> - [a\n>   b](sonda.md)"],
+    ["R01 crase sem par numa citação de várias linhas", "> veja `a\n> b` e [x](sonda.md) `c`"],
+    ["R04 ano com ponto no começo da linha seguinte", "[ver o\n2024. relatorio](sonda.md)"],
+    ["R06 número 2 com parêntese no começo da linha seguinte", "[ver\n2) b](sonda.md)"],
+    ["R05 linha 2024. no meio de um code span", "veja `a\n2024. b` e [x](sonda.md) `c`"],
+    ["lista numerada separada por linha em branco não vale para o parágrafo seguinte", "1. a\n\nveja `x\n2) b` e [guia](sonda.md) `c`"],
+    ["item 2. depois de continuação de um item 1.", "1. Rode `x\n   continua\n2. Veja [guia](sonda.md) e `y`."],
+  ]) {
+    test(`Dado ${caso} Quando checo Então o link quebrado real reprova`, () => {
+      kb("README.md", entrada!);
+      const r = checarDocs(raiz);
+      expect(r.ok).toBe(false);
+      expect(r.problemas.join("\n")).toContain("sonda.md");
+    });
+  }
+
+  for (const [caso, entrada] of [
+    ["R14 comentário inline fechado dentro de uma citação", "> nota <!-- c\n> [x](nao-existe.md) -->"],
+    ["R15 code span que atravessa linhas de uma citação", "> veja `a\n> [x](nao-existe.md) b` c"],
+    ["R16 code span que atravessa uma linha 2024.", "ver `a\n2024. [x](nao-existe.md) b` c"],
+  ]) {
+    test(`Dado ${caso} Quando checo Então o link dentro do código ou comentário não é conferido`, () => {
+      kb("README.md", entrada!);
+      expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+    });
+  }
+
+  for (const [caso, entrada] of [
     ["crase com par na mesma linha de um item", "- Veja `a` e `b`\n- Outro item"],
     ["code span legítimo continuado com recuo", "- Rode `bun\n  run` antes\n- Outro"],
     ["hífen colado no texto não é item", "Rode `bun\n-x run` antes"],

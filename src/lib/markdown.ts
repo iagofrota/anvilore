@@ -21,28 +21,61 @@ export type CodigoEmLinha = { inicio: number; fim: number; conteudo: string };
 
 // Blocos de uma linha só: título ATX, régua e sublinhado de setext.
 const BLOCO_DE_UMA_LINHA = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|(?:[-*_][ \t]*){3,}$|[=-]+[ \t]*$)/;
-// Início de item de lista (`-`, `+`, `*`, `1.`, `1)`) ou de citação: interrompem o parágrafo no CommonMark.
-const INICIO_DE_ITEM_OU_CITACAO = /^ {0,3}(?:>|(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$))/;
+// Início de item com marcador (`-`, `+`, `*`) e de item numerado qualquer, e linha de citação.
+const ITEM_COM_MARCADOR = /^ {0,3}[-+*](?:[ \t]|$)/;
+const ITEM_NUMERADO = /^ {0,3}\d{1,9}[.)](?:[ \t]|$)/;
+const ITEM_NUMERADO_DE_UM = /^ {0,3}1[.)](?:[ \t]|$)/;
+const LINHA_DE_CITACAO = /^ {0,3}>/;
+
+function inicioDaLinha(texto: string, posicao: number): number {
+  return posicao === 0 ? 0 : texto.lastIndexOf("\n", posicao - 1) + 1;
+}
+
+function fimDaLinhaDe(texto: string, posicao: number): number {
+  const fim = texto.indexOf("\n", posicao);
+  return fim === -1 ? texto.length : fim;
+}
+
+// Há item numerado na linha de `de` ou antes dela, no mesmo bloco (sem linha em branco no meio)?
+function emItemNumerado(texto: string, de: number): boolean {
+  let inicio = inicioDaLinha(texto, de);
+  let fim = fimDaLinhaDe(texto, de);
+  while (!ITEM_NUMERADO.test(texto.slice(inicio, fim))) {
+    if (inicio === 0) return false;
+    fim = inicio - 1;
+    inicio = inicioDaLinha(texto, fim);
+    if (/^[ \t]*$/.test(texto.slice(inicio, fim))) return false;
+  }
+  return true;
+}
 
 // Fim do parágrafo que contém `de`: a primeira linha em branco depois dele (ou o fim do texto), cortado
 // antes de cerca, comentário, item de lista, citação, título ou régua. Não interpreta contêineres: só
-// impede que crase sem par ou `<!--` atravessem blocos vizinhos.
+// impede que crase sem par ou `<!--` atravessem blocos vizinhos. Como no CommonMark, a linha de
+// continuação de uma citação (`>` depois de `>`) segue no mesmo parágrafo, e um item numerado só o
+// interrompe quando começa em 1 ou é irmão de um item numerado já aberto no mesmo bloco.
 function fimDoParagrafo(texto: string, de: number): number {
   const linhaEmBranco = /\n[ \t]*\n/g;
   linhaEmBranco.lastIndex = de;
   const limite = linhaEmBranco.exec(texto)?.index ?? texto.length;
   let inicio = texto.indexOf("\n", de);
+  let numerado = emItemNumerado(texto, de);
+  let anteriorEraCitacao = LINHA_DE_CITACAO.test(texto.slice(inicioDaLinha(texto, de), fimDaLinhaDe(texto, de)));
   while (inicio !== -1 && inicio < limite) {
     const fim = texto.indexOf("\n", inicio + 1);
     const linha = texto.slice(inicio + 1, fim === -1 ? texto.length : fim);
+    const citacao = LINHA_DE_CITACAO.test(linha);
     if (
       abreCerca(linha) !== null ||
       /^ {0,3}<!--/.test(linha) ||
-      INICIO_DE_ITEM_OU_CITACAO.test(linha) ||
+      ITEM_COM_MARCADOR.test(linha) ||
+      (citacao && !anteriorEraCitacao) ||
+      (ITEM_NUMERADO.test(linha) && (numerado || ITEM_NUMERADO_DE_UM.test(linha))) ||
       BLOCO_DE_UMA_LINHA.test(linha)
     ) {
       return inicio;
     }
+    anteriorEraCitacao = citacao;
     inicio = fim;
   }
   return limite;

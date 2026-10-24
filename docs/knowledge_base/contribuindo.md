@@ -112,7 +112,8 @@ Versionamento Semântico.
   texto na mesma linha do fecho `-->`, que podem reprovar sem necessidade; cerca com quatro ou mais
   espaços, que é tratada como cerca (vale para as que moram em itens de lista) e não como código
   indentado. Crase sem par e `<!--` sem fecho terminam no fim do parágrafo, e o parágrafo termina
-  em linha em branco, cerca, item de lista, citação, título ou régua: um código em linha que de
+  em linha em branco, cerca, item de lista (o numerado só se começar em 1 ou for irmão de outro
+  numerado), início de citação (a continuação com `>` não corta), título ou régua: um código em linha que de
   verdade atravessa esses blocos não é reconhecido como código, e um link dentro dele pode reprovar
   sem necessidade.
 - **A caixa do nome só é conferida no Linux.** No macOS e no Windows o disco não diferencia
