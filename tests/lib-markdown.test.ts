@@ -122,12 +122,12 @@ describe("linhasVisiveis: comentário HTML e código em linha", () => {
 });
 
 describe("linhasVisiveis: comentário e cerca na mesma linha", () => {
-  test("Dado um comentário fechado antes da abertura de cerca com `<!--` no info, Quando a cerca fecha, Então a linha seguinte continua visível", () => {
+  test("Dado crases e comentário inline sem fecho após um comentário fechado Quando filtro Então só a cerca em sua própria linha abre bloco", () => {
     const entrada = ["<!-- c --> ```js <!--", "interno", "```", "[x](a.md)"];
     expect(linhasVisiveis(entrada)).toEqual([" ```js <!--", "interno", "", ""]);
   });
 
-  test("Dado um comentário que fecha na linha da abertura de cerca com `<!--` no info, Quando a cerca fecha, Então a linha seguinte continua visível", () => {
+  test("Dado comentário multilinha que fecha antes de crases Quando filtro Então só a cerca em sua própria linha abre bloco", () => {
     const entrada = ["<!-- abre", "--> ```js <!--", "interno", "```", "fora"];
     expect(linhasVisiveis(entrada)).toEqual(["", " ```js <!--", "interno", "", ""]);
   });

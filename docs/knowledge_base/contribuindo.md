@@ -98,8 +98,8 @@ Versionamento Semântico.
   menção parece caminho e não existe a partir da raiz, o `checar-docs` não sabe que era um
   exemplo ou que o arquivo mora em outra pasta. Há duas saídas: escrever o caminho a partir da raiz
   (com a pasta, em vez do nome solto do arquivo, como `docs/knowledge_base/decisoes.md`) ou escrever o nome sem crases.
-- **O que o `checar-docs` não confere** (não é suportado hoje; não conte com ele): link de
-  autolink, links em HTML cru e menção a dotfile ou a nome sem extensão e sem barra
+- **O que o `checar-docs` não confere** (não é suportado hoje; não conte com ele): autolinks,
+  links em HTML cru e menção a dotfile ou a nome sem extensão e sem barra
   (`.gitignore`, `LICENSE`). Para esses, a conferência é da revisão por pessoa. Uma extensão fora da
   lista fechada de `src/comandos/checar-docs.ts` também não conta. O leitor não é um parser completo:
   não interpreta listas, citações em bloco e código indentado, nem decodifica entidades HTML nos

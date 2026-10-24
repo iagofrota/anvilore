@@ -251,8 +251,7 @@ export function acharLinks(texto: string): LinkMarkdown[] {
     else if (texto[i] === "!" && texto[i + 1] === "[") {
       abertos.push({ inicio: i + 1, imagem: true, ativo: true });
       i += 2;
-    }
-    else if (texto[i] === "[") {
+    } else if (texto[i] === "[") {
       abertos.push({ inicio: i, imagem: false, ativo: true });
       i++;
     } else if (texto[i] === "]") {
@@ -270,7 +269,7 @@ export function acharLinks(texto: string): LinkMarkdown[] {
 }
 
 // Fim (exclusivo) do comentário HTML que abre em `i`: `<!-->` e `<!--->` já são comentários completos
-// (CommonMark 0.31); senão fecha no próximo `-->`. -1 se não fecha na linha.
+// (CommonMark 0.31); senão fecha no próximo `-->`. -1 se não fecha no texto.
 function fimDoComentario(linha: string, i: number): number {
   if (linha.startsWith(">", i + 4)) return i + 5;
   if (linha.startsWith("->", i + 4)) return i + 6;
