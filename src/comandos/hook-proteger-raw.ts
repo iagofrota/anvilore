@@ -22,7 +22,8 @@ const LEITURAS_TERMINAL = new Set([
 const ENVOLVEDORES = new Set(["xargs", "parallel", "env", "nice", "nohup", "time", "sudo", "doas", "command", "builtin", "exec", "timeout", "stdbuf", "ionice", "setsid"]);
 const OPCOES_COM_VALOR = new Set(["-I", "-n", "-P", "-L", "-d", "-E", "-s", "-a", "-u", "-g", "-C", "-i", "-l", "-S", "-k"]);
 const VERBOS_APAGAR = new Set(["rm", "rmdir", "rd", "del", "erase", "remove-item", "ri"]);
-const AMBIENTE_PROGRAMA = /^(?:GIT_|PAGER=|EDITOR=|VISUAL=)/;
+// Atribuição de variável antes do comando que não é só locale: pode apontar programa externo (GIT_*, PAGER, HOME, XDG_CONFIG_HOME...).
+const ambienteInseguro = (atribuicao: string) => /^[A-Za-z_]\w*=/.test(atribuicao) && !/^(?:LC_\w+|LANG|LANGUAGE|TZ|TERM|NO_COLOR|COLUMNS|LINES)=/.test(atribuicao);
 // O git aceita abreviação não ambígua de opção longa (`--outp` vale `--output`).
 const prefixo = (arg: string, longa: string) => { const nome = arg.split("=")[0]!; return nome.length >= 4 && longa.startsWith(nome); };
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd"]);
@@ -180,7 +181,7 @@ function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar
     // Sem comando, só o xargs é inofensivo (repete a entrada); `parallel`, `sudo -s` e `env` lendo raw/ pelo pipe não são.
     if (!resto.length) return doPipe && verbo !== "xargs";
     const descartados = args.slice(0, args.length - resto.length);
-    return segmentoEscreve(resto, cwd, doPipe, forcar || doPipe, ambienteDoEnvolvedor || descartados.some(arg => AMBIENTE_PROGRAMA.test(arg)));
+    return segmentoEscreve(resto, cwd, doPipe, forcar || doPipe, ambienteDoEnvolvedor || descartados.some(ambienteInseguro));
   }
   if (doPipe && SHELLS.has(verbo)) return true;
   if (SHELLS.has(verbo)) {
@@ -209,12 +210,12 @@ function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar
   if (verbo === "git") {
     const { subcomando, globais } = analisarGit(args);
     // Programa externo por variável, configuração ou caminho de executáveis: a leitura deixa de ser só leitura.
-    if (palavras.slice(0, inicio).some(atribuicao => AMBIENTE_PROGRAMA.test(atribuicao)) || ambienteDoEnvolvedor) return true;
+    if (palavras.slice(0, inicio).some(ambienteInseguro) || ambienteDoEnvolvedor) return true;
     if (globais.some(opcao => opcao === "-c" || /^--(?:config-env|exec-path)(?:=|$)/.test(opcao))) return true;
     if (subcomando === undefined) return false;
     return !GIT_LEITURA.has(subcomando)
       || args.some(arg => prefixo(arg, "--output") || (subcomando === "reflog" && /^(?:expire|delete)$/.test(arg))
-        || (subcomando === "grep" && /^-O/.test(arg) || prefixo(arg, "--open-files-in-pager")));
+        || (subcomando === "grep" && (!arg.startsWith("--") && /^-[A-Za-z]*O/.test(arg)) || prefixo(arg, "--open-files-in-pager")));
   }
   if (verbo === "find") return args.some(arg => FIND_ESCREVE.test(arg));
   return !LEITURAS_TERMINAL.has(verbo);

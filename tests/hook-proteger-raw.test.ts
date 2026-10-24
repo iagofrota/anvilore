@@ -391,3 +391,14 @@ test("Dado GIT_ passado por envolvedor Quando o comando é git de leitura citand
   for (const comando of ["env GIT_EXTERNAL_DIFF=rm git diff raw/", "sudo PAGER=rm git log raw/", "env -i PAGER=rm git log raw/"]) expect(decidir(terminal(comando)).acao).toBe("bloquear");
   expect(decidir(terminal("env LC_ALL=C git log -- raw/a.md")).acao).toBe("liberar");
 });
+
+test("Dado git grep com -O agrupado ou variável qualquer antes do git Quando cita raw Então bloqueia e só locale libera", () => {
+  for (const comando of ["git grep -nO'rm -f' x -- raw/", "git grep -iO rm x raw/", "FOO=1 git log -- raw/a.md", "env HOME=/tmp git log raw/", "XDG_CONFIG_HOME=/tmp git log -- raw/"]) expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  for (const comando of ["LC_ALL=C git log -- raw/a.md", "TZ=UTC git log -- raw/", "env LANG=C git grep -n x -- raw/"]) expect(decidir(terminal(comando)).acao).toBe("liberar");
+});
+test("Dado apply_patch do Codex Quando uma página da wiki ganha original_file com raw Então bloqueia (limite documentado: falso positivo)", () => {
+  const patch = "*** Begin Patch\n*** Update File: wiki/a.md\n+original_file: raw/a.pdf\n*** End Patch";
+  expect(decidir(JSON.stringify({ tool_name: "apply_patch", tool_input: { command: patch } })).acao).toBe("bloquear");
+  const semRaw = "*** Begin Patch\n*** Update File: wiki/a.md\n+texto novo\n*** End Patch";
+  expect(decidir(JSON.stringify({ tool_name: "apply_patch", tool_input: { command: semRaw } })).acao).toBe("liberar");
+});
