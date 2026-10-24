@@ -49,6 +49,8 @@ const ESCRITA_GLOBAL = new Set([
 const DESTINO_JULGADO = new Set(["copy-item", "cpi", "copy", "out-file", "set-content", "sc", "add-content", "ac", "new-item", "ni", "clear-content", "clc"]);
 const OPCOES_PS_COM_VALOR = new Set(["-path", "-literalpath", "-destination", "-filepath", "-value", "-name", "-itemtype", "-encoding", "-filter", "-include", "-exclude", "-width", "-stream", "-credential"]);
 const PALAVRAS_DE_LACO = new Set(["do", "then", "else", "elif", "{", "!", "while", "until", "if"]);
+// sed edita no lugar com -i (agrupado, em qualquer caixa) ou com qualquer prefixo único de --in-place (--i, --in, --in-pl=.bak).
+const sedEmLugar = (args: string[]) => args.some(arg => /^-[a-zA-Z]*[iI]/.test(arg) || (arg.startsWith("--") && arg.length >= 3 && "--in-place".startsWith(arg.split("=")[0]!)));
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd"]);
 // Em git vale a lista de leitura (e de operações que não tocam arquivos de trabalho): o resto que cita raw/ bloqueia.
 const GIT_LEITURA = new Set([
@@ -276,7 +278,7 @@ function segmentoEscreve(palavras: string[], cwd: string, contexto: Contexto): b
   if (verbo === "rg") return args.some(arg => arg === "--pre" || arg.startsWith("--pre="));
   // Interpretadores com script próprio escrevem onde quiserem: citando raw/, só passa sed sem -i e sem comando w/e.
   if (verbo === "perl") return true;
-  if (verbo === "sed") return args.some(arg => /^--in-place(?:=|$)/.test(arg) || /^-[a-zA-Z]*[iI]/.test(arg) || SED_ESCREVE.test(arg));
+  if (verbo === "sed") return sedEmLugar(args) || args.some(arg => SED_ESCREVE.test(arg));
   if (verbo === "git") {
     const { subcomando, globais } = analisarGit(args);
     // Programa externo por variável, configuração ou caminho de executáveis: a leitura deixa de ser só leitura.
@@ -310,7 +312,7 @@ function escritaDeShell(original: string[]): boolean {
     if (!ENVOLVEDORES.has(verbo)) {
       const args = comando.slice(1);
       if (ESCRITA_GLOBAL.has(verbo)) return true;
-      if (verbo === "sed") return args.some(arg => /^--in-place(?:=|$)/.test(arg) || /^-[a-zA-Z]*[iI]/.test(arg));
+      if (verbo === "sed") return sedEmLugar(args) || args.some(arg => SED_ESCREVE.test(arg));
       if (/^python[0-9.]*$/.test(verbo)) return args.includes("-c");
       if (["node", "bun", "deno", "ruby", "php"].includes(verbo)) return args.some(arg => /^(?:-e|--eval|-r|-p|--print)$/.test(arg));
       return false;

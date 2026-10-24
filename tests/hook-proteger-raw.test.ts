@@ -530,3 +530,13 @@ for (const comando of ["gci raw | % { $_.Name }", "gci raw | ForEach-Object { Ge
     expect(decidir(terminal(comando, "powershell")).acao).toBe("liberar");
   });
 }
+
+// Revisão automática: o sed (GNU) aceita qualquer prefixo único de --in-place.
+test("Dado sed com abreviação de --in-place Quando cita raw Então bloqueia nos dois caminhos e as outras longas passam", () => {
+  for (const comando of ["sed --in 's/a/b/' raw/a.md", "sed --in-pl=.bak 's/a/b/' raw/a.md", "sed --i 's/a/b/' raw/a.md", "sed --in-place=.x 's/a/b/' raw/a.md", "rg -l x raw | xargs sed --in-place 's/a/b/'", "cat raw/lista | xargs sed --in-pla s/a/b/"]) {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  }
+  for (const comando of ["sed --quiet -e 'p' raw/a.md", "sed --expression='s/a/b/' raw/a.md", "sed --regexp-extended 's/a/b/' raw/a.md"]) {
+    expect(decidir(terminal(comando)).acao).toBe("liberar");
+  }
+});
