@@ -215,7 +215,7 @@ function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar
     if (subcomando === undefined) return false;
     return !GIT_LEITURA.has(subcomando)
       || args.some(arg => prefixo(arg, "--output") || (subcomando === "reflog" && /^(?:expire|delete)$/.test(arg))
-        || (subcomando === "grep" && (!arg.startsWith("--") && /^-[A-Za-z]*O/.test(arg)) || prefixo(arg, "--open-files-in-pager")));
+        || (subcomando === "grep" && (!arg.startsWith("--") && /^-[A-Za-z0-9]*O/.test(arg)) || prefixo(arg, "--open-files-in-pager")));
   }
   if (verbo === "find") return args.some(arg => FIND_ESCREVE.test(arg));
   return !LEITURAS_TERMINAL.has(verbo);

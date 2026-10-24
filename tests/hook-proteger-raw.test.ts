@@ -393,7 +393,7 @@ test("Dado GIT_ passado por envolvedor Quando o comando é git de leitura citand
 });
 
 test("Dado git grep com -O agrupado ou variável qualquer antes do git Quando cita raw Então bloqueia e só locale libera", () => {
-  for (const comando of ["git grep -nO'rm -f' x -- raw/", "git grep -iO rm x raw/", "FOO=1 git log -- raw/a.md", "env HOME=/tmp git log raw/", "XDG_CONFIG_HOME=/tmp git log -- raw/"]) expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  for (const comando of ["git grep -nO'rm -f' x -- raw/", "git grep -iO rm x raw/", "git grep -A1O rm x -- raw/", "FOO=1 git log -- raw/a.md", "env HOME=/tmp git log raw/", "XDG_CONFIG_HOME=/tmp git log -- raw/"]) expect(decidir(terminal(comando)).acao).toBe("bloquear");
   for (const comando of ["LC_ALL=C git log -- raw/a.md", "TZ=UTC git log -- raw/", "env LANG=C git grep -n x -- raw/"]) expect(decidir(terminal(comando)).acao).toBe("liberar");
 });
 test("Dado apply_patch do Codex Quando uma página da wiki ganha original_file com raw Então bloqueia (limite documentado: falso positivo)", () => {
