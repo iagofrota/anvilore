@@ -348,3 +348,27 @@ test("Dado cd - e popd Quando voltam a raw Então o diretório anterior é segui
   expect(decidir(terminal("cd wiki && cd raw && cd - && touch a")).acao).toBe("liberar");
   expect(decidir(terminal("cd raw && cd - && touch a")).acao).toBe("liberar");
 });
+
+// Grupo F — git com opção que executa programa ou muda configuração (revisão de segurança automática).
+for (const comando of ["git grep -O'rm -f' x -- raw/", "git grep --open-files-in-pager=rm x raw/", "git -c core.pager='rm raw/a' log -- raw/", "git -c diff.external=rm diff raw/", "git --config-env=core.pager=X log raw/", "GIT_EXTERNAL_DIFF=rm git diff raw/", "PAGER=rm git log -- raw/", "GIT_CONFIG_COUNT=1 git log raw/", "git --exec-path=/tmp log raw/"]) {
+  test(`Dado git de leitura com programa externo ${comando} Quando cita raw Então bloqueia`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  });
+}
+test("Dado git de leitura com opção comum e variável inofensiva Quando cita raw Então continua liberando", () => {
+  expect(decidir(terminal("git -C . log --oneline -- raw/a.md")).acao).toBe("liberar");
+  expect(decidir(terminal("LC_ALL=C git log -- raw/a.md")).acao).toBe("liberar");
+  expect(decidir(terminal("git grep -n palavra -- raw/")).acao).toBe("liberar");
+});
+
+// Grupo G — find sem caminho ou com -H/-L/-P, e script de `sh -c` lido por inteiro.
+for (const comando of ["find -delete", "find -H . -delete", "find -L .. -exec rm {} +", "find -P * -delete", "find -D tree -O3 -H . -delete", "bash -c 'rm -rf .'", "sh -c \"find . -delete\"", "bash -lc 'git clean -fdx'", "sudo bash -c 'rm -rf ..'", "bash -c 'echo ok; rm -rf *'"]) {
+  test(`Dado apagamento amplo escondido ${comando} Quando não cita raw Então bloqueia`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  });
+}
+for (const comando of ["bash -c 'cat raw/a.md'", "sh -c 'ls wiki'", "bash -c 'rm wiki/a.md'", "find wiki -delete", "find -name '*.md'", "bash script.sh"]) {
+  test(`Dado shell com script inofensivo ${comando} Quando decido Então libera (controle)`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("liberar");
+  });
+}

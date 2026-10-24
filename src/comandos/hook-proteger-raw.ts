@@ -106,12 +106,15 @@ function tokensDoComando(comando: unknown): Token[] {
   return argv.map(texto => ({ texto, operador: false }));
 }
 
-function subcomandoGit(args: string[]): string | undefined {
+// Separa as opções globais do git (`-C dir`, `-c k=v`, `--git-dir=...`) do subcomando.
+function analisarGit(args: string[]): { subcomando?: string; globais: string[] } {
+  const globais: string[] = [];
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "-C" || args[i] === "-c") i++;
-    else if (!args[i]!.startsWith("-")) return args[i];
+    if (args[i] === "-C" || args[i] === "-c") globais.push(args[i]!, args[++i] ?? "");
+    else if (args[i]!.startsWith("-")) globais.push(args[i]!);
+    else return { subcomando: args[i], globais };
   }
-  return undefined;
+  return { globais };
 }
 
 // R64: alvos que contêm raw/ sem citá-lo — o diretório de trabalho, um ancestral dele ou o conjunto de tudo (`.`, `*`).
@@ -135,12 +138,16 @@ function apagaAncestral(verbo: string, args: string[], cwd: string): boolean {
     return recursivo && args.filter(arg => !opcao(arg)).some(alvo => ancestralDeRaw(alvo, cwd));
   }
   if (verbo === "find") {
-    const fim = args.findIndex(arg => /^[-!(]/.test(arg));
-    const caminhos = fim < 0 ? args : args.slice(0, fim);
+    let inicio = 0;
+    while (inicio < args.length && /^(?:-[HLP]|-O\d|-D)$/.test(args[inicio]!)) inicio += args[inicio] === "-D" ? 2 : 1;
+    const sem = args.slice(inicio);
+    const fim = sem.findIndex(arg => /^[-!(]/.test(arg));
+    const caminhos = fim < 0 ? sem : sem.slice(0, fim);
+    if (!caminhos.length) caminhos.push(".");
     const apaga = args.some((arg, i) => arg === "-delete" || (/^-(?:exec|execdir|ok|okdir)$/.test(arg) && VERBOS_APAGAR.has((args[i + 1] ?? "").split("/").pop()!)));
     return apaga && caminhos.some(alvo => ancestralDeRaw(alvo, cwd));
   }
-  if (verbo === "git") return subcomandoGit(args) === "clean" && args.some(arg => /^-[a-zA-Z]*[xX]/.test(arg) && !arg.startsWith("--"));
+  if (verbo === "git") return analisarGit(args).subcomando === "clean" && args.some(arg => /^-[a-zA-Z]*[xX]/.test(arg) && !arg.startsWith("--"));
   return false;
 }
 
@@ -172,6 +179,10 @@ function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar
     return segmentoEscreve(resto, cwd, doPipe, forcar || doPipe);
   }
   if (doPipe && SHELLS.has(verbo)) return true;
+  if (SHELLS.has(verbo)) {
+    const script = args[args.findIndex(arg => /^-[a-zA-Z]*c$/.test(arg) || /^-command$/i.test(arg)) + 1];
+    if (script !== undefined && args.some(arg => /^-[a-zA-Z]*c$/.test(arg) || /^-command$/i.test(arg))) return terminalEscreve(script, cwd);
+  }
   if (apagaAncestral(verbo, args, cwd)) return true;
   if (verbo === "cp") {
     const alvos = args.flatMap((arg, i) => {
@@ -188,9 +199,14 @@ function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar
   if (verbo === "perl") return true;
   if (verbo === "sed") return args.some(arg => /^--in-place(?:=|$)/.test(arg) || /^-[a-z]*i/.test(arg) || SED_ESCREVE.test(arg));
   if (verbo === "git") {
-    const subcomando = subcomandoGit(args);
+    const { subcomando, globais } = analisarGit(args);
+    // Programa externo por variável, configuração ou caminho de executáveis: a leitura deixa de ser só leitura.
+    if (palavras.slice(0, inicio).some(atribuicao => /^(?:GIT_|PAGER=|EDITOR=|VISUAL=)/.test(atribuicao))) return true;
+    if (globais.some(opcao => opcao === "-c" || /^--(?:config-env|exec-path)(?:=|$)/.test(opcao))) return true;
     if (subcomando === undefined) return false;
-    return !GIT_LEITURA.has(subcomando) || args.some(arg => /^--output(?:=|$)/.test(arg) || (subcomando === "reflog" && /^(?:expire|delete)$/.test(arg)));
+    return !GIT_LEITURA.has(subcomando)
+      || args.some(arg => /^--output(?:=|$)/.test(arg) || (subcomando === "reflog" && /^(?:expire|delete)$/.test(arg))
+        || (subcomando === "grep" && /^(?:-O|--open-files-in-pager)/.test(arg)));
   }
   if (verbo === "find") return args.some(arg => FIND_ESCREVE.test(arg));
   return !LEITURAS_TERMINAL.has(verbo);
