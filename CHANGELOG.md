@@ -46,6 +46,9 @@ antigos em bash e Python: eles continuam sendo o que valida a wiki e protege o `
 - `checar-docs` e `checar-release` não perdem mais o resto da página quando ela cita `<!--` entre
   crases (código em linha): antes, esse trecho era lido como início de comentário HTML e escondia
   as linhas seguintes, e um link quebrado depois dele passava sem aviso.
+- O mesmo vale para `<!--` no texto de informação da linha que abre um bloco de código cercado
+  (por exemplo ```` ```js <!-- ````): ele deixava um comentário aberto depois do bloco e um link
+  quebrado posterior passava sem aviso.
 
 ### Não resolvido nesta versão
 

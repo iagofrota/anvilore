@@ -104,4 +104,19 @@ describe("linhasVisiveis: comentário HTML e código em linha", () => {
     const entrada = ["`<!--`", "```", "[x](a.md)", "```", "fora"];
     expect(linhasVisiveis(entrada)).toEqual(["`<!--`", "", "", "", "fora"]);
   });
+
+  test("Dada abertura de cerca com `<!--` no texto de informação, Quando a cerca fecha, Então a linha seguinte continua visível", () => {
+    const entrada = ["```js <!--", "interno", "```", "[x](a.md)"];
+    expect(linhasVisiveis(entrada)).toEqual(["", "", "", "[x](a.md)"]);
+  });
+
+  test("Dada abertura de cerca de tils com `<!--` no texto de informação, Quando a cerca fecha, Então a linha seguinte continua visível", () => {
+    const entrada = ["~~~ <!--", "interno", "~~~", "[x](a.md)"];
+    expect(linhasVisiveis(entrada)).toEqual(["", "", "", "[x](a.md)"]);
+  });
+
+  test("Dado um comentário que fecha numa linha seguido de abertura de cerca, Quando filtro, Então a cerca abre depois do comentário (comportamento mantido)", () => {
+    const entrada = ["<!-- abre", "--> ```js", "interno", "```", "fora"];
+    expect(linhasVisiveis(entrada)).toEqual(["", "", "", "", "fora"]);
+  });
 });

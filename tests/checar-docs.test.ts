@@ -65,6 +65,14 @@ describe("checarDocs: referências", () => {
     expect(r.problemas[0]).toContain("(linha 2)");
   });
 
+  test("Dado `<!--` no texto de informação de uma cerca e um link quebrado depois do bloco, Quando checo, Então reprova apontando o link", () => {
+    kb("README.md", "```js <!--\ninterno\n```\n[Quebrado](nao-existe-6.md)\n");
+    const r = checarDocs(raiz);
+    expect(r.ok).toBe(false);
+    expect(r.problemas[0]).toContain("nao-existe-6.md");
+    expect(r.problemas[0]).toContain("(linha 4)");
+  });
+
   test("Dado um link relativo, Quando checo, Então ele resolve a partir da página, mesmo numa subpasta", () => {
     gravar("README.md", "");
     kb("README.md", "Veja [a raiz](../../README.md).\n");

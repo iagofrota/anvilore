@@ -78,6 +78,12 @@ export function linhasVisiveis(linhas: string[]): string[] {
       if (fechaCerca(original, cerca)) cerca = null;
       return "";
     }
+    // A linha de abertura de cerca não é HTML: o `<!--` no texto de informação não abre comentário.
+    const abertura = emComentario ? null : abreCerca(original);
+    if (abertura !== null) {
+      cerca = abertura;
+      return "";
+    }
     const limpa = tirarComentarios(original, emComentario);
     emComentario = limpa.emComentario;
     const aberta = abreCerca(limpa.texto);
