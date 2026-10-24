@@ -26,6 +26,14 @@ const VERBOS_APAGAR = new Set(["rm", "rmdir", "rd", "del", "erase", "remove-item
 const ambienteInseguro = (atribuicao: string) => /^[A-Za-z_]\w*=/.test(atribuicao) && !/^(?:LC_\w+|LANG|LANGUAGE|TZ|TERM|NO_COLOR|COLUMNS|LINES)=/.test(atribuicao);
 // O git aceita abreviação não ambígua de opção longa (`--outp` vale `--output`).
 const prefixo = (arg: string, longa: string) => { const nome = arg.split("=")[0]!; return nome.length >= 4 && longa.startsWith(nome); };
+// R66: se o comando cita raw/, qualquer segmento (pipe, `;`, laço, xargs, -exec) com um destes verbos bloqueia, mesmo que o
+// caminho de raw/ chegue só pela pipeline. `cp` e `tee` ficam de fora: julgam-se pelo destino (copiar de raw/ para a wiki é legítimo).
+const ESCRITA_GLOBAL = new Set([
+  "rm", "rmdir", "mv", "ln", "touch", "truncate", "dd", "install", "rsync", "chmod", "chown", "chgrp", "shred", "unlink", "perl",
+  "remove-item", "ri", "del", "erase", "rd", "move-item", "mi", "move", "copy-item", "cpi", "rename-item", "rni", "ren",
+  "set-content", "sc", "add-content", "ac", "out-file", "new-item", "ni", "clear-content", "clc", "set-itemproperty", "sp",
+]);
+const PALAVRAS_DE_LACO = new Set(["do", "then", "else", "elif", "{", "!", "while", "until", "if"]);
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd"]);
 // Em git vale a lista de leitura (e de operações que não tocam arquivos de trabalho): o resto que cita raw/ bloqueia.
 const GIT_LEITURA = new Set([
@@ -221,6 +229,31 @@ function segmentoEscreve(palavras: string[], cwd: string, doPipe = false, forcar
   return !LEITURAS_TERMINAL.has(verbo);
 }
 
+function verboNormalizado(palavra: string): string {
+  return palavra.replace(/^\\/, "").split(/[\\/]/).pop()!.toLowerCase().replace(/\.exe$/, "");
+}
+
+function escritaDeShell(palavras: string[]): boolean {
+  let comando = palavras;
+  for (;;) {
+    const inicio = comando.findIndex(palavra => !/^[A-Za-z_]\w*=/.test(palavra) && !PALAVRAS_DE_LACO.has(palavra));
+    if (inicio < 0) return false;
+    comando = comando.slice(inicio);
+    const verbo = verboNormalizado(comando[0]!);
+    if (!ENVOLVEDORES.has(verbo)) {
+      const args = comando.slice(1);
+      if (ESCRITA_GLOBAL.has(verbo)) return true;
+      if (verbo === "sed") return args.some(arg => /^--in-place(?:=|$)/.test(arg) || /^-[a-z]*i/.test(arg));
+      if (/^python[0-9.]*$/.test(verbo)) return args.includes("-c");
+      if (["node", "bun", "deno", "ruby", "php"].includes(verbo)) return args.some(arg => /^(?:-e|--eval|-r|-p|--print)$/.test(arg));
+      return false;
+    }
+    const resto = desembrulhar(comando.slice(1));
+    if (!resto.length) return false;
+    comando = resto;
+  }
+}
+
 function citaRawSegmento(palavras: string[], cwd: string): boolean {
   return palavras.slice(1).some(palavra => escreveEmRaw(palavra, cwd) || citaRaw(palavra));
 }
@@ -229,6 +262,7 @@ function terminalEscreve(comando: unknown, cwdInicial: string): boolean {
   let cwd = cwdInicial;
   let palavras: string[] = [];
   let doPipe = false;
+  const segmentos: string[][] = [];
   let anterior: string | undefined;
   const tokens = tokensDoComando(comando);
   function fechar(): boolean {
@@ -245,6 +279,7 @@ function terminalEscreve(comando: unknown, cwdInicial: string): boolean {
       return false;
     }
     const escreve = segmentoEscreve(palavras, cwd, doPipe);
+    segmentos.push(palavras);
     palavras = [];
     return escreve;
   }
@@ -264,7 +299,9 @@ function terminalEscreve(comando: unknown, cwdInicial: string): boolean {
       doPipe = token.texto === "|" && (doPipe || citou);
     }
   }
-  return fechar();
+  if (fechar()) return true;
+  const cita = segmentos.some(segmento => segmento.some(citaRaw));
+  return cita && segmentos.some(escritaDeShell);
 }
 
 function textoDoComando(comando: unknown): string {

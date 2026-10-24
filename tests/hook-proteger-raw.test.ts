@@ -245,7 +245,7 @@ for (const comando of ["find raw -name '*.bak' | xargs rm", "ls raw/*.bak | xarg
     expect(decidir(terminal(comando)).acao).toBe("bloquear");
   });
 }
-for (const comando of ["find wiki -name '*.bak' | xargs rm", "ls wiki/*.bak | xargs rm -f", "find raw -name '*.md' | xargs wc -l", "cat raw/lista | xargs -n 1 cat", "cat raw/a.md | sort | uniq", "cat raw/a.md | tee wiki/copia.md", "time cat raw/a.md", "nice rg palavra raw/", "cat raw/lista | xargs -n 1", "cat raw/a | head -3 | wc -l", "find raw -name '*.md' | head", "cat raw/lista && xargs rm < wiki/lista"]) {
+for (const comando of ["find wiki -name '*.bak' | xargs rm", "ls wiki/*.bak | xargs rm -f", "find raw -name '*.md' | xargs wc -l", "cat raw/lista | xargs -n 1 cat", "cat raw/a.md | sort | uniq", "cat raw/a.md | tee wiki/copia.md", "time cat raw/a.md", "nice rg palavra raw/", "cat raw/lista | xargs -n 1", "cat raw/a | head -3 | wc -l", "find raw -name '*.md' | head", "cat raw/lista && cat wiki/lista"]) {
   test(`Dado leitura em pipe ou em wrapper ${comando} Quando decido Então libera (controle)`, () => {
     expect(decidir(terminal(comando)).acao).toBe("liberar");
   });
@@ -413,3 +413,20 @@ test("Dado o sufixo de saída que o cmd repassa como argumentos Quando chamo o h
     expect(cli(arquivo("wiki/a.md"), args).exitCode).toBe(2);
   }
 });
+
+// R66 parte 1 — comando que cita raw e tem verbo de escrita em QUALQUER segmento bloqueia (laços, pipeline do PowerShell).
+for (const comando of ["find raw -type f | while read f; do rm \"$f\"; done", "ls raw | while read f; do mv \"raw/$f\" /tmp/; done", "find raw -name '*.tmp' | while read -r f; do shred \"$f\"; done", "for f in $(cat raw/lista); do rm $f; done", "cat raw/lista | while read f; do touch \"$f\"; done", "until false; do cat raw/a; rm b; done", "cat raw/a.md; rm wiki/x.md", "cat raw/a.md && chmod 600 wiki/x.md", "rg x raw/ ; truncate -s0 wiki/x.md", "if cat raw/a.md; then rm wiki/y; fi", "! cat raw/a.md || ln -s a wiki/b", "cat raw/a.md | sed -i s/a/b/ wiki/x.md", "cat raw/a.md | python3 -c 'import sys'", "ls raw | node -e 'process.exit()'", "cat raw/a.md | install -m 600 /dev/stdin wiki/x", "cat raw/a.md | dd of=wiki/x", "cat raw/a.md | rsync -a wiki/ /tmp/", "rm wiki/a.md; cat raw/b.md"]) {
+  test(`Dado verbo de escrita em outro segmento ${comando} Quando o comando cita raw Então bloqueia`, () => {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  });
+}
+for (const comando of ["Get-ChildItem raw\\*.bak | Remove-Item", "ls raw | rm", "gci raw | Move-Item -Destination wiki", "gci raw -Recurse | Rename-Item -NewName x", "Get-Content raw\\a.md | Set-Content wiki\\a.md", "Get-Content raw\\a.md | Out-File wiki\\a.md", "Get-Content raw\\a.md | Add-Content wiki\\a.md", "dir raw | ni wiki\\x", "Get-Content raw\\a.md; Clear-Content wiki\\b.md", "gci raw | del", "gci raw | erase", "gci raw | ren -NewName x", "Get-Content raw\\a.md; sc wiki\\x y", "Get-Content raw\\a.md; ac wiki\\x y"]) {
+  test(`Dado cmdlet de escrita do PowerShell ${comando} Quando o comando cita raw Então bloqueia`, () => {
+    expect(decidir(terminal(comando, "powershell")).acao).toBe("bloquear");
+  });
+}
+for (const comando of ["rg x raw/ > /tmp/saida", "cat raw/a.md | wc -l", "cat raw/a.md | tee wiki/copia.md", "cp raw/a.md wiki/a.md", "cat raw/a.md | grep x | head -3", "rm wiki/a.md; cat wiki/b.md", "find wiki -name '*.bak' | while read f; do rm \"$f\"; done", "for f in wiki/*; do cat \"$f\"; done", "Get-Content raw\\a.md | Select-String x", "gci raw | Select-Object Name", "Get-ChildItem wiki | Remove-Item", "git log -- raw/a.md; ls wiki", "sed -n 1,3p raw/a.md | cat", "python3 ler.py wiki/a.md", "cat raw/a.md; env"]) {
+  test(`Dado leitura de raw sem verbo de escrita ou escrita sem raw ${comando} Quando decido Então libera (controle)`, () => {
+    expect(decidir(terminal(comando, comando.includes("\\") || /Get-|gci|dir /.test(comando) ? "powershell" : "Bash")).acao).toBe("liberar");
+  });
+}
