@@ -1,10 +1,16 @@
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { diretorioDeTipo, nomeReservado } from "../lib/reservados";
 
-type Campo = { singular: string; plural: string; contar: (area: string) => number };
+type Campo = { singular: string; plural: string; expressao: RegExp; contar: (area: string) => number };
 
 function arquivosMarkdown(pasta: string): string[] {
+  try {
+    if (!lstatSync(pasta).isDirectory()) return [];
+  } catch (erro) {
+    if (erro instanceof Error && "code" in erro && erro.code === "ENOENT") return [];
+    throw erro;
+  }
   const arquivos: string[] = [];
   function visitar(dir: string): void {
     for (const entrada of readdirSync(dir, { withFileTypes: true })) {
@@ -18,19 +24,14 @@ function arquivosMarkdown(pasta: string): string[] {
 }
 
 function contar(pasta: string): number {
-  try {
-    if (!statSync(pasta).isDirectory()) return 0;
-  } catch {
-    return 0;
-  }
   return arquivosMarkdown(pasta).length;
 }
 
 const campos: Campo[] = [
-  { singular: "página", plural: "páginas", contar: (area) => arquivosMarkdown(area).filter((arquivo) => !/(?:^|[\\/])(?:index|overview)\.md$/.test(arquivo)).length },
-  { singular: "fonte", plural: "fontes", contar: (area) => contar(join(area, "sources")) },
-  { singular: "entidade", plural: "entidades", contar: (area) => contar(join(area, "entities")) },
-  { singular: "conceito", plural: "conceitos", contar: (area) => contar(join(area, "concepts")) },
+  { singular: "página", plural: "páginas", expressao: /[0-9]+ (páginas|página)/, contar: (area) => arquivosMarkdown(area).filter((arquivo) => !/(?:^|[\\/])(?:index|overview)\.md$/.test(arquivo)).length },
+  { singular: "fonte", plural: "fontes", expressao: /[0-9]+ (fontes|fonte)/, contar: (area) => contar(join(area, "sources")) },
+  { singular: "entidade", plural: "entidades", expressao: /[0-9]+ (entidades|entidade)/, contar: (area) => contar(join(area, "entities")) },
+  { singular: "conceito", plural: "conceitos", expressao: /[0-9]+ (conceitos|conceito)/, contar: (area) => contar(join(area, "concepts")) },
 ];
 
 const dataNoHeader = /Última atualização: [0-9]{4}-[0-9]{2}-[0-9]{2}/;
@@ -54,10 +55,17 @@ function terceiraLinha(texto: string): { linha: string; inicio: number; fim: num
 export async function sincronizarIndice(wiki: string, opcoes: { checar?: boolean } = {}): Promise<{ defasadas: string[]; reescritas: string[] }> {
   const defasadas: string[] = [];
   const reescritas: string[] = [];
-  for (const entrada of readdirSync(wiki, { withFileTypes: true })) {
-    if (nomeReservado(entrada.name) || diretorioDeTipo(entrada.name)) continue;
+  const entradas = readdirSync(wiki, { withFileTypes: true }).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  for (const entrada of entradas) {
+    if (entrada.name.startsWith(".") || nomeReservado(entrada.name) || diretorioDeTipo(entrada.name)) continue;
     const area = join(wiki, entrada.name);
-    if (!entrada.isDirectory()) continue;
+    try {
+      if (!statSync(area).isDirectory()) continue;
+    } catch (erro) {
+      if (!entrada.isSymbolicLink()) throw erro;
+      console.error(`AVISO: link de área indisponível: ${entrada.name}`);
+      continue;
+    }
     const indice = join(area, "index.md");
     try {
       if (!statSync(indice).isFile()) continue;
@@ -68,14 +76,12 @@ export async function sincronizarIndice(wiki: string, opcoes: { checar?: boolean
     const trecho = terceiraLinha(texto);
     if (trecho === null) continue;
     const { linha: header, inicio, fim } = trecho;
-    const pareceHeader = dataNoHeader.test(header) || campos.some(({ singular, plural }) =>
-      new RegExp(`[0-9]+ (${plural}|${singular})`).test(header));
+    const pareceHeader = dataNoHeader.test(header) || campos.some(({ expressao }) => expressao.test(header));
     if (!pareceHeader) continue;
 
     let novo = header;
     let incompleto = false;
-    for (const { singular, plural, contar: contarCampo } of campos) {
-      const expressao = new RegExp(`[0-9]+ (${plural}|${singular})`);
+    for (const { singular, plural, expressao, contar: contarCampo } of campos) {
       if (!expressao.test(novo)) {
         console.log(`FAIL: header (${entrada.name}) nao tem o campo '${plural}': ${header}`);
         defasadas.push(entrada.name);

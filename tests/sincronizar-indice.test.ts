@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { sincronizarIndice, comandoSincronizarIndice } from "../src/comandos/sincronizar-indice";
@@ -11,6 +11,10 @@ let indice: string;
 function gravar(caminho: string, texto = "pagina\n"): void {
   mkdirSync(dirname(caminho), { recursive: true });
   writeFileSync(caminho, texto);
+}
+
+function ligarDiretorio(alvo: string, link: string): void {
+  symlinkSync(alvo, link, process.platform === "win32" ? "junction" : "dir");
 }
 
 function ler(caminho = indice): string {
@@ -164,8 +168,72 @@ test("Dado diretórios reservados, Quando sincronizo, Então não os trato como 
   for (const nome of ["_meta", "log", "sources", "entities", "concepts"]) expect(r.saida).not.toContain(nome);
 });
 
+test("Dado área que é symlink com header defasado, Quando checo, Então aviso e saio 1 sem escrever", async () => {
+  await capturar(() => sincronizarIndice(wiki));
+  const alvo = join(raiz, "fora", "area");
+  const indexLinkado = join(alvo, "index.md");
+  gravar(indexLinkado, "# Área ligada\n\n_0 páginas, 0 fontes, 0 entidades, 0 conceitos — Última atualização: 2020-01-01_\n");
+  ligarDiretorio(alvo, join(wiki, "ligada"));
+  const antes = ler(indexLinkado);
+  const r = await capturar(() => comandoSincronizarIndice([wiki, "--checar"]));
+  expect(r.valor).toBe(1);
+  expect(r.saida).toContain("FAIL: header (ligada) defasado:");
+  expect(ler(indexLinkado)).toBe(antes);
+});
+
+test("Dado symlink de área quebrado, Quando checo, Então aviso no stderr e não afirmo erro de header", async () => {
+  await capturar(() => sincronizarIndice(wiki));
+  const alvo = join(raiz, "fora", "quebrada");
+  gravar(join(alvo, "index.md"), "# temporário\n");
+  ligarDiretorio(alvo, join(wiki, "quebrada"));
+  rmSync(alvo, { recursive: true });
+  const r = await capturar(() => comandoSincronizarIndice([wiki, "--checar"]));
+  expect(r.valor).toBe(0);
+  expect(r.erro).toContain("AVISO:");
+  expect(r.erro).toContain("quebrada");
+  expect(r.saida).not.toContain("FAIL: header (quebrada)");
+});
+
+test("Dado sources como symlink, Quando sincronizo, Então não sigo o link nem em páginas nem em fontes", async () => {
+  const alvo = join(raiz, "fora", "sources");
+  gravar(join(alvo, "um.md"));
+  gravar(join(alvo, "dois.md"));
+  rmSync(join(wiki, "alfa", "sources"), { recursive: true });
+  ligarDiretorio(alvo, join(wiki, "alfa", "sources"));
+  await capturar(() => sincronizarIndice(wiki));
+  expect(linha3()).toContain("4 páginas");
+  expect(linha3()).toContain("0 fontes");
+});
+
+test("Dado .trash com header defasado, Quando checo, Então não o trato como área", async () => {
+  await capturar(() => sincronizarIndice(wiki));
+  const caminho = join(wiki, ".trash", "index.md");
+  gravar(caminho, "# Lixeira\n\n_9 páginas — Última atualização: 2020-01-01_\n");
+  const r = await capturar(() => comandoSincronizarIndice([wiki, "--checar"]));
+  expect(r.valor).toBe(0);
+  expect(r.saida).not.toContain(".trash");
+});
+
+test("Dado .trash com header defasado, Quando sincronizo, Então não escrevo na lixeira", async () => {
+  await capturar(() => sincronizarIndice(wiki));
+  const caminho = join(wiki, ".trash", "index.md");
+  gravar(caminho, "# Lixeira\n\n_9 páginas — Última atualização: 2020-01-01_\n");
+  const antes = ler(caminho);
+  const r = await capturar(() => comandoSincronizarIndice([wiki]));
+  expect(r.valor).toBe(0);
+  expect(ler(caminho)).toBe(antes);
+});
+
+test("Dado áreas criadas fora da ordem alfabética, Quando sincronizo, Então anuncio alfa, beta e zeta nessa ordem", async () => {
+  const linha = "_0 páginas, 0 fontes, 0 entidades, 0 conceitos — Última atualização: 2020-01-01_";
+  gravar(join(wiki, "zeta", "index.md"), `# Zeta\n\n${linha}\n`);
+  gravar(join(wiki, "beta", "index.md"), `# Beta\n\n${linha}\n`);
+  const r = await capturar(() => sincronizarIndice(wiki));
+  expect(r.saida.match(/SYNC \([^)]+\)/g)).toEqual(["SYNC (alfa)", "SYNC (beta)", "SYNC (zeta)"]);
+});
+
 test("Dado a wiki versionada do repositório, Quando checo, Então ela passa sem escrita", async () => {
-  const r = await capturar(() => comandoSincronizarIndice([join(process.cwd(), "wiki"), "--checar"]));
+  const r = await capturar(() => comandoSincronizarIndice([join(import.meta.dir, "..", "wiki"), "--checar"]));
   expect(r.valor).toBe(0);
 });
 
@@ -190,10 +258,14 @@ test("Dado flag desconhecida, Quando sincronizo, Então aviso e devolvo 1", asyn
 });
 
 test("Dado índice com CRLF e prosa extra, Quando sincronizo, Então só a linha 3 muda", async () => {
-  const texto = "# Indice\r\n\r\n_1 página, 1 fonte, 1 entidade, 1 conceito — Última atualização: 2020-01-01_\r\n\r\n## Conceitos\r\n";
+  const texto = "# Indice\r\nSubtítulo da área\r\n_1 página, 1 fonte, 1 entidade, 1 conceito — Última atualização: 2020-01-01_\r\nNotas do curador\r\n## Conceitos";
   gravar(indice, texto);
   await capturar(() => sincronizarIndice(wiki));
   const depois = ler();
+  expect(depois).not.toBe(texto);
+  expect(depois.split("\r\n")[2]).toContain("6 páginas");
+  expect(depois.split("\r\n")[2]).not.toContain("2020-01-01");
   expect(depois.split("\r\n").filter((_, i) => i !== 2)).toEqual(texto.split("\r\n").filter((_, i) => i !== 2));
   expect(depois).not.toMatch(/(?<!\r)\n/);
+  expect(depois.endsWith("\n")).toBe(false);
 });

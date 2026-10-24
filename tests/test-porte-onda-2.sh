@@ -22,7 +22,6 @@ PY_PORTADOS=(
 )
 PORTADOS=("${BASH_PORTADOS[@]}" "${PY_PORTADOS[@]}")
 TESTES_NOVOS=(
-  tests/sincronizar-indice.test.ts
   tests/test-listar-lacunas.sh
   tests/test-indexar-log.sh
   tests/test-rejuntar-linhas.sh
@@ -30,7 +29,6 @@ TESTES_NOVOS=(
   tests/test-fechar-wiki.sh
   tests/test-porte-onda-2.sh
 )
-MODULOS_NOVOS=(src/comandos/sincronizar-indice.ts)
 
 # ============================================================================
 # B8 — rodape de atribuicao, no mesmo formato das skills
@@ -116,9 +114,7 @@ done
 # PROVA DE DENTES da varredura: uma varredura que nunca acusa nada pode estar
 # acusando nada porque o regex esta quebrado. Um arquivo-isca sintetico, com um
 # nome de area do vault privado em posicao de campo, TEM de ser pego.
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-isca="$TMP/isca"
+isca="$(mktemp)"
 # O nome da area e montado em pedacos pelo mesmo motivo do regex acima: escrito
 # por extenso, ele faria este arquivo acusar a si mesmo.
 area_isca="pesso""al"
@@ -135,6 +131,7 @@ if grep -qinE "$DISTINTIVOS|$GENERICOS" "$isca"; then
 else
   ok "a varredura nao acusa area neutra"
 fi
+rm -f "$isca"
 [ "$nao_rastreados" -gt 0 ] && echo "  nota: $nao_rastreados arquivo(s) ainda nao rastreado(s) — varridos na arvore de trabalho"
 
 # Nenhuma fixture de teste escreve dentro do wiki/ versionado: os testes que
@@ -174,8 +171,9 @@ for s in "${BASH_PORTADOS[@]}"; do
   bash -n "$s" 2>/dev/null && ok "$(basename "$s"): sintaxe bash ok" || falha "$(basename "$s"): erro de sintaxe bash"
 done
 for s in "${PY_PORTADOS[@]}"; do
-  PYTHONPYCACHEPREFIX="$TMP/pycache" python3 -m py_compile "$s" 2>/dev/null && ok "$(basename "$s"): compila em Python 3" || falha "$(basename "$s"): erro de sintaxe Python"
+  python3 -m py_compile "$s" 2>/dev/null && ok "$(basename "$s"): compila em Python 3" || falha "$(basename "$s"): erro de sintaxe Python"
 done
+rm -rf scripts/__pycache__
 
 # ============================================================================
 # B11 — o que fica de fora desta onda (nivel 04)
