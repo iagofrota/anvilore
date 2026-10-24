@@ -1,6 +1,6 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync, statSync } from "node:fs";
 import { mkdir, readFile, readdir, rename, rmdir, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { normalizarFimDeLinha } from "../lib/caminhos";
 import { nomeReservado } from "../lib/reservados";
 
@@ -24,6 +24,7 @@ export type ResultadoDaMigracao = {
   jaMigradas: string[];
   ausentes: string[];
   conflitos: string[];
+  falhas: string[];
   avisos: string[];
   relato: string[];
 };
@@ -89,6 +90,40 @@ function ehArquivo(caminho: string): boolean {
   }
 }
 
+function ehLinkQuebrado(caminho: string): boolean {
+  try {
+    return lstatSync(caminho).isSymbolicLink() && !existsSync(caminho);
+  } catch {
+    return false;
+  }
+}
+
+function dentroDe(raizReal: string, caminhoReal: string): boolean {
+  const rel = relative(raizReal, caminhoReal);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+// Segue os segmentos que já existem: um link no caminho da área que aponte para fora da wiki (ou para lugar
+// nenhum) levaria a página para fora dela. O que ainda não existe será criado como diretório comum.
+function areaSaiDaWiki(raiz: string, area: string): boolean {
+  const raizReal = realpathSync(raiz);
+  let atual = raiz;
+  for (const segmento of area.split("/")) {
+    atual = join(atual, segmento);
+    try {
+      lstatSync(atual);
+    } catch {
+      return false;
+    }
+    try {
+      if (!dentroDe(raizReal, realpathSync(atual))) return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+
 // `git mv` quando a pasta é um repositório e a página é versionada; qualquer falha (fora de repositório,
 // página não versionada, git ausente) cai para o rename.
 async function moverArquivo(wiki: string, origem: string, destino: string): Promise<void> {
@@ -101,9 +136,14 @@ async function moverArquivo(wiki: string, origem: string, destino: string): Prom
   await rename(origem, destino);
 }
 
-async function limparDiretoriosVazios(wiki: string): Promise<void> {
+async function limparDiretoriosVazios(wiki: string, avisos: string[]): Promise<void> {
   for (const entrada of await readdir(wiki, { withFileTypes: true })) {
-    if (!entrada.isDirectory() || entrada.name.startsWith(".") || nomeReservado(entrada.name)) continue;
+    if (entrada.name.startsWith(".")) continue;
+    if (entrada.isSymbolicLink()) {
+      if (ehLinkQuebrado(join(wiki, entrada.name))) avisos.push(`link quebrado: ${join(wiki, entrada.name)}`);
+      continue;
+    }
+    if (!entrada.isDirectory() || nomeReservado(entrada.name)) continue;
     try {
       await rmdir(join(wiki, entrada.name));
     } catch {
@@ -114,6 +154,9 @@ async function limparDiretoriosVazios(wiki: string): Promise<void> {
 
 export async function migrarAreas(wiki: string, opcoes: { simular?: boolean } = {}): Promise<ResultadoDaMigracao> {
   const simular = opcoes.simular === true;
+  // Caminho vazio resolveria para o diretório atual; o original lia `/_meta/...` e reprovava.
+  if (wiki === "") throw new ErroDeMigracao(`mapa de roteamento ausente: /_meta/migration-routing.md`);
+  const raiz = resolve(wiki);
   const caminhoDoMapa = join(wiki, "_meta", "migration-routing.md");
   if (!ehArquivo(caminhoDoMapa)) throw new ErroDeMigracao(`mapa de roteamento ausente: ${caminhoDoMapa}`);
 
@@ -123,6 +166,7 @@ export async function migrarAreas(wiki: string, opcoes: { simular?: boolean } = 
     jaMigradas: [],
     ausentes: [],
     conflitos: [],
+    falhas: [],
     avisos: [],
     relato: [],
   };
@@ -130,42 +174,57 @@ export async function migrarAreas(wiki: string, opcoes: { simular?: boolean } = 
     resultado.avisos.push(`o mapa não tem os marcadores ROUTING-START e ROUTING-END: ${caminhoDoMapa}`);
   }
 
-  const raiz = resolve(wiki);
-  for (const { pagina, area } of lerMapa(texto)) {
+  const entradas = lerMapa(texto);
+  for (const { pagina, area } of entradas) {
+    if (areaSaiDaWiki(raiz, area)) {
+      throw new ErroDeMigracao(`área sai da wiki por link simbólico: ${area} (página ${pagina})`);
+    }
+  }
+
+  for (const { pagina, area } of entradas) {
     const origem = join(raiz, `${pagina}.md`);
     const destino = join(raiz, area, `${pagina}.md`);
     const rotulo = `${pagina} → ${area}/${pagina}`;
 
-    if (!ehArquivo(origem)) {
-      if (ehArquivo(destino)) {
-        if (!simular) await injetarArea(destino, area);
-        resultado.relato.push(`ja migrada: ${rotulo}`);
-        resultado.jaMigradas.push(pagina);
-      } else {
-        resultado.relato.push(`ausente (nem na origem nem no destino): ${pagina}`);
-        resultado.ausentes.push(pagina);
+    try {
+      if (!ehArquivo(origem)) {
+        for (const caminho of [origem, destino]) {
+          if (ehLinkQuebrado(caminho)) resultado.avisos.push(`link quebrado: ${caminho}`);
+        }
+        if (ehArquivo(destino)) {
+          if (!simular) await injetarArea(destino, area);
+          resultado.relato.push(`ja migrada: ${rotulo}`);
+          resultado.jaMigradas.push(pagina);
+        } else {
+          resultado.relato.push(`ausente (nem na origem nem no destino): ${pagina}`);
+          resultado.ausentes.push(pagina);
+        }
+        continue;
       }
-      continue;
-    }
-    // Nunca sobrescreve: origem e destino ao mesmo tempo é decisão de gente.
-    if (existsSync(destino)) {
-      resultado.relato.push(`conflito (origem e destino existem, nada foi movido): ${rotulo}`);
-      resultado.conflitos.push(pagina);
-      continue;
-    }
-    if (simular) {
-      resultado.relato.push(`moveria: ${rotulo}`);
+      // Nunca sobrescreve: origem e destino ao mesmo tempo é decisão de gente.
+      if (existsSync(destino)) {
+        resultado.relato.push(`conflito (origem e destino existem, nada foi movido): ${rotulo}`);
+        resultado.conflitos.push(pagina);
+        continue;
+      }
+      if (simular) {
+        resultado.relato.push(`moveria: ${rotulo}`);
+        resultado.movidas.push(pagina);
+        continue;
+      }
+      await mkdir(dirname(destino), { recursive: true });
+      await moverArquivo(raiz, origem, destino);
       resultado.movidas.push(pagina);
-      continue;
+      await injetarArea(destino, area);
+      resultado.relato.push(`movida: ${rotulo}`);
+    } catch (erro) {
+      // Para na primeira falha: o que já foi movido fica relatado, e o resto do mapa não é tocado.
+      resultado.falhas.push(`${pagina}: ${(erro as Error).message}`);
+      break;
     }
-    await mkdir(dirname(destino), { recursive: true });
-    await moverArquivo(raiz, origem, destino);
-    await injetarArea(destino, area);
-    resultado.relato.push(`movida: ${rotulo}`);
-    resultado.movidas.push(pagina);
   }
 
-  if (!simular) await limparDiretoriosVazios(wiki);
+  if (!simular && resultado.falhas.length === 0) await limparDiretoriosVazios(raiz, resultado.avisos);
   return resultado;
 }
 
@@ -189,9 +248,13 @@ export async function comandoMigrarAreas(args: string[]): Promise<number> {
     for (const aviso of r.avisos) console.error(`AVISO: ${aviso}`);
     for (const linha of r.relato) console.log(linha);
     const conflitos = r.conflitos.length > 0 ? `, ${r.conflitos.length} conflito(s)` : "";
-    const resumo = `${r.movidas.length} ${simular ? "moveria(m)" : "movida(s)"}, ${r.jaMigradas.length} ja migrada(s), ${r.ausentes.length} ausente(s)${conflitos}`;
+    const falhas = r.falhas.length > 0 ? `, ${r.falhas.length} falha(s)` : "";
+    const resumo = `${r.movidas.length} ${simular ? "moveria(m)" : "movida(s)"}, ${r.jaMigradas.length} ja migrada(s), ${r.ausentes.length} ausente(s)${conflitos}${falhas}`;
     console.log(`${simular ? "MIGRACAO (simulacao)" : "MIGRACAO"}: ${resumo}`);
-    return r.conflitos.length > 0 ? 1 : 0;
+    for (const falha of r.falhas) {
+      console.error(`FAIL: ${falha}; já movidas: ${r.movidas.join(", ") || "nenhuma"}`);
+    }
+    return r.conflitos.length > 0 || r.falhas.length > 0 ? 1 : 0;
   } catch (erro) {
     if (!(erro instanceof ErroDeMigracao)) throw erro;
     console.error(`FAIL: ${erro.message}`);

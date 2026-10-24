@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ErroDeMigracao, comandoMigrarAreas, migrarAreas } from "../src/comandos/migrar-areas";
@@ -228,7 +228,7 @@ describe("migrar-areas: leitura do mapa", () => {
   test("Dado a linha separadora e o cabeçalho da tabela, Quando migro, Então nenhum dos dois vira página", async () => {
     mapa([]);
     const r = await migrarAreas(wiki);
-    expect(r).toEqual({ movidas: [], jaMigradas: [], ausentes: [], conflitos: [], avisos: [], relato: [] });
+    expect(r).toEqual({ movidas: [], jaMigradas: [], ausentes: [], conflitos: [], falhas: [], avisos: [], relato: [] });
   });
 
   test("Dado linhas fora dos marcadores, Quando migro, Então são ignoradas", async () => {
@@ -371,6 +371,182 @@ describe("migrar-areas: git mv e rename", () => {
     expect(existsSync(join(wiki, "alfa", "pagina-um.md"))).toBe(true);
     expect(existsSync(join(wiki, ".git"))).toBe(false);
   });
+});
+
+describe("migrar-areas: simulação com conflito", () => {
+  test("Dado a página na origem e no destino, Quando simulo, Então relata o conflito, nada muda e sai 1", async () => {
+    gravar("a.md", "origem\ntype: x\n");
+    gravar("alfa/a.md", "destino\ntype: x\n");
+    mapa(["| a | alfa |"]);
+    const r = await capturar(() => comandoMigrarAreas([wiki, "--simular"]));
+    expect(r.codigo).toBe(1);
+    expect(r.saida).toContain("conflito (origem e destino existem, nada foi movido): a → alfa/a");
+    expect(r.saida.at(-1)).toBe("MIGRACAO (simulacao): 0 moveria(m), 0 ja migrada(s), 0 ausente(s), 1 conflito(s)");
+    expect(ler("alfa/a.md")).toBe("destino\ntype: x\n");
+  });
+});
+
+describe("migrar-areas: caminho da wiki vazio", () => {
+  test.each(["", "/"])(
+    "Dado o caminho da wiki %p e um _meta/ no diretório atual, Quando rodo, Então reprova como o original e nada do diretório atual se move",
+    async (arg) => {
+      const original = process.cwd();
+      const aqui = join(tmp, "aqui");
+      gravar("x.md", "type: x\n", aqui);
+      mapa(["| x | alfa |"], aqui);
+      process.chdir(aqui);
+      try {
+        const r = await capturar(() => comandoMigrarAreas([arg]));
+        expect(r.codigo).toBe(1);
+        expect(r.erro).toEqual(["FAIL: mapa de roteamento ausente: /_meta/migration-routing.md"]);
+        expect(r.saida).toEqual([]);
+      } finally {
+        process.chdir(original);
+      }
+      expect(existsSync(join(aqui, "x.md"))).toBe(true);
+      expect(existsSync(join(aqui, "alfa"))).toBe(false);
+    },
+  );
+
+  test("Dado migrarAreas com wiki vazia, Quando chamo, Então lança ErroDeMigracao antes de tocar em qualquer coisa", async () => {
+    await expect(migrarAreas("")).rejects.toBeInstanceOf(ErroDeMigracao);
+  });
+});
+
+describe("migrar-areas: falha no meio do laço", () => {
+  test("Dado uma área que colide com um arquivo, Quando migro, Então a falha é relatada com o que já foi movido, sem stack trace, e sai 1", async () => {
+    gravar("a.md", "type: x\n");
+    gravar("b.md", "type: x\n");
+    gravar("c.md", "type: x\n");
+    gravar("ocupada", "isto é um arquivo");
+    mapa(["| a | alfa |", "| b | ocupada |", "| c | alfa |"]);
+    const r = await capturar(() => comandoMigrarAreas([wiki]));
+    expect(r.codigo).toBe(1);
+    expect(r.saida).toContain("movida: a → alfa/a");
+    expect(r.erro).toHaveLength(1);
+    expect(r.erro[0]).toMatch(/^FAIL: b: .+; já movidas: a$/);
+    expect(r.erro[0]).not.toContain("\n");
+    expect(existsSync(join(wiki, "alfa", "a.md"))).toBe(true);
+    expect(existsSync(join(wiki, "b.md"))).toBe(true);
+    expect(existsSync(join(wiki, "c.md"))).toBe(true);
+    expect(r.saida.at(-1)).toBe("MIGRACAO: 1 movida(s), 0 ja migrada(s), 0 ausente(s), 1 falha(s)");
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "Dado uma página que é symlink relativo (pulado no Windows: criar symlink exige privilégio), Quando migro, Então relata a falha com o que já foi movido em vez de stack trace",
+    async () => {
+      gravar("a.md", "type: x\n");
+      gravar("real.md", "type: x\n", join(tmp, "fora"));
+      symlinkSync(join("..", "fora", "real.md"), join(wiki, "link.md"));
+      gravar("b.md", "type: x\n");
+      mapa(["| a | alfa |", "| link | alfa |", "| b | alfa |"]);
+      const r = await capturar(() => comandoMigrarAreas([wiki]));
+      expect(r.codigo).toBe(1);
+      expect(r.saida).toContain("movida: a → alfa/a");
+      // o link foi movido e só a injeção de area: falhou, então ele consta entre as movidas
+      expect(r.erro[0]).toMatch(/^FAIL: link: .+; já movidas: a, link$/);
+      expect(existsSync(join(wiki, "b.md"))).toBe(true);
+    },
+  );
+
+  test("Dado a falha na primeira página, Quando migro, Então a mensagem diz que nada foi movido", async () => {
+    gravar("a.md", "type: x\n");
+    gravar("ocupada", "arquivo");
+    mapa(["| a | ocupada |"]);
+    const r = await capturar(() => comandoMigrarAreas([wiki]));
+    expect(r.erro[0]).toMatch(/^FAIL: a: .+; já movidas: nenhuma$/);
+  });
+
+  test("Dado a falha, Quando migro, Então migrarAreas devolve a falha em falhas em vez de lançar", async () => {
+    gravar("a.md", "type: x\n");
+    gravar("ocupada", "arquivo");
+    mapa(["| a | ocupada |"]);
+    const r = await migrarAreas(wiki);
+    expect(r.falhas).toHaveLength(1);
+    expect(r.movidas).toEqual([]);
+  });
+});
+
+describe("migrar-areas: links simbólicos (R58)", () => {
+  const semLink = process.platform === "win32";
+
+  test.skipIf(semLink)(
+    "Dado uma página que é link quebrado (pulado no Windows), Quando migro, Então avisa em stderr e segue relatando ausente",
+    async () => {
+      symlinkSync("nao-existe.md", join(wiki, "quebrada.md"));
+      mapa(["| quebrada | alfa |"]);
+      const r = await capturar(() => comandoMigrarAreas([wiki]));
+      expect(r.codigo).toBe(0);
+      expect(r.erro).toContain(`AVISO: link quebrado: ${join(wiki, "quebrada.md")}`);
+      expect(r.saida).toContain("ausente (nem na origem nem no destino): quebrada");
+    },
+  );
+
+  test.skipIf(semLink)(
+    "Dado um link quebrado no topo da wiki (pulado no Windows), Quando migro, Então a limpeza avisa em vez de ignorar calada",
+    async () => {
+      symlinkSync("nao-existe", join(wiki, "topo"));
+      mapa([]);
+      const r = await capturar(() => comandoMigrarAreas([wiki]));
+      expect(r.erro).toContain(`AVISO: link quebrado: ${join(wiki, "topo")}`);
+      expect(r.codigo).toBe(0);
+    },
+  );
+
+  test.skipIf(semLink)(
+    "Dado uma área que é link para fora da wiki (pulado no Windows), Quando migro, Então reprova antes de mover qualquer coisa",
+    async () => {
+      gravar("a.md", "type: x\n");
+      gravar("b.md", "type: x\n");
+      mkdirSync(join(tmp, "fora"));
+      symlinkSync(join("..", "fora"), join(wiki, "saida"));
+      mapa(["| a | alfa |", "| b | saida |"]);
+      const r = await capturar(() => comandoMigrarAreas([wiki]));
+      expect(r.codigo).toBe(1);
+      expect(r.erro.join("\n")).toContain("FAIL: área sai da wiki por link simbólico: saida (página b)");
+      expect(existsSync(join(wiki, "a.md"))).toBe(true);
+      expect(readdirSync(join(tmp, "fora"))).toEqual([]);
+    },
+  );
+
+  test.skipIf(semLink)(
+    "Dado um segmento intermediário da área que é link para fora (pulado no Windows), Quando migro, Então também reprova",
+    async () => {
+      gravar("a.md", "type: x\n");
+      mkdirSync(join(tmp, "fora"));
+      symlinkSync(join("..", "fora"), join(wiki, "saida"));
+      mapa(["| a | saida/sub |"]);
+      const r = await capturar(() => comandoMigrarAreas([wiki]));
+      expect(r.codigo).toBe(1);
+      expect(readdirSync(join(tmp, "fora"))).toEqual([]);
+    },
+  );
+
+  test.skipIf(semLink)(
+    "Dado uma área que é link quebrado (pulado no Windows), Quando migro, Então reprova antes de mover",
+    async () => {
+      gravar("a.md", "type: x\n");
+      symlinkSync("nao-existe", join(wiki, "alfa"));
+      mapa(["| a | alfa |"]);
+      const r = await capturar(() => comandoMigrarAreas([wiki]));
+      expect(r.codigo).toBe(1);
+      expect(r.erro.join("\n")).toContain("FAIL: área sai da wiki por link simbólico: alfa (página a)");
+      expect(existsSync(join(wiki, "a.md"))).toBe(true);
+    },
+  );
+
+  test.skipIf(semLink)(
+    "Dado uma área que é link para dentro da wiki (pulado no Windows), Quando migro, Então segue normalmente",
+    async () => {
+      gravar("a.md", "type: x\n");
+      mkdirSync(join(wiki, "grupo"));
+      symlinkSync("grupo", join(wiki, "apelido"));
+      mapa(["| a | apelido |"]);
+      const r = await capturar(() => comandoMigrarAreas([wiki]));
+      expect(r.codigo).toBe(0);
+      expect(existsSync(join(wiki, "grupo", "a.md"))).toBe(true);
+    },
+  );
 });
 
 describe("subcomando migrar-areas", () => {

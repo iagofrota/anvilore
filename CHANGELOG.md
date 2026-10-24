@@ -18,8 +18,10 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   `anvilore sincronizar-indice`, com modo `--checar` que não escreve.
 - A migração de páginas para as áreas da wiki agora é o comando `bun src/cli.ts migrar-areas [WIKI] [--simular]`
   (antes, `scripts/migrar-areas.sh`). Mesmo mapa de roteamento e mesmas mensagens; usa `git mv` quando a página é
-  versionada e `rename` quando não é. Mudou só um caso destrutivo: se a página existir na origem e no destino, ela
-  não é mais sobrescrita; o comando relata o conflito e sai com 1.
+  versionada e `rename` quando não é. O que mudou: se a página existir na origem e no destino, ela não é mais
+  sobrescrita (o comando relata o conflito e sai com 1); área do mapa que escapa da wiki (`..`, caminho absoluto, `\`,
+  `:` ou link para fora) reprova antes de mover qualquer coisa; mapa sem marcadores e link quebrado avisam em stderr;
+  falha no meio da migração é relatada com o que já foi movido, sem stack trace; `--help` mostra o uso e sai 2.
 
 ## [0.1.0] - 2026-10-24
 
