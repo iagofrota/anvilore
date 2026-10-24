@@ -2,16 +2,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { linhasDe } from "../lib/frontmatter";
 import { PASTA_DA_KB, listarPaginasDaKb } from "../lib/knowledge-base";
-import { linhasVisiveis } from "../lib/markdown";
+import { acharCodigosEmLinha, linhasVisiveis, mascararCodigoEmLinha } from "../lib/markdown";
 
 export type ResultadoDocs = { ok: boolean; problemas: string[] };
 
 // `[texto](alvo)` ou `![texto](alvo)`, com título opcional entre aspas duplas ou simples. O texto pode
 // atravessar linhas, mas não um parágrafo (linha em branco). O alvo não tem espaço nem `)`.
 const LINK = /!?\[(?:[^\]\n]|\n(?!\s*\n))*\]\(([^)\s]+)(?:\s+(?:"[^"]*"|'[^']*'))?\)/g;
-const TRECHO_EM_CRASES = /`([^`]+)`/g;
-// Trecho de código em linha dentro de um parágrafo: pode atravessar linhas, mas não uma linha em branco.
-const CRASES_NO_PARAGRAFO = /`(?:[^`\n]|\n(?!\s*\n))+`/g;
 const ESQUEMA = /^[a-z][a-z0-9+.-]+:/i;
 // Lista fechada, em minúsculas: `Bun.YAML` e `process.env` não são arquivos.
 const EXTENSOES = new Set(["md", "ts", "js", "mjs", "json", "sh", "py", "yml", "yaml", "toml", "lock", "tsv", "txt"]);
@@ -51,25 +48,24 @@ function conferirPagina(raiz: string, pasta: string, pagina: string): string[] {
   const problemas = new Set<string>();
   const visiveis = linhasVisiveis(linhasDe(readFileSync(join(pasta, pagina), "utf8")));
 
+  // O texto inteiro, para pegar link e código em linha que atravessam linhas. O reconhecimento de código
+  // em linha é o de `markdown.ts`, o mesmo do leitor: link dentro de código nunca é link.
+  const completo = visiveis.join("\n");
+
   // Menção entre crases resolve a partir da raiz do repositório.
-  for (const linha of visiveis) {
-    for (const [, mencao] of linha.matchAll(TRECHO_EM_CRASES)) {
-      const alvo = semAncora(mencao!.trim());
-      if (alvo === "" || !pareceCaminho(alvo)) continue;
-      const caminho = resolve(raiz, alvo.replace(/^\/+/, ""));
-      if (foraDaRaiz(raiz, caminho)) {
-        problemas.add(`${nome}: menção a \`${alvo}\` aponta para fora da raiz do repositório`);
-      } else if (!existsSync(caminho)) {
-        problemas.add(`${nome}: menção a \`${alvo}\` que não existe`);
-      }
+  for (const { conteudo } of acharCodigosEmLinha(completo)) {
+    const alvo = semAncora(conteudo.trim());
+    if (alvo === "" || !pareceCaminho(alvo)) continue;
+    const caminho = resolve(raiz, alvo.replace(/^\/+/, ""));
+    if (foraDaRaiz(raiz, caminho)) {
+      problemas.add(`${nome}: menção a \`${alvo}\` aponta para fora da raiz do repositório`);
+    } else if (!existsSync(caminho)) {
+      problemas.add(`${nome}: menção a \`${alvo}\` que não existe`);
     }
   }
 
-  // Link markdown resolve a partir da página (ou da raiz, se começa com `/`). Casa sobre o texto inteiro
-  // para pegar link que atravessa linha; código em linha vira espaços (as quebras ficam), o que preserva os índices.
-  const texto = visiveis.join("\n").replace(CRASES_NO_PARAGRAFO, (trecho) =>
-    trecho.replace(/[^\n]/g, " "),
-  );
+  // Link markdown resolve a partir da página (ou da raiz, se começa com `/`).
+  const texto = mascararCodigoEmLinha(completo);
   const vistos = new Set<string>();
   for (const achado of texto.matchAll(LINK)) {
     const alvo = semAncora(achado[1]!);

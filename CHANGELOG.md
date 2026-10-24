@@ -49,6 +49,11 @@ antigos em bash e Python: eles continuam sendo o que valida a wiki e protege o `
 - O mesmo vale para `<!--` no texto de informação da linha que abre um bloco de código cercado
   (por exemplo ```` ```js <!-- ````): ele deixava um comentário aberto depois do bloco e um link
   quebrado posterior passava sem aviso.
+- O reconhecimento de código em linha agora é um só, usado pela leitura das páginas e pelo
+  `checar-docs`: crases de comprimentos diferentes (``` ``a `[x](y.md)` b`` ```) formam um único
+  trecho de código, em vez de acusar um link quebrado que não existe. Também passam a valer a crase
+  escapada, o comentário `<!-->`/`<!--->` e o comentário que fecha na mesma linha em que abre um
+  bloco de código cercado.
 
 ### Não resolvido nesta versão
 

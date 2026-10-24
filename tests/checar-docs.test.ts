@@ -73,6 +73,30 @@ describe("checarDocs: referências", () => {
     expect(r.problemas[0]).toContain("(linha 4)");
   });
 
+  test("Dado um span de duas crases com crase e link dentro (reprodução do Codex), Quando checo, Então o exemplo inteiro é código e passa", () => {
+    kb("README.md", "Exemplo: ``a `[example](missing.md)` b`` fim.\n");
+    expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+  });
+
+  test("Dado um span de duas crases que atravessa a linha com link dentro, Quando checo, Então o link não conta", () => {
+    kb("README.md", "Exemplo: ``a `[x\ny](missing.md)` b`` fim.\n");
+    expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+  });
+
+  test("Dado uma menção a arquivo inexistente num span de duas crases, Quando checo, Então reprova", () => {
+    kb("README.md", "Veja ``src/nao-existe-7.ts`` aqui.\n");
+    const r = checarDocs(raiz);
+    expect(r.ok).toBe(false);
+    expect(r.problemas[0]).toContain("src/nao-existe-7.ts");
+  });
+
+  test("Dado `<!-->` seguido de link quebrado na linha de baixo, Quando checo, Então reprova apontando o link", () => {
+    kb("README.md", "Comentário vazio <!--> aqui.\n[Quebrado](nao-existe-8.md)\n");
+    const r = checarDocs(raiz);
+    expect(r.ok).toBe(false);
+    expect(r.problemas[0]).toContain("nao-existe-8.md");
+  });
+
   test("Dado um link relativo, Quando checo, Então ele resolve a partir da página, mesmo numa subpasta", () => {
     gravar("README.md", "");
     kb("README.md", "Veja [a raiz](../../README.md).\n");

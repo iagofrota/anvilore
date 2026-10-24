@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { linhasVisiveis } from "../src/lib/markdown";
+import { acharCodigosEmLinha, linhasVisiveis, mascararCodigoEmLinha } from "../src/lib/markdown";
 
 describe("linhasVisiveis: cercas de código", () => {
   test("Dado uma cerca de 4 crases com uma linha de 3 crases dentro, Quando filtro, Então a de 3 não fecha e o texto depois da de 4 fica visível", () => {
@@ -118,5 +118,68 @@ describe("linhasVisiveis: comentário HTML e código em linha", () => {
   test("Dado um comentário que fecha numa linha seguido de abertura de cerca, Quando filtro, Então a cerca abre depois do comentário (comportamento mantido)", () => {
     const entrada = ["<!-- abre", "--> ```js", "interno", "```", "fora"];
     expect(linhasVisiveis(entrada)).toEqual(["", "", "", "", "fora"]);
+  });
+});
+
+describe("linhasVisiveis: comentário e cerca na mesma linha", () => {
+  test("Dado um comentário fechado antes da abertura de cerca com `<!--` no info, Quando a cerca fecha, Então a linha seguinte continua visível", () => {
+    const entrada = ["<!-- c --> ```js <!--", "interno", "```", "[x](a.md)"];
+    expect(linhasVisiveis(entrada)).toEqual(["", "", "", "[x](a.md)"]);
+  });
+
+  test("Dado um comentário que fecha na linha da abertura de cerca com `<!--` no info, Quando a cerca fecha, Então a linha seguinte continua visível", () => {
+    const entrada = ["<!-- abre", "--> ```js <!--", "interno", "```", "fora"];
+    expect(linhasVisiveis(entrada)).toEqual(["", "", "", "", "fora"]);
+  });
+});
+
+describe("linhasVisiveis: crase escapada", () => {
+  test("Dado uma crase escapada, Quando há comentário depois, Então ela não abre código em linha e o comentário some", () => {
+    expect(linhasVisiveis(["\\` <!-- [q](x.md) --> `"])).toEqual(["\\`  `"]);
+  });
+
+  test("Dado uma barra escapada antes de crase, Quando a crase abre um span com `<!--`, Então o span protege o `<!--`", () => {
+    expect(linhasVisiveis(["\\\\`<!--` fim", "[x](a.md)"])).toEqual(["\\\\`<!--` fim", "[x](a.md)"]);
+  });
+});
+
+describe("linhasVisiveis: comentários vazios do CommonMark 0.31", () => {
+  test("Dado `<!-->` no meio da linha, Quando filtro, Então é um comentário completo e o resto da página fica visível", () => {
+    expect(linhasVisiveis(["antes <!--> depois", "[x](a.md)"])).toEqual(["antes  depois", "[x](a.md)"]);
+  });
+
+  test("Dado `<!--->` no meio da linha, Quando filtro, Então é um comentário completo e o resto da página fica visível", () => {
+    expect(linhasVisiveis(["antes <!---> depois", "[x](a.md)"])).toEqual(["antes  depois", "[x](a.md)"]);
+  });
+
+  test("Dado `<!---->`, Quando filtro, Então fecha normalmente", () => {
+    expect(linhasVisiveis(["a <!----> b"])).toEqual(["a  b"]);
+  });
+});
+
+describe("acharCodigosEmLinha", () => {
+  test("Dado crases de comprimentos diferentes (caso do Codex), Quando procuro, Então há um span só, do tamanho do primeiro", () => {
+    const texto = "``a `[example](missing.md)` b``";
+    expect(acharCodigosEmLinha(texto)).toEqual([{ inicio: 0, fim: texto.length, conteudo: "a `[example](missing.md)` b" }]);
+  });
+
+  test("Dado uma sequência de crases sem fechamento de mesmo comprimento, Quando procuro, Então ela é texto e a busca segue depois dela", () => {
+    expect(acharCodigosEmLinha("``a e `b`")).toEqual([{ inicio: 6, fim: 9, conteudo: "b" }]);
+  });
+
+  test("Dado um span que atravessa linhas dentro do parágrafo, Quando procuro, Então ele é achado", () => {
+    expect(acharCodigosEmLinha("`a\nb`")).toEqual([{ inicio: 0, fim: 5, conteudo: "a\nb" }]);
+  });
+
+  test("Dado uma linha em branco antes do fechamento, Quando procuro, Então não há span", () => {
+    expect(acharCodigosEmLinha("`a\n\nb`")).toEqual([]);
+  });
+
+  test("Dado uma crase escapada, Quando procuro, Então ela não abre span (o primeiro span começa na crase seguinte)", () => {
+    expect(acharCodigosEmLinha("\\`a` `b`")).toEqual([{ inicio: 3, fim: 6, conteudo: " " }]);
+  });
+
+  test("Dado um span, Quando mascaro, Então os caracteres viram espaços e as quebras de linha ficam", () => {
+    expect(mascararCodigoEmLinha("x `a\nb` y")).toEqual("x   \n   y");
   });
 });
