@@ -20,6 +20,7 @@ fica para depois (veja a última seção).
 | Validador da wiki (`anvilore validar`) | Reprova página sem frontmatter ou com frontmatter que não lê (YAML inválido nunca é pulado), com `type` inválido, com `slug` diferente do nome do arquivo (comparado em Unicode NFC), com `area` em conflito com o diretório, dois arquivos da mesma pasta que só diferem na caixa, wikilink que não resolve, página fora do index.md aplicável e campo de proveniência malformado. Reprova wiki inexistente e diretório sem nenhum arquivo `.md`; uma wiki só com index.md e log.md passa. Sem o Bun o comando não roda, e nunca imprime PASS. | `src/comandos/validar.ts`, linhas 100 a 244 |
 | Portão humano, depois da escrita | Reprova a página com `generated` em mapping e sem uma entrada `verified` com `by: human:<id>` e `at` igual ou posterior a `generated.at`. A mensagem é "página gerada sem aprovação humana". | `src/lib/okf.ts`, linhas 148 a 194 |
 | Perfil da empresa | Um anvilore.toml na raiz do projeto restringe áreas, tipos de página e campos obrigatórios; reprova nomeando arquivo e valor. Arquivo ilegível, chave desconhecida ou valor que não é lista de textos também reprova. | `src/lib/perfil.ts`, linhas 28 a 54; `src/comandos/validar.ts`, linhas 189 a 191 e 204 a 212 |
+| Instalador | Funde JSON sem trocar escalares divergentes e mantém um bloco delimitado no TOML. Conflito ou JSON inválido sai com 4, sem sobrescrever o arquivo conflitante; uso ou destino inválido sai com 1. Simulação não escreve, e reinstalação sem mudanças devolve INALTERADO. Links que falham são relatados, sem cópia automática. | `src/comandos/instalar.ts`, `src/lib/fundir-json.ts`, `src/lib/fundir-bloco.ts`; cenários em `tests/instalar.test.ts` |
 | Tipos e cobertura | `tsc --noEmit` e testes com cobertura mínima de 80% no geral. | `package.json` (script `checar`); `bunfig.toml`, linha 2 |
 | Checagem de links | Reprova link e menção a arquivo inexistente nesta pasta. | `src/comandos/checar-docs.ts` |
 | Trava de release | Reprova versão sem seção no CHANGELOG, seção vazia, pasta desta KB ausente ou sem página, ou página sem `verified`. | `src/comandos/checar-release.ts` |
@@ -41,10 +42,10 @@ está dito.
 - O Claude Code liga o hook só para `Write|Edit|NotebookEdit` (`hooks/hooks.json`, linha 6). Escrita
   feita por **comando de terminal** não passa pelo hook e não é barrada.
 - Os outros agentes seguem o mesmo desenho: o Codex usa o matcher `apply_patch|Edit|Write` e o
-  Gemini usa `write_file|replace` (`hooks/README.md`, linhas 81 a 84; `instalar.sh`, linhas 374 e
-  418). Nenhum matcher cita ferramenta de terminal.
+  Gemini usa `write_file|replace` (`hooks/README.md`, tabela "As formas por agente";
+  `src/comandos/instalar.ts`, função `configuracaoDoHook`). Nenhum matcher cita ferramenta de terminal.
 - O evento do Copilot não tem `matcher` e roda em toda chamada de ferramenta (`hooks/README.md`,
-  trecho "Este evento não tem `matcher`"; `instalar.sh`, linha 453). Pelo código, um comando de
+  trecho "Este evento não tem `matcher`"; `src/comandos/instalar.ts`, função `configuracaoDoHook`). Pelo código, um comando de
   terminal que chegue ao hook cairia na checagem do texto inteiro (`hooks/proteger-raw.sh`, linhas
   124 a 126). Isso é leitura do código: o Copilot nunca foi executado (`hooks/README.md`, final).
 - A comparação de caminho do hook é sensível à caixa (`hooks/proteger-raw.sh`, linha 29), e o
@@ -116,7 +117,7 @@ na seção "Não resolvido nesta versão".
 
 - Nada no repositório impede que o agente copie o conteúdo de `raw/` ou de `wiki/` para um serviço
   externo, para outra ferramenta ou para uma resposta. A busca por termos como segredo, sigilo,
-  confidencial e sanitização em `scripts/`, `hooks/`, `src/`, `skills/` e `instalar.sh` não
+  confidencial e sanitização em `scripts/`, `hooks/`, `src/` e `skills/` não
   retorna nada.
 - Nada varre o conteúdo à procura de dados sensíveis antes ou depois da ingestão.
 - O que existe é higiene, e não proteção: o `.gitignore` deixa as fontes de `raw/` fora do git por

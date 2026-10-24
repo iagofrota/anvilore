@@ -16,10 +16,10 @@ repositório**:
 | `SCHEMA.md` | o contrato de formato das páginas: tipos, frontmatter, wikilinks e callouts |
 | `AGENTS.md` | o contrato do agente: o que ele faz, o que não faz |
 | `skills/ingest`, `skills/query`, `skills/lint` | ingerir uma fonte; responder citando página; varrer a wiki atrás de problemas estruturais |
-| `src/` | o comando `anvilore` em TypeScript, que roda no [Bun](https://bun.sh); por ora traz o validador (`validar`) |
+| `src/` | o comando `anvilore` em TypeScript, que roda no [Bun](https://bun.sh); traz o validador (`validar`) e o instalador (`instalar`) |
 | `scripts/` | os scripts de manutenção (índice, log, lacunas, áreas) |
 | `hooks/` | a regra "`raw/` é imutável" na forma de hook, com a decisão num script só (`hooks/proteger-raw.sh`) |
-| `instalar.sh` | configura um clone para o agente que você usa: Claude Code, Codex, Gemini ou Copilot |
+| `anvilore instalar` | configura um clone para o agente que você usa: Claude Code, Codex, Gemini ou Copilot |
 | `tests/` | os testes que provam os scripts, o hook e o instalador |
 | `docs/knowledge_base/` | a documentação do próprio Anvilore, escrita para agentes que desenvolvem o projeto ou respondem dúvidas sobre ele |
 
@@ -43,7 +43,8 @@ Linux. Não há suporte a Windows nem a macOS.
 ```bash
 git clone https://github.com/iagofrota/anvilore.git
 cd anvilore
-bash instalar.sh --simular
+bun install --frozen-lockfile
+bun src/cli.ts instalar --simular
 ```
 
 `--simular` só relata o que o instalador faria; não cria, não altera e não
@@ -51,15 +52,15 @@ remove nenhum arquivo. Quando a lista estiver do seu agrado, instale de
 verdade:
 
 ```bash
-bash instalar.sh --alvo claude
+bun src/cli.ts instalar --alvo claude
 ```
 
 `--alvo` aceita `claude`, `codex`, `gemini`, `copilot` — separados por
 vírgula — ou `todos`, que é o padrão. Alvo cuja CLI não estiver no `PATH` é
 relatado e pulado, e a execução termina com sucesso. Para instalar em outro
-clone que não o deste script, use `--destino <dir>`: o instalador escreve
-exclusivamente dentro desse diretório. `bash instalar.sh --help` descreve,
-por agente, o que cada alvo instala.
+clone que não o deste kit, use `--destino <dir>`: o instalador escreve
+exclusivamente dentro desse diretório. `bun src/cli.ts instalar --help` descreve
+as opções de instalação.
 
 Com o clone configurado:
 

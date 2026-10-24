@@ -109,7 +109,7 @@ que a ferramenta.
 
 ## 5. Nenhum casamento com um provedor de agente
 
-O método não pertence a nenhuma CLI. `instalar.sh` configura quatro
+O método não pertence a nenhuma CLI. `anvilore instalar` configura quatro
 provedores — Claude Code, Codex, Gemini e Copilot — a partir de **uma fonte
 só**: as skills são instaladas por link simbólico para `skills/<nome>` (ou,
 no caso do Gemini, por um comando que aponta para o mesmo `SKILL.md`), e cada

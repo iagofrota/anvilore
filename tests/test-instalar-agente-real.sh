@@ -92,7 +92,7 @@ git -C "$ALVO" init -q
 git -C "$ALVO" add -A >/dev/null 2>&1
 git -C "$ALVO" -c user.email=teste@exemplo -c user.name=teste commit -qm fixture
 
-HOME="$LAR_FALSO" bash "$ALVO/instalar.sh" --destino "$ALVO" --alvo claude >/dev/null 2>&1
+HOME="$LAR_FALSO" bun "$ALVO/src/cli.ts" instalar --destino "$ALVO" --alvo claude >/dev/null 2>&1
 CONFIG="$ALVO/.claude/settings.json"
 [ -f "$CONFIG" ] || { falha "a instalacao nao produziu a configuracao do agente"; exit 1; }
 

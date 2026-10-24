@@ -25,6 +25,8 @@ jobs:
         run: bun run checar
       - name: Checar links e referências da knowledge base
         run: bun src/cli.ts checar-docs
+      - name: Medir links e junções de diretório (imprime resultado por sistema)
+        run: bun test tests/juncoes.test.ts
       - name: Checar a release (em qualquer tag; o v da frente é opcional)
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash

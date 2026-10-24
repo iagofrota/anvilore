@@ -26,11 +26,11 @@ Peças que existem hoje no repositório:
 - Validador da wiki (`anvilore validar`), em TypeScript: `src/comandos/validar.ts`, `src/lib/okf.ts` e
   `src/lib/perfil.ts`. Os scripts de manutenção, ainda em bash e Python: `scripts/`.
 - Proteção de `raw/` como hook: `hooks/proteger-raw.sh`.
-- Instalador para Claude Code, Codex, Gemini e Copilot: `instalar.sh`.
+- Instalador para Claude Code, Codex, Gemini e Copilot: `anvilore instalar`, em
+  `src/comandos/instalar.ts`, com fusão em `src/lib/fundir-json.ts` e `src/lib/fundir-bloco.ts`.
 - O porte para TypeScript no Bun, em andamento: `src/cli.ts` (tabela de subcomandos), a biblioteca
-  em `src/lib/` e três subcomandos, `checar-docs`, `checar-release` e `validar`, em
-  `src/comandos/`. Os scripts de manutenção, o hook e o instalador acima ainda não foram
-  substituídos.
+  em `src/lib/` e quatro subcomandos, `checar-docs`, `checar-release`, `validar` e `instalar`, em
+  `src/comandos/`. Os demais scripts de manutenção e o hook ainda não foram substituídos.
 
 ## Para onde ir com cada pergunta
 

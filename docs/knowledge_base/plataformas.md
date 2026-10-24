@@ -10,18 +10,20 @@ do que ainda é só hipótese.
 
 ## Estado de hoje
 
-- O `README.md` ainda diz que o suporte é só Linux. O hook declara "Alvo declarado: Linux"
-  (`hooks/proteger-raw.sh`, linha 19) e o instalador avisa que os caminhos, os links simbólicos e o
-  `PATH` assumem Linux (`instalar.sh`, linha 22).
-- Os scripts atuais dependem de `jq`, `python3` e de utilitários de shell
-  (`hooks/proteger-raw.sh`, linhas 64 a 72; `instalar.sh`, linhas 167 e 201). Eles somem com o porte
-  para TypeScript.
-- Os testes antigos são scripts bash (`tests/test-*.sh`) e o `--help` do instalador declara Linux
-  (`tests/test-instalar.sh`, linhas 96 a 107). Eles não são o que roda no CI de hoje.
-- O que está configurado para rodar nos três sistemas é a parte nova: o CI executa `bun run checar`
-  em Ubuntu, Windows e macOS (`.github/workflows/ci.yml`, matriz `os`). **A confirmar na primeira
-  execução do CI:** o workflow ainda não foi enviado ao GitHub, então nunca rodou em nenhum dos
-  três.
+- O `README.md` ainda diz que o suporte é só Linux. O hook ativo declara "Alvo declarado:
+  Linux" (`hooks/proteger-raw.sh`, linha 19). O instalador já está em TypeScript no Bun:
+  `src/comandos/instalar.ts`, com caminhos de `node:path` e links de `node:fs/promises`.
+- O hook ainda depende de `jq` e `python3` (`hooks/proteger-raw.sh`, linhas 64 a 72). O
+  instalador não depende mais de utilitários de shell nem de Python; só usa Git se precisar
+  recuperar um esqueleto ausente na árvore-fonte. Sem Git nessa situação, reprova explicitamente.
+- Os testes antigos em bash (`tests/test-*.sh`) cobrem as peças ainda não portadas e não rodam no
+  CI. O instalador é exercitado por `tests/instalar.test.ts` e a ligação de diretórios por
+  `tests/juncoes.test.ts`.
+- **Fundação confirmada:** CI do PR #8, run 40100219630, em 2026-10-24: 258 testes passaram,
+  nenhum falhou ou foi pulado, em ubuntu-latest, macos-latest e windows-latest. O link simbólico
+  funcionou no Windows desse CI (resultado registrado pelo líder). Isso não confirma as novas
+  junções do instalador. A Onda 1 continua a confirmar pelo CI do seu PR; a declaração geral
+  de suporte só muda depois dessa execução.
 - O `.gitattributes` fixa `eol=lf` para texto, Markdown e TypeScript, para o checkout no Windows
   não trazer CRLF.
 
@@ -38,7 +40,7 @@ nem CI neles quando o risco foi levantado. Cada item diz o que a biblioteca em `
 | Fim de linha CRLF (checkout no Windows) | `normalizarFimDeLinha` (`src/lib/caminhos.ts`) e `linhasDe` (`src/lib/frontmatter.ts`) leem CRLF como LF. Teste: `tests/lib-frontmatter.test.ts`. | Os scripts em bash e Python ainda não usam a biblioteca. |
 | BOM no início do arquivo | `linhasDe` tira o BOM antes de procurar o frontmatter. | Idem. |
 | Caminho com barra invertida, `raw.`, `raw ` ou unidade `C:` | `estaEmRaw` (`src/lib/caminhos.ts`) separa por barra, barra invertida e `:`, tira ponto e espaço do fim e ignora a caixa. Teste: `tests/lib-caminhos.test.ts`. | O hook em TypeScript ainda não existe; o hook ativo é `hooks/proteger-raw.sh`. Falta também resolver o caminho e o link simbólico antes de comparar. |
-| Links simbólicos | Nada. `instalar.sh` liga cada skill com `ln -s` (linha 158). | No Windows, link simbólico costuma exigir modo desenvolvedor ou administrador. Uma junção do NTFS provavelmente dispensa o privilégio. A decisão ainda não foi tomada. Se for preciso copiar, o instalador deve avisar de forma explícita, nunca cair para cópia calada. |
+| Links e junções | `ligarDiretorio` em `src/comandos/instalar.ts` usa junção no Windows e link simbólico relativo em Linux/macOS. O Copilot liga arquivos com link simbólico. Falha avisa e não copia; o instalador sai com 4. `tests/juncoes.test.ts` imprime o resultado e confere uma edição após a ligação. | Junção: a confirmar pelo CI do PR da Onda 1. A etapa de medição em `.github/workflows/ci.yml` imprime criado ou falhou por sistema e reprova se falhar. Link de arquivo no Windows pode depender de privilégio ou modo desenvolvedor. |
 | Dependências do sistema (`jq`, `python3`, `awk`, `mktemp`, `readlink`) | Somem com o porte. | O `git` continua necessário; o diagnóstico de ambiente ainda não existe. |
 | Latência do hook | Nada medido. | O hook roda a cada gravação do agente. Um processo Bun novo por gravação precisa de latência aceitável: **medir antes de declarar**. |
 
@@ -57,7 +59,7 @@ chamada Raw seria bloqueada (falha fechada, de propósito). O hook **ativo**,
 
 ## O que esta página não afirma
 
-- Que o CI esteja verde nos três sistemas. Quem quiser afirmar isso precisa olhar a execução.
+- Que o CI da Onda 1 esteja verde nos três sistemas; só a fundação tem execução confirmada acima.
 - Qualquer número de latência.
 - Que o instalador funcione fora do Linux.
 

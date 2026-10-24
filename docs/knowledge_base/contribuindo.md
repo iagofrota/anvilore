@@ -24,9 +24,12 @@ bun run checar
 - Para conferir esta pasta: `bun src/cli.ts checar-docs`. Para simular a trava de release:
   `bun src/cli.ts checar-release 0.1.0`.
 - Os testes antigos em bash continuam em `tests/test-*.sh`, para o código que ainda é bash. Rode
-  cada um com `bash tests/test-fechar-wiki.sh`, por exemplo. O alvo deles é Linux: o instalador
-  declara isso (`instalar.sh`, linhas 21 e 22) e `tests/test-instalar.sh` confere que o `--help`
-  diz Linux e não promete Windows nem macOS (linhas 96 a 107).
+  cada um com `bash tests/test-fechar-wiki.sh`, por exemplo. O alvo desses testes antigos é Linux.
+  O instalador já é coberto por `tests/instalar.test.ts`, `tests/fundir-json.test.ts`,
+  `tests/fundir-bloco.test.ts` e `tests/juncoes.test.ts`, em Bun. Toda instalação de teste usa
+  destino temporário; nunca instale na configuração real de um agente para verificar uma mudança.
+  O ensaio com agente real em `tests/test-instalar-agente-real.sh` é separado e só roda quando
+  explicitamente pedido; não faz parte da suíte automática.
 
 O CI está configurado para rodar `bun run checar` e `checar-docs` em Ubuntu, Windows e macOS a
 cada push e pull request (`.github/workflows/ci.yml`). Ele ainda não rodou: o workflow não foi

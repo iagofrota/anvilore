@@ -78,10 +78,10 @@ assunto, e ainda não está feito aqui.
 
 | Agente | Arquivo de configuração | Evento | Estado |
 |---|---|---|---|
-| Claude Code | `hooks/hooks.json` (fundido no `.claude/settings.json` do projeto) | `PreToolUse`, matcher `Write\|Edit\|NotebookEdit` | **versionado aqui**, instalado por `instalar.sh` |
-| Codex CLI | `.codex/config.toml` | `[[hooks.PreToolUse]]`, matcher `apply_patch\|Edit\|Write` | instalado por `instalar.sh` |
-| Gemini CLI | `.gemini/settings.json` | `hooks.BeforeTool`, matcher `write_file\|replace` | instalado por `instalar.sh` |
-| Copilot CLI | `.github/copilot/settings.json` | `hooks.preToolUse` | instalado por `instalar.sh` |
+| Claude Code | `hooks/hooks.json` (fundido no `.claude/settings.json` do projeto) | `PreToolUse`, matcher `Write\|Edit\|NotebookEdit` | **versionado aqui**, instalado por `anvilore instalar` |
+| Codex CLI | `.codex/config.toml` | `[[hooks.PreToolUse]]`, matcher `apply_patch\|Edit\|Write` | instalado por `anvilore instalar` |
+| Gemini CLI | `.gemini/settings.json` | `hooks.BeforeTool`, matcher `write_file\|replace` | instalado por `anvilore instalar` |
+| Copilot CLI | `.github/copilot/settings.json` | `hooks.preToolUse` | instalado por `anvilore instalar` |
 
 Cada forma abaixo traz a fonte da convenção. Formato sem referência é palpite, e
 quem vier depois não tem como saber se pode confiar nele.
@@ -160,8 +160,8 @@ o controle fora de `raw/` passando na mesma execução), e que desativar a
 condição de decisão faz o bloqueio desaparecer — sem essa última prova, o teste
 não estaria medindo nada.
 
-Instalar essas formas na máquina de quem clona é trabalho de `instalar.sh`, e
-`tests/test-instalar.sh` prova que cada uma chega ao disco no arquivo certo,
+Instalar essas formas na máquina de quem clona é trabalho de `anvilore instalar`, e
+`tests/instalar.test.ts` prova que cada uma chega ao disco no arquivo certo,
 referenciando o script por caminho em vez de reimplementar a decisão.
 
 **Só a forma do Claude Code foi exercitada de ponta a ponta com um agente de

@@ -11,6 +11,11 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Added
 
+- Comando `anvilore instalar`: configura Claude Code, Codex, Gemini e Copilot usando Bun.
+  Preserva preferências, recusa conflitos, simula sem escrever e não altera arquivos ao repetir.
+  As skills continuam ligadas à fonte; no Windows, diretórios usam junções. Falhas de ligação
+  são explícitas, sem copiar em silêncio. O CI passa a imprimir o resultado dessas ligações.
+
 - Comando `anvilore validar [pasta]`: o validador da wiki agora é TypeScript no Bun, no lugar dos
   scripts em bash e Python. Mantém as mesmas regras e as mesmas saídas (`VALIDACAO: PASS` ou
   `VALIDACAO: FAIL`, códigos 0 e 1) e acrescenta o que faltava: o YAML do frontmatter é lido pelo
