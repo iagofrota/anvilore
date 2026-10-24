@@ -420,7 +420,7 @@ for (const comando of ["find raw -type f | while read f; do rm \"$f\"; done", "l
     expect(decidir(terminal(comando)).acao).toBe("bloquear");
   });
 }
-for (const comando of ["Get-ChildItem raw\\*.bak | Remove-Item", "ls raw | rm", "gci raw | Move-Item -Destination wiki", "gci raw -Recurse | Rename-Item -NewName x", "Get-Content raw\\a.md | Set-Content wiki\\a.md", "Get-Content raw\\a.md | Out-File wiki\\a.md", "Get-Content raw\\a.md | Add-Content wiki\\a.md", "dir raw | ni wiki\\x", "Get-Content raw\\a.md; Clear-Content wiki\\b.md", "gci raw | del", "gci raw | erase", "gci raw | ren -NewName x", "Get-Content raw\\a.md; sc wiki\\x y", "Get-Content raw\\a.md; ac wiki\\x y"]) {
+for (const comando of ["Get-ChildItem raw\\*.bak | Remove-Item", "ls raw | rm", "gci raw | Move-Item -Destination wiki", "gci raw -Recurse | Rename-Item -NewName x", "gci raw | del", "gci raw | erase", "gci raw | ren -NewName x"]) {
   test(`Dado cmdlet de escrita do PowerShell ${comando} Quando o comando cita raw Então bloqueia`, () => {
     expect(decidir(terminal(comando, "powershell")).acao).toBe("bloquear");
   });
@@ -462,7 +462,7 @@ test("Dado find com -exec de escrita Quando o diretório é ancestral de raw Ent
   }
 });
 test("Dado Get-ChildItem recursivo no diretório do projeto Quando a pipeline escreve ou remove Então bloqueia", () => {
-  for (const comando of ["Get-ChildItem -Recurse | Remove-Item", "gci -r -Filter *.tmp | Remove-Item -Force", "Get-ChildItem . -Recurse | Move-Item -Destination x", "ls -Recurse | rm", "dir -Recurse | Rename-Item -NewName y", "Get-ChildItem -Recurse | Select-Object -First 1 | Remove-Item", "Get-ChildItem -Path * -Recurse | Set-Content x"]) {
+  for (const comando of ["Get-ChildItem -Recurse | Remove-Item", "gci -r -Filter *.tmp | Remove-Item -Force", "Get-ChildItem . -Recurse | Move-Item -Destination x", "ls -Recurse | rm", "dir -Recurse | Rename-Item -NewName y", "Get-ChildItem -Recurse | Select-Object -First 1 | Remove-Item", "Get-ChildItem -Path * -Recurse | Remove-Item -Force"]) {
     expect(decidir(terminal(comando, "powershell")).acao).toBe("bloquear");
   }
   for (const comando of ["Get-ChildItem wiki -Recurse | Remove-Item", "gci . -Recurse | Select-Object Name", "Get-ChildItem | Remove-Item", "gci -Recurse | Measure-Object", "gci wiki | Remove-Item"]) {
@@ -493,5 +493,17 @@ for (const comando of ["sed -Ei 's/a/b/' raw/a.md", "sed -Ei.bak 's/a/b/' raw/a.
 for (const comando of ["sed -E -n 's/a/b/p' raw/a.md", "sed -En 's/a/b/p' raw/a.md", "sed -E 's/i/x/' raw/a.md", "sed --expression='s/a/b/' raw/a.md", "sed -Ei 's/a/b/' wiki/a.md"]) {
   test(`Dado sed sem in-place ${comando} Quando decido Então libera (controle)`, () => {
     expect(decidir(terminal(comando)).acao).toBe("liberar");
+  });
+}
+
+// Rodada 3 — I1: cmdlets de cópia e gravação do PowerShell e `copy` do cmd são julgados pelo destino, como cp e tee.
+for (const comando of ["Copy-Item raw\\a.md wiki\\a.md", "Copy-Item -Path raw\\a.md -Destination wiki\\sources\\", "cpi raw\\a.pdf $env:TEMP\\a.pdf", "Copy-Item -Recurse raw\\x wiki\\x", "Get-Content raw\\a.md | Out-File wiki\\a.md", "Get-Content raw\\a.md | Out-File -FilePath wiki\\a.md -Encoding utf8", "Get-Content raw\\a.md | Set-Content wiki\\a.md", "Get-Content raw\\a.md | Add-Content -Path wiki\\a.md", "copy raw\\a.md wiki\\a.md", "cmd /c copy raw\\a.md wiki\\a.md", "New-Item -ItemType Directory wiki\\sources; Copy-Item raw\\a.md wiki\\sources\\", "dir raw | ni wiki\\x", "Get-Content raw\\a.md; Clear-Content wiki\\b.md", "Get-Content raw\\a.md; sc wiki\\x y", "Get-Content raw\\a.md; ac wiki\\x y"]) {
+  test(`Dado cópia de raw para a wiki no PowerShell ${comando} Quando decido Então libera`, () => {
+    expect(decidir(terminal(comando, "powershell")).acao).toBe("liberar");
+  });
+}
+for (const comando of ["Copy-Item wiki\\a.md raw\\a.md", "Copy-Item -Path wiki\\a.md -Destination raw\\", "Copy-Item -Destination raw\\a.md -Path wiki\\a.md", "cpi a raw\\", "copy wiki\\a.md raw\\a.md", "cmd /c copy wiki\\a.md raw\\a.md", "Get-Content wiki\\a.md | Out-File raw\\a.md", "Get-Content wiki\\a | Out-File -FilePath raw\\a.md", "Set-Content raw\\a.md x", "Set-Content -Path raw\\a.md -Value x", "Add-Content -LiteralPath raw\\a.md x", "ac raw\\a.md x", "sc raw\\a x", "New-Item raw\\x", "ni raw\\x -ItemType File", "New-Item -Path raw -Name x -ItemType File", "Clear-Content raw\\a.md", "Copy-Item raw\\a.md raw\\b.md"]) {
+  test(`Dado gravação em raw no PowerShell ${comando} Quando decido Então bloqueia`, () => {
+    expect(decidir(terminal(comando, "powershell")).acao).toBe("bloquear");
   });
 }

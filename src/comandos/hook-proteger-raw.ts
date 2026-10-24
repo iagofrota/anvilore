@@ -43,9 +43,11 @@ const prefixo = (arg: string, longa: string) => { const nome = arg.split("=")[0]
 // caminho de raw/ chegue só pela pipeline. `cp` e `tee` ficam de fora: julgam-se pelo destino (copiar de raw/ para a wiki é legítimo).
 const ESCRITA_GLOBAL = new Set([
   "rm", "rmdir", "mv", "ln", "touch", "truncate", "dd", "install", "rsync", "chmod", "chown", "chgrp", "shred", "unlink", "perl",
-  "remove-item", "ri", "del", "erase", "rd", "move-item", "mi", "move", "copy-item", "cpi", "rename-item", "rni", "ren",
-  "set-content", "sc", "add-content", "ac", "out-file", "new-item", "ni", "clear-content", "clc", "set-itemproperty", "sp",
+  "remove-item", "ri", "del", "erase", "rd", "move-item", "mi", "move", "rename-item", "rni", "ren", "set-itemproperty", "sp",
 ]);
+// PowerShell/cmd: gravam no arquivo que recebem, então, como `cp` e `tee`, julgam-se pelo destino (copiar de raw/ para a wiki é a ingestão).
+const DESTINO_JULGADO = new Set(["copy-item", "cpi", "copy", "out-file", "set-content", "sc", "add-content", "ac", "new-item", "ni", "clear-content", "clc"]);
+const OPCOES_PS_COM_VALOR = new Set(["-path", "-literalpath", "-destination", "-filepath", "-value", "-name", "-itemtype", "-encoding", "-filter", "-include", "-exclude", "-width", "-stream", "-credential"]);
 const PALAVRAS_DE_LACO = new Set(["do", "then", "else", "elif", "{", "!", "while", "until", "if"]);
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd"]);
 // Em git vale a lista de leitura (e de operações que não tocam arquivos de trabalho): o resto que cita raw/ bloqueia.
@@ -196,6 +198,23 @@ function apagaAncestral(verbo: string, args: string[], cwd: string, raiz: string
   return false;
 }
 
+// Onde o cmdlet grava: -Destination (cópia) ou -FilePath/-Path/-LiteralPath/-Name (gravação); sem nome, o último (cópia) ou o primeiro posicional.
+function destinosDoCmdlet(verbo: string, args: string[]): string[] {
+  const nomeados = new Map<string, string>();
+  const posicionais: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (/^-[A-Za-z]/.test(arg)) {
+      if (OPCOES_PS_COM_VALOR.has(arg.toLowerCase())) nomeados.set(arg.toLowerCase(), args[++i] ?? "");
+    } else if (!/^\/[A-Za-z]$/.test(arg)) posicionais.push(arg);
+  }
+  const copia = ["copy-item", "cpi", "copy"].includes(verbo);
+  const destino = copia
+    ? nomeados.get("-destination") ?? (posicionais.length > 1 || nomeados.has("-path") ? posicionais.at(-1) : undefined)
+    : nomeados.get("-filepath") ?? nomeados.get("-path") ?? nomeados.get("-literalpath") ?? nomeados.get("-name") ?? posicionais[0];
+  return destino === undefined ? [] : [destino];
+}
+
 function desembrulhar(verbo: string, args: string[]): string[] {
   const { valor, posicionais = 0 } = OPCOES_ENVOLVEDOR[verbo] ?? { valor: [] };
   let pular = posicionais;
@@ -243,6 +262,7 @@ function segmentoEscreve(palavras: string[], cwd: string, contexto: Contexto): b
     }
   }
   if (apagaAncestral(verbo, args, cwd, raiz)) return true;
+  if (DESTINO_JULGADO.has(verbo)) return destinosDoCmdlet(verbo, args).some(destino => escreveEmRaw(destino, cwd) || citaRaw(destino));
   if (verbo === "cp") {
     const alvos = args.flatMap((arg, i) => {
       if (arg.startsWith("--target-directory=")) return [arg.slice(19)];
