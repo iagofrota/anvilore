@@ -105,6 +105,16 @@ Versionamento Semântico.
   não interpreta listas, citações em bloco e código indentado, nem decodifica entidades HTML nos
   destinos. Definições por referência dentro desses contêineres não têm suporte; prefira
   definições no início de um parágrafo comum.
+- **Limites conhecidos do leitor de links** (a bateria contra o commonmark.js os achou; não conte com a
+  conferência nestes casos): destino ou título na linha seguinte dentro de uma citação (`> [x](` e
+  `> quebrado.md)`); comentário `<!--` sem fecho dentro de item de lista continuado; HTML cru no
+  texto do link (`[a <span title="]">b</span>](x.md)`); bloco HTML com link dentro (`<details>`) e
+  texto na mesma linha do fecho `-->`, que podem reprovar sem necessidade; cerca com quatro ou mais
+  espaços, que é tratada como cerca (vale para as que moram em itens de lista) e não como código
+  indentado. Crase sem par e `<!--` sem fecho terminam no fim do parágrafo, e o parágrafo termina
+  em linha em branco, cerca, item de lista, citação, título ou régua: um código em linha que de
+  verdade atravessa esses blocos não é reconhecido como código, e um link dentro dele pode reprovar
+  sem necessidade.
 - **A caixa do nome só é conferida no Linux.** No macOS e no Windows o disco não diferencia
   maiúsculas de minúsculas: `[x](Decisoes.md)` para o arquivo decisoes.md passa lá e reprova no
   Linux. Quem pega é o job Ubuntu do CI.

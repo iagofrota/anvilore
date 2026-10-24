@@ -19,7 +19,14 @@ function fechaCerca(linha: string, cerca: Cerca): boolean {
 
 export type CodigoEmLinha = { inicio: number; fim: number; conteudo: string };
 
-// Fim do parágrafo que contém `de`: a primeira linha em branco depois dele (ou o fim do texto).
+// Blocos de uma linha só: título ATX, régua e sublinhado de setext.
+const BLOCO_DE_UMA_LINHA = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|(?:[-*_][ \t]*){3,}$|[=-]+[ \t]*$)/;
+// Início de item de lista (`-`, `+`, `*`, `1.`, `1)`) ou de citação: interrompem o parágrafo no CommonMark.
+const INICIO_DE_ITEM_OU_CITACAO = /^ {0,3}(?:>|(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$))/;
+
+// Fim do parágrafo que contém `de`: a primeira linha em branco depois dele (ou o fim do texto), cortado
+// antes de cerca, comentário, item de lista, citação, título ou régua. Não interpreta contêineres: só
+// impede que crase sem par ou `<!--` atravessem blocos vizinhos.
 function fimDoParagrafo(texto: string, de: number): number {
   const linhaEmBranco = /\n[ \t]*\n/g;
   linhaEmBranco.lastIndex = de;
@@ -28,7 +35,14 @@ function fimDoParagrafo(texto: string, de: number): number {
   while (inicio !== -1 && inicio < limite) {
     const fim = texto.indexOf("\n", inicio + 1);
     const linha = texto.slice(inicio + 1, fim === -1 ? texto.length : fim);
-    if (abreCerca(linha) !== null || /^ {0,3}<!--/.test(linha)) return inicio;
+    if (
+      abreCerca(linha) !== null ||
+      /^ {0,3}<!--/.test(linha) ||
+      INICIO_DE_ITEM_OU_CITACAO.test(linha) ||
+      BLOCO_DE_UMA_LINHA.test(linha)
+    ) {
+      return inicio;
+    }
     inicio = fim;
   }
   return limite;
@@ -111,7 +125,7 @@ function lerDestino(texto: string, i: number, limite: number): Destino | null {
       continue;
     }
     if (angular && c === ">") return { alvo: texto.slice(inicio, i).replace(ESCAPE, "$1"), fim: i + 1 };
-    if (c === "<" || (angular && c === "\n")) return null;
+    if (angular && (c === "<" || c === "\n")) return null;
     if (!angular) {
       if (/[\x00-\x20\x7f]/.test(c) || (c === ")" && profundidade === 0)) break;
       if (c === "(") profundidade++;
@@ -205,7 +219,7 @@ function acharDefinicoes(texto: string): (LinkMarkdown & { rotulo: string })[] {
       inicio = definicao.fim + 1;
       podeDefinir = true;
     } else {
-      podeDefinir = /^[ \t]*$/.test(linha) || /^ {0,3}(?:#{1,6}(?:[ \t]|$)|(?:[-*_][ \t]*){3,}$|[=-]+[ \t]*$)/.test(linha);
+      podeDefinir = /^[ \t]*$/.test(linha) || BLOCO_DE_UMA_LINHA.test(linha);
       inicio = fim + 1;
     }
   }

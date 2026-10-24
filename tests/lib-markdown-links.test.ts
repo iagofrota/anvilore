@@ -18,6 +18,8 @@ describe("acharLinks: precedência e limites do CommonMark", () => {
     ["crase no destino", "[a](a`b`.md)", ["a`b`.md"]],
     ["barra não escapando letra", String.raw`[a](a\b.md)`, [String.raw`a\b.md`]],
     ["controle no destino", "[a](a\x00b.md)", []],
+    ["< no meio de destino comum", "[a](a<b.md)", ["a<b.md"]],
+    ["< dentro de destino angular", "[a](<a<b.md>)", []],
   ];
   for (const [caso, texto, alvos] of casos) {
     test(`Dado ${caso} Quando reconheço links Então extraio somente os destinos reais`, () => {

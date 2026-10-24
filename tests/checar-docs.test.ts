@@ -40,6 +40,48 @@ describe("checarDocs: referências", () => {
       expect(r.problemas.join("\n")).toContain("sonda.md");
     });
   }
+  for (const [caso, entrada] of [
+    ["C09 crase sem par num item e outra no item seguinte", "- Rode `bun run checar antes do commit.\n- Veja [guia](sonda.md) e `src/x.ts`."],
+    ["C10 crase sem par num item continuado", "- Rode `bun run checar\n  antes do commit.\n- Veja [guia](sonda.md) e `src/x.ts`."],
+    ["item numerado com ponto", "1. Rode `bun x\n2. Veja [guia](sonda.md) e `y`."],
+    ["item numerado com parêntese", "1) Rode `bun x\n2) Veja [guia](sonda.md) e `y`."],
+    ["item com asterisco", "* Rode `bun x\n* Veja [guia](sonda.md) e `y`."],
+    ["item com mais", "+ Rode `bun x\n+ Veja [guia](sonda.md) e `y`."],
+    ["C12 comentário inline num item e fecho dois itens depois", "- nota <!-- revisar\n- Veja [guia](sonda.md)\n- fim -->"],
+    ["C03 crase sem par antes de uma citação", "Rode `bun x\n> Veja [guia](sonda.md) e `y`."],
+    ["C05 comentário inline antes de uma citação", "texto <!-- nota\n> Veja [guia](sonda.md)\n-->"],
+    ["C02 crase sem par antes de um título ATX", "Rode `bun x\n## Seção [guia](sonda.md) e `y`"],
+    ["C04 crase sem par antes de uma régua", "Rode `bun x\n***\n[guia](sonda.md) e `y`"],
+    ["crase sem par antes de uma régua com hífens", "Rode `bun x\n---\n[guia](sonda.md) e `y`"],
+    ["A17 comentário inline antes de um título", "texto <!-- nota\n# Seção [guia](sonda.md) -->"],
+  ]) {
+    test(`Dado ${caso} Quando checo Então o link quebrado real reprova`, () => {
+      kb("README.md", entrada!);
+      const r = checarDocs(raiz);
+      expect(r.ok).toBe(false);
+      expect(r.problemas.join("\n")).toContain("sonda.md");
+    });
+  }
+
+  test("Dado A19 um '<' no meio de destino comum quebrado Quando checo Então reprova nomeando o alvo", () => {
+    kb("README.md", "[x](quebr<ado.md)");
+    const r = checarDocs(raiz);
+    expect(r.ok).toBe(false);
+    expect(r.problemas.join("\n")).toContain("quebr<ado.md");
+  });
+
+  for (const [caso, entrada] of [
+    ["crase com par na mesma linha de um item", "- Veja `a` e `b`\n- Outro item"],
+    ["code span legítimo continuado com recuo", "- Rode `bun\n  run` antes\n- Outro"],
+    ["hífen colado no texto não é item", "Rode `bun\n-x run` antes"],
+    ["ano no começo da linha não é item", "Rode `bun\n2024x run` antes"],
+  ]) {
+    test(`Dado ${caso} Quando checo Então não reprova nem acusa link`, () => {
+      kb("README.md", entrada!);
+      expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+    });
+  }
+
   test("Dado uma página que cita um arquivo inexistente, Quando checo, Então reprova nomeando a página e o arquivo", () => {
     kb("governanca.md", "# Governança\n\nVeja `src/nao-existe.ts`.\n");
     const r = checarDocs(raiz);
