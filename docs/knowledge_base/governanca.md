@@ -120,13 +120,14 @@ está dito.
 
 ### 2. O portão humano só vale para a página que declara `generated`
 
-- O aval **antes** da escrita ("o primeiro subagente lê e não escreve; o segundo só escreve depois
-  do aval da pessoa") continua sendo texto, em `skills/ingest/SKILL.md`, linhas 20, 32 a 38 e 79 a
-  96. Nenhum script confere que ele aconteceu.
+- O aval **antes** da escrita (a pessoa aprova os takeaways e a lista de páginas; no caso de fonte grande, "o primeiro
+  subagente lê e não escreve; o segundo só escreve depois do aval") continua sendo texto, em
+  `skills/ingest/SKILL.md`, linhas 1 a 12, 36 a 55 e 73 a 92. Nenhum script confere que ele aconteceu.
 - O aval **depois** da escrita é imposto (tabela acima), mas só para a página que traz o bloco
-  `generated`. Uma página sem esse bloco é tratada como escrita à mão e não é barrada. Hoje a skill
-  `ingest` ainda não manda gravar o `generated` (a busca por `generated` em `skills/` não retorna
-  nada); sem isso, o portão não pega a página que o agente escreve sem declará-lo.
+  `generated`. A skill `ingest` manda gravar esse bloco em toda página que escreve (`skills/ingest/SKILL.md`, Passo 3, linhas 94
+  a 130, e Passo 5), e `tests/skill-ingest.test.ts` prova que os modelos dela fazem o validador reprovar até haver `verified`
+  humano. O limite real que fica: uma página **sem** `generated` (escrita à mão, ou por um agente que não seguiu a skill) é
+  tratada como escrita à mão e não aciona o portão.
 - Nenhum programa prova quem escreveu `verified`. Um agente que grave `verified` com
   `by: human:<id>` por conta própria viola o contrato (`AGENTS.md`, seção "O que você não faz") e o
   validador não o detecta.
