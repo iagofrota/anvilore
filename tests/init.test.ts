@@ -441,3 +441,63 @@ describe("cli", () => {
     expect(existsSync(join(raiz, "wiki"))).toBe(false);
   });
 });
+
+describe("init × anvilore.toml (R70-F)", () => {
+  const toml = (conteudo: string) => writeFileSync(join(raiz, "anvilore.toml"), conteudo);
+
+  test("Dado toml com areas, Quando init pede área fora da lista, Então recusa nomeando a área e a lista e não cria nada", async () => {
+    toml('areas = ["pessoal", "saude"]\n');
+    const codigo = await comandoInit(["--areas", "pessoal,profissional"], { raiz });
+    expect(codigo).toBe(1);
+    const erro = console_.erros.join("\n");
+    expect(erro).toContain("profissional");
+    expect(erro).toContain("pessoal, saude");
+    expect(erro).toContain("anvilore.toml");
+    expect(existsSync(join(raiz, "wiki"))).toBe(false);
+  });
+
+  test("Dado toml com areas, Quando init pede só áreas da lista, Então cria normalmente", async () => {
+    toml('areas = ["pessoal", "saude"]\n');
+    expect(await comandoInit(["--areas", "pessoal,saude"], { raiz })).toBe(0);
+    expect(listar(join(raiz, "wiki"))).toEqual(["pessoal", "saude"]);
+  });
+
+  test("Dado toml com areas e a caixa diferente, Quando init pede, Então a comparação segue a normalização do disco", async () => {
+    toml('areas = ["Pessoal"]\n');
+    expect(await comandoInit(["--areas", "pessoal"], { raiz })).toBe(0);
+  });
+
+  test("Dado toml sem areas, Quando init pede qualquer área, Então não restringe", async () => {
+    toml('tipos = ["concept"]\n');
+    expect(await comandoInit(["--areas", "qualquer"], { raiz })).toBe(0);
+  });
+
+  test("Dado toml ilegível ou com chave desconhecida, Quando init roda, Então reprova com a mensagem do perfil e não cria nada", async () => {
+    toml("chave_estranha = 1\n");
+    expect(await comandoInit(["--areas", "pessoal"], { raiz })).toBe(1);
+    expect(console_.erros.join("\n")).toContain("chave desconhecida");
+    expect(existsSync(join(raiz, "wiki"))).toBe(false);
+  });
+
+  test("Dado a API, Quando inicializar com área fora do toml, Então lança sem criar", async () => {
+    toml('areas = ["pessoal"]\n');
+    await expect(inicializar({ raiz, areas: ["saude"] })).rejects.toThrow(/saude.*pessoal/s);
+    expect(existsSync(join(raiz, "wiki"))).toBe(false);
+  });
+
+  test("Dado toml com areas e wiki/exemplo no disco, Quando init cria áreas permitidas, Então avisa que o validar vai reprovar o exemplo", async () => {
+    toml('areas = ["pessoal"]\n');
+    mkdirSync(join(raiz, "wiki", "exemplo", "concepts"), { recursive: true });
+    expect(await comandoInit(["--areas", "pessoal"], { raiz })).toBe(0);
+    const avisos = console_.avisos.join("\n");
+    expect(avisos).toContain("wiki/exemplo");
+    expect(avisos).toContain("apague");
+  });
+
+  test("Dado toml com exemplo na lista, Quando existe wiki/exemplo, Então não avisa", async () => {
+    toml('areas = ["pessoal", "exemplo"]\n');
+    mkdirSync(join(raiz, "wiki", "exemplo"), { recursive: true });
+    await comandoInit(["--areas", "pessoal"], { raiz });
+    expect(console_.avisos.join("\n")).not.toContain("wiki/exemplo");
+  });
+});

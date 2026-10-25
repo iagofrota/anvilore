@@ -5,6 +5,7 @@ import { createInterface } from "node:readline/promises";
 import type { Readable, Writable } from "node:stream";
 import { parseArgs } from "node:util";
 import { chaveDeNome } from "../lib/caminhos";
+import { NOME_DO_PERFIL, carregarPerfil } from "../lib/perfil";
 import { diretorioDeTipo, nomeReservado } from "../lib/reservados";
 
 export const AREAS_PADRAO = ["pessoal", "profissional", "projetos-paralelos", "saude"] as const;
@@ -14,6 +15,7 @@ export interface ResultadoInit {
   criadas: string[];
   jaExistiam: string[];
   avisos: string[];
+  observacoes: string[];
 }
 
 type OpcoesInit = { raiz: string; areas: string[] };
@@ -146,16 +148,30 @@ async function criarTipo(area: string, tipo: string, caminho: string): Promise<b
   return true;
 }
 
+// O `anvilore.toml` da raiz restringe as áreas (R70-F): área fora da lista é recusada antes de criar qualquer coisa.
+async function conferirPerfil(raiz: string, nomes: string[]): Promise<string[]> {
+  const permitidas = (await carregarPerfil(raiz)).areas;
+  if (permitidas === undefined) return [];
+  const fora = nomes.filter((nome) => !permitidas.some((permitida) => chaveDeNome(permitida) === chaveDeNome(nome)));
+  if (fora.length > 0) {
+    throw new Error(`área fora do ${NOME_DO_PERFIL}: ${fora.join(", ")}. Áreas permitidas: ${permitidas.join(", ")}. Ajuste a lista em ${NOME_DO_PERFIL} ou escolha outra área.`);
+  }
+  // O esqueleto `wiki/exemplo/` que vem no clone não está na lista: o `validar` o reprovaria.
+  const exemplo = permitidas.every((permitida) => chaveDeNome(permitida) !== "exemplo") && existsSync(join(raiz, "wiki", "exemplo"));
+  return exemplo ? [`wiki/exemplo/ não está em 'areas' do ${NOME_DO_PERFIL} e o validar vai reprová-lo: apague wiki/exemplo/ (é só o esqueleto de demonstração) ou acrescente 'exemplo' à lista`] : [];
+}
+
 export async function inicializar({ raiz, areas }: OpcoesInit): Promise<ResultadoInit> {
   if (areas.length === 0) throw new Error("nenhuma área escolhida");
   for (const nome of areas) validarNome(nome);
   const nomes = unicas(areas);
   await conferirRaiz(raiz);
+  const avisosDoPerfil = await conferirPerfil(raiz, nomes);
   const wiki = join(raiz, "wiki");
   await conferirWiki(wiki);
   await conferirConflitosNoDisco(wiki, nomes);
 
-  const resultado: ResultadoInit = { criadas: [], jaExistiam: [], avisos: [] };
+  const resultado: ResultadoInit = { criadas: [], jaExistiam: [], avisos: [], observacoes: avisosDoPerfil };
   for (const area of nomes) {
     const caminho = join(wiki, area);
     if ((await estadoDaArea(caminho)) === "quebrado") {
@@ -261,8 +277,8 @@ export async function comandoInit(args: string[], ambiente: AmbienteInit = {}): 
     const areas = areasPedidas !== undefined
       ? areasPedidas.split(",").map((nome) => nome.trim())
       : await perguntarAreas(ambiente.entrada ?? process.stdin, ambiente.saida ?? process.stdout);
-    const { criadas, jaExistiam, avisos } = await inicializar({ raiz, areas });
-    for (const aviso of avisos) console.warn(`AVISO: ${aviso}`);
+    const { criadas, jaExistiam, avisos, observacoes } = await inicializar({ raiz, areas });
+    for (const aviso of [...observacoes, ...avisos]) console.warn(`AVISO: ${aviso}`);
     if (criadas.length + jaExistiam.length === 0) {
       console.error("Nenhuma área criada; veja os avisos acima.");
       return 1;
