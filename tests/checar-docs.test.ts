@@ -609,3 +609,19 @@ describe("comandoChecarDocs", () => {
     expect(r.codigo).toBe(0);
   });
 });
+
+describe("checarDocs: definições de referência com crases nos títulos", () => {
+  test("Dado crases em títulos de definições separadas Quando a do meio aponta para arquivo ausente Então reprova nomeando o ausente", () => {
+    gravar("docs/knowledge_base/exists.md", "ok");
+    kb("README.md", '[a]: exists.md "Use `code"\n[b]: missing.md\n[c]: exists.md "code`"\n');
+    const r = checarDocs(raiz);
+    expect(r.ok).toBe(false);
+    expect(r.problemas.join("\n")).toContain("missing.md");
+  });
+  test("Dado as mesmas definições com todos os alvos existentes Quando checo Então aprova", () => {
+    gravar("docs/knowledge_base/exists.md", "ok");
+    gravar("docs/knowledge_base/present.md", "ok");
+    kb("README.md", '[a]: exists.md "Use `code"\n[b]: present.md\n[c]: exists.md "code`"\n');
+    expect(checarDocs(raiz).ok).toBe(true);
+  });
+});

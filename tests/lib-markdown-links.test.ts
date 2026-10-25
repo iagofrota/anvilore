@@ -48,6 +48,10 @@ describe("acharLinks: precedência e limites do CommonMark", () => {
     ["definição com lixo após título", '[a]: a.md "título" lixo', []],
     ["título inválido na próxima linha", '[a]: a.md\n"título" lixo', ["a.md"]],
     ["definição indentada demais", "    [a]: ausente.md", []],
+    ["crases em títulos de definições separadas", '[a]: exists.md "Use `code"\n[b]: missing.md\n[c]: exists.md "code`"', ["exists.md", "missing.md", "exists.md"]],
+    ["crases duplas em títulos de definições separadas", '[a]: a.md "x ``y"\n[b]: b.md\n[c]: c.md "z`` w"', ["a.md", "b.md", "c.md"]],
+    ["crase num título e definição seguinte indentada", '[a]: a.md "x `y"\n   [b]: b.md\n[c]: c.md "z` w"', ["a.md", "b.md", "c.md"]],
+    ["definição depois de linha de texto com crase aberta continua parágrafo", "texto `aberto\n[x]: ausente.md\nfecha`", []],
   ];
   for (const [caso, texto, alvos] of referencias) {
     test(`Dado ${caso} Quando reconheço referências Então respeito precedência e validade das definições`, () => {

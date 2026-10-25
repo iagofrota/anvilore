@@ -238,13 +238,13 @@ function lerDefinicao(texto: string, inicio: number): (LinkMarkdown & { rotulo: 
 
 function acharDefinicoes(texto: string): (LinkMarkdown & { rotulo: string })[] {
   const definicoes: (LinkMarkdown & { rotulo: string })[] = [];
-  const semCodigo = mascararCodigoEmLinha(texto);
+  // Definições são blocos: reconhecidas antes do código em linha, e o título delas é literal (crase num título não esconde a definição seguinte).
   let inicio = 0;
   let podeDefinir = true;
   while (inicio < texto.length) {
     const fim = fimDaLinha(texto, inicio);
     const linha = texto.slice(inicio, fim);
-    const candidato = /^ {0,3}\[/.exec(semCodigo.slice(inicio, fim));
+    const candidato = /^ {0,3}\[/.exec(linha);
     const definicao = podeDefinir && candidato !== null
       ? lerDefinicao(texto, inicio + candidato[0].length - 1) : null;
     if (definicao !== null) {
