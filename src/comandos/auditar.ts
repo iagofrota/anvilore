@@ -98,7 +98,7 @@ function camposAusentes(pagina: Pagina): string[] {
 export async function auditarWiki(wiki: string, hoje: string = dataLocal()): Promise<ResultadoAuditoria> {
   const exibida = exibirCaminho(caminhoPathlib(wiki), "");
   if (!(await stat(wiki).catch(() => null))?.isDirectory()) {
-    return { achados: [], codigo: 2, relatorio: "", erro: `erro: wiki não encontrada: ${exibida}` };
+    return { achados: [], codigo: 2, relatorio: "", erro: `erro: wiki não encontrada: ${caminhoPathlib(wiki)}` };
   }
 
   const paginas: Pagina[] = [];
