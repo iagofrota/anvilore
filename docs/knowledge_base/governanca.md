@@ -30,8 +30,8 @@ fica para depois (veja a última seção).
 O hook falha fechado: se não consegue ler o caminho no payload, a decisão passa
 a ser sobre o texto inteiro, e "não achei caminho" nunca vira "pode passar"
 (`src/comandos/hook-proteger-raw.ts`, função `decidir`). O
-validador também não imprime PASS quando o diretório não existe (`src/comandos/validar.ts`, linhas
-104 a 107) nem quando um arquivo, o anvilore.toml ou o YAML do frontmatter não lê: cada um vira um
+validador também não imprime PASS quando o diretório não existe (`src/comandos/validar.ts`, função
+`validarWiki`) nem quando um arquivo, o anvilore.toml ou o YAML do frontmatter não lê: cada um vira um
 erro que nomeia o arquivo.
 
 ## O que hoje não é imposto
@@ -147,8 +147,8 @@ está dito.
 
 ### 3. A navegação é conferida com limites
 
-- O validador reprova wikilink quebrado e página fora do índice (`src/comandos/validar.ts`, linhas
-  220 a 240). A regra foi portada de `scripts/auditar-wiki.py` (linhas 151 a 164), que continua
+- O validador reprova wikilink quebrado e página fora do índice (`src/comandos/validar.ts`, função
+  `validarWiki`). A regra foi portada de `scripts/auditar-wiki.py` (linhas 151 a 164), que continua
   existindo como relatório e é chamado pela skill de lint (`skills/lint/SKILL.md`, linhas 27 a 37).
 - A página da wiki plana é conferida contra o `wiki/index.md`; a de uma área, contra o
   `wiki/<área>/index.md` se ele existir e, se não, contra o `wiki/index.md`. Wiki sem nenhum
@@ -158,6 +158,9 @@ está dito.
   caminho, como [[sources/x]], e embed de imagem, como ![[imagem.png]], reprovam como quebrados,
   mesmo que o arquivo exista (é o que `scripts/auditar-wiki.py` faz). Link markdown e wikilink
   dentro de bloco de código, código em linha ou comentário HTML não são conferidos.
+  Nos wikilinks, a máscara de código em linha é aplicada ao texto visível inteiro, inclusive quando o código atravessa linhas;
+  isso vale também para as entradas do índice. Crase sem fecho não esconde o texto seguinte
+  (`src/comandos/validar.ts`, função `alvosDe`; `src/lib/markdown.ts`, função `mascararCodigoEmLinha`).
 - O index.md, o log.md e os diretórios reservados não são cobrados de `type`, `slug`, área nem
   índice, mas o YAML e a proveniência deles são conferidos (YAML que não lê reprova, nomeando o
   arquivo), como fazia o validador antigo. O portão humano só vale para página de conteúdo.

@@ -589,6 +589,34 @@ describe("validar: wikilinks e índice (R29)", () => {
     expect((await validarWiki(wiki, {})).erros).toEqual([]);
   });
 
+  test("Dado wikilink em código que atravessa linhas Quando valido Então ignora o código e continua conferindo texto visível", async () => {
+    gravar("index.md", indice("a"));
+    for (const corpo of ["Use `começo [[inexistente]]\nfim`.\n", "Use ``começo [[inexistente]]\nfim``.\n", "Use `[[inexistente]]` assim.\n"]) {
+      gravar("a.md", pagina("a", { corpo }));
+      const r = await rodar();
+      expect(r.codigo).toBe(0);
+      expect(r.saida).not.toContain("wikilink quebrado");
+    }
+    for (const corpo of ["Veja [[inexistente]].\n", "Uma `crase sem fecho\nVeja [[inexistente]].\n"]) {
+      gravar("a.md", pagina("a", { corpo }));
+      const r = await rodar();
+      expect(r.codigo).toBe(1);
+      expect(r.saida).toContain("wikilink quebrado [[inexistente]]");
+    }
+  });
+
+  test("Dado índice com wikilink só em código que atravessa linhas Quando valido Então a página continua fora do índice", async () => {
+    gravar("a.md", pagina("a"));
+    for (const corpo of ["Use `começo [[a]]\nfim`.\n", "Use `[[a]]` assim.\n"]) {
+      gravar("index.md", `# Índice\n\n${corpo}`);
+      const r = await rodar();
+      expect(r.codigo).toBe(1);
+      expect(r.saida).toContain("página fora do índice: a.md");
+    }
+    gravar("index.md", "# Índice\n\nUse `começo [[a]]\nfim`.\n\n- [[a]]\n");
+    expect((await rodar()).codigo).toBe(0);
+  });
+
   test("Dado wikilink que difere só na caixa ou na normalização do slug, Quando valido, Então resolve", async () => {
     gravar("a.md", pagina("a", { corpo: "[[B]] e [[é]]\n" }));
     gravar("b.md", pagina("b"));

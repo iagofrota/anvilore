@@ -78,6 +78,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
+- O validador ignora wikilinks dentro de código em linha que atravessa linhas, tanto nas páginas quanto no índice, sem esconder links após uma crase sem fecho.
+
 - O hook reconhece parâmetros comuns do PowerShell e seus apelidos, como `-ErrorAction Stop` e `-ea`, e confere todos os possíveis destinos após a origem para impedir que um valor extra esconda escrita em `raw/`.
 
 - O hook reconhece opções longas abreviadas do GNU, como `cp --target-dir=raw`, e abre corretamente envolvedores com opções abreviadas antes de julgar a escrita.

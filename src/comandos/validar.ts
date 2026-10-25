@@ -1,7 +1,7 @@
 import { type Dirent, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { FrontmatterInvalido, lerFrontmatter, linhasDe, slugDe } from "../lib/frontmatter";
-import { linhasVisiveis } from "../lib/markdown";
+import { linhasVisiveis, mascararCodigoEmLinha } from "../lib/markdown";
 import { validarProveniencia } from "../lib/okf";
 import { PerfilInvalido, areaPermitida, carregarPerfil, type Perfil } from "../lib/perfil";
 import { chaveDeNome } from "../lib/caminhos";
@@ -20,7 +20,6 @@ export type ResultadoValidacao = {
 
 const TIPOS_VALIDOS = ["source", "concept", "entity"];
 const WIKILINK = /\[\[([^\]\n]+)\]\]/g;
-const CODIGO_EM_LINHA = /`[^`\n]*`/g;
 const NOME_DO_INDICE = "index.md";
 const USO = "Uso: anvilore validar [diretorio]";
 
@@ -67,11 +66,10 @@ function areaDoDiretorio(partes: string[]): string {
 // comentário HTML e código em linha não são links.
 function alvosDe(texto: string): string[] {
   const alvos: string[] = [];
-  for (const linha of linhasVisiveis(linhasDe(texto))) {
-    for (const achado of linha.replace(CODIGO_EM_LINHA, "").matchAll(WIKILINK)) {
-      const alvo = achado[1]!.split("|")[0]!.split("#")[0]!.trim();
-      if (alvo !== "") alvos.push(alvo);
-    }
+  const visivel = mascararCodigoEmLinha(linhasVisiveis(linhasDe(texto)).join("\n"));
+  for (const achado of visivel.matchAll(WIKILINK)) {
+    const alvo = achado[1]!.split("|")[0]!.split("#")[0]!.trim();
+    if (alvo !== "") alvos.push(alvo);
   }
   return alvos;
 }
