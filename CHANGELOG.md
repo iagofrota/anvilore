@@ -189,7 +189,6 @@ rodando em Linux, Windows e macOS (CI verde nos três). Os scripts de bash e Pyt
 - `scripts/lib-anvilore.sh` ainda existe (só os testes em bash `tests/test-lib-anvilore.sh` e `tests/test-esqueleto.sh` o
   usam), e a knowledge base ainda não tem
   `arquitetura.md` nem `comandos.md`: ficam para uma próxima versão.
-- As páginas de `docs/knowledge_base/` ainda esperam a revisão humana (`verified`); a tag só sai depois dela.
 
 ## [0.1.0] - 2026-10-24
 

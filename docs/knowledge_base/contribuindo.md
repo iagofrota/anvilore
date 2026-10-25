@@ -37,10 +37,9 @@ bun run checar
   de instalação na saída dos testes. A etapa de medição do CI executa `scripts/medir-ligacoes.ts`
   para imprimir os resultados de diretório e arquivo; não repete a suíte de junções.
 
-O CI está configurado para rodar `bun run checar` e `checar-docs` em Ubuntu, Windows e macOS a
-cada push e pull request (`.github/workflows/ci.yml`). Ele ainda não rodou: o workflow não foi
-enviado ao GitHub, então a primeira execução é a confirmação. Uma mudança que passa só no seu
-sistema não está pronta.
+O CI roda `bun run checar` e `checar-docs` em Ubuntu, Windows e macOS a cada push e pull request
+(`.github/workflows/ci.yml`). Os PRs das Ondas 1 (#13, run 40150863576) e 2 (#11, run 40191764239)
+passaram nos três. Uma mudança que passa só no seu sistema não está pronta.
 
 ## Testes primeiro, com cenários em gherkin
 

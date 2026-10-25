@@ -29,7 +29,7 @@ Para a linhagem do método e a argumentação completa das posições de design,
 - O que o repositório mostra hoje: validação, manutenção, instalador e hook estão em TypeScript no Bun
   (`src/cli.ts`, `src/comandos/instalar.ts` e `src/comandos/hook-proteger-raw.ts`);
   o fechamento (`src/comandos/fechar.ts`) também é TypeScript. O `README.md`
-  declara suporte a Linux, Windows e macOS. O CI está configurado para rodar nos três sistemas (`.github/workflows/ci.yml`), mas ainda não rodou. Os detalhes e os riscos
+  declara suporte a Linux, Windows e macOS. O CI roda nos três sistemas (`.github/workflows/ci.yml`) e passou nos PRs das Ondas 1 (#13, run 40150863576) e 2 (#11, run 40191764239). Os detalhes e os riscos
   estão em [plataformas.md](plataformas.md).
 
 ## Não fundir buscas (sentido a confirmar pelo dono)
