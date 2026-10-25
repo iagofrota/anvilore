@@ -41,6 +41,11 @@ deliberada de RAG e a neutralidade de provedor de agente — está em
 
 Linux. Não há suporte a Windows nem a macOS.
 
+**Antes de começar** você precisa de dois programas:
+
+- o [Bun](https://bun.sh) (`curl -fsSL https://bun.sh/install | bash`): o comando `anvilore`, o validador e o hook rodam nele;
+- o `git`.
+
 ```bash
 git clone https://github.com/iagofrota/anvilore.git
 cd anvilore
@@ -63,9 +68,19 @@ clone que não o deste kit, use `--destino <dir>`: o instalador escreve
 exclusivamente dentro desse diretório. `bun src/cli.ts instalar --help` descreve
 o que cada agente recebe e os limites quando fonte e destino são clones diferentes.
 
+O hook que protege `raw/` só vale em sessões do agente abertas **depois** da
+instalação: se o agente já estava aberto, feche e reabra. Para conferir a
+decisão sem agente nenhum (deve imprimir `2`, que é "bloqueado"):
+
+```bash
+printf '{"tool_name":"Write","tool_input":{"file_path":"raw/teste.md"}}' | bun src/cli.ts hook proteger-raw; echo $?
+```
+
+`bun src/cli.ts doctor` mostra, em linguagem simples, quais travas estão ligadas.
+
 Com o clone configurado:
 
-1. Abra o repositório com seu agente de código. `CLAUDE.md` aponta para
+1. Abra (ou reabra) o repositório com seu agente de código. `CLAUDE.md` aponta para
    `AGENTS.md` — é o contrato que ele precisa ler antes de tocar em qualquer
    arquivo.
 2. Escolha suas áreas da vida:
@@ -78,21 +93,53 @@ Com o clone configurado:
    projetos-paralelos e saude); você aceita todas, tira algumas e adiciona
    outras, e cada área vira `wiki/<área>/{sources,entities,concepts}`. Sem
    terminal, passe `--areas pessoal,saude`. Repetir o comando não altera o que
-   já existe.
+   já existe. Se você usa um `anvilore.toml` com `areas`, o `init` recusa a área
+   que não estiver na lista; e o `wiki/exemplo/` que veio no clone também não
+   está nela, então apague-o (`rm -r wiki/exemplo`) antes de ligar o toml, senão
+   o `validar` o reprova.
 3. Peça ao agente para seguir `skills/ingest/SKILL.md` e ingerir
-   `raw/exemplo/llm-wiki.md` — o próprio texto que originou este padrão.
+   `raw/exemplo/llm-wiki.md` — o próprio texto que originou este padrão. **Diga
+   em que área ingerir** (se você criou uma só, ele usa essa). O ingest é uma
+   conversa: o agente apresenta os pontos principais e a lista de páginas e
+   espera o seu "pode seguir" antes de escrever.
 4. Depois de ingerido, peça para ele seguir `skills/query/SKILL.md` e
    responder alguma pergunta sobre o conteúdo ingerido, citando as páginas
    que criou.
-5. Valide a estrutura:
+5. Revise e aprove o que o agente escreveu, e valide a estrutura. Toda página
+   que o agente escreve nasce marcada como **rascunho** (bloco `generated` no
+   frontmatter), e o validador reprova rascunho que nenhuma pessoa aprovou. Logo
+   depois do ingest, então, o esperado é:
 
    ```bash
    bun src/cli.ts validar
    ```
 
-   Espera-se `VALIDACAO: PASS`, com uma linha de dívida de conhecimento
-   (gaps e contradições sinalizados, se houver — zero também é uma resposta
-   válida).
+   ```text
+   ERRO: página gerada sem aprovação humana: pessoal/sources/llm-wiki.md
+   ...
+   VALIDACAO: FAIL
+   ```
+
+   Isso é o portão funcionando, não um defeito. Leia cada página e, se
+   concordar, acrescente ao frontmatter dela a sua aprovação (o `at` tem de ser
+   igual ou posterior ao `generated.at`, com o fuso):
+
+   ```yaml
+   verified:
+     - by: human:seu-id
+       at: 2026-10-24T11:00:00-03:00
+   ```
+
+   Rode `bun src/cli.ts validar` de novo: agora sim `VALIDACAO: PASS`, com uma
+   linha de dívida de conhecimento (gaps e contradições sinalizados, se
+   houver — zero também é uma resposta válida). O agente nunca escreve
+   `verified`: quem aprova é você. Para fechar a sessão, `bash scripts/fechar-wiki.sh wiki`
+   sincroniza os índices, regenera `wiki/log.md` a partir de `wiki/log/` e
+   valida (o agente roda isso ao fim do ingest).
+
+   Dois arquivos da wiki são rastreados pelo git e mudam a cada uso:
+   `wiki/index.md` e `wiki/log.md`. Um `git pull` futuro pode conflitar com eles;
+   o resto do conteúdo (suas páginas) fica fora do git.
 
    > O validador roda no [Bun](https://bun.sh) e não tem outra dependência: ele
    > lê o YAML do frontmatter sozinho, então o

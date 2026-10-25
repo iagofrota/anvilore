@@ -128,7 +128,7 @@ Se o usuário disser sim, pergunte um título se não for óbvio. Então crie `w
 > Registrada em: AAAA-MM-DD
 ```
 
-Depois atualize `wiki/index.md` e `wiki/log.md`:
+Depois atualize `wiki/index.md` e o log do dia, `wiki/log/log-AAAA-MM-DD.md` (crie-o com o título `# Log — AAAA-MM-DD` se não existir; `wiki/log.md` é um índice gerado pelo fechamento e não se edita):
 
 ```markdown
 ## [AAAA-MM-DD] query | Pergunta original

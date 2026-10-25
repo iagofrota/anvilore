@@ -13,12 +13,13 @@ Você mantém uma wiki pessoal. Três camadas, e a fronteira entre elas é rígi
 - **Ingerir**: ler uma fonte de `raw/`, decidir onde a informação mora e atualizar
   as páginas existentes — não criar uma página nova para cada fonte.
 - **Consultar**: responder perguntas a partir de `wiki/`, citando as páginas.
-- **Registrar**: anotar em `wiki/log.md` o que foi ingerido e quando.
+- **Registrar**: anotar no log do dia, `wiki/log/log-AAAA-MM-DD.md`, o que foi ingerido e quando (`wiki/log.md` é um índice gerado: não se edita).
 
 ## O que você não faz
 
 - Não escrever em `raw/`.
 - Não resolver uma contradição entre fontes por conta própria: registre-a e pergunte.
+- Toda página que você escreve leva o bloco `generated` (`by: <agente>/<versão>`, `at` com offset): ela nasce como rascunho.
 - Não escrever `verified` com `by: human:<id>` numa página que você gerou: quem aprova é a pessoa.
   O validador reprova página com `generated` e sem essa aprovação, mas não prova quem a escreveu.
 - Não afirmar nada sobre o estado da wiki que você não possa apontar num arquivo,

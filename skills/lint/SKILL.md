@@ -39,7 +39,7 @@ python3 scripts/listar-lacunas.py wiki --consultar
 Depois, e só depois:
 
 - Leia `wiki/index.md` inteiro. É o único índice da wiki — não existe outro.
-- Leia as últimas entradas de `wiki/log.md` (as três mais recentes bastam).
+- Leia as últimas entradas do log: os arquivos mais recentes de `wiki/log/log-*.md` (as três entradas mais recentes bastam; `wiki/log.md` é só o índice gerado).
   Anote o que foi ingerido recentemente, quais consultas rodaram, e se já houve
   um lint antes e quando.
 
@@ -118,13 +118,13 @@ nenhuma, porque ensina o usuário a ignorar a lista.
 
 ### 3c — Consultas não arquivadas
 
-A skill `query` registra toda consulta em `wiki/log.md`. Quando a resposta foi
+A skill `query` registra toda consulta no log do dia (`wiki/log/log-*.md`). Quando a resposta foi
 salva como página, a entrada traz uma linha `Resposta registrada como: …`;
 quando não foi, a entrada existe sem essa linha. É essa ausência que você
 procura:
 
 ```bash
-rg --no-ignore -n '^## \[.*\] query \|' wiki/log.md
+rg --no-ignore -n '^## \[.*\] query \|' wiki/log/
 ```
 
 Para cada entrada de consulta encontrada, confira se o bloco dela tem a linha
@@ -267,8 +267,9 @@ Opções:
 
 ## Passo 7 — Fechar o ciclo
 
-Acrescente a entrada em `wiki/log.md`, no mesmo formato que `ingest` e `query`
-usam:
+Acrescente a entrada no log do dia, `wiki/log/log-AAAA-MM-DD.md` (título
+`# Log — AAAA-MM-DD` se o arquivo for novo; `wiki/log.md` é gerado e não se edita), no
+mesmo formato que `ingest` e `query` usam:
 
 ```markdown
 ## [AAAA-MM-DD] lint | Varredura completa
@@ -306,7 +307,7 @@ usuário que acabou.
   proponha ao usuário tirá-la do índice. O arquivo fica. Este schema só define
   os callouts `[!gap]` e `[!contradiction]` — não invente um terceiro.
 - **Nunca apague um callout.** Ele sai da página quando a pessoa confirma a
-  resolução, e a remoção é registrada em `wiki/log.md`.
+  resolução, e a remoção é registrada no log do dia (`wiki/log/log-AAAA-MM-DD.md`).
 - **Nunca ingira fonte nova durante o lint.** Se uma lacuna se resolveria
   melhor com uma fonte nova, diga isso e pare. Ingestão é outra skill, outra
   sessão.
