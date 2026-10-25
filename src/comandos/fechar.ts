@@ -148,7 +148,7 @@ export async function fecharWiki(wiki: string, opcoes: { agora?: Date } = {}): P
 export async function comandoFechar(args: string[]): Promise<number> {
   if (args[0] === "--help" || args[0] === "-h") {
     console.error("Uso: anvilore fechar [WIKI]");
-    return 2;
+    return 0;
   }
   return (await fecharWiki(args[0] || "wiki")).ok ? 0 : 1;
 }

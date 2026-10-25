@@ -127,6 +127,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
+- `fechar --help` e `fechar -h` mostram o uso e saem com código 0, sem tentar abrir uma wiki.
+
 - O `doctor` confere a chamada ao validador no fechamento TypeScript; documentação e skills usam `anvilore fechar` no lugar do script removido.
 
 - O aviso de preâmbulo do `fatiar-log` aponta para `anvilore indexar-log <wiki>`, em vez de um script removido.

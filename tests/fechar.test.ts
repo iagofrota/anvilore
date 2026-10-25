@@ -447,15 +447,15 @@ describe("subcomando fechar", () => {
     expect((await capturar(() => executar(["fechar", w]))).valor).toBe(0);
   });
 
-  test("Dado --help, Quando rodo fechar, Então mostra o uso e devolve 2 sem tratar como caminho", async () => {
+  test("Dado --help, Quando rodo fechar, Então mostra o uso e devolve 0 sem tratar como caminho", async () => {
     const r = await capturar(() => comandoFechar(["--help"]));
-    expect(r.valor).toBe(2);
+    expect(r.valor).toBe(0);
     expect(r.erro).toContain("Uso: anvilore fechar [WIKI]");
     expect(r.saida).toBe("");
   });
 
-  test("Dado -h, Quando rodo fechar, Então também mostra o uso e devolve 2", async () => {
-    expect((await capturar(() => comandoFechar(["-h"]))).valor).toBe(2);
+  test("Dado -h, Quando rodo fechar, Então também mostra o uso e devolve 0", async () => {
+    expect((await capturar(() => comandoFechar(["-h"]))).valor).toBe(0);
   });
 });
 

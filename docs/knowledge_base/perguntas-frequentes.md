@@ -67,9 +67,12 @@ As correções saíram em rodadas numeradas do projeto (R70, R73 e R74); a colun
 | O README não listava Bun e git como pré-requisitos, nem dava como conferir o hook | R70: pré-requisitos com o comando de instalação do Bun, linha de autoverificação do hook (deve imprimir `2`) e aviso de que `wiki/index.md` e `wiki/log.md` são rastreados e mudam com o uso |
 | Seguir o README e apagar `wiki/exemplo/` deixava `[[area-tematica]]` no `wiki/index.md`, e o `validar` reprovava por wikilink quebrado | R73: o README manda apagar também a seção `## Área: exemplo` do índice; `tests/esqueleto-sem-exemplo.test.ts` prova |
 
+O porte do fechamento resolveu a ajuda: `anvilore fechar --help` e `anvilore fechar -h` mostram o uso e saem 0
+(`src/comandos/fechar.ts`, função `comandoFechar`).
+
 Ainda aberto, de propósito ou por estar fora do escopo da primeira onda:
 
-- `anvilore fechar --help` trata `--help` como caminho, e o gate "alterada hoje" marca a página do esqueleto
+- O gate "alterada hoje" marca a página do esqueleto
   como alterada em todo clone novo. Ficam para o porte do fechamento, na segunda onda.
 - O README ainda mostra `--alvo claude` nos exemplos de instalação; quem usa outro agente precisa trocar o alvo. O
   ensaio com Codex sugeriu apresentar a escolha do alvo antes dos comandos.
