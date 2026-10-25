@@ -6,7 +6,7 @@
 # nao outra revisao do mesmo codigo, ele nao se anula depois do merge — que e o que
 # aconteceria com um harness que lesse o validador de `git show origin/main:`.
 #
-# Lido por tests/okf-baseline.test.ts (fase de regressao e canario de mutacao).
+# Lido por src/comandos/baseline.ts (anvilore baseline): fase de regressao e canario de mutacao.
 #
 # FORMATO — colunas separadas por TAB, comentarios com '#':
 #   @fixture<TAB>file|dir<TAB>caminho     arquivo/diretorio criado na raiz sintetica
@@ -30,7 +30,7 @@
 # a regua andou.
 #
 # Os quatro valores que regrediram de fato na rodada 1 de uma revisao anterior sao
-# canarios e estao fixados em CANARIOS, dentro de tests/okf-baseline.test.ts:
+# canarios e estao fixados em CANARIOS, dentro de src/comandos/baseline.ts:
 # apaga-los daqui reprova o teste.
 
 # --- fixtures: o que existe na raiz sintetica durante a checagem ---

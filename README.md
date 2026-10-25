@@ -16,8 +16,9 @@ repositório**:
 | `SCHEMA.md` | o contrato de formato das páginas: tipos, frontmatter, wikilinks e callouts |
 | `AGENTS.md` | o contrato do agente: o que ele faz, o que não faz |
 | `skills/ingest`, `skills/query`, `skills/lint` | ingerir uma fonte; responder citando página; varrer a wiki atrás de problemas estruturais |
-| `src/` | o comando `anvilore` em TypeScript, que roda no [Bun](https://bun.sh); traz o validador (`validar`), o instalador (`instalar`) e o onboarding de áreas (`init`) |
-| `scripts/` | os scripts de manutenção (índice, log, lacunas, áreas) |
+| `src/` | o comando `anvilore` em TypeScript, que roda no [Bun](https://bun.sh); traz validação, instalação, áreas, proteção de fontes e manutenção (índice, log, lacunas, auditoria e rejunção de linhas) |
+| `scripts/` | a biblioteca do legado e as medições em TypeScript |
+| `anvilore fechar` | sincroniza índices, reconstrói o log, valida a wiki e cobra o log do dia |
 | `hooks/` | a regra "`raw/` é imutável" na forma de hook; a decisão mora num subcomando só (`anvilore hook proteger-raw`, em `src/comandos/hook-proteger-raw.ts`) |
 | `anvilore instalar` | configura um clone para o agente que você usa: Claude Code, Codex, Gemini ou Copilot |
 | `anvilore doctor` | diz, em linguagem simples, quais travas estão ligadas (proteção do `raw/`, validação, CI) e como ligar as que faltam |
@@ -137,7 +138,7 @@ Com o clone configurado:
    Rode `bun src/cli.ts validar` de novo: agora sim `VALIDACAO: PASS`, com uma
    linha de dívida de conhecimento (gaps e contradições sinalizados, se
    houver — zero também é uma resposta válida). O agente nunca escreve
-   `verified`: quem aprova é você. Para fechar a sessão, `bash scripts/fechar-wiki.sh wiki`
+   `verified`: quem aprova é você. Para fechar a sessão, `bun src/cli.ts fechar wiki`
    sincroniza os índices, regenera `wiki/log.md` a partir de `wiki/log/` e
    valida (o agente roda isso ao fim do ingest).
 
@@ -157,6 +158,17 @@ Com o clone configurado:
 Quando a wiki crescer, `skills/lint/SKILL.md` faz a varredura de manutenção:
 o que está estruturalmente quebrado, o que virou dívida de conhecimento e o
 que ficou invisível na navegação.
+Para consultar os callouts abertos sem escrever o índice, rode
+`bun src/cli.ts listar-lacunas wiki --consultar`. Sem `--consultar`, o comando
+atualiza `wiki/_meta/lacunas.md`.
+
+Para conferir as contagens dos índices de área sem escrever, rode
+`bun src/cli.ts sincronizar-indice wiki --checar`. Sem `--checar`, o comando
+atualiza a linha de contagem; uma área sem index.md é ignorada.
+
+Para reconstruir `wiki/log.md` a partir de `wiki/log/log-*.md`, rode
+`bun src/cli.ts indexar-log wiki`. Com `--stdout`, o comando só imprime o índice.
+Se não houver arquivo de dia, preserva `wiki/log.md`.
 
 ## Os quatro níveis
 

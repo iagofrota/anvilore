@@ -1,6 +1,7 @@
 // Dono único dos diretórios reservados: infra da wiki (índices gerados em _meta,
 // log fatiado por dia), não páginas temáticas.
-const reservados: ReadonlySet<string> = new Set(["_meta", "log"]);
+export const DIR_META = "_meta";
+const reservados: ReadonlySet<string> = new Set([DIR_META, "log"]);
 
 // Dono único dos diretórios de tipo do layout plano das skills
 // (wiki/sources, wiki/concepts, wiki/entities). Sob uma área, esses nomes são o

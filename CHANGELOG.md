@@ -71,12 +71,71 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Changed
 
+- Integração das duas ondas de TypeScript: o fechamento e as skills usam os comandos Bun de validação e manutenção, com proteção de fontes e aprovação humana preservadas.
+
+- O fatiamento do `wiki/log.md` em um arquivo por dia agora é o comando `bun src/cli.ts fatiar-log [WIKI]`
+  (antes, `scripts/fatiar-log.py`). Mesmo comportamento: migração única que recusa rodar se algum arquivo
+  de destino já existir e relata em voz alta o preâmbulo que não vai para nenhum arquivo de dia.
+- A contagem dos índices de área agora é sincronizada pelo comando TypeScript
+  `anvilore sincronizar-indice`, com modo `--checar` que não escreve.
+- A migração de páginas para as áreas da wiki agora é o comando `bun src/cli.ts migrar-areas [WIKI] [--simular]`
+  (antes, `scripts/migrar-areas.sh`). Mesmo mapa de roteamento e mesmas mensagens; usa `git mv` quando a página é
+  versionada e `rename` quando não é. O que mudou: se a página existir na origem e no destino, ela não é mais
+  sobrescrita (o comando relata o conflito e sai com 1); área do mapa que escapa da wiki (`..`, caminho absoluto, `\`,
+  `:` ou link para fora) reprova antes de mover qualquer coisa; mapa sem marcadores e link quebrado avisam em stderr;
+  falha no meio da migração é relatada com o que já foi movido, sem stack trace; `--help` mostra o uso e sai 2.
+  Também mudou de propósito: página (ou mapa) que não é UTF-8 válido, como um arquivo em Latin-1 com `café`, faz o comando
+  reprovar com `FAIL`, nomeando o arquivo e saindo 1, antes de mover ou reescrever qualquer página, inclusive em `--simular`; o
+  script em bash preservava os bytes, e o TypeScript gravaria U+FFFD no lugar e relataria sucesso.
+  A mesma regra vale para `sincronizar-indice` (índice de área que não é UTF-8 reprova antes de reescrever qualquer área, sem
+  escrever nada), `indexar-log` (dia de log que não é UTF-8) e `listar-lacunas` (página que não é UTF-8): `FAIL` nomeando o
+  arquivo, saída 1 e nada gravado. `fatiar-log` e `rejuntar-linhas` já eram estritos; `auditar` e as checagens de docs só leem.
+- O índice do log da wiki é regenerado por `bun src/cli.ts indexar-log`, com a opção
+  `--stdout` para consultar sem gravar e preservação do log do clone quando não há dias fatiados.
+  O antigo `scripts/indexar-log.sh` foi removido; a linha "Gerado por" no índice regenerado agora
+  aponta para o comando Bun. Arquivos de dia com CRLF mantêm a contagem correta por tipo.
+  Mudou de propósito: arquivo de dia que é symlink agora entra no índice (o antigo o ignorava) e link
+  quebrado gera um `AVISO:` em vez de sumir em silêncio.
+- `listar-lacunas` agora roda em TypeScript no Bun; a consulta de callouts continua sem escrever
+  `_meta/`, e a geração atualiza o índice de lacunas.
+- `rejuntar-linhas` passou de Python para TypeScript: `bun src/cli.ts rejuntar-linhas <arquivo-ou-diretório> [--simular] [--diff]`.
+  O `scripts/rejuntar-linhas.py` foi removido. Mudanças que aparecem no disco: arquivo CRLF ou com CR
+  solto sem nada a rejuntar não é regravado, e o que muda mantém o fim de linha que já tinha (CRLF
+  continua CRLF); arquivo com BOM mantém o frontmatter e o título intactos; extensão `.MD` em
+  maiúsculas também entra na varredura de uma pasta; link simbólico quebrado dá `AVISO:` em vez de
+  erro; arquivo que não é UTF-8 reprova a rodada inteira antes de escrever qualquer coisa; o
+  `--diff` usa memória linear e a mensagem de opção inválida vem em português.
+- A auditoria estrutural da wiki agora é `bun src/cli.ts auditar [WIKI]` (antes, `scripts/auditar-wiki.py`). Mesmas
+  cinco seções, mesmas mensagens e mesmos códigos de saída (0 sem achado, 1 com achado, 2 wiki inexistente); continua
+  sem escrever. Mudou de propósito: página que é symlink entra pelo caminho do link, link quebrado, symlink de
+  diretório e diretório com nome de página (`x.md`) geram um `AVISO:` em vez de sumir em silêncio, e erro de leitura sai 2 com mensagem em vez de traceback;
+  `--help` mostra o uso e sai 2.
+
 - `SCHEMA.md` descreve o portão humano, o índice, o resultado dos wikilinks e o `anvilore.toml`;
   `AGENTS.md` proíbe o agente de escrever uma verificação humana por conta própria.
-- O fechamento da wiki (`scripts/fechar-wiki.sh`) passa a chamar o novo validador e exige o Bun.
+- O ritual de fechamento agora é o comando `bun src/cli.ts fechar [WIKI]` (antes, `scripts/fechar-wiki.sh`). Mesmos
+  quatro passos, mesma ordem e mesmos tokens (`FECHAMENTO: OK`, `FECHAMENTO: FAIL no passo ...`), e para no primeiro
+  que falha; chama o novo validador e as funções dos outros passos direto, sem subprocesso. O gate do log do dia
+  compara a data de modificação com a meia-noite local, segue arquivo `.md` que é symlink e avisa em stderr de link
+  quebrado ou de diretório symlink não seguido; erro ao varrer reprova o gate em vez de passar calado.
+  `ANVILORE_PULAR_GATE_LOG=1` continua pulando só o gate. `--help` mostra o uso e sai 2.
 - O teste da tabela de vereditos de `sources[].resource` virou `tests/okf-baseline.test.ts`.
+- A conferência da tabela de vereditos de `sources[].resource` agora é o comando `bun src/cli.ts baseline [TSV]`
+  (`src/comandos/baseline.ts`), extraído de `tests/okf-baseline.test.ts`: sai 0 sem divergência e 1 com divergência,
+  nomeia a linha do TSV, mantém a fase de canário de mutação e reprova TSV ausente, vazio ou com coluna faltando;
+  `--help` mostra o uso e sai 2.
 
 ### Fixed
+
+- As verificações de porte preservam a atribuição e a detecção de conteúdo privado também depois da remoção do último script legado.
+
+- O fechamento não cobra log por páginas rastreadas que continuam iguais ao `HEAD` depois de um clone; páginas novas, ignoradas ou editadas hoje continuam sujeitas ao gate.
+
+- `fechar --help` e `fechar -h` mostram o uso e saem com código 0, sem tentar abrir uma wiki.
+
+- O `doctor` confere a chamada ao validador no fechamento TypeScript; documentação e skills usam `anvilore fechar` no lugar do script removido.
+
+- O aviso de preâmbulo do `fatiar-log` aponta para `anvilore indexar-log <wiki>`, em vez de um script removido.
 
 - O validador ignora wikilinks dentro de código em linha que atravessa linhas, tanto nas páginas quanto no índice, sem esconder links após uma crase sem fecho.
 
@@ -117,6 +176,8 @@ antigos em bash e Python: eles continuam sendo o que valida a wiki e protege o `
 
 ### Added
 
+  Mudou de propósito: arquivo de dia que é symlink agora entra no índice (o antigo o ignorava) e link
+  quebrado gera um `AVISO:` em vez de sumir em silêncio.
 - Projeto em TypeScript rodando no Bun, com verificação de tipos e testes que exigem pelo menos
   80% de cobertura.
 - Verificação automática (CI) configurada para rodar os testes em Linux, Windows e macOS a cada

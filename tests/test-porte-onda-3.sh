@@ -17,11 +17,11 @@ SKILL=skills/lint/SKILL.md
 HOOK=src/comandos/hook-proteger-raw.ts
 FORMA=hooks/hooks.json
 DOC=hooks/README.md
-VARREDURA=scripts/auditar-wiki.py
+VARREDURA=src/comandos/auditar.ts
 
 NOVOS=(
   "$SKILL" "$HOOK" "$FORMA" "$DOC" "$VARREDURA"
-  tests/test-auditar-wiki.sh
+  tests/auditar.test.ts
   tests/hook-proteger-raw.test.ts
   tests/test-porte-onda-3.sh
 )
@@ -101,9 +101,13 @@ else
 fi
 
 # A skill tem de citar os scripts REAIS deste repositorio, nao os da origem.
-for script in "$VARREDURA" scripts/listar-lacunas.py "src/cli.ts validar"; do
+for script in "src/cli.ts auditar" "src/cli.ts listar-lacunas" "src/cli.ts validar"; do
   grep -qF "$script" "$SKILL" && ok "a skill cita $script" || falha "a skill nao cita $script"
 done
+grep -qF "scripts/listar-lacunas.py" "$SKILL" && falha "a skill cita o caminho removido scripts/listar-lacunas.py" \
+                                              || ok "a skill nao cita scripts/listar-lacunas.py"
+grep -qF "scripts/auditar-wiki.py" "$SKILL" && falha "a skill cita o caminho removido scripts/auditar-wiki.py" \
+                                            || ok "a skill nao cita scripts/auditar-wiki.py"
 for alheio in wiki-validate.sh wiki-log-index.sh daily-lint.sh; do
   grep -qF "$alheio" "$SKILL" && falha "a skill cita script da origem: $alheio" \
                               || ok "a skill nao cita $alheio"
@@ -242,8 +246,13 @@ rm -f "$isca"
 # ============================================================================
 # Runtime e sintaxe dos arquivos novos
 # ============================================================================
-[ "$(head -1 "$VARREDURA")" = "#!/usr/bin/env python3" ] && ok "$VARREDURA: shebang python3" || falha "$VARREDURA: shebang '$(head -1 "$VARREDURA")'"
-python3 -m py_compile "$VARREDURA" 2>/dev/null && ok "$VARREDURA: compila em Python 3" || falha "$VARREDURA: erro de sintaxe Python"
+sintaxe_tmp="$(mktemp -d)"
+if bun build "$HOOK" "$VARREDURA" --target=bun --outdir "$sintaxe_tmp" >/dev/null 2>&1; then
+  ok "hook e auditor: sintaxe TypeScript válida no Bun"
+else
+  falha "hook ou auditor: erro de sintaxe TypeScript"
+fi
+rm -rf "$sintaxe_tmp"
 rm -rf scripts/__pycache__
 
 # Os hooks moram em hooks/ na raiz, versionado — nao num diretorio de provedor.

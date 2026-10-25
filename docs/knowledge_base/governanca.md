@@ -111,7 +111,7 @@ está dito.
   8. *Valor colado à opção curta de ferramenta externa:* `7z x f.7z -oraw`, `tar -xf a.tar -Craw`, `wget -Praw url`,
      `curl -sLoraw/a.pdf url` (o `raw` fica dentro da opção e o hook não o separa).
 - **Mitigação real além do hook: nenhuma no código.** `raw/` não é protegido pelo git: `.gitignore` tem `raw/*`, então o git
-  não rastreia as fontes (não acusa mudança nem restaura arquivo apagado); `anvilore validar` e `scripts/fechar-wiki.sh` não
+  não rastreia as fontes (não acusa mudança nem restaura arquivo apagado); `anvilore validar` e `anvilore fechar` não
   olham `raw/`. O que sobra é o `AGENTS.md` (proíbe em prosa), este hook e o que a pessoa fizer fora do kit:
   permissão de somente leitura no sistema de arquivos para o usuário do agente e cópia de segurança das fontes.
 - Pelo código (`src/comandos/hook-proteger-raw.ts`, função `decidir`), ferramentas de leitura passam mesmo
@@ -148,15 +148,15 @@ está dito.
 ### 3. A navegação é conferida com limites
 
 - O validador reprova wikilink quebrado e página fora do índice (`src/comandos/validar.ts`, função
-  `validarWiki`). A regra foi portada de `scripts/auditar-wiki.py` (linhas 151 a 164), que continua
-  existindo como relatório e é chamado pela skill de lint (`skills/lint/SKILL.md`, linhas 27 a 37).
+  `validarWiki`). A auditoria estrutural também relata esses problemas (`src/comandos/auditar.ts`, função
+  `auditarWiki`), chamada pela skill de lint (`skills/lint/SKILL.md`, Passo 1).
 - A página da wiki plana é conferida contra o `wiki/index.md`; a de uma área, contra o
   `wiki/<área>/index.md` se ele existir e, se não, contra o `wiki/index.md`. Wiki sem nenhum
   index.md aplicável passa, mas o validador imprime o aviso "sem index.md: conferência do índice
   não feita".
 - O alvo do wikilink é só o slug (`[[slug]]`, `[[slug|rótulo]]`, `[[slug#seção]]`). Link com
   caminho, como [[sources/x]], e embed de imagem, como ![[imagem.png]], reprovam como quebrados,
-  mesmo que o arquivo exista (é o que `scripts/auditar-wiki.py` faz). Link markdown e wikilink
+  mesmo que o arquivo exista (o auditor em `src/comandos/auditar.ts` também usa slugs). Link markdown e wikilink
   dentro de bloco de código, código em linha ou comentário HTML não são conferidos.
   Nos wikilinks, a máscara de código em linha é aplicada ao texto visível inteiro, inclusive quando o código atravessa linhas;
   isso vale também para as entradas do índice. Crase sem fecho não esconde o texto seguinte
@@ -164,6 +164,12 @@ está dito.
 - O index.md, o log.md e os diretórios reservados não são cobrados de `type`, `slug`, área nem
   índice, mas o YAML e a proveniência deles são conferidos (YAML que não lê reprova, nomeando o
   arquivo), como fazia o validador antigo. O portão humano só vale para página de conteúdo.
+
+O fechamento (`src/comandos/fechar.ts`) chama sincronização de índices, reconstrução de log, validação e gate do log do dia,
+nessa ordem, e para no primeiro erro. O gate cobra páginas com mtime posterior à meia-noite local, com exceção dos
+arquivos regulares rastreados sem alteração em relação ao `HEAD` (incluindo o índice do Git). Isso evita cobrar o esqueleto
+só por causa do checkout. Páginas ignoradas pelo Git e symlinks continuam pelo mtime; sem Git ou sem `HEAD`, nenhuma página
+é dispensada por esse critério. `ANVILORE_PULAR_GATE_LOG=1` pula apenas o gate, e não a validação.
 
 ### 4. O perfil da empresa vale para o estado atual
 

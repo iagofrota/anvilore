@@ -2,11 +2,20 @@
 import { parseArgs } from "node:util";
 import { comandoChecarDocs } from "./comandos/checar-docs";
 import { comandoChecarRelease } from "./comandos/checar-release";
+import { comandoFatiarLog } from "./comandos/fatiar-log";
+import { comandoSincronizarIndice } from "./comandos/sincronizar-indice";
+import { comandoMigrarAreas } from "./comandos/migrar-areas";
+import { comandoIndexarLog } from "./comandos/indexar-log";
+import { comandoListarLacunas } from "./comandos/listar-lacunas";
+import { comandoRejuntarLinhas } from "./comandos/rejuntar-linhas";
+import { comandoAuditar } from "./comandos/auditar";
 import { comandoValidar } from "./comandos/validar";
 import { comandoInstalar } from "./comandos/instalar";
 import { comandoDoctor } from "./comandos/doctor";
 import { comandoHook } from "./comandos/hook-proteger-raw";
 import { comandoInit } from "./comandos/init";
+import { comandoFechar } from "./comandos/fechar";
+import { comandoBaseline } from "./comandos/baseline";
 
 export type Subcomando = (args: string[]) => Promise<number>;
 export type TabelaDeSubcomandos = Record<string, Subcomando>;
@@ -15,11 +24,20 @@ export type TabelaDeSubcomandos = Record<string, Subcomando>;
 export const subcomandos: TabelaDeSubcomandos = {
   "checar-docs": comandoChecarDocs,
   "checar-release": comandoChecarRelease,
+  "fatiar-log": comandoFatiarLog,
+  "sincronizar-indice": comandoSincronizarIndice,
+  "migrar-areas": comandoMigrarAreas,
+  "indexar-log": comandoIndexarLog,
+  "listar-lacunas": comandoListarLacunas,
+  "rejuntar-linhas": comandoRejuntarLinhas,
+  auditar: comandoAuditar,
   validar: comandoValidar,
   instalar: comandoInstalar,
   hook: comandoHook,
   doctor: comandoDoctor,
   init: comandoInit,
+  fechar: comandoFechar,
+  baseline: comandoBaseline,
 };
 
 function listar(tabela: TabelaDeSubcomandos): string {

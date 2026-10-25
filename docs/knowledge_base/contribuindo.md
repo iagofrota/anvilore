@@ -23,8 +23,11 @@ bun run checar
 - O Bun usado no CI vem do campo `packageManager` de `package.json`.
 - Para conferir esta pasta: `bun src/cli.ts checar-docs`. Para simular a trava de release:
   `bun src/cli.ts checar-release 0.1.0`.
+- Para consultar a dívida declarada sem escrever em `wiki/_meta/`:
+  `bun src/cli.ts listar-lacunas wiki --consultar` (`src/comandos/listar-lacunas.ts`). Sem
+  `--consultar`, o comando gera o índice de lacunas nessa pasta.
 - Os testes antigos em bash continuam em `tests/test-*.sh`, para o código que ainda é bash. Rode
-  cada um com `bash tests/test-fechar-wiki.sh`, por exemplo. O alvo desses testes antigos é Linux.
+  cada um com `bash tests/test-porte-onda-2.sh`, por exemplo. O alvo desses testes antigos é Linux.
   O instalador já é coberto por `tests/instalar.test.ts`, `tests/fundir-json.test.ts`,
   `tests/fundir-bloco.test.ts` e `tests/juncoes.test.ts`, em Bun. Toda instalação de teste usa
   destino temporário; nunca instale na configuração real de um agente para verificar uma mudança.

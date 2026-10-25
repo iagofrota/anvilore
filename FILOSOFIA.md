@@ -55,7 +55,7 @@ pular.
 
 É também por isso que a dívida é declarada em vez de resolvida no escuro:
 `> [!gap]` e `> [!contradiction]` existem para que o que não se sabe fique
-visível. `scripts/listar-lacunas.py` reúne os callouts abertos num índice, e
+visível. `bun src/cli.ts listar-lacunas` reúne os callouts abertos num índice, e
 o validador conta a dívida sem reprovar por causa dela. Registrar uma
 contradição não é criar uma contradição — é torná-la visível.
 
@@ -65,7 +65,7 @@ Os quatro níveis do `README.md` não são um roteiro a cumprir: cada um só
 existe porque o anterior doeu em algum ponto nomeado. A estrutura de áreas
 temáticas é o caso mais claro — o campo `area` é **opcional** no `SCHEMA.md`,
 e uma wiki plana, com as páginas soltas na raiz de `wiki/`, continua válida e
-continua validando. Quando a dor chegar, `scripts/migrar-areas.sh` move as
+continua validando. Quando a dor chegar, `bun src/cli.ts migrar-areas` move as
 páginas para as áreas e injeta o campo no frontmatter, com `--simular` para
 ver antes.
 
@@ -87,8 +87,8 @@ dados e de agente — coisas que não existem antes de a wiki existir.
 
 A wiki é um diretório de markdown. O validador (`anvilore validar`) é
 TypeScript que roda no Bun, sem biblioteca de terceiros: ele lê o YAML do
-frontmatter sozinho e, sem o Bun, falha em vez de fingir que passou. Os
-scripts de manutenção ainda são shell e Python de biblioteca padrão. Não há
+frontmatter sozinho e, sem o Bun, falha em vez de fingir que passou. A
+manutenção e o ritual de fechamento também rodam em TypeScript no Bun. Não há
 servidor, índice binário nem processo rodando por trás.
 
 **Por quê:** na escala de uma wiki pessoal, um agente que lê `wiki/index.md`

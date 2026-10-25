@@ -46,11 +46,16 @@ function gravar(rel: string, texto: string) {
   mkdirSync(join(clone, rel, ".."), { recursive: true }); writeFileSync(join(clone, rel), texto);
 }
 function completar() {
-  gravar("scripts/fechar-wiki.sh", 'bun "$AQUI/../src/cli.ts" validar "$WIKI"\n');
+  gravar("src/comandos/fechar.ts", 'const passos = [["validar-wiki", () => comandoValidar([raiz])]];\n');
   gravar(".github/workflows/ci.yml", "jobs:\n  t:\n    steps:\n      - run: bun src/cli.ts checar-docs\n");
 }
 async function travas() { return Object.fromEntries((await diagnosticar(clone)).travas.map(t => [t.nome, t])); }
 const protecao = (agente: string) => `Proteção do raw/ no ${agente}`;
+
+test("Dado fechamento TypeScript atual Quando diagnostico Então a validação no fechamento está ligada", async () => {
+  completar();
+  expect((await travas())["Validação no fechamento da wiki"]?.ligada).toBe(true);
+});
 
 test("Dado repositório com a proteção do raw instalada Quando diagnostico Então as quatro travas do hook estão ligadas", async () => {
   await instalarTudo();
@@ -137,11 +142,11 @@ test("Dado configuração ilegível ou em conflito Quando diagnostico Então des
   expect(t[protecao("Copilot")]?.ligada).toBe(false);
 });
 
-test("Dado fechar-wiki sem a chamada do validador Quando diagnostico Então a validação no fechamento está desligada", async () => {
-  gravar("scripts/fechar-wiki.sh", "echo nada\n");
+test("Dado fechar sem a chamada do validador Quando diagnostico Então a validação no fechamento está desligada", async () => {
+  gravar("src/comandos/fechar.ts", "export {};\n");
   const t = (await travas())["Validação no fechamento da wiki"];
-  expect(t?.ligada).toBe(false); expect(t?.comoLigar).toContain("fechar-wiki.sh");
-  rmSync(join(clone, "scripts"), { recursive: true });
+  expect(t?.ligada).toBe(false); expect(t?.comoLigar).toContain("fechar.ts");
+  rmSync(join(clone, "src/comandos/fechar.ts"));
   expect((await travas())["Validação no fechamento da wiki"]?.ligada).toBe(false);
 });
 
@@ -294,14 +299,14 @@ test("Dado versão ilegível ou Claude ausente Quando diagnostico Então avisa s
 });
 
 // Revisão Codex da T10 (I1, I2): linha comentada ou etapa desativada não liga a trava.
-test("Dado chamada ao validador só comentada no fechar-wiki Quando diagnostico Então a validação está desligada", async () => {
+test("Dado chamada ao validador só comentada no fechar Quando diagnostico Então a validação está desligada", async () => {
   const nome = "Validação no fechamento da wiki";
-  gravar("scripts/fechar-wiki.sh", '# bun "$AQUI/../src/cli.ts" validar "$WIKI"\n   #bun src/cli.ts validar wiki\n');
+  gravar("src/comandos/fechar.ts", '// comandoValidar([raiz])\n   /* comandoValidar([raiz]) */\n');
   const t = (await travas())[nome];
   expect(t?.ligada).toBe(false); expect(t?.detalhe).toContain("só aparece em comentário");
-  gravar("scripts/fechar-wiki.sh", '# bun src/cli.ts validar wiki\nbun "$AQUI/../src/cli.ts" validar "$WIKI" # valida\n');
+  gravar("src/comandos/fechar.ts", '// comandoValidar([raiz])\n() => comandoValidar([raiz]) // valida\n');
   expect((await travas())[nome]?.ligada).toBe(true);
-  gravar("scripts/fechar-wiki.sh", 'echo "nada" # bun src/cli.ts validar wiki\n');
+  gravar("src/comandos/fechar.ts", 'console.log("nada"); // comandoValidar([raiz])\n');
   expect((await travas())[nome]?.ligada).toBe(false);
 });
 
@@ -337,7 +342,7 @@ test("Dado YAML do workflow inválido ou pré-commit comentado Quando diagnostic
 
 test("Dado trava comentada Quando rodo o doctor Então não diz tudo ligado e devolve 1", async () => {
   await instalarTudo();
-  gravar("scripts/fechar-wiki.sh", "# bun src/cli.ts validar wiki\n");
+  gravar("src/comandos/fechar.ts", "// comandoValidar([raiz])\n");
   gravar(".github/workflows/ci.yml", "jobs:\n  t:\n    steps:\n      # - run: bun src/cli.ts checar-docs\n      - run: echo ok\n");
   expect(await comandoDoctor([clone])).toBe(1);
   const saida = consoleCapturado.saida.join("\n");

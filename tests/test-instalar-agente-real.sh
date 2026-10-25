@@ -128,14 +128,14 @@ depois_sonda="$(wc -c < "$SONDA")"
 # ============================================================================
 # A skill instalada e encontrada E LIDA
 # ============================================================================
-# Os tres scripts abaixo sao citados no texto da skill `lint` DESTE repositorio.
+# Os tres subcomandos abaixo sao citados no texto da skill `lint` DESTE repositorio.
 # Uma skill homonima de outra origem nao teria como nomear os tres.
 resposta="$(cd "$ALVO" && timeout 300 claude -p \
-  "Leia a skill 'lint' disponivel neste projeto e responda SO com os nomes dos arquivos de script que ela manda rodar." \
+  "Leia a skill 'lint' disponivel neste projeto e responda SO com os nomes dos subcomandos que ela manda rodar." \
   --settings "$CONFIG" 2>&1)"
 
 citados=0
-for script in auditar-wiki listar-lacunas cli.ts; do
+for script in auditar listar-lacunas validar; do
   printf '%s' "$resposta" | grep -qF "$script" && citados=$((citados+1))
 done
 if [ "$citados" -ge 2 ]; then

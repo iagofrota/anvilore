@@ -83,7 +83,7 @@ describe("skill ingest: contrato do fluxo (R70-B a E)", () => {
   });
 
   test("Dado o último passo Quando fecha Então roda o fechamento e não declara concluído se reprovar por outro motivo", () => {
-    expect(skill).toContain("bash scripts/fechar-wiki.sh wiki");
+    expect(skill).toContain("bun src/cli.ts fechar wiki");
     expect(skill).toMatch(/Não diga que o ingest está concluído se o fechamento reprovou/);
     expect(skill).toContain("verified:\n  - by: human:<seu-id>");
   });

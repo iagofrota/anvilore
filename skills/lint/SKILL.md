@@ -26,15 +26,15 @@ responderia caro lendo arquivo por arquivo.
 
 ```bash
 bun src/cli.ts validar wiki
-python3 scripts/auditar-wiki.py wiki
-python3 scripts/listar-lacunas.py wiki --consultar
+bun src/cli.ts auditar wiki
+bun src/cli.ts listar-lacunas wiki --consultar
 ```
 
 | Comando | O que responde | Como ler a saída |
 |---|---|---|
 | `bun src/cli.ts validar` | invariantes do `SCHEMA.md` — frontmatter ausente ou ilegível, `type` inválido, `slug` divergente, área do frontmatter brigando com o diretório ou fora do `anvilore.toml`, wikilink quebrado, página fora do índice, proveniência malformada e página gerada sem aprovação humana | `VALIDACAO: FAIL` é violação de contrato: **isso vem antes de tudo**, porque uma wiki que não valida torna o resto da varredura ruído |
-| `scripts/auditar-wiki.py` | as cinco categorias estruturais do Passo 2 | sai `1` quando há achado, `0` quando não há; ele **nunca escreve**, só relata |
-| `scripts/listar-lacunas.py … --consultar` | os callouts `[!gap]` e `[!contradiction]` abertos, um por linha, no formato `caminho.md:linha [tipo] texto` | é a dívida que quem cura **declarou** e ainda não fechou |
+| `bun src/cli.ts auditar` | as cinco categorias estruturais do Passo 2 | sai `1` quando há achado, `0` quando não há; ele **nunca escreve**, só relata |
+| `bun src/cli.ts listar-lacunas … --consultar` | os callouts `[!gap]` e `[!contradiction]` abertos, um por linha, no formato `caminho.md:linha [tipo] texto` | é a dívida que quem cura **declarou** e ainda não fechou |
 
 Depois, e só depois:
 
@@ -57,7 +57,7 @@ usuário e pare.** Não há o que varrer, e inventar um índice não é lint.
 
 ## Passo 2 — Ler a varredura estrutural
 
-`scripts/auditar-wiki.py` devolve cinco seções. Você não precisa reimplementar
+`bun src/cli.ts auditar` devolve cinco seções. Você não precisa reimplementar
 nenhuma delas; precisa saber o que cada uma significa para não tratar um achado
 como se fosse outro.
 
@@ -104,7 +104,7 @@ A varredura do Passo 2 é mecânica. Esta não é: aqui você lê.
 
 ### 3a — Contradições declaradas
 
-Toda linha `[contradiction]` da saída de `scripts/listar-lacunas.py`. Para cada
+Toda linha `[contradiction]` da saída de `bun src/cli.ts listar-lacunas`. Para cada
 uma, abra a página no ponto indicado e descreva **os dois lados**. Seu trabalho
 é trazê-las à superfície para o usuário, não resolvê-las.
 
@@ -215,7 +215,7 @@ Corrigido: página mínima criada para entities/nome-da-pessoa (alvo de link que
 Corrigido: campo slug acrescentado a sources/artigo-tal (inferido do nome do arquivo)
 ```
 
-Depois de corrigir, rode `python3 scripts/auditar-wiki.py wiki` de novo e
+Depois de corrigir, rode `bun src/cli.ts auditar wiki` de novo e
 confira que os itens que você diz ter corrigido **saíram** do relatório. Dizer
 "corrigi" sem essa segunda passada é afirmar sobre o estado da wiki algo que
 você não pode apontar numa saída de validação — o que o `AGENTS.md` proíbe.
@@ -285,13 +285,17 @@ Depois rode o ritual de fechamento, que reconstrói o que é derivado e valida o
 resultado:
 
 ```bash
-bash scripts/fechar-wiki.sh wiki
+bun src/cli.ts fechar wiki
 ```
 
-Ele sincroniza a contagem dos índices, regenera o log a partir do log fatiado
+Ele sincroniza a contagem dos índices, chama `bun src/cli.ts indexar-log` para
+regenerar o log a partir do log fatiado
 (quando houver), roda a validação e cobra a entrada do dia. **Se ele reprovar,
 o lint não terminou** — leia o passo que falhou e resolva antes de dizer ao
 usuário que acabou.
+
+Para conferir só a contagem dos índices sem escrever, rode
+`bun src/cli.ts sincronizar-indice wiki --checar`.
 
 ---
 
@@ -319,7 +323,7 @@ usuário que acabou.
   sinal.
 - **Um lint é uma varredura completa.** Se o usuário quer saber só quais
   páginas não têm link de entrada, isso é uma consulta — rode
-  `python3 scripts/auditar-wiki.py wiki` e responda. Não chame de lint.
+  `bun src/cli.ts auditar wiki` e responda. Não chame de lint.
 
 ---
 
