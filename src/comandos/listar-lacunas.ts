@@ -1,8 +1,9 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import { basename, join, relative, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { dataLocal, linhasPython, paginasMarkdown } from "../lib/paginas";
 import { DIR_META, diretorioDeTipo, nomeReservado } from "../lib/reservados";
+import { ErroDeEncoding, lerUtf8Estrito } from "../lib/utf8";
 
 type Tipo = "gap" | "contradiction";
 type Opcoes = { stdout?: boolean; tipos?: Tipo[]; consultar?: boolean; area?: string; buscar?: string; limite?: number };
@@ -54,7 +55,7 @@ async function coletar(wiki: string, tipos: Tipo[]): Promise<Achado[]> {
     const partes = rel.split("/");
     const topo = partes[0]!;
     const area = partes.length < 2 || nomeReservado(topo) || diretorioDeTipo(topo) ? "(raiz)" : topo;
-    for (const item of extrair(await readFile(pagina, "utf8"), new Set(tipos))) {
+    for (const item of extrair(await lerUtf8Estrito(pagina), new Set(tipos))) {
       achados.push({ ...item, rel, slug: basename(pagina, ".md"), area });
     }
   }
@@ -168,6 +169,10 @@ export async function comandoListarLacunas(args: string[]): Promise<number> {
     } else console.log(linhas.join("\n"));
     return 0;
   } catch (erro) {
+    if (erro instanceof ErroDeEncoding) {
+      console.error(`FAIL: ${erro.message}`);
+      return 1;
+    }
     console.error(erro instanceof Error ? erro.message : String(erro));
     return 2;
   }

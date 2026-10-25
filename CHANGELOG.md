@@ -25,6 +25,9 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   Também mudou de propósito: página (ou mapa) que não é UTF-8 válido, como um arquivo em Latin-1 com `café`, faz o comando
   reprovar com `FAIL`, nomeando o arquivo e saindo 1, antes de mover ou reescrever qualquer página, inclusive em `--simular`; o
   script em bash preservava os bytes, e o TypeScript gravaria U+FFFD no lugar e relataria sucesso.
+  A mesma regra vale para `sincronizar-indice` (índice de área que não é UTF-8 reprova antes de reescrever qualquer área, sem
+  escrever nada), `indexar-log` (dia de log que não é UTF-8) e `listar-lacunas` (página que não é UTF-8): `FAIL` nomeando o
+  arquivo, saída 1 e nada gravado. `fatiar-log` e `rejuntar-linhas` já eram estritos; `auditar` e as checagens de docs só leem.
 - O índice do log da wiki é regenerado por `bun src/cli.ts indexar-log`, com a opção
   `--stdout` para consultar sem gravar e preservação do log do clone quando não há dias fatiados.
   O antigo `scripts/indexar-log.sh` foi removido; a linha "Gerado por" no índice regenerado agora

@@ -1,5 +1,6 @@
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { ErroDeEncoding, lerUtf8Estrito } from "../lib/utf8";
 
 // Erro ao gravar `log.md`: a mensagem nomeia o arquivo alvo, não o `path` do erro (no Windows ele traz a pasta).
 class ErroDeEscrita extends Error {}
@@ -70,7 +71,7 @@ export async function indexarLog(wiki: string, opcoes: { stdout?: boolean } = {}
   const dias = await Promise.all(
     arquivos.map(async (arquivo) => {
       const data = arquivo.slice(4, -3);
-      const { total, resumo } = resumoDoDia(await readFile(join(wiki, "log", arquivo), "utf8"));
+      const { total, resumo } = resumoDoDia(await lerUtf8Estrito(join(wiki, "log", arquivo)));
       return { data, mes: data.slice(0, 7), total, resumo };
     }),
   );
@@ -126,7 +127,7 @@ export async function comandoIndexarLog(args: string[]): Promise<number> {
       console.log(`LOG: nada a indexar — ${join(wiki, "log")} sem arquivo log-*.md; ${join(wiki, "log.md")} preservado`);
       return 0;
     }
-    console.error(`FAIL: ${erro instanceof ErroDeEscrita ? falha.message : `${falha.path ?? wiki}: ${falha.message}`}`);
+    console.error(`FAIL: ${erro instanceof ErroDeEscrita || erro instanceof ErroDeEncoding ? falha.message : `${falha.path ?? wiki}: ${falha.message}`}`);
     return 1;
   }
 }

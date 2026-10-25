@@ -1,6 +1,7 @@
 import { lstatSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { diretorioDeTipo, nomeReservado } from "../lib/reservados";
+import { ErroDeEncoding, lerUtf8EstritoSync } from "../lib/utf8";
 
 type Campo = { singular: string; plural: string; expressao: RegExp; contar: (area: string) => number };
 
@@ -56,6 +57,18 @@ export async function sincronizarIndice(wiki: string, opcoes: { checar?: boolean
   const defasadas: string[] = [];
   const reescritas: string[] = [];
   const entradas = readdirSync(wiki, { withFileTypes: true }).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  // Ao reescrever, todo índice de área tem de ser UTF-8 válido, e isso é conferido antes de escrever qualquer um: não fica área reescrita e outra não.
+  if (!opcoes.checar) {
+    for (const entrada of entradas) {
+      if (entrada.name.startsWith(".") || nomeReservado(entrada.name) || diretorioDeTipo(entrada.name)) continue;
+      const indice = join(wiki, entrada.name, "index.md");
+      try {
+        if (statSync(indice).isFile()) lerUtf8EstritoSync(indice);
+      } catch (erro) {
+        if (erro instanceof ErroDeEncoding) throw erro;
+      }
+    }
+  }
   for (const entrada of entradas) {
     if (entrada.name.startsWith(".") || nomeReservado(entrada.name) || diretorioDeTipo(entrada.name)) continue;
     const area = join(wiki, entrada.name);
@@ -72,7 +85,7 @@ export async function sincronizarIndice(wiki: string, opcoes: { checar?: boolean
     } catch {
       continue;
     }
-    const texto = readFileSync(indice, "utf8");
+    const texto = opcoes.checar ? readFileSync(indice, "utf8") : lerUtf8EstritoSync(indice);
     const trecho = terceiraLinha(texto);
     if (trecho === null) continue;
     const { linha: header, inicio, fim } = trecho;
