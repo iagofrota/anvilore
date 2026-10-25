@@ -28,7 +28,7 @@ Para a linhagem do método e a argumentação completa das posições de design,
   macOS, os três obrigatórios.
 - O que o repositório mostra hoje: validação, manutenção, instalador e hook estão em TypeScript no Bun
   (`src/cli.ts`, `src/comandos/instalar.ts` e `src/comandos/hook-proteger-raw.ts`);
-  o fechamento (`scripts/fechar-wiki.sh`) ainda é bash. O `README.md`
+  o fechamento (`src/comandos/fechar.ts`) também é TypeScript. O `README.md`
   ainda diz que não há suporte a Windows
   nem a macOS. O CI está configurado para rodar nos três sistemas (`.github/workflows/ci.yml`), mas ainda não rodou. Os detalhes e os riscos
   estão em [plataformas.md](plataformas.md).

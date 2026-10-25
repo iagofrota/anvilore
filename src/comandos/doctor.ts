@@ -104,12 +104,14 @@ const DESATIVADO = (condicao: unknown) => condicao === false || (typeof condicao
 
 async function validacaoNoFechamento(raiz: string): Promise<Trava> {
   const nome = "Validação no fechamento da wiki";
-  const texto = await ler(join(raiz, "scripts/fechar-wiki.sh")).catch(() => undefined);
-  if (texto !== undefined && /cli\.ts"?\s+validar/.test(semComentarios(texto))) return { nome, ligada: true };
-  const comentada = texto !== undefined && /cli\.ts"?\s+validar/.test(texto);
+  const texto = await ler(join(raiz, "src/comandos/fechar.ts")).catch(() => undefined);
+  const chamada = /\bcomandoValidar\s*\(/;
+  const ativo = texto?.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  if (ativo !== undefined && chamada.test(ativo)) return { nome, ligada: true };
+  const comentada = texto !== undefined && chamada.test(texto);
   return {
-    nome, ligada: false, comoLigar: "faça scripts/fechar-wiki.sh chamar: bun src/cli.ts validar wiki",
-    detalhe: texto === undefined ? "scripts/fechar-wiki.sh não existe" : comentada ? "a chamada ao validador só aparece em comentário" : undefined,
+    nome, ligada: false, comoLigar: "restaure a chamada ao validador em src/comandos/fechar.ts e rode bun src/cli.ts fechar wiki",
+    detalhe: texto === undefined ? "src/comandos/fechar.ts não existe" : comentada ? "a chamada ao validador só aparece em comentário" : undefined,
   };
 }
 

@@ -24,7 +24,7 @@ Peças que existem hoje no repositório:
 - Skills de ingerir, consultar e varrer a wiki: `skills/ingest/SKILL.md`, `skills/query/SKILL.md`
   e `skills/lint/SKILL.md`.
 - Validador da wiki (`anvilore validar`), em TypeScript: `src/comandos/validar.ts`, `src/lib/okf.ts` e
-  `src/lib/perfil.ts`. O ritual de fechamento ainda é bash: `scripts/fechar-wiki.sh`.
+  `src/lib/perfil.ts`. O ritual de fechamento também é TypeScript: `src/comandos/fechar.ts`.
 - Onboarding de áreas: `anvilore init`, em `src/comandos/init.ts` (cenários em `tests/init.test.ts`). Cria
   `wiki/<área>/{sources,entities,concepts}`, recusa nome reservado (`src/lib/reservados.ts`) e é idempotente.
 - Proteção de `raw/` como hook, em TypeScript: `anvilore hook proteger-raw`, em
@@ -33,7 +33,7 @@ Peças que existem hoje no repositório:
   `src/comandos/instalar.ts`, com fusão em `src/lib/fundir-json.ts` e `src/lib/fundir-bloco.ts`.
 - Os comandos TypeScript no Bun estão em `src/cli.ts` (tabela de subcomandos) e `src/comandos/`, com a biblioteca em `src/lib/`:
   `checar-docs`, `checar-release`, `validar`, `instalar`, `init`, `doctor`, `hook`, `fatiar-log`, `indexar-log`,
-  `sincronizar-indice`, `migrar-areas`, `listar-lacunas`, `auditar`, `rejuntar-linhas` e `fechar`.
+  `sincronizar-indice`, `migrar-areas`, `listar-lacunas`, `auditar`, `rejuntar-linhas`, `fechar` e `baseline`.
   O `sincronizar-indice` atualiza só a linha 3 dos índices de área; `--checar` detecta defasagem sem escrever
   (`src/comandos/sincronizar-indice.ts` e `tests/sincronizar-indice.test.ts`).
 

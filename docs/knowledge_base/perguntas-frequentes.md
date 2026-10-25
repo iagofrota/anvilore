@@ -45,7 +45,7 @@ Condições, para ninguém ler isso como promessa:
 Porque é assim que o portão humano funciona. Toda página que o agente escreve nasce com o bloco `generated`
 (`skills/ingest/SKILL.md`, Passo 3), e o validador reprova a página até uma pessoa acrescentar `verified` com
 `by: human:<id>` e uma hora igual ou posterior à da geração (`SCHEMA.md`, "Portão humano"). O primeiro
-`validar` e o primeiro `scripts/fechar-wiki.sh` terminam em `FAIL`, com um erro "página gerada sem aprovação
+`validar` e o primeiro `anvilore fechar` terminam em `FAIL`, com um erro "página gerada sem aprovação
 humana" por página, e isso é o esperado. O agente nunca escreve `verified` (`AGENTS.md`). O README mostra o
 trecho de frontmatter exato. `tests/skill-ingest.test.ts` prova que os modelos de página da skill produzem
 exatamente esse erro e que, com a aprovação, o validador aprova.
@@ -58,7 +58,7 @@ As correções saíram em rodadas numeradas do projeto (R70, R73 e R74); a colun
 |---|---|
 | A skill `ingest` não gravava `generated`, então a página escrita pelo agente nunca acionava o portão humano e o `PASS` do README vinha sem aprovação alguma | R70: a skill grava `generated` em toda página; o README explica o `FAIL` esperado e mostra a aprovação |
 | A skill mandava escrever o log em `wiki/log.md`, que o fechamento regenera e sobrescreve; o gate cobrava outro arquivo | R70: a skill escreve o log do dia em `wiki/log/` (um arquivo log-AAAA-MM-DD.md por dia) e não edita `wiki/log.md` (o mesmo vale para `query` e `lint`) |
-| O fechamento (`scripts/fechar-wiki.sh`) não aparecia no fluxo do `ingest` nem no README | R70: é o último passo da skill, e o README o cita |
+| O fechamento (`anvilore fechar`) não aparecia no fluxo do `ingest` nem no README | R70: é o último passo da skill, e o README o cita |
 | A skill criava páginas no layout plano e ignorava as áreas que o `init` acabou de criar | R70: uma área, usa-se essa; várias, pergunta-se; nenhuma, layout plano. O README manda dizer a área |
 | O Passo 0 da skill pressupunha subagentes e um modelo específico do Claude Code | R70: subagentes só para fonte acima de 400 000 bytes; o modelo citado é exemplo; a skill declara que conversa com a pessoa |
 | O `init` ignorava o anvilore.toml, e o esqueleto `wiki/exemplo/` reprovava qualquer perfil de áreas | R70: o `init` recusa área fora da lista (`src/comandos/init.ts`). R74: `init` e `validar` usam a mesma comparação, exata, sem caixa nem normalização (`src/lib/perfil.ts`) |
@@ -69,7 +69,7 @@ As correções saíram em rodadas numeradas do projeto (R70, R73 e R74); a colun
 
 Ainda aberto, de propósito ou por estar fora do escopo da primeira onda:
 
-- `scripts/fechar-wiki.sh --help` trata `--help` como caminho, e o gate "alterada hoje" marca a página do esqueleto
+- `anvilore fechar --help` trata `--help` como caminho, e o gate "alterada hoje" marca a página do esqueleto
   como alterada em todo clone novo. Ficam para o porte do fechamento, na segunda onda.
 - O README ainda mostra `--alvo claude` nos exemplos de instalação; quem usa outro agente precisa trocar o alvo. O
   ensaio com Codex sugeriu apresentar a escolha do alvo antes dos comandos.

@@ -88,7 +88,7 @@ dados e de agente — coisas que não existem antes de a wiki existir.
 A wiki é um diretório de markdown. O validador (`anvilore validar`) é
 TypeScript que roda no Bun, sem biblioteca de terceiros: ele lê o YAML do
 frontmatter sozinho e, sem o Bun, falha em vez de fingir que passou. A
-manutenção também roda em TypeScript no Bun; o ritual de fechamento ainda é bash. Não há
+manutenção e o ritual de fechamento também rodam em TypeScript no Bun. Não há
 servidor, índice binário nem processo rodando por trás.
 
 **Por quê:** na escala de uma wiki pessoal, um agente que lê `wiki/index.md`

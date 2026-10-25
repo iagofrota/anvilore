@@ -111,7 +111,7 @@ está dito.
   8. *Valor colado à opção curta de ferramenta externa:* `7z x f.7z -oraw`, `tar -xf a.tar -Craw`, `wget -Praw url`,
      `curl -sLoraw/a.pdf url` (o `raw` fica dentro da opção e o hook não o separa).
 - **Mitigação real além do hook: nenhuma no código.** `raw/` não é protegido pelo git: `.gitignore` tem `raw/*`, então o git
-  não rastreia as fontes (não acusa mudança nem restaura arquivo apagado); `anvilore validar` e `scripts/fechar-wiki.sh` não
+  não rastreia as fontes (não acusa mudança nem restaura arquivo apagado); `anvilore validar` e `anvilore fechar` não
   olham `raw/`. O que sobra é o `AGENTS.md` (proíbe em prosa), este hook e o que a pessoa fizer fora do kit:
   permissão de somente leitura no sistema de arquivos para o usuário do agente e cópia de segurança das fontes.
 - Pelo código (`src/comandos/hook-proteger-raw.ts`, função `decidir`), ferramentas de leitura passam mesmo

@@ -27,7 +27,7 @@ bun run checar
   `bun src/cli.ts listar-lacunas wiki --consultar` (`src/comandos/listar-lacunas.ts`). Sem
   `--consultar`, o comando gera o índice de lacunas nessa pasta.
 - Os testes antigos em bash continuam em `tests/test-*.sh`, para o código que ainda é bash. Rode
-  cada um com `bash tests/test-rejuntar-linhas.sh`, por exemplo. O alvo desses testes antigos é Linux.
+  cada um com `bash tests/test-porte-onda-2.sh`, por exemplo. O alvo desses testes antigos é Linux.
   O instalador já é coberto por `tests/instalar.test.ts`, `tests/fundir-json.test.ts`,
   `tests/fundir-bloco.test.ts` e `tests/juncoes.test.ts`, em Bun. Toda instalação de teste usa
   destino temporário; nunca instale na configuração real de um agente para verificar uma mudança.

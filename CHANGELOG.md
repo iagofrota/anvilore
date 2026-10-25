@@ -127,6 +127,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
+- O `doctor` confere a chamada ao validador no fechamento TypeScript; documentação e skills usam `anvilore fechar` no lugar do script removido.
+
 - O aviso de preâmbulo do `fatiar-log` aponta para `anvilore indexar-log <wiki>`, em vez de um script removido.
 
 - O validador ignora wikilinks dentro de código em linha que atravessa linhas, tanto nas páginas quanto no índice, sem esconder links após uma crase sem fecho.

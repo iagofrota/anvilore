@@ -32,12 +32,12 @@ Este arquivo é conferência manual: nenhum teste automático o executa.
 | 2 | Simular e instalar | `bun src/cli.ts instalar --simular --destino <clone> --alvo <agente>`, depois a instalação real | Simulação diz "Nada foi alterado"; a instalação termina com "Próximo passo" (reabrir o agente e rodar o `init`) |
 | 3 | Áreas | `bun src/cli.ts init --areas pessoal`; repetir; com `anvilore.toml` com `areas`, pedir uma área fora da lista | Áreas criadas; repetição sem mudanças; área fora da lista recusada nomeando a lista |
 | 4 | Ingestão | Pedir ao agente que siga `skills/ingest/SKILL.md` e ingira `raw/exemplo/llm-wiki.md` | Páginas na área escolhida com `generated`; entrada em `wiki/log/log-AAAA-MM-DD.md`; `wiki/log.md` intocado; `raw/` idêntico (compare o hash antes e depois) |
-| 5 | Validar e fechar | `bun src/cli.ts validar` e `bash scripts/fechar-wiki.sh wiki` | `FAIL` só por "página gerada sem aprovação humana", uma vez por página; nenhum outro erro |
+| 5 | Validar e fechar | `bun src/cli.ts validar` e `bun src/cli.ts fechar wiki` | `FAIL` só por "página gerada sem aprovação humana", uma vez por página; nenhum outro erro |
 | 6 | Doctor | `bun src/cli.ts doctor <clone>` | Código 0 com a trava do agente instalado ligada; outros agentes só no PATH aparecem como opcionais |
 | 7 | Hook de `raw/` | Rodar o comando do hook gravado na configuração do agente com os payloads abaixo | Escrita em `raw/` sai 2; escrita em `wiki/` e leitura de `raw/` saem 0 |
 
 Se o ensaio incluir a aprovação humana de verdade (uma pessoa lê as páginas e acrescenta `verified`), acrescente uma
-etapa 8: `validar` e `fechar-wiki.sh` devem dar `VALIDACAO: PASS` e `FECHAMENTO: OK`.
+etapa 8: `validar` e `fechar` devem dar `VALIDACAO: PASS` e `FECHAMENTO: OK`.
 
 ### Payloads do hook (etapa 7)
 

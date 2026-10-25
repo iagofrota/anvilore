@@ -138,7 +138,7 @@ Com o clone configurado:
    Rode `bun src/cli.ts validar` de novo: agora sim `VALIDACAO: PASS`, com uma
    linha de dívida de conhecimento (gaps e contradições sinalizados, se
    houver — zero também é uma resposta válida). O agente nunca escreve
-   `verified`: quem aprova é você. Para fechar a sessão, `bash scripts/fechar-wiki.sh wiki`
+   `verified`: quem aprova é você. Para fechar a sessão, `bun src/cli.ts fechar wiki`
    sincroniza os índices, regenera `wiki/log.md` a partir de `wiki/log/` e
    valida (o agente roda isso ao fim do ingest).
 
