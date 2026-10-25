@@ -20,25 +20,31 @@ const LEITURAS_TERMINAL = new Set([
 ]);
 // Verbos que executam outro comando: o que importa é o comando de dentro (as opções de cada um estão em OPCOES_ENVOLVEDOR).
 const ENVOLVEDORES = new Set(["busybox", "xargs", "parallel", "env", "nice", "nohup", "time", "sudo", "doas", "command", "builtin", "exec", "timeout", "stdbuf", "ionice", "setsid"]);
-// Opções de cada envolvedor que levam argumento próprio, e quantos posicionais vêm antes do comando (timeout: a duração).
-const OPCOES_ENVOLVEDOR: Record<string, { valor: string[]; posicionais?: number }> = {
-  env: { valor: ["-u", "--unset", "-C", "--chdir", "-S", "--split-string"] },
-  timeout: { valor: ["-s", "--signal", "-k", "--kill-after"], posicionais: 1 },
-  nice: { valor: ["-n", "--adjustment"] },
-  ionice: { valor: ["-c", "-n", "-p", "-P", "-u", "--class", "--classdata"] },
-  sudo: { valor: ["-u", "-g", "-C", "-h", "-p", "-r", "-t", "-U", "-D", "-R", "-T", "--user", "--group", "--chdir"] },
+// Opções com valor: curtas; longas [nome, prefixo mínimo, valor opcional]; posicionais antes do comando (timeout: duração).
+const OPCOES_ENVOLVEDOR: Record<string, { valor: string[]; longas?: [string, string, boolean?][]; posicionais?: number }> = {
+  env: { valor: ["-u", "-C", "-S"], longas: [["--unset", "--u"], ["--chdir", "--c"], ["--split-string", "--s"]] },
+  timeout: { valor: ["-s", "-k"], longas: [["--signal", "--s"], ["--kill-after", "--k"]], posicionais: 1 },
+  nice: { valor: ["-n"], longas: [["--adjustment", "--a"]] },
+  ionice: { valor: ["-c", "-n", "-p", "-P", "-u"], longas: [["--class", "--class"], ["--classdata", "--classd"]] },
+  sudo: { valor: ["-u", "-g", "-C", "-h", "-p", "-r", "-t", "-U", "-D", "-R", "-T"], longas: [["--user", "--u"], ["--group", "--g"], ["--chdir", "--chd"]] },
   doas: { valor: ["-u", "-C"] },
-  time: { valor: ["-o", "-f", "--output", "--format"] },
-  stdbuf: { valor: ["-i", "-o", "-e"] },
-  xargs: { valor: ["-I", "-n", "-P", "-L", "-d", "-E", "-s", "-a", "--max-args", "--max-procs", "--max-lines", "--max-chars", "--delimiter", "--arg-file"] },
+  time: { valor: ["-o", "-f"], longas: [["--output", "--o"], ["--format", "--f"]] },
+  stdbuf: { valor: ["-i", "-o", "-e"], longas: [["--input", "--i"], ["--output", "--o"], ["--error", "--e"]] },
+  xargs: { valor: ["-I", "-n", "-P", "-L", "-d", "-E", "-s", "-a"], longas: [
+    ["--max-args", "--max-a"], ["--max-procs", "--max-p"], ["--max-lines", "--max-l"], ["--max-chars", "--max-c"],
+    ["--delimiter", "--d"], ["--arg-file", "--a"], ["--replace", "--r", true], ["--eof", "--eo", true],
+  ] },
   parallel: { valor: ["-j", "-S", "-a", "-N", "-n", "-L", "-I"] },
   exec: { valor: ["-a"] },
 };
 const VERBOS_APAGAR = new Set(["rm", "rmdir", "rd", "del", "erase", "remove-item", "ri"]);
 // Atribuição de variável antes do comando que não é só locale: pode apontar programa externo (GIT_*, PAGER, HOME, XDG_CONFIG_HOME...).
 const ambienteInseguro = (atribuicao: string) => /^[A-Za-z_]\w*=/.test(atribuicao) && !/^(?:LC_\w+|LANG|LANGUAGE|TZ|TERM|NO_COLOR|COLUMNS|LINES)=/.test(atribuicao);
-// O git aceita abreviação não ambígua de opção longa (`--outp` vale `--output`).
-const prefixo = (arg: string, longa: string) => { const nome = arg.split("=")[0]!; return nome.length >= 4 && longa.startsWith(nome); };
+// GNU getopt aceita prefixo inequívoco, com valor separado ou depois de '='.
+function opcaoLongaGnu(arg: string, nomeCompleto: string, prefixoMinimo: string): boolean {
+  const nome = arg.split("=")[0]!;
+  return nome.startsWith(prefixoMinimo) && nomeCompleto.startsWith(nome);
+}
 // R66: se o comando cita raw/, qualquer segmento (pipe, `;`, laço, xargs, -exec) com um destes verbos bloqueia, mesmo que o
 // caminho de raw/ chegue só pela pipeline. `cp` e `tee` ficam de fora: julgam-se pelo destino (copiar de raw/ para a wiki é legítimo).
 const ESCRITA_GLOBAL = new Set([
@@ -55,7 +61,7 @@ const APELIDOS_PS: Record<string, string> = { pspath: "path", lp: "literalpath",
 const GRAVA_PELA_PIPELINE = new Set(["set-content", "sc", "add-content", "ac", "clear-content", "clc"]);
 const PALAVRAS_DE_LACO = new Set(["do", "then", "else", "elif", "{", "!", "while", "until", "if"]);
 // sed edita no lugar com -i (agrupado, em qualquer caixa) ou com qualquer prefixo único de --in-place (--i, --in, --in-pl=.bak).
-const sedEmLugar = (args: string[]) => args.some(arg => /^-[a-zA-Z]*[iI]/.test(arg) || (arg.startsWith("--") && arg.length >= 3 && "--in-place".startsWith(arg.split("=")[0]!)));
+const sedEmLugar = (args: string[]) => args.some(arg => /^-[a-zA-Z]*[iI]/.test(arg) || opcaoLongaGnu(arg, "--in-place", "--i"));
 const VALOR_PDFTOTEXT = new Set(["-f", "-l", "-r", "-x", "-y", "-W", "-H", "-opw", "-upw", "-enc", "-eol", "-fixed"]);
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd"]);
 // Em git vale a lista de leitura (e de operações que não tocam arquivos de trabalho): o resto que cita raw/ bloqueia.
@@ -180,11 +186,12 @@ function listagemRecursivaAncestral(verbo: string, args: string[], cwd: string, 
   const ancestral = (caminhos: string[]) => (caminhos.length ? caminhos : ["."]).some(alvo => ancestralDeRaw(alvo, cwd, raiz));
   if (verbo === "find") return ancestral(caminhosDoFind(args));
   if (["grep", "egrep", "fgrep"].includes(verbo)) {
-    if (!args.some(arg => arg === "--recursive" || arg === "--dereference-recursive" || (!arg.startsWith("--") && /^-[A-Za-z]*[rR]/.test(arg)))) return false;
-    const comPadrao = args.some(arg => /^-[A-Za-z]*[ef]$/.test(arg) || arg.startsWith("--regexp") || arg.startsWith("--file"));
+    if (!args.some(arg => opcaoLongaGnu(arg, "--recursive", "--rec") || opcaoLongaGnu(arg, "--dereference-recursive", "--der") || (!arg.startsWith("--") && /^-[A-Za-z]*[rR]/.test(arg)))) return false;
+    const opcaoDePadrao = (arg: string) => opcaoLongaGnu(arg, "--regexp", "--reg") || opcaoLongaGnu(arg, "--file", "--file");
+    const comPadrao = args.some(arg => /^-[A-Za-z]*[ef]$/.test(arg) || opcaoDePadrao(arg));
     const posicionais: string[] = [];
     for (let i = 0; i < args.length; i++) {
-      if (/^-[eEfmABC]$/.test(args[i]!)) i++;
+      if (/^-[eEfmABC]$/.test(args[i]!) || (opcaoDePadrao(args[i]!) && !args[i]!.includes("="))) i++;
       else if (!args[i]!.startsWith("-")) posicionais.push(args[i]!);
     }
     return ancestral(comPadrao ? posicionais : posicionais.slice(1));
@@ -215,7 +222,7 @@ function apagaAncestral(verbo: string, args: string[], cwd: string, raiz: string
   const opcao = (arg: string) => arg.startsWith("-") || (verbosDoCmd.includes(verbo) && /^\/[a-z]$/i.test(arg));
   if (VERBOS_APAGAR.has(verbo)) {
     const recursivo = verbo === "rmdir" || verbo === "rd"
-      || args.some(arg => /^-[a-zA-Z]*[rR][a-zA-Z]*$/.test(arg) || arg === "--recursive" || /^-recurse$/i.test(arg) || (verbosDoCmd.includes(verbo) && /^\/s$/i.test(arg)));
+      || args.some(arg => /^-[a-zA-Z]*[rR][a-zA-Z]*$/.test(arg) || opcaoLongaGnu(arg, "--recursive", "--r") || /^-recurse$/i.test(arg) || (verbosDoCmd.includes(verbo) && /^\/s$/i.test(arg)));
     return recursivo && args.filter(arg => !opcao(arg)).some(alvo => ancestralDeRaw(alvo, cwd, raiz));
   }
   if (verbo === "find") {
@@ -261,7 +268,7 @@ function destinosDoCmdlet(verbo: string, args: string[]): string[] {
 }
 
 function desembrulhar(verbo: string, args: string[]): { resto: string[]; descartados: string[] } {
-  const { valor, posicionais = 0 } = OPCOES_ENVOLVEDOR[verbo] ?? { valor: [] };
+  const { valor, longas = [], posicionais = 0 } = OPCOES_ENVOLVEDOR[verbo] ?? { valor: [] };
   const sai = (i: number, extra: string[] = []) => ({ resto: [...extra, ...args.slice(i)], descartados: args.slice(0, i) });
   let pular = posicionais;
   for (let i = 0; i < args.length; i++) {
@@ -270,8 +277,7 @@ function desembrulhar(verbo: string, args: string[]): { resto: string[]; descart
     if (arg === "--") return sai(i + 1);
     // `env -S 'rm -rf .'`: o valor é um comando inteiro.
     // O valor pode vir colado (`-Srm`) e a opção longa pode vir abreviada (`--s`, `--split=`).
-    const nomeLongo = arg.split("=")[0]!;
-    const ehS = verbo === "env" && ((arg.startsWith("-S") && !arg.startsWith("--")) || (nomeLongo.startsWith("--s") && "--split-string".startsWith(nomeLongo)));
+    const ehS = verbo === "env" && ((arg.startsWith("-S") && !arg.startsWith("--")) || opcaoLongaGnu(arg, "--split-string", "--s"));
     if (ehS) {
       const colado = arg.startsWith("--") ? (arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : undefined) : arg.slice(2) || undefined;
       // O env interpreta `\_` como separador no valor de -S: trata como espaço (falha fechada; os outros escapes ficam na classe 4 de governanca.md).
@@ -279,7 +285,9 @@ function desembrulhar(verbo: string, args: string[]): { resto: string[]; descart
       return { resto: [...texto.split(/\s+/).filter(Boolean), ...args.slice(colado !== undefined ? i + 1 : i + 2)], descartados: args.slice(0, i) };
     }
     if (arg.startsWith("-")) {
-      if (valor.includes(arg)) i++;
+      const longa = longas.find(([nome, minimo]) => opcaoLongaGnu(arg, nome, minimo));
+      // Valor opcional de getopt só vem colado com '='; o token seguinte já pode ser o comando.
+      if (valor.includes(arg) || (longa !== undefined && !longa[2] && !arg.includes("="))) i++;
       continue;
     }
     if (pular > 0) { pular--; continue; }
@@ -337,8 +345,8 @@ function segmentoEscreve(palavras: string[], cwd: string, contexto: Contexto): b
     const fimDasOpcoes = args.indexOf("--");
     const opcoes = fimDasOpcoes < 0 ? args : args.slice(0, fimDasOpcoes);
     const alvos = opcoes.flatMap((arg, i) => {
-      if (arg.startsWith("--target-directory=")) return [arg.slice(19)];
-      if (arg === "--target-directory" || /^-[a-zA-Z]*t$/.test(arg)) return [args[i + 1] ?? ""];
+      if (opcaoLongaGnu(arg, "--target-directory", "--t")) return [arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[i + 1] ?? ""];
+      if (/^-[a-zA-Z]*t$/.test(arg)) return [args[i + 1] ?? ""];
       const agrupado = /^-[a-zA-Z]*?t(.+)$/.exec(arg);
       return agrupado ? [agrupado[1]!] : [];
     });
@@ -348,7 +356,7 @@ function segmentoEscreve(palavras: string[], cwd: string, contexto: Contexto): b
       const arg = args[i]!;
       if (soOperandos || arg === "-" || !arg.startsWith("-")) ultimoOperando = arg;
       else if (arg === "--") soOperandos = true;
-      else if (arg === "--suffix" || /^-[a-zA-Z]*S$/.test(arg)) i++;
+      else if ((opcaoLongaGnu(arg, "--suffix", "--su") && !arg.includes("=")) || /^-[a-zA-Z]*S$/.test(arg)) i++;
     }
     return (alvos.length ? alvos : [ultimoOperando]).some(alvo => escreveEmRaw(alvo, cwd));
   }
@@ -364,8 +372,8 @@ function segmentoEscreve(palavras: string[], cwd: string, contexto: Contexto): b
     if (globais.some(opcao => opcao === "-c" || /^--(?:config-env|exec-path)(?:=|$)/.test(opcao))) return true;
     if (subcomando === undefined) return false;
     return !GIT_LEITURA.has(subcomando)
-      || args.some(arg => prefixo(arg, "--output") || (subcomando === "reflog" && /^(?:expire|delete)$/.test(arg))
-        || (subcomando === "grep" && (!arg.startsWith("--") && /^-[A-Za-z0-9]*O/.test(arg)) || prefixo(arg, "--open-files-in-pager")));
+      || args.some(arg => opcaoLongaGnu(arg, "--output", "--ou") || (subcomando === "reflog" && /^(?:expire|delete)$/.test(arg))
+        || (subcomando === "grep" && (!arg.startsWith("--") && /^-[A-Za-z0-9]*O/.test(arg)) || opcaoLongaGnu(arg, "--open-files-in-pager", "--op")));
   }
   if (verbo === "find") return args.some(arg => FIND_ESCREVE.test(arg));
   return !LEITURAS_TERMINAL.has(verbo);
@@ -418,7 +426,9 @@ function comandoEscreve(palavras: string[]): boolean {
 
 function escritaDeShell(original: string[]): boolean {
   // Blocos de script do PowerShell (`% { Remove-Item $_ }`, `ForEach-Object -Process { ... }`): as chaves podem vir coladas à palavra.
-  const palavras = original.flatMap(palavra => palavra.split(/([{}])/).filter(parte => parte !== ""));
+  // Preserve valores de opções GNU como `xargs --replace={}`: essas chaves não abrem bloco.
+  const palavras = original.flatMap(palavra => palavra.startsWith("--") && palavra.includes("=")
+    ? [palavra] : palavra.split(/([{}])/).filter(parte => parte !== ""));
   if (comandoEscreve(palavras)) return true;
   for (let i = 0; i < palavras.length; i++) {
     if (palavras[i] === "{" && (comandoEscreve(palavras.slice(i + 1)) || gravaComVariavel(palavras.slice(i + 1)))) return true;

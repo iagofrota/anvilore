@@ -16,7 +16,7 @@ fica para depois (veja a última seção).
 
 | Trava | O que faz | Onde |
 |---|---|---|
-| Hook `proteger-raw` | Bloqueia (saída 2) a escrita em `raw/` feita pelas ferramentas de edição de arquivo e por comando de terminal (limites na seção abaixo). Sem caminho isolável no payload, bloqueia se o texto citar `raw/`; JSON ilegível bloqueia sempre. | `src/comandos/hook-proteger-raw.ts`, linhas 498 a 521; `hooks/hooks.json`, linha 6 |
+| Hook `proteger-raw` | Bloqueia (saída 2) a escrita em `raw/` feita pelas ferramentas de edição de arquivo e por comando de terminal (limites na seção abaixo). Sem caminho isolável no payload, bloqueia se o texto citar `raw/`; JSON ilegível bloqueia sempre. | `src/comandos/hook-proteger-raw.ts`, funções `decidir` e `executarProtecao`; `hooks/hooks.json`, linha 6 |
 | Validador da wiki (`anvilore validar`) | Reprova página sem frontmatter ou com frontmatter que não lê (YAML inválido nunca é pulado), com `type` inválido, com `slug` diferente do nome do arquivo (comparado em Unicode NFC), com `area` em conflito com o diretório, dois arquivos da mesma pasta que só diferem na caixa, wikilink que não resolve, página fora do index.md aplicável e campo de proveniência malformado. Reprova wiki inexistente e diretório sem nenhum arquivo `.md`; uma wiki só com index.md e log.md passa. Sem o Bun o comando não roda, e nunca imprime PASS. | `src/comandos/validar.ts`, linhas 100 a 244 |
 | Portão humano, depois da escrita | Reprova a página com `generated` em mapping e sem uma entrada `verified` com `by: human:<id>` e `at` igual ou posterior a `generated.at`. Compara o instante com offset e todos os dígitos da fração de segundo. A mensagem é "página gerada sem aprovação humana". | `src/lib/okf.ts`, funções `validarProveniencia` e `compararInstantes` |
 | Perfil da empresa | Um anvilore.toml na raiz do projeto restringe áreas, tipos de página e campos obrigatórios; reprova nomeando arquivo e valor. Arquivo ilegível, chave desconhecida ou valor que não é lista de textos também reprova. | `src/lib/perfil.ts`, linhas 28 a 54; `src/comandos/validar.ts`, linhas 189 a 191 e 204 a 212 |
@@ -29,7 +29,7 @@ fica para depois (veja a última seção).
 
 O hook falha fechado: se não consegue ler o caminho no payload, a decisão passa
 a ser sobre o texto inteiro, e "não achei caminho" nunca vira "pode passar"
-(`src/comandos/hook-proteger-raw.ts`, linha 516). O
+(`src/comandos/hook-proteger-raw.ts`, função `decidir`). O
 validador também não imprime PASS quando o diretório não existe (`src/comandos/validar.ts`, linhas
 104 a 107) nem quando um arquivo, o anvilore.toml ou o YAML do frontmatter não lê: cada um vira um
 erro que nomeia o arquivo.
@@ -55,11 +55,13 @@ está dito.
   2); a mitigação real é o `anvilore doctor`, que trata o `bun` como pré-requisito e sai 1 se faltar. O hook não
   detecta sozinho que o `bun` sumiu.
 - **Como o terminal é julgado** (`src/comandos/hook-proteger-raw.ts`, `segmentoEscreve`, `escritaDeShell` e
-  `terminalEscreve`, linhas 284 a 481):
+  `terminalEscreve`):
   - o alvo de redirecionamento, de `tee`, de `cp`/`mv`/`ln`, de `sed -i` e de `git` que não seja de leitura é julgado
     pelo caminho, e `cd raw` (com ou sem opção, `cd -`, `popd`) torna relativos os caminhos seguintes;
   - cópia e movimento no PowerShell (`Copy-Item`/`Move-Item` e aliases) e no cmd (`copy`/`move`) com destino omitido
     usam o diretório atual; o hook considera esse destino implícito depois de `cd` ou `Set-Location`;
+  - opções longas GNU que determinam destino ou escrita aceitam prefixos inequívocos, como `cp --target-dir=raw`
+    e `rm --rec .`; o helper `opcaoLongaGnu` também é usado ao abrir envolvedores e reconhecer listagens recursivas;
   - **regra ampla (R66):** se o comando cita `raw/` em qualquer posição (inclusive como leitura) e algum segmento
     (pipe, `;`, `&&`, laço `while`/`for`/`do`, `xargs`, `find -exec`, `sh -c`) tem um verbo de escrita ou remoção
     (`rm`, `rmdir`, `mv`, `ln`, `touch`, `truncate`, `dd`, `install`, `rsync`, `chmod`, `chown`, `shred`, `perl`,
@@ -108,10 +110,10 @@ está dito.
   não rastreia as fontes (não acusa mudança nem restaura arquivo apagado); `anvilore validar` e `scripts/fechar-wiki.sh` não
   olham `raw/`. O que sobra é o `AGENTS.md` (proíbe em prosa), este hook e o que a pessoa fizer fora do kit:
   permissão de somente leitura no sistema de arquivos para o usuário do agente e cópia de segurança das fontes.
-- Pelo código (`src/comandos/hook-proteger-raw.ts`, linhas 498 a 521), ferramentas de leitura passam mesmo
+- Pelo código (`src/comandos/hook-proteger-raw.ts`, função `decidir`), ferramentas de leitura passam mesmo
   apontando para `raw/`; o caminho vem dos campos de caminho (inclusive os de `toolArgs` do Copilot, decodificados)
   e, se algum cai em `raw/`, bloqueia mesmo que a ferramenta também tenha um comando. Payload sem caminho isolável
-  bloqueia se citar `raw/` (linha 516). Só a forma do Claude Code foi exercitada de ponta a ponta com agente
+  bloqueia se citar `raw/` (na mesma função). Só a forma do Claude Code foi exercitada de ponta a ponta com agente
   real; o terminal em Codex, Gemini e Copilot segue a documentação de cada um e nunca foi executado
   (`hooks/README.md`, final).
 - A comparação de caminho ignora a caixa (`estaEmRaw`, `src/lib/caminhos.ts`): Raw/a.md é bloqueado, e no Linux uma

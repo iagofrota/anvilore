@@ -110,6 +110,53 @@ for (const opcao of ["-S", "-vS", "--suffix"]) {
     expect(cli(terminal(`cp raw/a.md wiki/a.md ${opcao} raw/sufixo`)).exitCode).toBe(0);
   });
 }
+for (const comando of ["cp --target-dir=raw wiki/a.md", "cp --target raw wiki/a.md", "cp --t=raw wiki/a.md", "cp wiki/a.md raw/a.md --su .bak"]) {
+  test(`Dado opção longa GNU abreviada Quando avalio ${comando} Então bloqueia a escrita em raw`, () => {
+    expect(cli(terminal(comando)).exitCode).toBe(2);
+    expect(cli(terminal("cp --target-dir=wiki raw/a.md")).exitCode).toBe(0);
+  });
+}
+test("Dado sufixo GNU abreviado Quando seu valor cita raw Então continua sendo sufixo da cópia para wiki", () => {
+  expect(cli(terminal("cp raw/a.md wiki/a.md --su raw/sufixo")).exitCode).toBe(0);
+});
+for (const [opcao, comando] of [
+  ["env --split-string", "env --s='rm -rf .'"],
+  ["env --unset", "find . | env --u LANG rm"],
+  ["env --chdir", "find . | env --c . rm"],
+  ["xargs --max-args", "find . | xargs --max-a 1 rm"],
+  ["xargs --max-procs", "find . | xargs --max-p 1 rm"],
+  ["xargs --max-lines", "find . | xargs --max-l 1 rm"],
+  ["xargs --max-chars", "find . | xargs --max-c 1000 rm"],
+  ["xargs --delimiter", "find . | xargs --d , rm"],
+  ["xargs --arg-file", "xargs --a wiki/lista rm -rf ."],
+  ["xargs --replace", "find . | xargs --r={} rm {}"],
+  ["xargs --eof", "find . | xargs --eo=FIM rm"],
+  ["timeout --signal", "find . | timeout --s TERM 10 rm"],
+  ["timeout --kill-after", "find . | timeout --k 1 10 rm"],
+  ["nice --adjustment", "find . | nice --a 1 rm"],
+  ["time --output", "find . | /usr/bin/time --o wiki/tempo rm"],
+  ["time --format", "find . | /usr/bin/time --f %e rm"],
+  ["ionice --class", "find . | ionice --class 3 rm"],
+  ["ionice --classdata", "find . | ionice --classd 1 rm"],
+  ["sudo --user", "find . | sudo --u root rm"],
+  ["sudo --group", "find . | sudo --g root rm"],
+  ["sudo --chdir", "find . | sudo --chd . rm"],
+  ["stdbuf --input", "find . | stdbuf --i 0 rm"],
+  ["stdbuf --output", "find . | stdbuf --o L rm"],
+  ["stdbuf --error", "find . | stdbuf --e 0 rm"],
+  ["rm --recursive", "rm --rec ."],
+  ["grep --recursive", "grep --rec -l x . | xargs rm"],
+  ["grep --dereference-recursive", "grep --der -l x . | xargs rm"],
+  ["grep --regexp", "grep --rec -l --reg=x . | xargs rm"],
+  ["grep --file", "grep --rec -l --file wiki/padroes . | xargs rm"],
+  ["sed --in-place", "sed --i 's/a/b/' raw/a.md"],
+  ["git --output", "git diff --outp=raw/a.patch"],
+  ["git --open-files-in-pager", "git grep --op=rm x raw/"],
+]) {
+  test(`Dado prefixo GNU de ${opcao} Quando alcança escrita protegida Então bloqueia`, () => {
+    expect(cli(terminal(comando)).exitCode).toBe(2);
+  });
+}
 for (const [verbo, comando] of escritas) {
   test(`Dado terminal ${verbo} Quando escreve em raw Então bloqueia e em wiki libera`, () => {
     expect(decidir(terminal(comando)).acao).toBe("bloquear");
