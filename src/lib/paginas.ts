@@ -17,6 +17,26 @@ function porBytes(a: string, b: string): number {
   return Buffer.compare(Buffer.from(a), Buffer.from(b));
 }
 
+type Alvo = { isDirectory(): boolean; isFile(): boolean };
+
+// Symlink de arquivo é seguido com `stat`; quebrado ou de diretório vira aviso. `estatistica` é injetável para o teste cobrir esses ramos
+// sem criar symlink de verdade (no Windows isso exige privilégio).
+export async function alvoDaEntrada(
+  caminho: string,
+  entrada: Alvo & { isSymbolicLink(): boolean },
+  estatistica: (caminho: string) => Promise<Alvo> = stat,
+): Promise<{ alvo: Alvo } | { aviso: string }> {
+  if (!entrada.isSymbolicLink()) return { alvo: entrada };
+  let alvo: Alvo;
+  try {
+    alvo = await estatistica(caminho);
+  } catch (erro) {
+    if (!linkQuebrado(erro)) throw erro;
+    return { aviso: `AVISO: symlink quebrado: ${caminho}` };
+  }
+  return alvo.isDirectory() ? { aviso: `AVISO: symlink de diretório não seguido: ${caminho}` } : { alvo };
+}
+
 // Percorre em profundidade com os nomes ordenados a cada nível, que é a ordem
 // das partes do caminho que `sorted(rglob)` dava. Ordenar o caminho inteiro
 // como texto não serve: `a-b/x` viria antes de `a/x` porque `-` vem antes de `/`.
@@ -26,20 +46,12 @@ export async function paginasMarkdown(pasta: string, ignorar: (nome: string) => 
   for (const entrada of entradas) {
     if (ignorar(entrada.name)) continue;
     const caminho = join(pasta, entrada.name);
-    let alvo: { isDirectory(): boolean; isFile(): boolean } = entrada;
-    if (entrada.isSymbolicLink()) {
-      try {
-        alvo = await stat(caminho);
-      } catch (erro) {
-        if (!linkQuebrado(erro)) throw erro;
-        console.error(`AVISO: symlink quebrado: ${caminho}`);
-        continue;
-      }
-      if (alvo.isDirectory()) {
-        console.error(`AVISO: symlink de diretório não seguido: ${caminho}`);
-        continue;
-      }
+    const decisao = await alvoDaEntrada(caminho, entrada);
+    if ("aviso" in decisao) {
+      console.error(decisao.aviso);
+      continue;
     }
+    const alvo = decisao.alvo;
     if (alvo.isDirectory()) {
       // O Python listava `x.md` (diretório) e quebrava ao ler; aqui desce nele, mas não pula em silêncio.
       if (entrada.name.endsWith(".md")) console.error(`AVISO: diretório com nome de página ignorado: ${caminho}`);

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
-import { apararPython, caminhoPathlib, dataLocal, linhasPython, paginasMarkdown } from "../src/lib/paginas";
+import { alvoDaEntrada, apararPython, caminhoPathlib, dataLocal, linhasPython, paginasMarkdown } from "../src/lib/paginas";
 
 let raiz: string;
 
@@ -104,4 +104,38 @@ testeSymlink("Dado symlink de página, de diretório e quebrado, Quando listo, E
   } finally {
     erro.mockRestore();
   }
+});
+
+// Sem criar symlink de verdade (no Windows isso exige privilégio e os testes acima são pulados): a decisão sobre cada entrada é
+// uma função com `stat` injetável, e é ela que garante a cobertura dos ramos de link em qualquer sistema.
+const dirent = (opcoes: { link?: boolean; dir?: boolean; arquivo?: boolean }) => ({
+  name: "x", isSymbolicLink: () => opcoes.link === true, isDirectory: () => opcoes.dir === true, isFile: () => opcoes.arquivo === true,
+});
+const erroDe = (code: string) => Object.assign(new Error(code), { code });
+
+test("Dado entrada que não é link, Quando decido, Então ela mesma é o alvo e o stat nem é chamado", async () => {
+  const entrada = dirent({ arquivo: true });
+  const r = await alvoDaEntrada("/x/a.md", entrada, async () => { throw new Error("não devia chamar"); });
+  expect(r).toEqual({ alvo: entrada });
+});
+
+test("Dado link que leva a um arquivo, Quando decido, Então o alvo é o que o stat devolve", async () => {
+  const destino = dirent({ arquivo: true });
+  expect(await alvoDaEntrada("/x/l.md", dirent({ link: true }), async () => destino as never)).toEqual({ alvo: destino });
+});
+
+test("Dado link que leva a um diretório, Quando decido, Então avisa que não foi seguido", async () => {
+  const r = await alvoDaEntrada("/x/dl", dirent({ link: true }), async () => dirent({ dir: true }) as never);
+  expect(r).toEqual({ aviso: "AVISO: symlink de diretório não seguido: /x/dl" });
+});
+
+test("Dado link quebrado (ENOENT, ELOOP, ENOTDIR), Quando decido, Então avisa que está quebrado", async () => {
+  for (const code of ["ENOENT", "ELOOP", "ENOTDIR"]) {
+    const r = await alvoDaEntrada("/x/q.md", dirent({ link: true }), async () => { throw erroDe(code); });
+    expect(r).toEqual({ aviso: "AVISO: symlink quebrado: /x/q.md" });
+  }
+});
+
+test("Dado erro do stat que não é de link quebrado, Quando decido, Então o erro sobe", async () => {
+  await expect(alvoDaEntrada("/x/q.md", dirent({ link: true }), async () => { throw erroDe("EACCES"); })).rejects.toThrow("EACCES");
 });
