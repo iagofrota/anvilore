@@ -82,6 +82,16 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - O instalador ignora arquivos soltos e pastas ocultas em skills, segue para os demais agentes
   após um erro e entrega o resumo com as causas das falhas. A descrição do Gemini vem só do
   frontmatter; os testes de isolamento e paridade voltaram a conferir o que o instalador faz.
+- Links e imagens por referência agora têm seus destinos conferidos, inclusive quando a
+  definição aparece depois do uso ou não é usada na página.
+- As definições de referência são reconhecidas antes do código em linha, e o título delas é literal: crases em
+  títulos de definições separadas (`[a]: x.md "Use `code"` ... `[c]: y.md "code`"`) não escondem mais a definição do meio,
+  e um destino ausente nela volta a reprovar.
+- A checagem de links entende destinos com parênteses balanceados, espaços entre ângulos,
+  títulos entre parênteses e texto com colchetes internos, sem cortar o nome do arquivo.
+- A checagem de documentação mantém links visíveis depois de crases escapadas, comentários
+  sem fecho no meio da linha e comentários dentro de código em linha que atravessa linhas.
+  Remover um comentário não cria uma abertura de bloco de código cercado.
 
 ### Removed
 
