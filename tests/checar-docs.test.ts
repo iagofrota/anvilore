@@ -25,6 +25,93 @@ function kb(pagina: string, conteudo: string): void {
 }
 
 describe("checarDocs: referências", () => {
+  for (const [caso, entrada] of [
+    ["M6 crase escapada", "\\`<!--\n[x](sonda.md)"],
+    ["M7 cerca depois de comentário", "<!-- c --> ~~~\n[x](sonda.md)\n~~~"],
+    ["M8 comentário em span multilinha", "`codigo\ntexto <!--`\n[x](sonda.md)"],
+    ["M9 comentário inline sem fecho", "texto <!-- aberto\n[x](sonda.md)"],
+    ["comentário inline só fecha em outro parágrafo", "texto <!-- aberto\n\n[x](sonda.md)\n-->"],
+    ["comentário inline só fecha depois de cerca", "texto <!-- aberto\n~~~\ncódigo -->\n~~~\n[x](sonda.md)"],
+  ]) {
+    test(`Dado ${caso} Quando checo Então o link quebrado real reprova`, () => {
+      kb("README.md", entrada!);
+      const r = checarDocs(raiz);
+      expect(r.ok).toBe(false);
+      expect(r.problemas.join("\n")).toContain("sonda.md");
+    });
+  }
+  for (const [caso, entrada] of [
+    ["C09 crase sem par num item e outra no item seguinte", "- Rode `bun run checar antes do commit.\n- Veja [guia](sonda.md) e `src/x.ts`."],
+    ["C10 crase sem par num item continuado", "- Rode `bun run checar\n  antes do commit.\n- Veja [guia](sonda.md) e `src/x.ts`."],
+    ["item numerado com ponto", "1. Rode `bun x\n2. Veja [guia](sonda.md) e `y`."],
+    ["item numerado com parêntese", "1) Rode `bun x\n2) Veja [guia](sonda.md) e `y`."],
+    ["item com asterisco", "* Rode `bun x\n* Veja [guia](sonda.md) e `y`."],
+    ["item com mais", "+ Rode `bun x\n+ Veja [guia](sonda.md) e `y`."],
+    ["C12 comentário inline num item e fecho dois itens depois", "- nota <!-- revisar\n- Veja [guia](sonda.md)\n- fim -->"],
+    ["C03 crase sem par antes de uma citação", "Rode `bun x\n> Veja [guia](sonda.md) e `y`."],
+    ["C05 comentário inline antes de uma citação", "texto <!-- nota\n> Veja [guia](sonda.md)\n-->"],
+    ["C02 crase sem par antes de um título ATX", "Rode `bun x\n## Seção [guia](sonda.md) e `y`"],
+    ["C04 crase sem par antes de uma régua", "Rode `bun x\n***\n[guia](sonda.md) e `y`"],
+    ["crase sem par antes de uma régua com hífens", "Rode `bun x\n---\n[guia](sonda.md) e `y`"],
+    ["A17 comentário inline antes de um título", "texto <!-- nota\n# Seção [guia](sonda.md) -->"],
+  ]) {
+    test(`Dado ${caso} Quando checo Então o link quebrado real reprova`, () => {
+      kb("README.md", entrada!);
+      const r = checarDocs(raiz);
+      expect(r.ok).toBe(false);
+      expect(r.problemas.join("\n")).toContain("sonda.md");
+    });
+  }
+
+  test("Dado A19 um '<' no meio de destino comum quebrado Quando checo Então reprova nomeando o alvo", () => {
+    kb("README.md", "[x](quebr<ado.md)");
+    const r = checarDocs(raiz);
+    expect(r.ok).toBe(false);
+    expect(r.problemas.join("\n")).toContain("quebr<ado.md");
+  });
+
+  for (const [caso, entrada] of [
+    ["A04 texto de link em duas linhas de uma citação", "> [texto\n> longo](sonda.md)"],
+    ["R11 citação dentro de citação", "> > [a\n> > b](sonda.md)"],
+    ["R12 item dentro de citação continuado", "> - [a\n>   b](sonda.md)"],
+    ["R01 crase sem par numa citação de várias linhas", "> veja `a\n> b` e [x](sonda.md) `c`"],
+    ["R04 ano com ponto no começo da linha seguinte", "[ver o\n2024. relatorio](sonda.md)"],
+    ["R06 número 2 com parêntese no começo da linha seguinte", "[ver\n2) b](sonda.md)"],
+    ["R05 linha 2024. no meio de um code span", "veja `a\n2024. b` e [x](sonda.md) `c`"],
+    ["lista numerada separada por linha em branco não vale para o parágrafo seguinte", "1. a\n\nveja `x\n2) b` e [guia](sonda.md) `c`"],
+    ["item 2. depois de continuação de um item 1.", "1. Rode `x\n   continua\n2. Veja [guia](sonda.md) e `y`."],
+  ]) {
+    test(`Dado ${caso} Quando checo Então o link quebrado real reprova`, () => {
+      kb("README.md", entrada!);
+      const r = checarDocs(raiz);
+      expect(r.ok).toBe(false);
+      expect(r.problemas.join("\n")).toContain("sonda.md");
+    });
+  }
+
+  for (const [caso, entrada] of [
+    ["R14 comentário inline fechado dentro de uma citação", "> nota <!-- c\n> [x](nao-existe.md) -->"],
+    ["R15 code span que atravessa linhas de uma citação", "> veja `a\n> [x](nao-existe.md) b` c"],
+    ["R16 code span que atravessa uma linha 2024.", "ver `a\n2024. [x](nao-existe.md) b` c"],
+  ]) {
+    test(`Dado ${caso} Quando checo Então o link dentro do código ou comentário não é conferido`, () => {
+      kb("README.md", entrada!);
+      expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+    });
+  }
+
+  for (const [caso, entrada] of [
+    ["crase com par na mesma linha de um item", "- Veja `a` e `b`\n- Outro item"],
+    ["code span legítimo continuado com recuo", "- Rode `bun\n  run` antes\n- Outro"],
+    ["hífen colado no texto não é item", "Rode `bun\n-x run` antes"],
+    ["ano no começo da linha não é item", "Rode `bun\n2024x run` antes"],
+  ]) {
+    test(`Dado ${caso} Quando checo Então não reprova nem acusa link`, () => {
+      kb("README.md", entrada!);
+      expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+    });
+  }
+
   test("Dado uma página que cita um arquivo inexistente, Quando checo, Então reprova nomeando a página e o arquivo", () => {
     kb("governanca.md", "# Governança\n\nVeja `src/nao-existe.ts`.\n");
     const r = checarDocs(raiz);
@@ -345,6 +432,97 @@ describe("checarDocs: R48, escapes na sintaxe de link", () => {
   });
 });
 
+describe("checarDocs: links inline CommonMark", () => {
+  const casos = [
+    ["parênteses balanceados", "[Guide](guide(v2).md)", "guide(v2).md"],
+    ["ângulos e espaço", "[x](<meu arquivo.md>)", "meu arquivo.md"],
+    ["título duplo", '[x](alvo.md "título")', "alvo.md"],
+    ["título simples", "[x](alvo.md 'título')", "alvo.md"],
+    ["título entre parênteses", "[x](alvo.md (título))", "alvo.md"],
+    ["colchetes balanceados", "[a [b] c](d.md)", "d.md"],
+    ["imagem", "![alt](x.png)", "x.png"],
+    ["destino e título em outras linhas", '[x](\nalvo.md\n"título"\n)', "alvo.md"],
+    ["título com escape", String.raw`[x](alvo.md "um \"título\"")`, "alvo.md"],
+  ] as const;
+  for (const [caso, texto, alvo] of casos) {
+    test(`Dado ${caso} Quando o alvo existe Então o link aprova sem truncar o destino`, () => {
+      gravar(`docs/knowledge_base/${alvo}`, "");
+      kb("README.md", texto);
+      expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+    });
+    test(`Dado ${caso} Quando o alvo falta Então o link reprova pelo destino completo`, () => {
+      kb("README.md", texto);
+      const r = checarDocs(raiz);
+      expect(r.problemas).toHaveLength(1);
+      expect(r.problemas[0]).toContain(`link para ${alvo} quebrado (linha 1)`);
+    });
+    test(`Dado ${caso} com alvo existente Quando há link quebrado ao lado Então a sonda reprova`, () => {
+      gravar(`docs/knowledge_base/${alvo}`, "");
+      kb("README.md", `${texto}\n[sonda](sonda.md)`);
+      expect(checarDocs(raiz).problemas).toEqual([
+        `docs/knowledge_base/README.md: link para sonda.md quebrado (linha ${texto.split("\n").length + 1})`,
+      ]);
+    });
+  }
+  for (const texto of [
+    "[x](a(b.md)", "[x](<sem-fecho.md)",
+    "[x](<a\nb.md>)", '[x](alvo.md "título sem fecho)', "[x](alvo.md (título (aninhado)))",
+    "[x](alvo.md lixo)", "[x](\n\nalvo.md)", "[x\n\ny](alvo.md)",
+  ]) {
+    test(`Dado sintaxe inválida ${JSON.stringify(texto)} Quando checo Então ela é texto e a sonda real reprova`, () => {
+      kb("README.md", `${texto}\n\n[sonda](sonda.md)`);
+      const r = checarDocs(raiz);
+      expect(r.problemas).toHaveLength(1);
+      expect(r.problemas[0]).toContain("link para sonda.md quebrado");
+    });
+  }
+});
+
+describe("checarDocs: referências CommonMark", () => {
+  for (const uso of ["[x][ref]", "[ref][]", "[ref]", "![x][ref]", "![ref][]", "![ref]"]) {
+    test(`Dado ${uso} antes da definição Quando o alvo falta Então reprova na linha do uso`, () => {
+      kb("README.md", `${uso}\n\n[ref]: ausente.md "título"`);
+      expect(checarDocs(raiz).problemas).toEqual([
+        "docs/knowledge_base/README.md: link para ausente.md quebrado (linha 1)",
+      ]);
+    });
+    test(`Dado ${uso} antes da definição Quando o alvo existe e há sonda Então reprova só a sonda`, () => {
+      kb("existe.md", "");
+      kb("README.md", `${uso} [sonda](sonda.md)\n\n[ref]: existe.md 'título'`);
+      expect(checarDocs(raiz).problemas).toEqual([
+        "docs/knowledge_base/README.md: link para sonda.md quebrado (linha 1)",
+      ]);
+    });
+  }
+  for (const definicao of [
+    "[ref]: ausente.md", "  [ref]: <meu arquivo.md> (título)",
+    '[ref]:\n  ausente.md\n  "título"', "[ref]: guide(v2).md 'título'",
+  ]) {
+    test(`Dado definição sem uso ${JSON.stringify(definicao)} Quando checo Então seu destino é conferido`, () => {
+      kb("README.md", definicao);
+      const r = checarDocs(raiz);
+      expect(r.ok).toBe(false);
+      expect(r.problemas).toHaveLength(1);
+      expect(r.problemas[0]).toContain("linha 1");
+    });
+  }
+  test("Dado rótulos com caixa e espaços diferentes Quando uso referência multilinha Então resolve a definição normalizada", () => {
+    kb("README.md", "[x][  REF\n  A ]\n\n[ref a]: ausente.md");
+    expect(checarDocs(raiz).problemas[0]).toContain("ausente.md quebrado (linha 1)");
+  });
+  test("Dado definição repetida Quando uso a referência Então a primeira vence e a segunda também é conferida", () => {
+    kb("existe.md", "");
+    kb("README.md", "[x]\n\n[x]: existe.md\n[x]: ausente.md");
+    expect(checarDocs(raiz).problemas).toEqual([
+      "docs/knowledge_base/README.md: link para ausente.md quebrado (linha 4)",
+    ]);
+  });
+  test("Dado referências indefinidas e definições em código Quando checo Então não inventa links", () => {
+    kb("README.md", "[x][ref] [x][] [x]\n\n`[ref]: ausente.md`\n\n```\n[x]: ausente.md\n```");
+    expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+  });
+});
+
 describe("checarDocs: a própria knowledge base", () => {
   test("Dado um repositório sem docs/knowledge_base, Quando checo, Então reprova e não imprime PASS calado", () => {
     const r = checarDocs(raiz);
@@ -429,5 +607,21 @@ describe("comandoChecarDocs", () => {
     expect(Object.keys(subcomandos)).toContain("checar-docs");
     const r = await capturar(() => executar(["checar-docs"]));
     expect(r.codigo).toBe(0);
+  });
+});
+
+describe("checarDocs: definições de referência com crases nos títulos", () => {
+  test("Dado crases em títulos de definições separadas Quando a do meio aponta para arquivo ausente Então reprova nomeando o ausente", () => {
+    gravar("docs/knowledge_base/exists.md", "ok");
+    kb("README.md", '[a]: exists.md "Use `code"\n[b]: missing.md\n[c]: exists.md "code`"\n');
+    const r = checarDocs(raiz);
+    expect(r.ok).toBe(false);
+    expect(r.problemas.join("\n")).toContain("missing.md");
+  });
+  test("Dado as mesmas definições com todos os alvos existentes Quando checo Então aprova", () => {
+    gravar("docs/knowledge_base/exists.md", "ok");
+    gravar("docs/knowledge_base/present.md", "ok");
+    kb("README.md", '[a]: exists.md "Use `code"\n[b]: present.md\n[c]: exists.md "code`"\n');
+    expect(checarDocs(raiz).ok).toBe(true);
   });
 });

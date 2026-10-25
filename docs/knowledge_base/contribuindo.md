@@ -80,20 +80,50 @@ Versionamento Semântico.
   para fora da raiz do repositório reprovam, mesmo que o arquivo exista na máquina. O texto de um
   link pode atravessar linhas; o problema aponta a linha onde o link começa. Veja o código em
   `src/comandos/checar-docs.ts`.
+- Comentários HTML sem fecho só escondem o restante da página quando abrem no início da linha
+  (até três espaços antes). No meio da linha são texto. Comentários dentro de código em linha
+  são literais, inclusive quando o código atravessa linhas; remover um comentário não cria
+  uma cerca de código (`src/lib/markdown.ts`).
 - Escapes por barra invertida seguem a pontuação ASCII do CommonMark: colchete de abertura
   escapado é texto, enquanto duas barras antes do colchete permitem um link real. Colchete
   escapado dentro do rótulo e parêntese escapado no destino não encerram o link. A pontuação é
-  neutralizada antes da busca, preservando posições e linhas; o destino recupera seus caracteres
-  literais antes da conferência (`src/comandos/checar-docs.ts`; `tests/checar-docs.test.ts`).
+  lida pelo reconhecedor de links, preservando posições e linhas; o destino recupera seus caracteres
+  literais antes da conferência (`src/lib/markdown.ts`; `tests/checar-docs.test.ts`).
+- Links inline e imagens aceitam parênteses balanceados no destino, destino entre ângulos
+  (inclusive com espaços), colchetes balanceados no texto e título entre aspas duplas, simples
+  ou parênteses. Uma linha em branco encerra o link (`src/lib/markdown.ts`).
+- Links e imagens por referência aceitam as formas cheia, colapsada e curta. As definições
+  da página são reunidas antes dos usos; caixa e espaços do rótulo são normalizados, e a
+  primeira definição vence. Todo destino de definição é conferido, mesmo sem uso e mesmo
+  em uma definição repetida. O diagnóstico aponta a primeira ocorrência do alvo na página
+  (`src/lib/markdown.ts`; `src/comandos/checar-docs.ts`).
 - **Nome hipotético ou relativo a outra pasta, entre crases, reprova como falso positivo.** Se a
   menção parece caminho e não existe a partir da raiz, o `checar-docs` não sabe que era um
   exemplo ou que o arquivo mora em outra pasta. Há duas saídas: escrever o caminho a partir da raiz
   (com a pasta, em vez do nome solto do arquivo, como `docs/knowledge_base/decisoes.md`) ou escrever o nome sem crases.
-- **O que o `checar-docs` não confere** (não é suportado hoje; não conte com ele): link de
-  referência (`[texto][ref]` com `[ref]: alvo`), alvo entre `<...>` (`<a b.md>`), texto de link
-  com colchete dentro (`[a [b] c](x.md)`), e menção a dotfile ou a nome sem extensão e sem barra
+- **O que o `checar-docs` não confere** (não é suportado hoje; não conte com ele): autolinks,
+  links em HTML cru e menção a dotfile ou a nome sem extensão e sem barra
   (`.gitignore`, `LICENSE`). Para esses, a conferência é da revisão por pessoa. Uma extensão fora da
-  lista fechada de `src/comandos/checar-docs.ts` também não conta.
+  lista fechada de `src/comandos/checar-docs.ts` também não conta. O leitor não é um parser completo:
+  não interpreta listas, citações em bloco e código indentado, nem decodifica entidades HTML nos
+  destinos. Definições por referência dentro desses contêineres não têm suporte; prefira
+  definições no início de um parágrafo comum.
+- **Limites conhecidos do leitor de links** (a bateria contra o commonmark.js os achou; não conte com a
+  conferência nestes casos): destino ou título na linha seguinte dentro de uma citação (`> [x](` e
+  `> quebrado.md)`); comentário `<!--` sem fecho dentro de item de lista continuado; HTML cru no
+  texto do link (`[a <span title="]">b</span>](x.md)`); bloco HTML com link dentro (`<details>`) e
+  texto na mesma linha do fecho `-->`, que podem reprovar sem necessidade; cerca com quatro ou mais
+  espaços, que é tratada como cerca (vale para as que moram em itens de lista) e não como código
+  indentado. Crase sem par e `<!--` sem fecho terminam no fim do parágrafo, e o parágrafo termina
+  em linha em branco, cerca, item de lista (o numerado só se começar em 1 ou for irmão de outro
+  numerado), início de citação (a continuação com `>` não corta), título ou régua: um código em linha que de
+  verdade atravessa esses blocos não é reconhecido como código, e um link dentro dele pode reprovar
+  sem necessidade. Em sentido contrário, dois limites deixam passar um link quebrado: um bloco
+  dentro de uma citação (item, título, régua) não encerra o parágrafo, então uma crase sem par
+  na linha de cima pode parear com uma crase da linha de baixo e esconder o link entre elas
+  (uma linha de texto com crase sem par seguida de `> - [q](quebrado.md)` e de outra crase); e
+  um item numerado logo depois de um item com marcador não abre lista nova, então no par de linhas
+  `- a` e `2. [q](quebrado.md)` a mesma crase sem par atravessa os dois itens.
 - **A caixa do nome só é conferida no Linux.** No macOS e no Windows o disco não diferencia
   maiúsculas de minúsculas: `[x](Decisoes.md)` para o arquivo decisoes.md passa lá e reprova no
   Linux. Quem pega é o job Ubuntu do CI.
