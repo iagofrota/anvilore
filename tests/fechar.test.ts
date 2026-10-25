@@ -18,6 +18,7 @@ import { dirname, join, relative } from "node:path";
 import * as validar from "../src/comandos/validar";
 import { comandoFechar, fecharWiki } from "../src/comandos/fechar";
 import { executar, subcomandos } from "../src/cli";
+import { comandoInit } from "../src/comandos/init";
 
 let tmp: string;
 const semLink = process.platform === "win32";
@@ -67,6 +68,25 @@ function montarWiki(nome: string, hoje: string = HOJE): string {
 
 function definirMtime(caminho: string, quando: Date): void {
   utimesSync(caminho, quando, quando);
+}
+
+function gitEm(dir: string, ...args: string[]): void {
+  const r = Bun.spawnSync(["git", "-c", "core.autocrlf=false", "-C", dir, ...args], { stdout: "pipe", stderr: "pipe" });
+  if (r.exitCode !== 0) throw new Error(String(r.stderr));
+}
+
+function clonarEsqueleto(): string {
+  const origem = join(tmp, "origem");
+  gravar(origem, ".gitignore", "wiki/**\n");
+  gravar(origem, "wiki/exemplo/concepts/conceito.md", '---\ntitle: Conceito\nslug: conceito\ntype: concept\narea: exemplo\ntags: []\n---\n\nCorpo do esqueleto.\n');
+  gravar(origem, "wiki/index.md", "# Índice\n\n- [[conceito]]\n");
+  gitEm(origem, "init", "-q");
+  gitEm(origem, "add", ".gitignore");
+  gitEm(origem, "add", "-f", "wiki");
+  gitEm(origem, "-c", "user.name=Teste", "-c", "user.email=teste@exemplo", "commit", "-qm", "fixture");
+  const clone = join(tmp, "clone");
+  gitEm(tmp, "clone", "--quiet", "--no-hardlinks", origem, clone);
+  return clone;
 }
 
 async function capturar<T>(corpo: () => Promise<T>) {
@@ -221,6 +241,35 @@ describe("fechar: raiz inexistente", () => {
 });
 
 describe("fechar: gate do log do dia", () => {
+  test("Dado clone novo com esqueleto rastreado Quando faço init e fecho Então não cobra log pelo mtime do checkout", async () => {
+    const clone = clonarEsqueleto();
+    expect((await capturar(() => comandoInit(["--areas", "pessoal"], { raiz: clone, interativo: false }))).valor).toBe(0);
+    const r = await capturar(() => fecharWiki(join(clone, "wiki")));
+    expect(r.valor.ok).toBe(true);
+    expect(r.saida).toContain("nenhuma pagina curada alterada hoje");
+    expect(existsSync(join(clone, "wiki/log", `log-${HOJE}.md`))).toBe(false);
+
+    gravar(clone, "wiki/exemplo/concepts/conceito.md", readFileSync(join(clone, "wiki/exemplo/concepts/conceito.md"), "utf8") + "\nEdição de hoje.\n");
+    expect((await capturar(() => fecharWiki(join(clone, "wiki")))).valor.ok).toBe(false);
+    gitEm(clone, "add", "-f", "wiki/exemplo/concepts/conceito.md");
+    expect((await capturar(() => fecharWiki(join(clone, "wiki")))).valor.ok).toBe(false);
+  });
+
+  test("Dado esqueleto limpo e página nova ignorada pelo Git Quando fecho Então cobra só a página nova e o log destrava", async () => {
+    const clone = clonarEsqueleto();
+    const w = join(clone, "wiki");
+    const limpa = await capturar(() => fecharWiki(w));
+    expect(limpa.valor.ok).toBe(true);
+    gravar(w, "exemplo/concepts/nova.md", '---\ntitle: Nova\nslug: nova\ntype: concept\narea: exemplo\ntags: []\n---\n\nPágina nova.\n');
+    gravar(w, "index.md", "# Índice\n\n- [[conceito]]\n- [[nova]]\n");
+    const r = await capturar(() => fecharWiki(w));
+    expect(r.valor).toEqual({ ok: false, passo: "gate-do-log" });
+    expect(r.saida).toContain(join("exemplo", "concepts", "nova.md"));
+    expect(r.saida).not.toContain(`  - ${join("exemplo", "concepts", "conceito.md")}`);
+    gravar(w, `log/log-${HOJE}.md`, `## [${HOJE}] ingest | Página nova\n`);
+    expect((await capturar(() => fecharWiki(w))).valor.ok).toBe(true);
+  });
+
   function semLogDoDia(nome: string): string {
     const w = montarWiki(nome);
     rmSync(join(w, "log", `log-${HOJE}.md`));

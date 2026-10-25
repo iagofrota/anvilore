@@ -127,6 +127,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
+- O fechamento não cobra log por páginas rastreadas que continuam iguais ao `HEAD` depois de um clone; páginas novas, ignoradas ou editadas hoje continuam sujeitas ao gate.
+
 - `fechar --help` e `fechar -h` mostram o uso e saem com código 0, sem tentar abrir uma wiki.
 
 - O `doctor` confere a chamada ao validador no fechamento TypeScript; documentação e skills usam `anvilore fechar` no lugar do script removido.

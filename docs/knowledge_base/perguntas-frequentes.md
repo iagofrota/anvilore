@@ -68,12 +68,13 @@ As correções saíram em rodadas numeradas do projeto (R70, R73 e R74); a colun
 | Seguir o README e apagar `wiki/exemplo/` deixava `[[area-tematica]]` no `wiki/index.md`, e o `validar` reprovava por wikilink quebrado | R73: o README manda apagar também a seção `## Área: exemplo` do índice; `tests/esqueleto-sem-exemplo.test.ts` prova |
 
 O porte do fechamento resolveu a ajuda: `anvilore fechar --help` e `anvilore fechar -h` mostram o uso e saem 0
-(`src/comandos/fechar.ts`, função `comandoFechar`).
+(`src/comandos/fechar.ts`, função `comandoFechar`). O gate também dispensa páginas rastreadas iguais ao `HEAD`,
+mesmo com mtime de hoje por causa do checkout; mudanças pendentes (inclusive staged), páginas ignoradas e páginas
+sem repositório continuam sendo cobradas pelo mtime. Uma edição já incorporada ao `HEAD` passa a ser a versão de referência
+(`src/comandos/fechar.ts`, funções `versionadasSemAlteracao` e `gateDoLog`).
 
 Ainda aberto, de propósito ou por estar fora do escopo da primeira onda:
 
-- O gate "alterada hoje" marca a página do esqueleto
-  como alterada em todo clone novo. Ficam para o porte do fechamento, na segunda onda.
 - O README ainda mostra `--alvo claude` nos exemplos de instalação; quem usa outro agente precisa trocar o alvo. O
   ensaio com Codex sugeriu apresentar a escolha do alvo antes dos comandos.
 - O `doctor` não diferencia "configuração encontrada" de "hook carregado na sessão": a sessão do agente só carrega o

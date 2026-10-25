@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { nomeReservado } from "../lib/reservados";
 import { comandoIndexarLog } from "./indexar-log";
 import { comandoSincronizarIndice } from "./sincronizar-indice";
@@ -15,10 +15,10 @@ import { comandoValidar } from "./validar";
 //   3. validar-wiki         validação estrutural
 //   4. gate do log do dia   página curada alterada hoje exige entrada no log
 //
-// O gate usa a data de modificação (mtime), não o git: no anvilore o conteúdo de `wiki/` fica fora do git
-// de propósito, então `git status` nunca veria uma página curada mudar. Conta a página `.md` modificada
-// depois da meia-noite local de hoje; ignora o que o próprio ritual deriva (`index.md`, `log.md`) e os
-// diretórios reservados de topo (`_meta/`, `log/`). `ANVILORE_PULAR_GATE_LOG=1` pula só o gate.
+// O gate usa mtime para o conteúdo ignorado pelo git, mas dispensa arquivos rastreados iguais ao HEAD:
+// o checkout do esqueleto tem mtime de hoje sem ser uma edição. Sem Git/HEAD, vale só o mtime.
+// Ignora derivados (`index.md`, `log.md`) e diretórios reservados de topo (`_meta/`, `log/`).
+// `ANVILORE_PULAR_GATE_LOG=1` pula só o gate.
 
 export type ResultadoDoFechamento = { ok: boolean; passo: string };
 
@@ -77,6 +77,30 @@ async function curadasTocadas(wiki: string, desde: number): Promise<string[]> {
   return tocadas.sort();
 }
 
+async function versionadasSemAlteracao(wiki: string): Promise<Set<string>> {
+  const lerGit = async (...args: string[]): Promise<string | null> => {
+    try {
+      const processo = Bun.spawn(["git", "--no-optional-locks", "-C", wiki, ...args], { stdout: "pipe", stderr: "ignore" });
+      const [saida, codigo] = await Promise.all([new Response(processo.stdout).text(), processo.exited]);
+      return codigo === 0 ? saida : null;
+    } catch {
+      return null;
+    }
+  };
+  const rastreadas = await lerGit("ls-files", "--stage", "-z", "--", ".");
+  if (!rastreadas) return new Set();
+  const alteradas = await lerGit("diff", "--no-ext-diff", "--no-textconv", "--relative", "--name-only", "-z", "HEAD", "--", ".");
+  if (alteradas === null) return new Set();
+  const mudaram = new Set(alteradas.split("\0"));
+  const limpas = new Set<string>();
+  for (const registro of rastreadas.split("\0")) {
+    // Symlink não prova que o conteúdo do alvo está intacto; ele continua sujeito ao mtime do alvo.
+    const arquivo = /^100(?:644|755) [a-f0-9]+ 0\t([\s\S]+)$/.exec(registro)?.[1];
+    if (arquivo !== undefined && !mudaram.has(arquivo)) limpas.add(arquivo);
+  }
+  return limpas;
+}
+
 async function gateDoLog(wiki: string, agora: Date): Promise<boolean> {
   if (process.env.ANVILORE_PULAR_GATE_LOG === "1") {
     console.log("gate pulado por ANVILORE_PULAR_GATE_LOG=1");
@@ -85,7 +109,9 @@ async function gateDoLog(wiki: string, agora: Date): Promise<boolean> {
   }
   const hoje = dataLocal(agora);
   const meiaNoite = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()).getTime();
-  const tocadas = await curadasTocadas(wiki, meiaNoite);
+  const recentes = await curadasTocadas(wiki, meiaNoite);
+  const limpas = recentes.length ? await versionadasSemAlteracao(wiki) : new Set<string>();
+  const tocadas = recentes.filter(caminho => !limpas.has(caminho.split(sep).join("/")));
   if (tocadas.length === 0) {
     console.log("nenhuma pagina curada alterada hoje — nada a cobrar");
     console.log("FECHAMENTO: OK");

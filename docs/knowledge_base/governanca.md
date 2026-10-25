@@ -165,6 +165,12 @@ está dito.
   índice, mas o YAML e a proveniência deles são conferidos (YAML que não lê reprova, nomeando o
   arquivo), como fazia o validador antigo. O portão humano só vale para página de conteúdo.
 
+O fechamento (`src/comandos/fechar.ts`) chama sincronização de índices, reconstrução de log, validação e gate do log do dia,
+nessa ordem, e para no primeiro erro. O gate cobra páginas com mtime posterior à meia-noite local, com exceção dos
+arquivos regulares rastreados sem alteração em relação ao `HEAD` (incluindo o índice do Git). Isso evita cobrar o esqueleto
+só por causa do checkout. Páginas ignoradas pelo Git e symlinks continuam pelo mtime; sem Git ou sem `HEAD`, nenhuma página
+é dispensada por esse critério. `ANVILORE_PULAR_GATE_LOG=1` pula apenas o gate, e não a validação.
+
 ### 4. O perfil da empresa vale para o estado atual
 
 - Mudar o anvilore.toml reprova as páginas antigas que o novo perfil deixa de aceitar; o
