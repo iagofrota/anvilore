@@ -75,8 +75,8 @@ describe("linhasVisiveis: comentário HTML e código em linha", () => {
     expect(linhasVisiveis(entrada)).toEqual(["``a ` <!-- b`` fim", "[x](a.md)"]);
   });
 
-  test("Dado uma abertura de duas crases sem sequência de duas para fechar, Quando há `<!--` depois, Então as crases são texto e o comentário abre", () => {
-    expect(linhasVisiveis(["``<!--`", "[x](a.md)"])).toEqual(["``", ""]);
+  test("Dado uma abertura de duas crases sem sequência de duas para fechar, Quando há comentário inline sem fecho, Então tudo permanece texto", () => {
+    expect(linhasVisiveis(["``<!--`", "[x](a.md)"])).toEqual(["``<!--`", "[x](a.md)"]);
   });
 
   test("Dado uma crase solta antes de um span de uma crase com `<!--`, Quando filtro, Então o span pareia com a crase seguinte e protege o `<!--`", () => {
@@ -115,21 +115,21 @@ describe("linhasVisiveis: comentário HTML e código em linha", () => {
     expect(linhasVisiveis(entrada)).toEqual(["", "", "", "[x](a.md)"]);
   });
 
-  test("Dado um comentário que fecha numa linha seguido de abertura de cerca, Quando filtro, Então a cerca abre depois do comentário (comportamento mantido)", () => {
+  test("Dado um comentário que fecha numa linha seguido de crases, Quando filtro, Então as crases não abrem cerca depois do comentário", () => {
     const entrada = ["<!-- abre", "--> ```js", "interno", "```", "fora"];
-    expect(linhasVisiveis(entrada)).toEqual(["", "", "", "", "fora"]);
+    expect(linhasVisiveis(entrada)).toEqual(["", " ```js", "interno", "", ""]);
   });
 });
 
 describe("linhasVisiveis: comentário e cerca na mesma linha", () => {
-  test("Dado um comentário fechado antes da abertura de cerca com `<!--` no info, Quando a cerca fecha, Então a linha seguinte continua visível", () => {
+  test("Dado crases e comentário inline sem fecho após um comentário fechado Quando filtro Então só a cerca em sua própria linha abre bloco", () => {
     const entrada = ["<!-- c --> ```js <!--", "interno", "```", "[x](a.md)"];
-    expect(linhasVisiveis(entrada)).toEqual(["", "", "", "[x](a.md)"]);
+    expect(linhasVisiveis(entrada)).toEqual([" ```js <!--", "interno", "", ""]);
   });
 
-  test("Dado um comentário que fecha na linha da abertura de cerca com `<!--` no info, Quando a cerca fecha, Então a linha seguinte continua visível", () => {
+  test("Dado comentário multilinha que fecha antes de crases Quando filtro Então só a cerca em sua própria linha abre bloco", () => {
     const entrada = ["<!-- abre", "--> ```js <!--", "interno", "```", "fora"];
-    expect(linhasVisiveis(entrada)).toEqual(["", "", "", "", "fora"]);
+    expect(linhasVisiveis(entrada)).toEqual(["", " ```js <!--", "interno", "", ""]);
   });
 });
 
