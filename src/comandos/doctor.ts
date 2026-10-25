@@ -6,7 +6,7 @@ import { fundirJson } from "../lib/fundir-json";
 import { NOME_DO_PERFIL, carregarPerfil } from "../lib/perfil";
 import { alvosConhecidos, configuracaoDoHook, tirarHookAntigo, valorDoPath, type Alvo } from "./instalar";
 
-export type Trava = { nome: string; ligada: boolean; comoLigar?: string; detalhe?: string; opcional?: boolean; naoInstalado?: boolean };
+export type Trava = { nome: string; ligada: boolean; comoLigar?: string; detalhe?: string; opcional?: boolean; naoInstalado?: boolean; semTrava?: boolean };
 export type Prerequisito = { nome: string; presente: boolean };
 export type Diagnostico = { travas: Trava[]; prerequisitos: Prerequisito[] };
 
@@ -31,9 +31,13 @@ function comandoInstalar(raiz: string, alvo: Alvo): string {
 async function protecaoDoRaw(raiz: string, alvo: Alvo, path: string | undefined): Promise<Trava> {
   const trava: Trava = { nome: `Proteção do raw/ no ${AGENTES[alvo]}`, ligada: false, comoLigar: comandoInstalar(raiz, alvo) };
   const esperado = await configuracaoDoHook(alvo, await realpath(raiz));
-  // R63: só cobra o agente presente — CLI no PATH ou pasta de configuração já criada no destino.
+  // R63 refinado pelo R70-H: só se cobra o agente que o clone configurou (pasta de configuração no destino). Agente com CLI no PATH e sem
+  // pasta é só "encontrado, sem trava neste clone"; sem CLI nem pasta, "não instalado". Nenhum dos dois reprova.
   const pasta = await stat(join(raiz, dirname(esperado.arquivo))).then(info => info.isDirectory(), () => false);
-  if (Bun.which(alvo, { PATH: path ?? "" }) === null && !pasta) return { ...trava, opcional: true, naoInstalado: true };
+  if (!pasta) {
+    const comCli = Bun.which(alvo, { PATH: path ?? "" }) !== null;
+    return { ...trava, opcional: true, naoInstalado: !comCli, semTrava: comCli };
+  }
   let atual: string | undefined;
   try {
     atual = await ler(join(raiz, esperado.arquivo));
@@ -161,6 +165,11 @@ export async function diagnosticar(raiz: string, ambiente: Record<string, string
   const travas: Trava[] = [];
   const path = valorDoPath(ambiente);
   for (const alvo of alvosConhecidos) travas.push(await protecaoDoRaw(raiz, alvo, path));
+  // Sai 1 se nenhum agente do destino tem a proteção ligada, mesmo que cada agente avulso seja opcional.
+  if (!travas.some(trava => trava.ligada)) {
+    const sugerido = alvosConhecidos.find(alvo => Bun.which(alvo, { PATH: path ?? "" }) !== null) ?? "claude";
+    travas.push({ nome: "Proteção do raw/ em pelo menos um agente", ligada: false, comoLigar: comandoInstalar(raiz, sugerido), detalhe: "nenhum agente deste clone tem o hook instalado" });
+  }
   const versao = await versaoDoClaude(path);
   if (versao) travas.push(versao);
   travas.push(await validacaoNoFechamento(raiz), await checagemAntesDeAceitar(raiz), await perfilDaEmpresa(raiz));
@@ -170,6 +179,7 @@ export async function diagnosticar(raiz: string, ambiente: Record<string, string
 
 function linhas(trava: Trava): string[] {
   if (trava.ligada) return [`  ${trava.nome}: ligada`];
+  if (trava.semTrava) return [`  ${trava.nome}: encontrado, sem trava neste clone (opcional: ${trava.comoLigar})`];
   if (trava.naoInstalado) return [`  ${trava.nome}: não instalado (opcional) — se usar este agente, para ligar: ${trava.comoLigar}`];
   if (trava.opcional) return [`  ${trava.nome}: não configurado (opcional) — para ligar: ${trava.comoLigar}`];
   const principal = `  ${trava.nome}: desligada — para ligar: ${trava.comoLigar}`;

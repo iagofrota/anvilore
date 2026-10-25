@@ -60,14 +60,15 @@ test("Dado repositório com a proteção do raw instalada Quando diagnostico Ent
   }
 });
 
-test("Dado repositório sem a proteção Quando rodo o doctor Então diz qual falta, o comando que a liga e devolve 1", async () => {
+test("Dado repositório sem a proteção Quando rodo o doctor Então diz que nenhum agente tem a trava, o comando que a liga e devolve 1", async () => {
   completar();
   const codigo = await comandoDoctor([clone]);
   const saida = consoleCapturado.saida.join("\n");
   expect(codigo).toBe(1);
-  expect(saida).toContain("Proteção do raw/ no Claude Code: desligada — para ligar: bun src/cli.ts instalar --alvo claude");
+  expect(saida).toContain("Proteção do raw/ em pelo menos um agente: desligada — para ligar: bun src/cli.ts instalar --alvo claude");
+  expect(saida).toContain("Proteção do raw/ no Claude Code: encontrado, sem trava neste clone (opcional: bun src/cli.ts instalar --alvo claude");
   expect(saida).toContain(`--destino "${clone}"`);
-  expect(saida).toContain("Resultado: faltam");
+  expect(saida).toContain("Resultado: faltam 1 trava(s)");
 });
 
 test("Dado repositório completo Quando rodo o doctor Então diz ligada em linguagem simples e devolve 0", async () => {
@@ -235,10 +236,29 @@ test("Dado agente presente só pela pasta de configuração Quando a trava falta
   expect(consoleCapturado.saida.join("\n")).toContain("Proteção do raw/ no Gemini: desligada — para ligar:");
 });
 
-test("Dado agente com CLI no PATH e sem configuração Quando diagnostico Então a trava é cobrada", async () => {
+test("Dado agente com CLI no PATH e sem configuração no clone Quando diagnostico Então é só encontrado, sem trava, e não reprova (R70-H)", async () => {
   await instalar({ alvos: ["claude"], destino: clone, simular: false }); completar(); semCli("gemini", "copilot");
-  expect((await travas())[protecao("Codex")]?.opcional).toBeUndefined();
+  expect((await travas())[protecao("Codex")]).toMatchObject({ ligada: false, opcional: true, semTrava: true });
+  expect(await comandoDoctor([clone])).toBe(0);
+  const saida = consoleCapturado.saida.join("\n");
+  expect(saida).toContain("Proteção do raw/ no Codex: encontrado, sem trava neste clone (opcional: bun src/cli.ts instalar --alvo codex");
+  expect(saida).toContain("Proteção do raw/ no Claude Code: ligada");
+  expect(saida).toContain("Resultado: tudo ligado");
+});
+
+test("Dado nenhum agente instalado nem encontrado Quando rodo o doctor Então ainda sai 1 pedindo a instalação do Claude", async () => {
+  completar(); semCli("claude", "codex", "gemini", "copilot");
   expect(await comandoDoctor([clone])).toBe(1);
+  const saida = consoleCapturado.saida.join("\n");
+  expect(saida).toContain("Proteção do raw/ no Claude Code: não instalado (opcional)");
+  expect(saida).toContain("Proteção do raw/ em pelo menos um agente: desligada — para ligar: bun src/cli.ts instalar --alvo claude");
+});
+
+test("Dado um agente configurado e desligado ao lado de outro ligado Quando rodo o doctor Então sai 1 pelo desligado", async () => {
+  await instalar({ alvos: ["claude"], destino: clone, simular: false }); completar();
+  mkdirSync(join(clone, ".codex"));
+  expect(await comandoDoctor([clone])).toBe(1);
+  expect(consoleCapturado.saida.join("\n")).toContain("Proteção do raw/ no Codex: desligada");
 });
 
 // R66 parte 3 (RI6): o onFailure do hook do Claude pede a 2.1.295.
