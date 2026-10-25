@@ -58,6 +58,8 @@ está dito.
   `terminalEscreve`, linhas 284 a 481):
   - o alvo de redirecionamento, de `tee`, de `cp`/`mv`/`ln`, de `sed -i` e de `git` que não seja de leitura é julgado
     pelo caminho, e `cd raw` (com ou sem opção, `cd -`, `popd`) torna relativos os caminhos seguintes;
+  - cópia e movimento no PowerShell (`Copy-Item`/`Move-Item` e aliases) e no cmd (`copy`/`move`) com destino omitido
+    usam o diretório atual; o hook considera esse destino implícito depois de `cd` ou `Set-Location`;
   - **regra ampla (R66):** se o comando cita `raw/` em qualquer posição (inclusive como leitura) e algum segmento
     (pipe, `;`, `&&`, laço `while`/`for`/`do`, `xargs`, `find -exec`, `sh -c`) tem um verbo de escrita ou remoção
     (`rm`, `rmdir`, `mv`, `ln`, `touch`, `truncate`, `dd`, `install`, `rsync`, `chmod`, `chown`, `shred`, `perl`,

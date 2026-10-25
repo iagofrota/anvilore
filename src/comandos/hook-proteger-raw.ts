@@ -46,7 +46,8 @@ const ESCRITA_GLOBAL = new Set([
   "remove-item", "ri", "del", "erase", "rd", "move-item", "mi", "move", "rename-item", "rni", "ren", "set-itemproperty", "sp",
 ]);
 // PowerShell/cmd: gravam no arquivo que recebem, então, como `cp` e `tee`, julgam-se pelo destino (copiar de raw/ para a wiki é a ingestão).
-const DESTINO_JULGADO = new Set(["copy-item", "cpi", "copy", "out-file", "set-content", "sc", "add-content", "ac", "new-item", "ni", "clear-content", "clc"]);
+const COPIA_OU_MOVIMENTO = new Set(["copy-item", "cpi", "copy", "cp", "move-item", "mi", "move"]);
+const DESTINO_JULGADO = new Set(["copy-item", "cpi", "copy", "move-item", "mi", "move", "out-file", "set-content", "sc", "add-content", "ac", "new-item", "ni", "clear-content", "clc"]);
 // Parâmetros do PowerShell que levam valor (nome canônico) e seus apelidos; o PowerShell aceita qualquer prefixo único (-Dest, -Pa) e `-Path:valor`.
 const PARAMETROS_PS = ["path", "literalpath", "destination", "filepath", "value", "name", "itemtype", "encoding", "filter", "include", "exclude", "width", "stream", "credential"];
 const APELIDOS_PS: Record<string, string> = { pspath: "path", lp: "literalpath", type: "itemtype", target: "value" };
@@ -234,7 +235,7 @@ function parametroPs(opcao: string): string | undefined {
   return candidatos.size === 1 ? [...candidatos][0] : undefined;
 }
 
-// Onde o cmdlet grava: -Destination (cópia) ou -FilePath/-Path/-LiteralPath/-Name (gravação); sem nome, o último (cópia) ou o primeiro posicional.
+// Cópia/movimento: -Destination, último posicional após a origem ou cwd quando omitido. Demais verbos: primeiro caminho.
 // New-Item de link (SymbolicLink, HardLink, Junction) também aponta para o valor de -Value/-Target.
 function destinosDoCmdlet(verbo: string, args: string[]): string[] {
   const nomeados = new Map<string, string[]>();
@@ -249,8 +250,9 @@ function destinosDoCmdlet(verbo: string, args: string[]): string[] {
       if (parametro !== undefined) nomeados.set(parametro, (colado === "" ? args[++i] ?? "" : colado).split(","));
     } else if (!/^\/[A-Za-z]$/.test(arg)) posicionais.push(arg);
   }
-  if (["copy-item", "cpi", "copy"].includes(verbo)) {
-    return nomeados.get("destination") ?? (posicionais.length > 1 || nomeados.has("path") ? posicionais.slice(-1) : []);
+  if (COPIA_OU_MOVIMENTO.has(verbo)) {
+    const origemNomeada = nomeados.has("path") || nomeados.has("literalpath");
+    return nomeados.get("destination") ?? (posicionais.length > (origemNomeada ? 0 : 1) ? posicionais.slice(-1) : ["."]);
   }
   const nomeadosDeCaminho = ["filepath", "path", "literalpath", "name"].flatMap(parametro => nomeados.get(parametro) ?? []);
   const destinos = nomeadosDeCaminho.length ? nomeadosDeCaminho : posicionais.slice(0, 1);
@@ -288,9 +290,9 @@ function desembrulhar(verbo: string, args: string[]): { resto: string[]; descart
 
 // `doPipe`: um segmento anterior do mesmo pipe citou raw/, então o caminho chega pela entrada padrão. Só um comando
 // executado por envolvedor (xargs, parallel...) ou um shell lendo a entrada age sobre ele; `forcar` vale dentro do envolvedor.
-type Contexto = { raiz: string; doPipe?: boolean; forcar?: boolean; ambienteDoEnvolvedor?: boolean };
+type Contexto = { raiz: string; doPipe?: boolean; forcar?: boolean; ambienteDoEnvolvedor?: boolean; windows?: boolean };
 function segmentoEscreve(palavras: string[], cwd: string, contexto: Contexto): boolean {
-  const { raiz, doPipe = false, forcar = false, ambienteDoEnvolvedor = false } = contexto;
+  const { raiz, doPipe = false, forcar = false, ambienteDoEnvolvedor = false, windows = false } = contexto;
   const inicio = palavras.findIndex(palavra => !/^[A-Za-z_]\w*=/.test(palavra));
   if (inicio < 0) return false;
   const comando = palavras.slice(inicio);
@@ -302,7 +304,7 @@ function segmentoEscreve(palavras: string[], cwd: string, contexto: Contexto): b
     if (descartados.some(arg => escreveEmRaw(arg, cwd) || citaRaw(arg) || arg.toLowerCase().includes("raw"))) return true;
     // Sem comando, só o xargs é inofensivo (repete a entrada); `parallel`, `sudo -s` e `env` lendo raw/ pelo pipe não são.
     if (!resto.length) return doPipe && verbo !== "xargs";
-    return segmentoEscreve(resto, cwd, { raiz, doPipe, forcar: forcar || doPipe, ambienteDoEnvolvedor: ambienteDoEnvolvedor || descartados.some(ambienteInseguro) });
+    return segmentoEscreve(resto, cwd, { raiz, doPipe, forcar: forcar || doPipe, ambienteDoEnvolvedor: ambienteDoEnvolvedor || descartados.some(ambienteInseguro), windows });
   }
   if (doPipe && (SHELLS.has(verbo) || verbo === "source" || verbo === ".")) return true;
   if (SHELLS.has(verbo)) {
@@ -326,7 +328,7 @@ function segmentoEscreve(palavras: string[], cwd: string, contexto: Contexto): b
     const emRaw = (caminho: string) => escreveEmRaw(caminho, cwd) || citaRaw(caminho);
     return saida === undefined ? emRaw(entrada) : saida !== "-" && emRaw(saida);
   }
-  if (DESTINO_JULGADO.has(verbo)) {
+  if (DESTINO_JULGADO.has(verbo) || (windows && verbo === "cp")) {
     const destinos = destinosDoCmdlet(verbo, args);
     if (destinos.length === 0) return doPipe && GRAVA_PELA_PIPELINE.has(verbo);
     return destinos.some(destino => escreveEmRaw(destino, cwd) || citaRaw(destino));
@@ -442,6 +444,7 @@ function citaRawSegmento(palavras: string[], cwd: string): boolean {
 }
 
 function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cwdInicial, windows = false): boolean {
+  windows ||= Array.isArray(comando) && /^(?:powershell|pwsh)(?:\.exe)?$/i.test(String(comando[0]));
   let cwd = cwdInicial;
   let palavras: string[] = [];
   let doPipe = false;
@@ -474,7 +477,7 @@ function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cw
     if (palavras.includes("done")) lacoAlimentado = false;
     const abreAgora = profundidade === 0 && chaves(palavras) > 0;
     if (abreAgora && (doPipe || listagemAncestral)) blocoAlimentado = true;
-    const escreve = segmentoEscreve(palavras, cwd, { raiz, doPipe }) || (listagemAncestral && (escritaDeShell(palavras) || gravaPelaPipeline(palavras)))
+    const escreve = segmentoEscreve(palavras, cwd, { raiz, doPipe, windows }) || (listagemAncestral && (escritaDeShell(palavras) || gravaPelaPipeline(palavras)))
       || (blocoAlimentado && (profundidade > 0 || abreAgora) && gravaComVariavel(palavras)) || (noLaco && escritaDeShell(palavras));
     profundidade = Math.max(0, profundidade + chaves(palavras));
     if (profundidade === 0) blocoAlimentado = false;

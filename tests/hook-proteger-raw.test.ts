@@ -514,6 +514,25 @@ for (const comando of ["sed -E -n 's/a/b/p' raw/a.md", "sed -En 's/a/b/p' raw/a.
 }
 
 // Rodada 3 — I1: cmdlets de cópia e gravação do PowerShell e `copy` do cmd são julgados pelo destino, como cp e tee.
+for (const verbo of ["Copy-Item", "cpi", "copy", "cp", "Move-Item", "mi", "move"]) {
+  test(`Dado ${verbo} sem destino Quando o diretório atual é raw Então bloqueia a escrita implícita`, () => {
+    expect(cli(terminal(`cd raw; ${verbo} ../wiki/a.md`, "powershell")).exitCode).toBe(2);
+    expect(cli(terminal(`Set-Location raw; ${verbo} ..\\wiki\\a.md`, "powershell")).exitCode).toBe(2);
+    expect(cli(terminal(`cd wiki; Copy-Item ../raw/a.md`, "powershell")).exitCode).toBe(0);
+    expect(cli(terminal("Copy-Item raw/a.md", "powershell")).exitCode).toBe(0);
+  });
+}
+for (const verbo of ["copy", "move"]) {
+  test(`Dado cmd com ${verbo} sem destino Quando muda para raw Então bloqueia a escrita implícita`, () => {
+    expect(cli(terminal(`cmd /c "cd raw && ${verbo} ..\\wiki\\a.md"`)).exitCode).toBe(2);
+  });
+}
+test("Dado cópia com origem nomeada ou em argv Quando o destino é omitido Então usa o diretório atual", () => {
+  for (const origem of ["-Path ../wiki/a.md", "-LiteralPath ../wiki/a.md"]) {
+    expect(cli(terminal(`cd raw; Copy-Item ${origem}`, "powershell")).exitCode).toBe(2);
+  }
+  expect(cli(terminal(["powershell.exe", "-Command", "cd raw; cp ../wiki/a.md"])).exitCode).toBe(2);
+});
 for (const comando of ["Copy-Item raw\\a.md wiki\\a.md", "Copy-Item -Path raw\\a.md -Destination wiki\\sources\\", "cpi raw\\a.pdf $env:TEMP\\a.pdf", "Copy-Item -Recurse raw\\x wiki\\x", "Get-Content raw\\a.md | Out-File wiki\\a.md", "Get-Content raw\\a.md | Out-File -FilePath wiki\\a.md -Encoding utf8", "Get-Content raw\\a.md | Set-Content wiki\\a.md", "Get-Content raw\\a.md | Add-Content -Path wiki\\a.md", "copy raw\\a.md wiki\\a.md", "cmd /c copy raw\\a.md wiki\\a.md", "New-Item -ItemType Directory wiki\\sources; Copy-Item raw\\a.md wiki\\sources\\", "dir raw | ni wiki\\x", "Get-Content raw\\a.md; Clear-Content wiki\\b.md", "Get-Content raw\\a.md; sc wiki\\x y", "Get-Content raw\\a.md; ac wiki\\x y"]) {
   test(`Dado cópia de raw para a wiki no PowerShell ${comando} Quando decido Então libera`, () => {
     expect(decidir(terminal(comando, "powershell")).acao).toBe("liberar");
