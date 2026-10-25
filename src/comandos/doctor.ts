@@ -64,7 +64,7 @@ async function protecaoDoRaw(raiz: string, alvo: Alvo, path: string | undefined)
 }
 
 // `onFailure` do hook do Claude Code só existe a partir da 2.1.295 (https://code.claude.com/docs/en/hooks); antes, a chave pode ser ignorada.
-async function versaoDoClaude(path: string | undefined): Promise<Trava | undefined> {
+async function versaoDoClaude(raiz: string, path: string | undefined): Promise<Trava | undefined> {
   const exe = Bun.which("claude", { PATH: path ?? "" });
   if (exe === null) return undefined;
   const nome = "Versão do Claude Code (o hook usa onFailure)";
@@ -77,7 +77,12 @@ async function versaoDoClaude(path: string | undefined): Promise<Trava | undefin
   const [maior, menor, correcao] = [Number(achada[1]), Number(achada[2]), Number(achada[3])];
   const antiga = maior < 2 || (maior === 2 && (menor < 1 || (menor === 1 && correcao < 295)));
   if (!antiga) return { nome, ligada: true };
-  return { nome, ligada: false, comoLigar: "atualize o Claude Code para a 2.1.295 ou mais nova (o onFailure do hook não existe antes)", detalhe: `versão encontrada: ${achada[0]}` };
+  const comoLigar = "atualize o Claude Code para a 2.1.295 ou mais nova (o onFailure do hook não existe antes)";
+  // R74 I2: só reprova quem configurou o Claude neste clone; a CLI antiga apenas no PATH é um aviso opcional (como os outros agentes).
+  const configurado = await stat(join(raiz, ".claude")).then(info => info.isDirectory(), () => false);
+  return configurado
+    ? { nome, ligada: false, comoLigar, detalhe: `versão encontrada: ${achada[0]}` }
+    : { nome, ligada: false, opcional: true, comoLigar: `${comoLigar}, se for usar o Claude Code neste clone`, detalhe: `versão encontrada: ${achada[0]}` };
 }
 
 // Tira os comentários de shell/YAML (linha inteira ou depois de ` #`), respeitando aspas: texto comentado não é chamada ativa.
@@ -170,7 +175,7 @@ export async function diagnosticar(raiz: string, ambiente: Record<string, string
     const sugerido = alvosConhecidos.find(alvo => Bun.which(alvo, { PATH: path ?? "" }) !== null) ?? "claude";
     travas.push({ nome: "Proteção do raw/ em pelo menos um agente", ligada: false, comoLigar: comandoInstalar(raiz, sugerido), detalhe: "nenhum agente deste clone tem o hook instalado" });
   }
-  const versao = await versaoDoClaude(path);
+  const versao = await versaoDoClaude(raiz, path);
   if (versao) travas.push(versao);
   travas.push(await validacaoNoFechamento(raiz), await checagemAntesDeAceitar(raiz), await perfilDaEmpresa(raiz));
   const prerequisitos = ["bun", "git"].map(nome => ({ nome, presente: Bun.which(nome, { PATH: path ?? "" }) !== null }));

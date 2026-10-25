@@ -344,3 +344,31 @@ test("Dado trava comentada Quando rodo o doctor Então não diz tudo ligado e de
   expect(saida).not.toContain("tudo ligado"); expect(saida).toContain("Validação no fechamento da wiki: desligada");
   expect(saida).toContain("Checagem antes de aceitar a mudança: desligada");
 });
+
+// R74 I2: a versão do Claude só reprova quando o Claude está configurado no clone (pasta .claude/).
+test("Dado Codex com trava, sem .claude/ e claude 2.1.0 só no PATH Quando rodo o doctor Então a versão é só um aviso opcional e sai 0", async () => {
+  await instalar({ alvos: ["codex"], destino: clone, simular: false }); completar();
+  claudeComVersao("2.1.0 (Claude Code)");
+  const t = (await travas())[VERSAO];
+  expect(t).toMatchObject({ ligada: false, opcional: true }); expect(t?.detalhe).toContain("2.1.0");
+  expect(await comandoDoctor([clone])).toBe(0);
+  const saida = consoleCapturado.saida.join("\n");
+  expect(saida).toContain(`${VERSAO}: não configurado (opcional)`);
+  expect(saida).toContain("Resultado: tudo ligado");
+});
+
+test("Dado Claude configurado no clone (.claude/) com a trava e versão 2.1.0 Quando rodo o doctor Então reprova e manda atualizar (alerta R66 mantido)", async () => {
+  await instalar({ alvos: ["claude"], destino: clone, simular: false }); completar();
+  claudeComVersao("2.1.0 (Claude Code)");
+  expect((await travas())[VERSAO]).toMatchObject({ ligada: false });
+  expect((await travas())[VERSAO]?.opcional).toBeUndefined();
+  expect(await comandoDoctor([clone])).toBe(1);
+  expect(consoleCapturado.saida.join("\n")).toContain("atualize o Claude Code");
+});
+
+test("Dado .claude/ vazia no clone e claude antigo Quando diagnostico Então conta como configurado e reprova", async () => {
+  await instalar({ alvos: ["codex"], destino: clone, simular: false }); completar();
+  mkdirSync(join(clone, ".claude"));
+  claudeComVersao("2.0.9");
+  expect((await travas())[VERSAO]?.opcional).toBeUndefined();
+});
