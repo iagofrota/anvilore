@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PerfilInvalido, carregarPerfil } from "../src/lib/perfil";
+import { PerfilInvalido, areaPermitida, carregarPerfil } from "../src/lib/perfil";
 
 let raiz: string;
 
@@ -77,5 +77,18 @@ describe("carregarPerfil", () => {
   test("Dado anvilore.toml que é um diretório, Quando carrego, Então falha em vez de ignorar", async () => {
     mkdirSync(join(raiz, "anvilore.toml"));
     await expect(carregarPerfil(raiz)).rejects.toBeInstanceOf(PerfilInvalido);
+  });
+});
+
+describe("areaPermitida: a política única de init e validar", () => {
+  test("Dado perfil sem areas, Quando pergunto, Então tudo é permitido", () => {
+    expect(areaPermitida(undefined, "qualquer")).toBe(true);
+  });
+  test("Dado perfil com areas, Quando comparo, Então a comparação é exata, sem caixa nem normalização Unicode", () => {
+    expect(areaPermitida(["pessoal", "Saúde"], "pessoal")).toBe(true);
+    expect(areaPermitida(["pessoal"], "Pessoal")).toBe(false);
+    expect(areaPermitida(["Pessoal"], "pessoal")).toBe(false);
+    expect(areaPermitida(["saúde"], "saúde")).toBe(false);
+    expect(areaPermitida([], "pessoal")).toBe(false);
   });
 });

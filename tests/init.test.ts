@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { PassThrough, Readable } from "node:stream";
 import { AREAS_PADRAO, comandoInit, inicializar } from "../src/comandos/init";
 import { subcomandos } from "../src/cli";
+import { validarWiki } from "../src/comandos/validar";
 import { capturarConsole } from "./apoio/console";
 
 let raiz: string;
@@ -462,9 +463,29 @@ describe("init × anvilore.toml (R70-F)", () => {
     expect(listar(join(raiz, "wiki"))).toEqual(["pessoal", "saude"]);
   });
 
-  test("Dado toml com areas e a caixa diferente, Quando init pede, Então a comparação segue a normalização do disco", async () => {
+  test("Dado toml com areas e a caixa diferente, Quando init pede, Então recusa como o validador (comparação exata) e não cria nada", async () => {
     toml('areas = ["Pessoal"]\n');
+    expect(await comandoInit(["--areas", "pessoal"], { raiz })).toBe(1);
+    const erro = console_.erros.join("\n");
+    expect(erro).toContain("pessoal");
+    expect(erro).toContain("Áreas permitidas: Pessoal");
+    expect(existsSync(join(raiz, "wiki"))).toBe(false);
+  });
+
+  test("Dado toml com areas e a forma Unicode decomposta, Quando init pede a composta, Então também recusa (sem normalização)", async () => {
+    toml(`areas = ["sa\u0075\u0301de"]\n`);
+    expect(await comandoInit(["--areas", "saúde"], { raiz })).toBe(1);
+    expect(existsSync(join(raiz, "wiki"))).toBe(false);
+  });
+
+  test("Dado toml com areas e o nome exato, Quando o init cria, uma página entra e o validar roda, Então os dois comandos concordam", async () => {
+    toml('areas = ["pessoal"]\n');
     expect(await comandoInit(["--areas", "pessoal"], { raiz })).toBe(0);
+    mkdirSync(join(raiz, "wiki"), { recursive: true });
+    writeFileSync(join(raiz, "wiki", "pessoal", "concepts", "conceito.md"), '---\ntitle: "C"\nslug: conceito\ntype: concept\narea: pessoal\ntags: []\n---\n\nCorpo.\n');
+    writeFileSync(join(raiz, "wiki", "index.md"), "# Índice\n\n## Área: pessoal\n\n- [[conceito]] — c\n");
+    const r = await validarWiki(join(raiz, "wiki"));
+    expect(r.erros).toEqual([]);
   });
 
   test("Dado toml sem areas, Quando init pede qualquer área, Então não restringe", async () => {

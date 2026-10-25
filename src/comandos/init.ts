@@ -5,7 +5,7 @@ import { createInterface } from "node:readline/promises";
 import type { Readable, Writable } from "node:stream";
 import { parseArgs } from "node:util";
 import { chaveDeNome } from "../lib/caminhos";
-import { NOME_DO_PERFIL, carregarPerfil } from "../lib/perfil";
+import { NOME_DO_PERFIL, areaPermitida, carregarPerfil } from "../lib/perfil";
 import { diretorioDeTipo, nomeReservado } from "../lib/reservados";
 
 export const AREAS_PADRAO = ["pessoal", "profissional", "projetos-paralelos", "saude"] as const;
@@ -152,7 +152,7 @@ async function criarTipo(area: string, tipo: string, caminho: string): Promise<b
 async function conferirPerfil(raiz: string, nomes: string[]): Promise<string[]> {
   const permitidas = (await carregarPerfil(raiz)).areas;
   if (permitidas === undefined) return [];
-  const fora = nomes.filter((nome) => !permitidas.some((permitida) => chaveDeNome(permitida) === chaveDeNome(nome)));
+  const fora = nomes.filter((nome) => !areaPermitida(permitidas, nome));
   if (fora.length > 0) {
     throw new Error(`área fora do ${NOME_DO_PERFIL}: ${fora.join(", ")}. Áreas permitidas: ${permitidas.join(", ")}. Ajuste a lista em ${NOME_DO_PERFIL} ou escolha outra área.`);
   }

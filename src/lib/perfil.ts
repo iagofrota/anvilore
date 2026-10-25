@@ -10,6 +10,12 @@ export class PerfilInvalido extends Error {
 
 export const NOME_DO_PERFIL = "anvilore.toml";
 
+// Única política de comparação de área com o perfil (init e validar): exata, sem caixa nem normalização Unicode. Se o init aceitasse
+// "pessoal" com `areas = ["Pessoal"]`, o validar reprovaria a primeira página dessa área.
+export function areaPermitida(areas: readonly string[] | undefined, area: string): boolean {
+  return areas === undefined || areas.includes(area);
+}
+
 const CHAVES: Record<string, keyof Perfil> = {
   areas: "areas",
   tipos: "tipos",

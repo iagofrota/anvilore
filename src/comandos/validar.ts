@@ -3,7 +3,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { FrontmatterInvalido, lerFrontmatter, linhasDe, slugDe } from "../lib/frontmatter";
 import { linhasVisiveis } from "../lib/markdown";
 import { validarProveniencia } from "../lib/okf";
-import { PerfilInvalido, carregarPerfil, type Perfil } from "../lib/perfil";
+import { PerfilInvalido, areaPermitida, carregarPerfil, type Perfil } from "../lib/perfil";
 import { chaveDeNome } from "../lib/caminhos";
 import { diretorioDeTipo, nomeReservado } from "../lib/reservados";
 
@@ -203,7 +203,7 @@ export async function validarWiki(dir: string, perfil?: Perfil): Promise<Resulta
     }
     if (regras.areas !== undefined) {
       for (const area of new Set([areaDoDir, areaDoCampo])) {
-        if (area !== "" && !regras.areas.includes(area)) erros.push(`area '${area}' nao permitida pelo anvilore.toml: ${rel}`);
+        if (area !== "" && !areaPermitida(regras.areas, area)) erros.push(`area '${area}' nao permitida pelo anvilore.toml: ${rel}`);
       }
     }
 
