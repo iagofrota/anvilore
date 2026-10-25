@@ -40,14 +40,18 @@ for elemento in "${ELEMENTOS[@]}"; do
   fi
 done
 
-for elemento in "${ELEMENTOS[@]}"; do
-  sem_rodape="$(grep -LF -- "$elemento" "${PORTADOS[@]}")"
-  if [ -z "$sem_rodape" ]; then
-    ok "todos os scripts restantes citam '$elemento'"
-  else
-    falha "scripts sem '$elemento': $(echo "$sem_rodape" | tr '\n' ' ')"
-  fi
-done
+if [ "${#PORTADOS[@]}" -gt 0 ]; then
+  for elemento in "${ELEMENTOS[@]}"; do
+    sem_rodape="$(grep -LF -- "$elemento" "${PORTADOS[@]}")"
+    if [ -z "$sem_rodape" ]; then
+      ok "todos os scripts restantes citam '$elemento'"
+    else
+      falha "scripts sem '$elemento': $(echo "$sem_rodape" | tr '\n' ' ')"
+    fi
+  done
+else
+  ok "nenhum script legado; atribuição conferida nos módulos TypeScript derivados"
+fi
 
 # O rodape e RODAPE: mora no fim do arquivo, nao perdido no meio.
 for s in "${PORTADOS[@]}"; do
@@ -59,7 +63,7 @@ for s in "${PORTADOS[@]}"; do
 done
 
 # O modulo TypeScript derivado de wiki-wonka carrega a mesma atribuicao, no fim.
-TS_DERIVADOS=(src/comandos/listar-lacunas.ts)
+TS_DERIVADOS=(src/comandos/listar-lacunas.ts src/comandos/fechar.ts)
 for s in "${TS_DERIVADOS[@]}"; do
   for elemento in "${ELEMENTOS[@]}"; do
     if grep -qF -- "$elemento" "$s"; then
@@ -142,15 +146,15 @@ area_isca="pesso""al"
 distintivo_isca="an""ki"
 
 printf 'nota sobre %s\n' "$distintivo_isca" > "$isca"
-if grep -qinE "$(regex_para src/cli.ts)" "$isca" && grep -qinE "$(regex_para "${PORTADOS[0]}")" "$isca"; then
+if grep -qinE "$(regex_para src/cli.ts)" "$isca" && grep -qinE "$(regex_para "${TS_DERIVADOS[0]}")" "$isca"; then
   ok "a varredura pega um nome distintivo em qualquer arquivo (tem dentes)"
 else
   falha "a varredura nao pegou o nome distintivo — o regex nao mede nada"
 fi
 
 printf 'type: concept\narea: %s\n' "$area_isca" > "$isca"
-if grep -qinE "$(regex_para "${PORTADOS[0]}")" "$isca" && grep -qinE "$(regex_para "${TS_DERIVADOS[0]}")" "$isca"; then
-  ok "a varredura pega uma area do vault nos scripts e nos modulos derivados (tem dentes)"
+if grep -qinE "$(regex_para "${TS_DERIVADOS[0]}")" "$isca" && grep -qinE "$(regex_para "${TS_DERIVADOS[1]}")" "$isca"; then
+  ok "a varredura pega uma area do vault nos modulos derivados (tem dentes)"
 else
   falha "a varredura nao pegou a area do vault no que deriva do vault"
 fi
@@ -161,7 +165,7 @@ else
 fi
 
 printf -- 'type: concept\narea: exemplo\n' > "$isca"
-if grep -qinE "$(regex_para "${PORTADOS[0]}")" "$isca" || grep -qinE "$(regex_para "${TS_DERIVADOS[0]}")" "$isca"; then
+if grep -qinE "$(regex_para "${TS_DERIVADOS[0]}")" "$isca" || grep -qinE "$(regex_para "${TS_DERIVADOS[1]}")" "$isca"; then
   falha "a varredura acusou uma area neutra (falso positivo)"
 else
   ok "a varredura nao acusa area neutra"
