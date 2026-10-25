@@ -115,7 +115,8 @@ describe("fatiar-log: primeira execução", () => {
     expect(saida).toMatch(/pre[aâ]mbulo/i);
     expect(saida).toContain("AVISO: 2 linha(s) de preâmbulo");
     expect(saida).toContain(`${join(wiki, "log.md")} continua intacto`);
-    expect(saida).toContain("scripts/indexar-log.sh");
+    expect(saida).not.toContain("scripts/indexar-log.sh");
+    expect(saida).toContain("anvilore indexar-log");
   });
 
   test("Dado um log com preâmbulo de 2 linhas, Quando fatio, Então devolvo a contagem de linhas de preâmbulo", async () => {

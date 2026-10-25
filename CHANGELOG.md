@@ -118,6 +118,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
+- O aviso de preâmbulo do `fatiar-log` aponta para `anvilore indexar-log <wiki>`, em vez de um script removido.
+
 - O validador ignora wikilinks dentro de código em linha que atravessa linhas, tanto nas páginas quanto no índice, sem esconder links após uma crase sem fecho.
 
 - O hook reconhece parâmetros comuns do PowerShell e seus apelidos, como `-ErrorAction Stop` e `-ea`, e confere todos os possíveis destinos após a origem para impedir que um valor extra esconda escrita em `raw/`.

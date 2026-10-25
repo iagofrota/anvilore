@@ -9,7 +9,7 @@ import { join } from "node:path";
 //
 // O preâmbulo anterior à primeira entrada (título e prosa do `log.md` que vem no clone) é tolerado, mas
 // relatado em voz alta com a contagem de linhas: conteúdo que não vai para lugar nenhum não sai de cena
-// calado. O cabeçalho do `log.md` é regenerado por `scripts/indexar-log.sh` depois da migração.
+// calado. O cabeçalho do `log.md` é regenerado por `anvilore indexar-log <wiki>` depois da migração.
 
 export class ErroDeFatiamento extends Error {}
 
@@ -161,7 +161,7 @@ export async function comandoFatiarLog(args: string[]): Promise<number> {
       console.log(
         `AVISO: ${linhasDePreambulo} linha(s) de preâmbulo antes da primeira entrada não foram para nenhum ` +
           `arquivo de dia. ${join(wiki, "log.md")} continua intacto; o cabeçalho de log.md é regenerado por ` +
-          "scripts/indexar-log.sh.",
+          "anvilore indexar-log <wiki>.",
       );
     }
     return 0;
