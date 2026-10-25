@@ -15,6 +15,34 @@ import {
 
 let pasta: string;
 
+// O programa `patch` vem do ambiente (no Windows, o do Git for Windows). Antes de culpar o diff que o código gera, sonda-se o ambiente com um
+// diff escrito à mão: se o `patch` daqui nem aplica isso, os testes que dependem dele são pulados com o motivo no nome; se aplica, a falha é do código.
+function sondarPatch(): { ok: boolean; motivo: string } {
+  const exe = Bun.which("patch");
+  if (exe === null) return { ok: false, motivo: "programa patch ausente do PATH" };
+  const dir = mkdtempSync(join(tmpdir(), "anvilore-sonda-patch-"));
+  try {
+    writeFileSync(join(dir, "a.txt"), "um\ndois\n");
+    writeFileSync(join(dir, "a.diff"), "--- a.txt\n+++ a.txt (novo)\n@@ -1,2 +1,2 @@\n um\n-dois\n+tres\n");
+    const r = Bun.spawnSync([exe, "-s", join(dir, "a.txt"), join(dir, "a.diff")], { stdout: "pipe", stderr: "pipe" });
+    const aplicou = r.exitCode === 0 && readFileSync(join(dir, "a.txt"), "utf8").replace(/\r\n/g, "\n") === "um\ntres\n";
+    return aplicou ? { ok: true, motivo: "" } : { ok: false, motivo: `o patch de ${exe} não aplica nem um diff trivial (saída ${r.exitCode}: ${(r.stderr.toString() + r.stdout.toString()).trim().slice(0, 200)})` };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+const PATCH = sondarPatch();
+const sufixoPatch = PATCH.ok ? "" : ` [PULADO: ${PATCH.motivo}]`;
+
+async function aplicarPatch(arquivo: string, diff: string): Promise<void> {
+  const r = Bun.spawn([Bun.which("patch")!, "-s", arquivo, diff], { stdout: "pipe", stderr: "pipe" });
+  const codigo = await r.exited;
+  if (codigo !== 0) {
+    const [saida, erro] = await Promise.all([new Response(r.stdout).text(), new Response(r.stderr).text()]);
+    throw new Error(`patch saiu ${codigo}: ${(erro + saida).trim()}\n--- diff ---\n${readFileSync(diff, "utf8")}`);
+  }
+}
+
 beforeEach(() => {
   pasta = mkdtempSync(join(tmpdir(), "anvilore-rejuntar-"));
 });
@@ -563,7 +591,7 @@ describe("rejuntar-linhas: diff em memória linear", () => {
     }
   });
 
-  test.skipIf(Bun.which("patch") === null)("Dado dois arquivos com linhas fora de ordem (requer o programa patch), Quando monto o diff, Então ele aplica com patch e reproduz o texto novo", async () => {
+  test.skipIf(!PATCH.ok)(`Dado dois arquivos com linhas fora de ordem (requer o programa patch), Quando monto o diff, Então ele aplica com patch e reproduz o texto novo${sufixoPatch}`, async () => {
     const antes = Array.from({ length: 40 }, (_, i) => `linha ${i}\n`);
     const depois = [...antes];
     depois.splice(30, 0, "nova trinta\n");
@@ -573,13 +601,12 @@ describe("rejuntar-linhas: diff em memória linear", () => {
     const arquivoDiff = join(pasta, "o.diff");
     writeFileSync(original, antes.join(""));
     writeFileSync(arquivoDiff, `${diffUnificado("o.md", "o.md (novo)", antes.join(""), depois.join("")).join("\n")}\n`);
-    const patch = Bun.spawn(["patch", "-s", original, arquivoDiff], { stdout: "pipe", stderr: "pipe" });
-    expect(await patch.exited).toBe(0);
+    await aplicarPatch(original, arquivoDiff);
     expect(readFileSync(original, "utf8")).toBe(depois.join(""));
   });
 
-  test.skipIf(Bun.which("patch") === null)(
-    "Dado o diff de um arquivo sujo (requer o programa patch), Quando aplico com patch, Então o resultado é o texto rejuntado",
+  test.skipIf(!PATCH.ok)(
+    `Dado o diff de um arquivo sujo (requer o programa patch), Quando aplico com patch, Então o resultado é o texto rejuntado${sufixoPatch}`,
     async () => {
       const caminho = pagina();
       const copia = join(pasta, "copia.md");
@@ -587,8 +614,7 @@ describe("rejuntar-linhas: diff em memória linear", () => {
       const r = await capturar(() => comandoRejuntarLinhas([caminho, "--simular", "--diff"]));
       const arquivoDiff = join(pasta, "q.diff");
       writeFileSync(arquivoDiff, `${r.saida}\n`);
-      const patch = Bun.spawn(["patch", "-s", copia, arquivoDiff], { stdout: "pipe", stderr: "pipe" });
-      expect(await patch.exited).toBe(0);
+      await aplicarPatch(copia, arquivoDiff);
       await rejuntarLinhas(caminho);
       expect(readFileSync(copia, "utf8")).toBe(readFileSync(caminho, "utf8"));
     },
