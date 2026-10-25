@@ -55,8 +55,13 @@ const ESCRITA_GLOBAL = new Set([
 const COPIA_OU_MOVIMENTO = new Set(["copy-item", "cpi", "copy", "cp", "move-item", "mi", "move"]);
 const DESTINO_JULGADO = new Set(["copy-item", "cpi", "copy", "move-item", "mi", "move", "out-file", "set-content", "sc", "add-content", "ac", "new-item", "ni", "clear-content", "clc"]);
 // Parâmetros do PowerShell que levam valor (nome canônico) e seus apelidos; o PowerShell aceita qualquer prefixo único (-Dest, -Pa) e `-Path:valor`.
-const PARAMETROS_PS = ["path", "literalpath", "destination", "filepath", "value", "name", "itemtype", "encoding", "filter", "include", "exclude", "width", "stream", "credential"];
-const APELIDOS_PS: Record<string, string> = { pspath: "path", lp: "literalpath", type: "itemtype", target: "value" };
+const PARAMETROS_PS = ["path", "literalpath", "destination", "filepath", "value", "name", "itemtype", "encoding", "filter", "include", "exclude", "width", "stream", "credential",
+  "erroraction", "warningaction", "informationaction", "progressaction", "errorvariable", "warningvariable", "informationvariable", "outvariable", "outbuffer", "pipelinevariable"];
+const APELIDOS_PS: Record<string, string> = {
+  pspath: "path", lp: "literalpath", type: "itemtype", target: "value",
+  ea: "erroraction", wa: "warningaction", infa: "informationaction", proga: "progressaction",
+  ev: "errorvariable", wv: "warningvariable", iv: "informationvariable", ov: "outvariable", ob: "outbuffer", pv: "pipelinevariable",
+};
 // Estes leem o caminho dos itens que chegam pela pipeline quando não recebem um explícito (`gci raw | Clear-Content`).
 const GRAVA_PELA_PIPELINE = new Set(["set-content", "sc", "add-content", "ac", "clear-content", "clc"]);
 const PALAVRAS_DE_LACO = new Set(["do", "then", "else", "elif", "{", "!", "while", "until", "if"]);
@@ -238,11 +243,13 @@ function apagaAncestral(verbo: string, args: string[], cwd: string, raiz: string
 function parametroPs(opcao: string): string | undefined {
   const nome = opcao.slice(1).toLowerCase();
   if (nome === "") return undefined;
+  if (APELIDOS_PS[nome] !== undefined) return APELIDOS_PS[nome];
+  if (PARAMETROS_PS.includes(nome)) return nome;
   const candidatos = new Set([...PARAMETROS_PS, ...Object.keys(APELIDOS_PS)].filter(parametro => parametro.startsWith(nome)).map(parametro => APELIDOS_PS[parametro] ?? parametro));
   return candidatos.size === 1 ? [...candidatos][0] : undefined;
 }
 
-// Cópia/movimento: -Destination, último posicional após a origem ou cwd quando omitido. Demais verbos: primeiro caminho.
+// Cópia/movimento: -Destination e todos os posicionais após a origem; sem destino, cwd. Demais verbos: primeiro caminho.
 // New-Item de link (SymbolicLink, HardLink, Junction) também aponta para o valor de -Value/-Target.
 function destinosDoCmdlet(verbo: string, args: string[]): string[] {
   const nomeados = new Map<string, string[]>();
@@ -259,7 +266,8 @@ function destinosDoCmdlet(verbo: string, args: string[]): string[] {
   }
   if (COPIA_OU_MOVIMENTO.has(verbo)) {
     const origemNomeada = nomeados.has("path") || nomeados.has("literalpath");
-    return nomeados.get("destination") ?? (posicionais.length > (origemNomeada ? 0 : 1) ? posicionais.slice(-1) : ["."]);
+    const destinos = [...(nomeados.get("destination") ?? []), ...posicionais.slice(origemNomeada ? 0 : 1)];
+    return destinos.length ? destinos : ["."];
   }
   const nomeadosDeCaminho = ["filepath", "path", "literalpath", "name"].flatMap(parametro => nomeados.get(parametro) ?? []);
   const destinos = nomeadosDeCaminho.length ? nomeadosDeCaminho : posicionais.slice(0, 1);

@@ -60,6 +60,8 @@ está dito.
     pelo caminho, e `cd raw` (com ou sem opção, `cd -`, `popd`) torna relativos os caminhos seguintes;
   - cópia e movimento no PowerShell (`Copy-Item`/`Move-Item` e aliases) e no cmd (`copy`/`move`) com destino omitido
     usam o diretório atual; o hook considera esse destino implícito depois de `cd` ou `Set-Location`;
+    parâmetros comuns com valor (`-ErrorAction`, `-OutVariable` e seus apelidos, entre outros) são consumidos pelo parser.
+    Cópia/movimento julgam todos os posicionais após a origem, além do destino nomeado, para falhar fechado;
   - opções longas GNU que determinam destino ou escrita aceitam prefixos inequívocos, como `cp --target-dir=raw`
     e `rm --rec .`; o helper `opcaoLongaGnu` também é usado ao abrir envolvedores e reconhecer listagens recursivas;
   - **regra ampla (R66):** se o comando cita `raw/` em qualquer posição (inclusive como leitura) e algum segmento
@@ -86,6 +88,8 @@ está dito.
   (`python ler.py raw/a.md`), `perl` de leitura, `sort raw/a.md`, `rm wiki/x.md; cat raw/y.md` e
   `cp raw/a wiki/a && touch wiki/index.md` (a regra ampla não separa leitura de escrita no mesmo comando), o `apply_patch` do Codex e o heredoc numa página da wiki cujo texto
   cita `raw/` (`+original_file: raw/a.pdf`): o texto vira comando e bloqueia.
+  Em cópia/movimento, um valor de parâmetro desconhecido que cite `raw/` depois da origem também bloqueia,
+  mesmo quando o destino informado fica na wiki: o parser o considera um possível destino adicional.
 - **Regra de parada (R66).** Depois da rodada 2, a revisão só trata como bloqueante um **falso liberar** que (a) um
   agente plausivelmente emitiria para escrever em `raw/` e (b) não pertença a uma das classes abaixo, que o hook
   declara não cobrir. O hook cobre o erro do agente, não um agente hostil.

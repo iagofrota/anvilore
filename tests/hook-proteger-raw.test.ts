@@ -561,6 +561,42 @@ for (const comando of ["sed -E -n 's/a/b/p' raw/a.md", "sed -En 's/a/b/p' raw/a.
 }
 
 // Rodada 3 — I1: cmdlets de cópia e gravação do PowerShell e `copy` do cmd são julgados pelo destino, como cp e tee.
+for (const [nome, apelido, valor] of [
+  ["ErrorAction", "ea", "Stop"], ["WarningAction", "wa", "Continue"],
+  ["InformationAction", "infa", "Continue"], ["ProgressAction", "proga", "Continue"],
+  ["ErrorVariable", "ev", "erros"], ["WarningVariable", "wv", "avisos"],
+  ["InformationVariable", "iv", "informacoes"], ["OutVariable", "ov", "saida"],
+  ["OutBuffer", "ob", "1"], ["PipelineVariable", "pv", "item"],
+]) {
+  test(`Dado parâmetro comum PowerShell ${nome} Quando acompanha uma cópia Então não esconde o destino`, () => {
+    for (const parametro of [nome, apelido]) {
+      expect(cli(terminal(`Copy-Item wiki/a.md raw/a.md -${parametro} ${valor}`, "powershell")).exitCode).toBe(2);
+      expect(cli(terminal(`Copy-Item -${parametro} ${valor} raw/a.md wiki/a.md`, "powershell")).exitCode).toBe(0);
+    }
+  });
+}
+for (const comando of [
+  "Copy-Item wiki/a.md raw/a.md -ea 0", "Copy-Item -ErrorAction Stop wiki/a.md raw/a.md",
+  "Move-Item wiki/a.md raw/a.md -OutVariable x", "Copy-Item wiki/a.md raw/a.md -Desconhecido Valor",
+  "Copy-Item -Path wiki/a.md raw/a.md -Desconhecido Valor", "Copy-Item -LiteralPath wiki/a.md raw/a.md -Desconhecido Valor",
+  "Set-Content raw/a.md x -ErrorAction Stop",
+]) {
+  test(`Dado parâmetros após o destino Quando avalio ${comando} Então bloqueia a escrita em raw`, () => {
+    expect(cli(terminal(comando, "powershell")).exitCode).toBe(2);
+  });
+}
+test("Dado parâmetro desconhecido após a origem Quando seu valor cita raw Então a cópia falha fechada", () => {
+  expect(cli(terminal("Copy-Item raw/a.md wiki/a.md -Desconhecido raw/valor outro", "powershell")).exitCode).toBe(2);
+});
+test("Dado prefixos de caminho e switches PowerShell Quando copio fontes para wiki Então a ingestão continua permitida", () => {
+  for (const comando of [
+    "Copy-Item raw/a.md wiki/a.md -ErrorAction Stop", "Copy-Item -ea Stop raw/a.md wiki/a.md",
+    "Copy-Item raw/a.md wiki/a.md -Force -Verbose -Debug -WhatIf -Confirm",
+    "Copy-Item -Pa raw/a.md -Dest wiki/a.md -ea Stop",
+    "Get-Content raw/a.md | Out-File -File wiki/a.md -ea Stop",
+    "Set-Content -Path wiki/a.md -Va texto -WarningAction Continue",
+  ]) expect(cli(terminal(comando, "powershell")).exitCode).toBe(0);
+});
 for (const verbo of ["Copy-Item", "cpi", "copy", "cp", "Move-Item", "mi", "move"]) {
   test(`Dado ${verbo} sem destino Quando o diretório atual é raw Então bloqueia a escrita implícita`, () => {
     expect(cli(terminal(`cd raw; ${verbo} ../wiki/a.md`, "powershell")).exitCode).toBe(2);
