@@ -95,8 +95,12 @@ Com o clone configurado:
    terminal, passe `--areas pessoal,saude`. Repetir o comando não altera o que
    já existe. Se você usa um `anvilore.toml` com `areas`, o `init` recusa a área
    que não estiver na lista; e o `wiki/exemplo/` que veio no clone também não
-   está nela, então apague-o (`rm -r wiki/exemplo`) antes de ligar o toml, senão
-   o `validar` o reprova.
+   está nela, então apague-o antes de ligar o toml, senão o `validar` o reprova.
+   Apague as duas coisas: a pasta (`rm -r wiki/exemplo`) **e** a seção do
+   exemplo no `wiki/index.md`, que é a última do arquivo — do título
+   `## Área: exemplo` até o fim do arquivo (o título, `### Conceitos` e a linha
+   `- [[area-tematica]] — …`). Só a pasta deixaria o link `[[area-tematica]]` no
+   índice, e o `validar` reprovaria por wikilink quebrado.
 3. Peça ao agente para seguir `skills/ingest/SKILL.md` e ingerir
    `raw/exemplo/llm-wiki.md` — o próprio texto que originou este padrão. **Diga
    em que área ingerir** (se você criou uma só, ele usa essa). O ingest é uma
