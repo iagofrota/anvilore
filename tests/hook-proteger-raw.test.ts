@@ -93,6 +93,23 @@ const escritas: Array<[string, string]> = [
   ["ln", "ln -s wiki/a.md raw/a.md"], ["chmod", "chmod 644 raw/a.md"],
   ["git mv", "git mv wiki/a.md raw/a.md"], ["git rm", "git rm raw/a.md"],
 ];
+for (const comando of [
+  "cp wiki/a.md raw/a.md -v", "cp wiki/a.md raw/a.md --force",
+  "cp -S .bak wiki/a.md raw/a.md -v", "cp -- wiki/a.md raw/a.md",
+  "cp wiki/a.md raw/a.md --suffix .bak", "cp wiki/a.md raw/a.md -vS .bak",
+]) {
+  test(`Dado cp com opções e operandos Quando avalio ${comando} Então bloqueia raw e permite a ingestão`, () => {
+    expect(cli(terminal(comando)).exitCode).toBe(2);
+    for (const leitura of ["cp raw/a.md wiki/a.md -v", "cp -v raw/a.md wiki/a.md", "cp raw/a.md wiki/ --preserve=mode"]) {
+      expect(cli(terminal(leitura)).exitCode).toBe(0);
+    }
+  });
+}
+for (const opcao of ["-S", "-vS", "--suffix"]) {
+  test(`Dado cp com ${opcao} após o destino Quando o sufixo cita raw Então ignora o valor da opção`, () => {
+    expect(cli(terminal(`cp raw/a.md wiki/a.md ${opcao} raw/sufixo`)).exitCode).toBe(0);
+  });
+}
 for (const [verbo, comando] of escritas) {
   test(`Dado terminal ${verbo} Quando escreve em raw Então bloqueia e em wiki libera`, () => {
     expect(decidir(terminal(comando)).acao).toBe("bloquear");

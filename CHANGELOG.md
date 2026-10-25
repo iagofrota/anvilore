@@ -78,6 +78,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
+- O hook identifica o destino de `cp` pelo último operando, mesmo com opções depois dos caminhos, e continua permitindo copiar fontes de `raw/` para a wiki.
+
 - O instalador também segue skills que são links simbólicos para diretórios.
 - O instalador ignora arquivos soltos e pastas ocultas em skills, segue para os demais agentes
   após um erro e entrega o resumo com as causas das falhas. A descrição do Gemini vem só do

@@ -332,13 +332,23 @@ function segmentoEscreve(palavras: string[], cwd: string, contexto: Contexto): b
     return destinos.some(destino => escreveEmRaw(destino, cwd) || citaRaw(destino));
   }
   if (verbo === "cp") {
-    const alvos = args.flatMap((arg, i) => {
+    const fimDasOpcoes = args.indexOf("--");
+    const opcoes = fimDasOpcoes < 0 ? args : args.slice(0, fimDasOpcoes);
+    const alvos = opcoes.flatMap((arg, i) => {
       if (arg.startsWith("--target-directory=")) return [arg.slice(19)];
       if (arg === "--target-directory" || /^-[a-zA-Z]*t$/.test(arg)) return [args[i + 1] ?? ""];
       const agrupado = /^-[a-zA-Z]*?t(.+)$/.exec(arg);
       return agrupado ? [agrupado[1]!] : [];
     });
-    return (alvos.length ? alvos : [args.at(-1) ?? ""]).some(alvo => escreveEmRaw(alvo, cwd));
+    let ultimoOperando = "";
+    let soOperandos = false;
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i]!;
+      if (soOperandos || arg === "-" || !arg.startsWith("-")) ultimoOperando = arg;
+      else if (arg === "--") soOperandos = true;
+      else if (arg === "--suffix" || /^-[a-zA-Z]*S$/.test(arg)) i++;
+    }
+    return (alvos.length ? alvos : [ultimoOperando]).some(alvo => escreveEmRaw(alvo, cwd));
   }
   if (!forcar && !estaEmRaw(comando[0]!) && !args.some(palavra => escreveEmRaw(palavra, cwd) || citaRaw(palavra))) return false;
   if (verbo === "rg") return args.some(arg => arg === "--pre" || arg.startsWith("--pre="));
