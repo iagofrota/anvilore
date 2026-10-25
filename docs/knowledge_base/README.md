@@ -43,6 +43,7 @@ Peças que existem hoje no repositório:
 | O que protege a wiki hoje? O que não protege? Há risco de vazamento? | [governanca.md](governanca.md) |
 | Funciona em Windows e macOS? O que pode dar errado? | [plataformas.md](plataformas.md) |
 | Como rodo os testes? Como entrego uma mudança? Como sai uma release? | [contribuindo.md](contribuindo.md) |
+| Quanto tempo leva a primeira experiência? O que quebrou nos ensaios? A skill de ingestão funciona em outro agente? | [perguntas-frequentes.md](perguntas-frequentes.md) |
 
 ## Páginas a escrever
 
@@ -51,7 +52,6 @@ nasce quando o código novo que ela descreve estiver integrado.
 
 - arquitetura: o mapa das camadas, dos componentes e do fluxo;
 - comandos: cada subcomando, com entradas e códigos de saída;
-- perguntas frequentes: as dúvidas que um agente costuma receber.
 
 Enquanto não existem, a fonte é o código: `src/cli.ts` lista os subcomandos e cada um mora em
 `src/comandos/`.
