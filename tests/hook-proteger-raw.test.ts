@@ -679,3 +679,12 @@ test("Dado dois-pontos colado ao valor e dois-pontos sem valor no fim Quando dec
   expect(decidir(terminal("Set-Content -Path:wiki\\\\a.md x", "powershell")).acao).toBe("liberar");
   expect(decidir(terminal("Set-Content wiki\\\\a.md -Path:", "powershell")).acao).toBe("liberar");
 });
+
+// Rodada 4 (R72) — M1: o env trata `\_` como separador no valor de -S.
+test("Dado env -S com \\_ no lugar do espaço Quando o comando escreve em raw Então bloqueia e a leitura libera", () => {
+  for (const comando of ["env -S 'rm\\_raw/a.md'", "env -S 'touch\\_raw/a.md'", "env --split-string='rm\\_raw/a.md'", "env -Srm\\_raw/a.md", "env -S 'rm\\_-rf\\_.'"]) {
+    expect(decidir(comCwd(comando, "/srv/equipe/proj")).acao).toBe("bloquear");
+  }
+  expect(decidir(comCwd("env -S 'cat\\_raw/a.md'", "/srv/equipe/proj")).acao).toBe("liberar");
+  expect(decidir(comCwd("env -S 'cat\\_wiki/a.md'", "/srv/equipe/proj")).acao).toBe("liberar");
+});

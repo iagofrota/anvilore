@@ -91,7 +91,7 @@ está dito.
      `export PAGER=rm; git log raw/`.
   2. *Script externo:* `bash limpa.sh`, `make clean`, `npm run limpa`, hook de commit do git.
   3. *Alias, função e configuração:* `alias rm=...`, `git config`/`git -c alias...` numa chamada que não cita `raw/`.
-  4. *Codificação e ofuscação:* `> r\aw/a`, `> $'raw/a'`, `echo cm0gcmF3L2E= | base64 -d | sh` (o `sh` lendo o pipe só é visto
+  4. *Codificação e ofuscação:* `> r\aw/a`, `> $'raw/a'`, os escapes do `env -S` fora do `\_` (`env -S 'rm\tx'`; sem promessa de cobertura), `echo cm0gcmF3L2E= | base64 -d | sh` (o `sh` lendo o pipe só é visto
      quando um segmento anterior cita `raw/`).
   5. *Interpretador com código vindo de arquivo ou de stdin:* `python apaga.py`, `node limpa.js`, `sed -f script`,
      `bash < comandos.txt`, `xargs rm < lista` com a lista fora de `raw/`.

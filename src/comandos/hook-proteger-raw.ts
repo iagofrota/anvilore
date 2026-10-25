@@ -272,7 +272,8 @@ function desembrulhar(verbo: string, args: string[]): { resto: string[]; descart
     const ehS = verbo === "env" && ((arg.startsWith("-S") && !arg.startsWith("--")) || (nomeLongo.startsWith("--s") && "--split-string".startsWith(nomeLongo)));
     if (ehS) {
       const colado = arg.startsWith("--") ? (arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : undefined) : arg.slice(2) || undefined;
-      const texto = colado ?? args[i + 1] ?? "";
+      // O env interpreta `\_` como separador no valor de -S: trata como espaço (falha fechada; os outros escapes ficam na classe 4 de governanca.md).
+      const texto = (colado ?? args[i + 1] ?? "").replaceAll("\\_", " ");
       return { resto: [...texto.split(/\s+/).filter(Boolean), ...args.slice(colado !== undefined ? i + 1 : i + 2)], descartados: args.slice(0, i) };
     }
     if (arg.startsWith("-")) {
