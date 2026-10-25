@@ -7,15 +7,19 @@ description: "Adiciona novas fontes à wiki, criando ou atualizando páginas con
 
 Você foi invocado pelo orquestrador porque o usuário quer adicionar uma nova fonte à wiki. Siga todos os passos em ordem. Não pule passos. Não avance para o próximo sem terminar o atual.
 
+**Esta skill conversa com a pessoa.** Ela aprova os takeaways (Passo 2) e a lista de páginas (Passo 4) antes de você escrever, e depois revisa o que você escreveu (Passo 7): as páginas nascem com `generated` e só valem depois que ela as aprova. Sem uma pessoa para responder, pare no Passo 2 e entregue os takeaways: não escreva em `wiki/`.
+
 ---
 
-## Passo 0 — Despache um subagente (só na sessão de conversa)
+## Passo 0 — Fonte grande? Despache subagentes (só na sessão de conversa)
 
-**Pule este passo inteiro se você já é o subagente** — ou seja, se seu prompt veio de uma chamada `Agent`, ou já diz explicitamente que você é "um agente de ingest deste projeto". Nesse caso vá direto ao Passo 1. Um subagente nunca despacha outro: isso é recursão.
+**Antes de tudo, confira o tamanho da fonte** (`wc -c`). Os subagentes só valem para fonte grande, **acima de 400.000 bytes**. Fonte pequena ou média você lê na própria sessão: **pule o Passo 0 inteiro e vá ao Passo 1**. Despachar subagentes para um texto de 12 KB é custo sem ganho.
 
-Se você é a sessão de conversa com o usuário, **não leia a fonte nem execute o pipeline aqui**. Despache **dois** subagentes, em série, com a discussão do Passo 2 entre eles.
+**Pule este passo também se você já é o subagente** — ou seja, se seu prompt veio de uma chamada `Agent`, ou já diz explicitamente que você é "um agente de ingest deste projeto". Nesse caso vá direto ao Passo 1. Um subagente nunca despacha outro: isso é recursão.
 
-Por quê: o pipeline lê a fonte inteira (fontes maiores em `raw/` podem passar de dezenas de milhares de tokens), o `SCHEMA.md`, as páginas-alvo, e edita `wiki/index.md`. Rodar isso na sessão de conversa queima o contexto onde vocês estão falando e força leitura fatiada. Num subagente, a fonte inteira entra de uma vez e o contexto é descartado ao final. Um modelo com janela de contexto grande (`sonnet[1m]`, por exemplo) não custa mais que o padrão enquanto o prompt ficar abaixo de 200 mil tokens — o ganho vale a pena para fontes grandes.
+Para fonte grande, se você é a sessão de conversa com o usuário, **não leia a fonte nem execute o pipeline aqui**. Despache **dois** subagentes, em série, com a discussão do Passo 2 entre eles.
+
+Por quê: o pipeline lê a fonte inteira (fontes grandes em `raw/` passam de dezenas de milhares de tokens), o `SCHEMA.md`, as páginas-alvo, e edita `wiki/index.md`. Rodar isso na sessão de conversa queima o contexto onde vocês estão falando e força leitura fatiada. Num subagente, a fonte inteira entra de uma vez e o contexto é descartado ao final. O modelo citado abaixo (`sonnet[1m]`) é **exemplo, não requisito**: use um modelo com janela de contexto grande que o seu agente tenha, e avise a pessoa de que o ingest provavelmente vai custar mais.
 
 **Por que dois e não um:** o Passo 2 (discutir 3–5 takeaways antes de escrever) é do usuário, não de um agente — o contrato deste projeto declara a curadoria humana como não-opcional. Um subagente único escreveria a wiki sem essa passagem. Então o primeiro subagente **lê e não escreve**, e o segundo só existe depois do aval dele.
 
@@ -44,11 +48,9 @@ Só depois do aval. O prompt **já deve conter** (senão ele relê tudo e desper
 - "não releia `SKILL.md`/`SCHEMA.md` se já resumido aqui"
 - "execute os Passos 3 a 7; o Passo 2 já foi feito pelo humano"
 
-### Antes de despachar, e depois
+### Depois do escritor
 
-Confira o tamanho da fonte (`wc -c`). Se passar de 400.000 bytes, avise o usuário que o ingest provavelmente vai exigir um contexto grande e pode custar mais — ele decide se segue.
-
-Quando o escritor voltar, **confira você mesmo** o que ele afirma ter feito: `bash scripts/validar-wiki.sh` e `git status`. Relatório de subagente não é prova.
+Quando o escritor voltar, **confira você mesmo** o que ele afirma ter feito: `bun src/cli.ts validar wiki` e `git status`. Relatório de subagente não é prova.
 
 ---
 
@@ -60,19 +62,11 @@ Localize o arquivo que o usuário indicou em `raw/`. Leia-o por inteiro antes de
 - Se o arquivo tiver imagens com conteúdo relevante (gráficos, diagramas, capturas de tela), anote-as explicitamente — você vai referenciá-las na página de resumo.
 - Se o arquivo não existir em `raw/`, avise o usuário e pare. Nunca ingira a partir de fora de `raw/`.
 
-### Capturar fonte de URL com fidelidade integral
+### Fonte que é uma URL
 
-Se a fonte é uma URL (o usuário passou um link, não um arquivo), capture o **texto integral** para `raw/<subpasta>/<slug>.md` **antes** de qualquer outra coisa. Ferramenta por tipo de fonte:
+Você **não** escreve em `raw/`: o contrato proíbe e o hook recusa. Se o usuário passou um link, peça a ele que salve o **texto integral** (a página inteira, ou a transcrição do vídeo) em `raw/<subpasta>/<slug>.md` e avise quando estiver pronto; só então ingira a partir desse arquivo.
 
-- **Artigo / HTML / newsletter** → uma ferramenta de navegador que devolva o corpo completo da página, não um resumo.
-- **YouTube / vídeo** → uma ferramenta de transcrição.
-- **Arquivo local (PDF/doc)** → copie para `raw/` e leia o arquivo.
-
-Se o domínio da fonte tiver uma ferramenta de captura dedicada disponível na sessão, prefira-a às opções genéricas acima — e registre a escolha e o motivo.
-
-**Não use uma ferramenta que resume para capturar a fonte.** Uma ferramenta de resumo roda um modelo menor que condensa o conteúdo e com frequência recusa transcrição integral por direitos autorais, devolvendo texto degradado — o que contaminaria as páginas curadas (viola o princípio de "nada inventado"). Uma ferramenta assim serve para responder perguntas rápidas, não para capturar fonte.
-
-**Importante:** se qualquer captura vier **resumida, truncada ou recusada**, PARE e refaça com a ferramenta de texto integral. Nunca grave um resumo em `raw/` rotulado como "fonte" e nunca escreva uma página curada a partir dele. Degradação silenciosa — aceitar o resumo e seguir em frente — é o erro que este passo existe para evitar.
+Nunca ingira a partir de um resumo: uma ferramenta que resume roda um modelo menor que condensa o conteúdo e contaminaria as páginas curadas (viola o princípio de "nada inventado"). Se o arquivo em `raw/` parecer resumido, truncado ou incompleto, PARE e diga isso à pessoa.
 
 ---
 
@@ -99,7 +93,21 @@ Este passo existe porque a pessoa cura e o agente executa. Não pule mesmo que a
 
 ## Passo 3 — Criar a página de resumo da fonte
 
-Crie `wiki/sources/<slug>.md`, onde `<slug>` é uma versão em minúsculas e com hífens do título da fonte.
+### Onde gravar: a área
+
+Veja como a wiki está organizada (`ls wiki`):
+
+- **Uma só área** (um diretório `wiki/<área>/` com `sources`, `entities` e `concepts`, sem contar `exemplo/`, `_meta/` e `log/`): use-a, sem perguntar.
+- **Várias áreas**: pergunte à pessoa em qual delas ingerir (ou use a que ela já indicou).
+- **Nenhuma área**: layout plano, em `wiki/sources/`, `wiki/entities/` e `wiki/concepts/`, sem o campo `area`.
+
+Com área, a página vai para `wiki/<área>/sources/<slug>.md` e leva `area: <área>` no frontmatter. Se a pessoa pedir uma área que não existe, diga que `bun src/cli.ts init --areas <área>` a cria (e que um `anvilore.toml` com `areas` pode recusá-la).
+
+`<slug>` é uma versão em minúsculas e com hífens do título da fonte.
+
+### O frontmatter: toda página que você escreve leva `generated`
+
+Página escrita por agente nasce **marcada como rascunho**: o bloco `generated` diz quem a escreveu e quando, e o validador reprova a página até uma pessoa aprová-la (portão humano, ver `SCHEMA.md`). Use `<agente>/<versão>` em `by` (por exemplo `claude-opus/2026-09`; nunca `human:`) e a hora atual **com offset** em `at` (`date -Iseconds` no Linux e no macOS; `Get-Date -Format o` no PowerShell).
 
 Use exatamente este frontmatter:
 
@@ -108,12 +116,18 @@ Use exatamente este frontmatter:
 title: "Título completo da fonte"
 slug: slug-da-fonte
 type: source
+area: pessoal                      # só no layout por área
 tags: []
 original_file: raw/nome-do-arquivo.ext
 date_ingested: AAAA-MM-DD
 authors: []
+generated:
+  by: claude-opus/2026-09
+  at: 2026-10-24T10:30:00-03:00
 ---
 ```
+
+**Você nunca escreve `verified`.** Quem aprova é a pessoa (veja o Passo 7).
 
 Estrutura da página:
 
@@ -160,7 +174,7 @@ Antes de escrever qualquer coisa, percorra `wiki/index.md` e liste toda página 
 Escreva essa lista antes de prosseguir:
 
 ```
-Páginas a atualizar:
+Páginas a atualizar (caminhos sob wiki/<área>/, ou direto sob wiki/ no layout plano):
 - entities/nome-do-autor (existe)
 - concepts/self-attention (existe)
 - concepts/cross-attention (nova)
@@ -182,20 +196,25 @@ Leia a página atual por inteiro. Depois:
 - Não apague conteúdo existente a menos que esteja factualmente errado. Se for o caso, substitua o trecho e explique por quê na mesma edição — este nível do schema só define os callouts `[!gap]` e `[!contradiction]`, então não invente outro para marcar a mudança.
 - Se a fonte contradiz algo na página, adicione um callout `> [!contradiction]` com link para a página da fonte.
 - Adicione `[[slug]]` ao campo `related_sources` do frontmatter da página.
+- Grave (ou atualize) `generated` com `by` e a hora atual em `at`. Se a página já tinha `verified`, **mantenha a lista como está**: a aprovação anterior fica com data anterior à nova geração e deixa de valer até a pessoa revisar de novo. Nunca acrescente `verified` você mesmo.
 - Adicione uma subseção `## A partir de [[slug]]` se a fonte acrescenta conteúdo novo substancial.
 
 ### Criando uma página de entidade nova
 
-Frontmatter:
+Frontmatter (com `area` e `generated`, como no Passo 3):
 
 ```yaml
 ---
 title: "Nome da entidade"
 slug: slug-da-entidade
 type: entity
+area: pessoal                      # só no layout por área
 tags: []
 related_sources: [slug]
 related_concepts: []
+generated:
+  by: claude-opus/2026-09
+  at: 2026-10-24T10:30:00-03:00
 ---
 ```
 
@@ -203,16 +222,20 @@ Escreva um resumo factual de quem ou o que é essa entidade, baseado só no que 
 
 ### Criando uma página de conceito nova
 
-Frontmatter:
+Frontmatter (com `area` e `generated`, como no Passo 3):
 
 ```yaml
 ---
 title: "Nome do conceito"
 slug: slug-do-conceito
 type: concept
+area: pessoal                      # só no layout por área
 tags: []
 related_sources: [slug]
 related_concepts: []
+generated:
+  by: claude-opus/2026-09
+  at: 2026-10-24T10:30:00-03:00
 ---
 ```
 
@@ -240,13 +263,13 @@ Links para conceitos e entidades relacionados.
 
 ---
 
-## Passo 6 — Atualizar os arquivos de navegação
+## Passo 6 — Atualizar o índice e o log
 
-Depois que todas as páginas estiverem escritas, atualize dois arquivos. Eles pertencem ao orquestrador, mas você escreve as entradas durante o ingest.
+Depois que todas as páginas estiverem escritas, atualize dois arquivos de navegação.
 
-**`wiki/index.md`** — adicione as páginas novas na categoria correta. Para páginas só atualizadas, não duplique a entrada.
+**`wiki/index.md`** — adicione as páginas novas na categoria correta, no formato do esqueleto: no layout por área, sob a seção da área (`## Área: <nome>`, com `### Fontes`, `### Conceitos` e `### Entidades`; crie a seção se ela ainda não existe); no layout plano, sob `## Fontes`, `## Conceitos` e `## Entidades`. Cada linha é `- [[slug]] — descrição curta`. Para páginas só atualizadas, não duplique a entrada.
 
-**`wiki/log.md`** — adicione uma entrada logo abaixo do título do arquivo:
+**O log do dia** — escreva em **`wiki/log/log-AAAA-MM-DD.md`** (a data de hoje). Se o arquivo não existe, crie-o com o título `# Log — AAAA-MM-DD`; se existe, acrescente ao fim. A entrada:
 
 ```markdown
 ## [AAAA-MM-DD] ingest | Título da fonte
@@ -256,11 +279,25 @@ Páginas novas: concepts/cross-attention
 Contradições sinalizadas: 1 (ver sources/slug)
 ```
 
+**Não edite `wiki/log.md`.** Ele é um índice gerado a partir de `wiki/log/log-*.md` pelo fechamento, e o que você escrevesse nele seria sobrescrito.
+
 ---
 
 ## Passo 7 — Fechar o ciclo
 
-Diga ao usuário o que foi feito em linguagem simples. Não precisa listar todo arquivo — resuma:
+### 7.a — Rodar o fechamento
+
+```bash
+bash scripts/fechar-wiki.sh wiki
+```
+
+Ele sincroniza a contagem dos índices, regenera `wiki/log.md` a partir do log do dia, valida a wiki e cobra a entrada do dia no log. Ele para no primeiro passo que falha. **Não diga que o ingest está concluído se o fechamento reprovou por outro motivo que não seja a aprovação humana:** leia a mensagem, corrija (wikilink quebrado, página fora do índice, log do dia ausente...) e rode de novo.
+
+**A aprovação humana pendente é o único FAIL esperado.** Como toda página que você escreveu leva `generated`, o `validar` (e, com ele, o fechamento) reprova com `ERRO: página gerada sem aprovação humana: <página>` até a pessoa revisar. Isso não é erro seu: é o portão funcionando. Confira que **todos** os erros listados são desse tipo; se houver qualquer outro, corrija-o. Como o fechamento para nessa etapa, o gate do log do dia só roda depois da aprovação: por isso o Passo 6 tem de estar completo antes de você falar com a pessoa.
+
+### 7.b — Dizer à pessoa o que foi feito, e o que falta
+
+Em linguagem simples, sem listar todo arquivo, e **sempre** com o passo da aprovação:
 
 ```
 Pronto. Ingerida a fonte "Attention Is All You Need" (2017).
@@ -269,7 +306,16 @@ Criadas: sources/attention-is-all-you-need, concepts/cross-attention
 Atualizadas: concepts/self-attention, entities/vaswani-ashish
 Sinalizada: 1 contradição com concepts/positional-encoding
 
-Tem algo que você quer que eu revise antes de continuarmos?
+Falta a sua aprovação. Estas páginas foram escritas por mim e estão marcadas como
+rascunho (`generated`): `bun src/cli.ts validar` vai reprovar com "página gerada sem
+aprovação humana" até você ler cada uma e, se concordar, acrescentar no frontmatter
+
+verified:
+  - by: human:<seu-id>
+    at: <hora atual com offset, depois de generated.at>
+
+Depois disso, rode `bash scripts/fechar-wiki.sh wiki` de novo para fechar o ciclo.
+Tem algo que você quer que eu revise antes?
 ```
 
 ---
@@ -278,6 +324,7 @@ Tem algo que você quer que eu revise antes de continuarmos?
 
 - Nunca ingira um arquivo que não esteja em `raw/`. Se o usuário colar conteúdo direto no chat, peça para ele salvar em `raw/` primeiro e então ingerir a partir de lá. Isso mantém a camada de fonte limpa.
 - Nunca sobrescreva conteúdo existente da wiki sem ler primeiro.
+- Nunca escreva `verified`, nem edite `wiki/log.md` (é gerado), nem escreva em `raw/`.
 - Nunca responda perguntas durante o ingest. Se o usuário perguntar algo no meio do fluxo, anote e diga que vai responder depois que o ingest terminar.
 - Se um passo produzir mais de ~20 mudanças de arquivo, pare e pergunte ao usuário se ele quer continuar ou reduzir o escopo.
 - Prefira atualizar páginas existentes a criar novas. Fragmentação é inimiga de uma wiki útil.

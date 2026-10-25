@@ -1,24 +1,23 @@
 # scripts/resource-baseline.tsv — baseline de vereditos de sources[].resource
 #
 # ESTE ARQUIVO E O BASELINE. Nao e uma captura da saida do validador: e a regua,
-# escrita a mao a partir da regra de classificacao decidida (ver classificar_recurso
-# em scripts/validar-okf.py e o perfil OKF no SCHEMA.md). Por ser dado versionado, e
+# escrita a mao a partir da regra de classificacao decidida (ver classificarRecurso
+# em src/lib/okf.ts e o perfil OKF no SCHEMA.md). Por ser dado versionado, e
 # nao outra revisao do mesmo codigo, ele nao se anula depois do merge — que e o que
 # aconteceria com um harness que lesse o validador de `git show origin/main:`.
 #
-# Lido por scripts/resource-baseline-check.py, chamado por
-# tests/test-resource-baseline.sh.
+# Lido por tests/okf-baseline.test.ts (fase de regressao e canario de mutacao).
 #
 # FORMATO — colunas separadas por TAB, comentarios com '#':
 #   @fixture<TAB>file|dir<TAB>caminho     arquivo/diretorio criado na raiz sintetica
 #   pass|fail<TAB>valor<TAB>origem        veredito esperado para esse resource
 #
-# 'fail' = validar_recurso devolve mensagem de erro. 'pass' = devolve None.
+# 'fail' = validarRecurso (src/lib/okf.ts) devolve false. 'pass' = devolve true.
 # A coluna 'origem' e obrigatoria e nao pode ser vazia: nenhuma linha entra nem
 # muda de veredito sem o motivo escrito ao lado dela.
 #
 # COMO MUDAR ESTE ARQUIVO DE PROPOSITO (afrouxar uma checagem legitimamente)
-#   1. Mude a regra: classificar_recurso em scripts/validar-okf.py e o perfil OKF
+#   1. Mude a regra: classificarRecurso em src/lib/okf.ts e o perfil OKF
 #      no SCHEMA.md, com a medicao que a justifica.
 #   2. Edite AQUI, a mao, uma linha por vez, trocando o veredito E reescrevendo a
 #      coluna 'origem' para citar o que autoriza a mudanca.
@@ -31,20 +30,20 @@
 # a regua andou.
 #
 # Os quatro valores que regrediram de fato na rodada 1 de uma revisao anterior sao
-# canarios e estao fixados em CANARIOS, dentro de resource-baseline-check.py:
-# apaga-los daqui reprova o script.
+# canarios e estao fixados em CANARIOS, dentro de tests/okf-baseline.test.ts:
+# apaga-los daqui reprova o teste.
 
 # --- fixtures: o que existe na raiz sintetica durante a checagem ---
 @fixture	file	raw/existe-okf.md
 @fixture	file	anexos/existe-okf.md
-@fixture	file	raw/meetings/notas com espaco existente.md
+@fixture	file	raw/reunioes/notas com espaco existente.md
 @fixture	file	wiki/_meta/existe.md
 @fixture	dir	raw/dir-existente
 
 # --- Caminhos sob prefixo conhecido, inexistentes — o que o validador sempre reprovou ---
 fail	raw/x.md	harness de revisao anterior; checagem original da lista de prefixos
 fail	wiki/nao/existe.md	harness de revisao anterior; checagem original da lista de prefixos
-fail	raw/meetings/notas de reuniao.md	CANARIO — afrouxado numa rodada anterior de revisao; cenario A8
+fail	raw/reunioes/notas de reuniao.md	CANARIO — afrouxado numa rodada anterior de revisao; cenario A8
 fail	wiki/_meta/arquivo com espaco.md	CANARIO — afrouxado numa rodada anterior de revisao; cenario A8b
 fail	raw/2026 Q3/notas.md	CANARIO — afrouxado numa rodada anterior de revisao; cenario A8b
 fail	raw/notas do dia	CANARIO — afrouxado numa rodada anterior de revisao; cenario A8b
@@ -93,7 +92,7 @@ fail	~/notas.md	til nao e expandido por pathlib: vira caminho inexistente dentro
 # --- Caminhos locais que EXISTEM na fixture — a regra nao pode ter apertado demais ---
 pass	raw/existe-okf.md	cenario A4
 pass	anexos/existe-okf.md	cenario A4: prefixo fora da lista antiga, mas o arquivo existe
-pass	raw/meetings/notas com espaco existente.md	cenario A8c: caminho com espaco que existe passa
+pass	raw/reunioes/notas com espaco existente.md	cenario A8c: caminho com espaco que existe passa
 pass	wiki/_meta/existe.md	caminho sob o vault que existe
 pass	raw/dir-existente	a regra checa existencia, nao tipo
 pass	./raw/existe-okf.md	forma normalizada pelo resolve(): continua dentro da raiz

@@ -2,6 +2,11 @@
 import { parseArgs } from "node:util";
 import { comandoChecarDocs } from "./comandos/checar-docs";
 import { comandoChecarRelease } from "./comandos/checar-release";
+import { comandoValidar } from "./comandos/validar";
+import { comandoInstalar } from "./comandos/instalar";
+import { comandoDoctor } from "./comandos/doctor";
+import { comandoHook } from "./comandos/hook-proteger-raw";
+import { comandoInit } from "./comandos/init";
 
 export type Subcomando = (args: string[]) => Promise<number>;
 export type TabelaDeSubcomandos = Record<string, Subcomando>;
@@ -10,6 +15,11 @@ export type TabelaDeSubcomandos = Record<string, Subcomando>;
 export const subcomandos: TabelaDeSubcomandos = {
   "checar-docs": comandoChecarDocs,
   "checar-release": comandoChecarRelease,
+  validar: comandoValidar,
+  instalar: comandoInstalar,
+  hook: comandoHook,
+  doctor: comandoDoctor,
+  init: comandoInit,
 };
 
 function listar(tabela: TabelaDeSubcomandos): string {

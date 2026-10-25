@@ -23,12 +23,17 @@ Peças que existem hoje no repositório:
 - Contrato do agente: `AGENTS.md` (e `CLAUDE.md`, que só aponta para ele).
 - Skills de ingerir, consultar e varrer a wiki: `skills/ingest/SKILL.md`, `skills/query/SKILL.md`
   e `skills/lint/SKILL.md`.
-- Validador e scripts de manutenção, ainda em bash e Python: `scripts/`.
-- Proteção de `raw/` como hook: `hooks/proteger-raw.sh`.
-- Instalador para Claude Code, Codex, Gemini e Copilot: `instalar.sh`.
+- Validador da wiki (`anvilore validar`), em TypeScript: `src/comandos/validar.ts`, `src/lib/okf.ts` e
+  `src/lib/perfil.ts`. Os scripts de manutenção, ainda em bash e Python: `scripts/`.
+- Onboarding de áreas: `anvilore init`, em `src/comandos/init.ts` (cenários em `tests/init.test.ts`). Cria
+  `wiki/<área>/{sources,entities,concepts}`, recusa nome reservado (`src/lib/reservados.ts`) e é idempotente.
+- Proteção de `raw/` como hook, em TypeScript: `anvilore hook proteger-raw`, em
+  `src/comandos/hook-proteger-raw.ts`, chamado pelas formas de `hooks/`.
+- Instalador para Claude Code, Codex, Gemini e Copilot: `anvilore instalar`, em
+  `src/comandos/instalar.ts`, com fusão em `src/lib/fundir-json.ts` e `src/lib/fundir-bloco.ts`.
 - O porte para TypeScript no Bun, em andamento: `src/cli.ts` (tabela de subcomandos), a biblioteca
-  em `src/lib/` e dois subcomandos, `checar-docs` e `checar-release`, em `src/comandos/`. Os
-  scripts, o hook e o instalador acima ainda não foram substituídos.
+  em `src/lib/` e sete subcomandos, `checar-docs`, `checar-release`, `validar`, `instalar`, `init`, `doctor` e `hook`, em
+  `src/comandos/`. Os demais scripts de manutenção ainda não foram substituídos.
 
 ## Para onde ir com cada pergunta
 
@@ -38,6 +43,7 @@ Peças que existem hoje no repositório:
 | O que protege a wiki hoje? O que não protege? Há risco de vazamento? | [governanca.md](governanca.md) |
 | Funciona em Windows e macOS? O que pode dar errado? | [plataformas.md](plataformas.md) |
 | Como rodo os testes? Como entrego uma mudança? Como sai uma release? | [contribuindo.md](contribuindo.md) |
+| Quanto tempo leva a primeira experiência? O que quebrou nos ensaios? A skill de ingestão funciona em outro agente? | [perguntas-frequentes.md](perguntas-frequentes.md) |
 
 ## Páginas a escrever
 
@@ -46,7 +52,6 @@ nasce quando o código novo que ela descreve estiver integrado.
 
 - arquitetura: o mapa das camadas, dos componentes e do fluxo;
 - comandos: cada subcomando, com entradas e códigos de saída;
-- perguntas frequentes: as dúvidas que um agente costuma receber.
 
 Enquanto não existem, a fonte é o código: `src/cli.ts` lista os subcomandos e cada um mora em
 `src/comandos/`.

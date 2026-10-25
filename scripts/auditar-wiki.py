@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Varre a wiki atrás dos cinco problemas estruturais e imprime um relatório.
 
-`scripts/validar-wiki.sh` cobra **invariantes**: o que estiver errado reprova o
-repositório. Esta varredura é outra coisa — ela levanta **dívida de
-navegação**: página que ninguém alcança, página fora do índice, link que aponta
-para o vazio, frontmatter pela metade, página que nunca foi escrita. Nada disso
-é ilegal sob o `SCHEMA.md`; é só uma wiki ficando menos útil em silêncio.
+`anvilore validar` (src/comandos/validar.ts) cobra **invariantes** e reprova o repositório
+(inclusive wikilink quebrado e página fora do índice). Esta varredura levanta
+**dívida de navegação**: página que ninguém alcança, página fora do índice, link
+que aponta para o vazio, frontmatter pela metade, página que nunca foi escrita.
+O resto não é ilegal sob o `SCHEMA.md`; é só uma wiki ficando menos útil em silêncio.
 
 É a metade determinística da skill `lint`. A outra metade — decidir o que fazer
 com cada achado — é de quem cura, e está em `skills/lint/SKILL.md`.

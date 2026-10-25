@@ -119,7 +119,7 @@ Depois de responder, pergunte:
 Quer que eu salve isso como uma página da wiki?
 ```
 
-Se o usuário disser sim, pergunte um título se não for óbvio. Então crie `wiki/concepts/<slug>.md` usando o modelo de página de conceito de `skills/ingest/SKILL.md`. O frontmatter tem que obedecer ao `SCHEMA.md` — é ele que `scripts/validar-wiki.sh` cobra. A página deve conter a resposta sintetizada, com todas as citações intactas, mais uma seção `## Pergunta de origem` no topo:
+Se o usuário disser sim, pergunte um título se não for óbvio. Então crie `wiki/concepts/<slug>.md` usando o modelo de página de conceito de `skills/ingest/SKILL.md`. O frontmatter tem que obedecer ao `SCHEMA.md` — é ele que `bun src/cli.ts validar` cobra. A página deve conter a resposta sintetizada, com todas as citações intactas, mais uma seção `## Pergunta de origem` no topo:
 
 ```markdown
 ## Pergunta de origem
@@ -128,7 +128,7 @@ Se o usuário disser sim, pergunte um título se não for óbvio. Então crie `w
 > Registrada em: AAAA-MM-DD
 ```
 
-Depois atualize `wiki/index.md` e `wiki/log.md`:
+Depois atualize `wiki/index.md` e o log do dia, `wiki/log/log-AAAA-MM-DD.md` (crie-o com o título `# Log — AAAA-MM-DD` se não existir; `wiki/log.md` é um índice gerado pelo fechamento e não se edita):
 
 ```markdown
 ## [AAAA-MM-DD] query | Pergunta original

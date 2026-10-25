@@ -26,8 +26,10 @@ Para a linhagem do método e a argumentação completa das posições de design,
 - **Decisão do dono do projeto em 2026-10-23.** Os scripts de manutenção, o instalador e o hook
   passam de bash e Python para TypeScript no Bun, e o alvo passa a ser Linux, Windows nativo e
   macOS, os três obrigatórios.
-- O que o repositório mostra hoje: o porte está no começo. `scripts/`, `hooks/proteger-raw.sh` e
-  `instalar.sh` ainda são bash e Python, e o `README.md` ainda diz que não há suporte a Windows
+- O que o repositório mostra hoje: o porte está no começo. `scripts/`
+  ainda é bash e Python; o instalador e o hook já estão em `src/comandos/instalar.ts` e
+  `src/comandos/hook-proteger-raw.ts`, e o `README.md`
+  ainda diz que não há suporte a Windows
   nem a macOS. O CI está configurado para rodar nos três sistemas (`.github/workflows/ci.yml`), mas ainda não rodou. Os detalhes e os riscos
   estão em [plataformas.md](plataformas.md).
 
@@ -57,8 +59,9 @@ Para a linhagem do método e a argumentação completa das posições de design,
 
 - `raw/` é da pessoa; `wiki/` é do agente (`AGENTS.md`, tabela de camadas; `FILOSOFIA.md`,
   seção 1).
-- O hook `hooks/proteger-raw.sh` transforma a regra em recusa **para as ferramentas de edição de
-  arquivo**. Ele falha fechado quando não consegue isolar o caminho. O alcance exato está em
+- O hook `anvilore hook proteger-raw` (`src/comandos/hook-proteger-raw.ts`) transforma a regra em
+  recusa **para as ferramentas de edição de arquivo e para o comando de terminal**, dentro dos
+  limites de [governanca.md](governanca.md). Ele falha fechado quando não consegue isolar o caminho. O alcance exato está em
   [governanca.md](governanca.md).
 
 ## Sem RAG e sem infraestrutura
@@ -71,7 +74,7 @@ Para a linhagem do método e a argumentação completa das posições de design,
 ## Neutralidade de provedor de agente
 
 - Uma fonte só de skills e de hook, ligada a Claude Code, Codex, Gemini e Copilot por
-  `instalar.sh` (`FILOSOFIA.md`, seção 5; `hooks/README.md`, tabela "As formas por agente").
+  `anvilore instalar` (`FILOSOFIA.md`, seção 5; `hooks/README.md`, tabela "As formas por agente").
 - Só a forma do Claude Code foi exercitada de ponta a ponta com um agente de verdade. As outras
   três foram instaladas conforme a documentação de cada uma e não foram executadas
   (`hooks/README.md`, final).
