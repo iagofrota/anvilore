@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { auditarWiki, comandoAuditar } from "../src/comandos/auditar";
+import { auditarWiki, comandoAuditar, exibirCaminho } from "../src/comandos/auditar";
 import { executar, subcomandos } from "../src/cli";
 
 const HOJE = "2026-01-02";
@@ -12,6 +12,9 @@ const TITULOS = ["Páginas órfãs", "Entradas ausentes do índice", "Wikilinks 
 
 let raiz: string;
 let W: string;
+
+// O relatório mostra os caminhos com "/" em qualquer sistema (a forma do índice e dos links); só o separador do Windows vira "/".
+const exib = (rel = "") => exibirCaminho(W, rel, process.platform === "win32" ? "\\" : "/");
 
 function gravar(rel: string, texto: string): void {
   const destino = join(W, rel);
@@ -124,8 +127,8 @@ test("Dado wiki sem index.md, Quando audito, Então toda página é entrada ause
   rmSync(join(W, "index.md"));
   const r = await auditar();
   expect(secao(r.relatorio, "Entradas ausentes do índice")).toEqual([
-    `- ${join(W, "exemplo/concepts/alfa.md")} — não aparece em ${join(W, "index.md")}`,
-    `- ${join(W, "exemplo/concepts/beta.md")} — não aparece em ${join(W, "index.md")}`,
+    `- ${exib("exemplo/concepts/alfa.md")} — não aparece em ${exib("index.md")}`,
+    `- ${exib("exemplo/concepts/beta.md")} — não aparece em ${exib("index.md")}`,
   ]);
 });
 
@@ -136,7 +139,7 @@ test("Dado link para página inexistente, Quando audito, Então a origem e o slu
   indice("alfa", "beta", "delta");
   const r = await auditar();
   expect(secao(r.relatorio, "Wikilinks quebrados")).toEqual([
-    `- ${join(W, "exemplo/concepts/delta.md")} → [[pagina-que-nao-existe]] não corresponde a nenhuma página`,
+    `- ${exib("exemplo/concepts/delta.md")} → [[pagina-que-nao-existe]] não corresponde a nenhuma página`,
   ]);
 });
 
@@ -152,8 +155,8 @@ test("Dado link repetido na mesma página e link quebrado no índice, Quando aud
   gravar("index.md", "# Índice\n\n- [[alfa]]\n- [[fantasma]]\n- [[fantasma]]\n");
   const r = await auditar();
   expect(secao(r.relatorio, "Wikilinks quebrados")).toEqual([
-    `- ${join(W, "exemplo/concepts/delta.md")} → [[fantasma]] não corresponde a nenhuma página`,
-    `- ${join(W, "index.md")} → [[fantasma]] não corresponde a nenhuma página`,
+    `- ${exib("exemplo/concepts/delta.md")} → [[fantasma]] não corresponde a nenhuma página`,
+    `- ${exib("index.md")} → [[fantasma]] não corresponde a nenhuma página`,
   ]);
 });
 
@@ -202,7 +205,7 @@ test("Dado página sem o campo slug, Quando audito, Então o campo ausente é no
   gravar("exemplo/concepts/epsilon.md", SEM_SLUG);
   const r = await auditar();
   expect(secao(r.relatorio, "Frontmatter incompleto")).toEqual([
-    `- ${join(W, "exemplo/concepts/epsilon.md")} — campo ausente: slug`,
+    `- ${exib("exemplo/concepts/epsilon.md")} — campo ausente: slug`,
   ]);
 });
 
@@ -216,7 +219,7 @@ test("Dado fonte sem os campos próprios do tipo, Quando audito, Então todos s�
   gravar("exemplo/sources/fonte.md", `---\ntitle: "f"\nslug: fonte\ntype: source\ntags: []\n---\n\n${CORPO.join("\n")}\n`);
   const r = await auditar();
   expect(secao(r.relatorio, "Frontmatter incompleto")).toEqual([
-    `- ${join(W, "exemplo/sources/fonte.md")} — campos ausentes: original_file, date_ingested, authors`,
+    `- ${exib("exemplo/sources/fonte.md")} — campos ausentes: original_file, date_ingested, authors`,
   ]);
 });
 
@@ -230,7 +233,7 @@ test("Dado campo repetido, indentado ou com espaço antes dos dois pontos, Quand
   gravar("exemplo/dup.md", `---\ntitle : "d"\nslug: dup\ntype: source\ntype: concept\n  tags: []\n---\n\n${CORPO.join("\n")}\n`);
   const r = await auditar();
   expect(secao(r.relatorio, "Frontmatter incompleto")).toEqual([
-    `- ${join(W, "exemplo/dup.md")} — campos ausentes: tags, original_file, date_ingested, authors`,
+    `- ${exib("exemplo/dup.md")} — campos ausentes: tags, original_file, date_ingested, authors`,
   ]);
 });
 
@@ -242,7 +245,7 @@ test.each([
 ] as const)("Dado página %s, Quando audito, Então ela é listada como sem frontmatter e não como esboço", async (_nome, texto) => {
   gravar("exemplo/sem.md", texto);
   const r = await auditar();
-  expect(secao(r.relatorio, "Frontmatter incompleto")).toEqual([`- ${join(W, "exemplo/sem.md")} — sem frontmatter`]);
+  expect(secao(r.relatorio, "Frontmatter incompleto")).toEqual([`- ${exib("exemplo/sem.md")} — sem frontmatter`]);
   expect(noRelatorio(r.relatorio, "Páginas vazias ou esboço", "sem.md")).toBe(false);
 });
 
@@ -261,7 +264,7 @@ test("Dado corpo de uma linha, Quando audito, Então a página é esboço e a de
   pagina("exemplo/concepts/zeta.md", "concept", "uma linha so de corpo");
   const r = await auditar();
   expect(secao(r.relatorio, "Páginas vazias ou esboço")).toEqual([
-    `- ${join(W, "exemplo/concepts/zeta.md")} — 1 linha(s) de corpo (mínimo 3)`,
+    `- ${exib("exemplo/concepts/zeta.md")} — 1 linha(s) de corpo (mínimo 3)`,
   ]);
 });
 
@@ -323,7 +326,7 @@ test("Dado wiki com problema, Quando audito, Então sai 1 e achados lista cada l
 test("Dado a wiki, Quando audito, Então o relatório tem cabeçalho, seções na ordem e rodapé do original", async () => {
   const r = await auditar();
   expect(r.relatorio.split("\n").filter((l) => l.startsWith("#"))).toEqual([
-    `# Auditoria estrutural de ${W} — ${HOJE}`,
+    `# Auditoria estrutural de ${exib()} — ${HOJE}`,
     ...TITULOS.map((t) => `## ${t} (${secao(r.relatorio, t).filter((l) => l.startsWith("- ")).length})`),
   ]);
   expect(r.relatorio.endsWith(
@@ -338,8 +341,8 @@ test("Dado a data omitida, Quando audito, Então o cabeçalho usa a data de hoje
 
 test("Dado o caminho da wiki escrito de forma torta, Quando audito, Então os caminhos saem normalizados como no pathlib", async () => {
   const r = await auditarWiki(`${W}//./`, HOJE);
-  expect(r.relatorio.split("\n")[0]).toBe(`# Auditoria estrutural de ${W} — ${HOJE}`);
-  expect(r.relatorio).toContain(`- ${join(W, "exemplo/concepts/alfa.md")} —`);
+  expect(r.relatorio.split("\n")[0]).toBe(`# Auditoria estrutural de ${exib()} — ${HOJE}`);
+  expect(r.relatorio).toContain(`- ${exib("exemplo/concepts/alfa.md")} —`);
 });
 
 test("Dado diretórios cujos nomes o separador desempata, Quando audito, Então as órfãs saem na ordem das partes do caminho", async () => {
@@ -349,8 +352,8 @@ test("Dado diretórios cujos nomes o separador desempata, Quando audito, Então 
   indice("x", "y");
   const r = await auditar();
   expect(secao(r.relatorio, "Páginas órfãs").map((l) => l.split(" — ")[0])).toEqual([
-    `- ${join(W, "a/y.md")}`,
-    `- ${join(W, "a-b/x.md")}`,
+    `- ${exib("a/y.md")}`,
+    `- ${exib("a-b/x.md")}`,
   ]);
 });
 
@@ -406,7 +409,7 @@ testeSymlink("Dado página em symlink, Quando audito, Então ela entra pelo cami
   writeFileSync(alvo, "sem frontmatter\n");
   symlinkSync(alvo, join(W, "exemplo", "link.md"));
   const r = await auditar();
-  expect(secao(r.relatorio, "Frontmatter incompleto")).toEqual([`- ${join(W, "exemplo/link.md")} — sem frontmatter`]);
+  expect(secao(r.relatorio, "Frontmatter incompleto")).toEqual([`- ${exib("exemplo/link.md")} — sem frontmatter`]);
 });
 
 testeSymlink("Dado symlink quebrado e symlink de diretório, Quando audito pelo comando, Então avisa os dois e sai como sem eles", async () => {
@@ -502,4 +505,16 @@ test("Dado o CLI, Quando executo auditar por ele, Então o subcomando está regi
   limpa();
   const r = await capturar(() => executar(["auditar", W]));
   expect(r.codigo).toBe(0);
+});
+
+test("Dado separador do Windows, Quando exibo um caminho do relatório, Então tudo sai com barra normal", () => {
+  expect(exibirCaminho("D:\\a\\wiki", "exemplo\\concepts\\alfa.md", "\\")).toBe("D:/a/wiki/exemplo/concepts/alfa.md");
+  expect(exibirCaminho("D:\\a\\wiki\\", "index.md", "\\")).toBe("D:/a/wiki/index.md");
+  expect(exibirCaminho(".", "exemplo\\x.md", "\\")).toBe("exemplo/x.md");
+});
+
+test("Dado separador POSIX, Quando exibo um caminho, Então a barra invertida de um nome de arquivo continua sendo parte do nome", () => {
+  expect(exibirCaminho("/tmp/w", "a/b.md", "/")).toBe("/tmp/w/a/b.md");
+  expect(exibirCaminho("/tmp/w", "a\\b.md", "/")).toBe("/tmp/w/a\\b.md");
+  expect(exibirCaminho("/tmp/w/", "i.md", "/")).toBe("/tmp/w/i.md");
 });

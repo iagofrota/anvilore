@@ -47,8 +47,21 @@ function camposDeclarados(frontmatter: string[]): Map<string, string> {
   return campos;
 }
 
+// O relatório mostra os caminhos com "/" em qualquer sistema, a forma do índice e dos links: o legado em Python só rodava onde "/" era o
+// separador. Só a barra invertida do Windows é trocada; no POSIX ela é parte legítima do nome do arquivo.
+function paraBarras(caminho: string, separador: string): string {
+  return separador === "\\" ? caminho.replaceAll("\\", "/") : caminho;
+}
+
+export function exibirCaminho(base: string, rel: string, separador: string = sep): string {
+  const b = paraBarras(base, separador);
+  const r = paraBarras(rel, separador);
+  if (r === "") return b;
+  return b === "." ? r : b.endsWith("/") ? b + r : `${b}/${r}`;
+}
+
 function unir(base: string, rel: string): string {
-  return base === "." ? rel : base.endsWith(sep) ? base + rel : base + sep + rel;
+  return exibirCaminho(base, rel);
 }
 
 async function lerPagina(wiki: string, exibida: string, caminho: string): Promise<Pagina> {
@@ -57,7 +70,7 @@ async function lerPagina(wiki: string, exibida: string, caminho: string): Promis
   const { frontmatter, corpo } = separarFrontmatter(linhasPython(texto));
   const nome = basename(caminho);
   return {
-    caminho: unir(exibida, relative(wiki, caminho).split(sep).join("/").split("/").join(sep)),
+    caminho: unir(exibida, relative(wiki, caminho)),
     slug: nome.length > 3 ? nome.slice(0, -3) : nome,
     frontmatter,
     campos: frontmatter === null ? new Map() : camposDeclarados(frontmatter),
@@ -83,7 +96,7 @@ function camposAusentes(pagina: Pagina): string[] {
 }
 
 export async function auditarWiki(wiki: string, hoje: string = dataLocal()): Promise<ResultadoAuditoria> {
-  const exibida = caminhoPathlib(wiki);
+  const exibida = exibirCaminho(caminhoPathlib(wiki), "");
   if (!(await stat(wiki).catch(() => null))?.isDirectory()) {
     return { achados: [], codigo: 2, relatorio: "", erro: `erro: wiki não encontrada: ${exibida}` };
   }
