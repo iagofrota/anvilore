@@ -22,6 +22,9 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   sobrescrita (o comando relata o conflito e sai com 1); área do mapa que escapa da wiki (`..`, caminho absoluto, `\`,
   `:` ou link para fora) reprova antes de mover qualquer coisa; mapa sem marcadores e link quebrado avisam em stderr;
   falha no meio da migração é relatada com o que já foi movido, sem stack trace; `--help` mostra o uso e sai 2.
+  Também mudou de propósito: página (ou mapa) que não é UTF-8 válido, como um arquivo em Latin-1 com `café`, faz o comando
+  reprovar com `FAIL`, nomeando o arquivo e saindo 1, antes de mover ou reescrever qualquer página, inclusive em `--simular`; o
+  script em bash preservava os bytes, e o TypeScript gravaria U+FFFD no lugar e relataria sucesso.
 - O índice do log da wiki é regenerado por `bun src/cli.ts indexar-log`, com a opção
   `--stdout` para consultar sem gravar e preservação do log do clone quando não há dias fatiados.
   O antigo `scripts/indexar-log.sh` foi removido; a linha "Gerado por" no índice regenerado agora

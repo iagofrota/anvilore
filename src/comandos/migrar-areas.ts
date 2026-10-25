@@ -71,9 +71,20 @@ function lerMapa(texto: string): { pagina: string; area: string }[] {
   return entradas;
 }
 
+// Decodifica como UTF-8 estrito: bytes inválidos (Latin-1) virariam U+FFFD ao reescrever a página, e o comando diria que deu certo.
+// O script em bash preservava os bytes; aqui a migração recusa, nomeando o arquivo, antes de mover ou escrever qualquer coisa.
+async function lerUtf8Estrito(arquivo: string): Promise<string> {
+  const bytes = await readFile(arquivo);
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    throw new ErroDeMigracao(`${arquivo} não é UTF-8 válido; nada foi movido nem reescrito (converta o arquivo para UTF-8 e rode de novo)`);
+  }
+}
+
 // Injeta `area: <area>` logo após a primeira linha `type: `. Não duplica se já existir um `area: `.
 async function injetarArea(arquivo: string, area: string): Promise<void> {
-  const linhas = (await readFile(arquivo, "utf8")).split("\n");
+  const linhas = (await lerUtf8Estrito(arquivo)).split("\n");
   if (linhas.some((linha) => linha.startsWith("area: "))) return;
   const i = linhas.findIndex((linha) => linha.startsWith("type: "));
   if (i === -1) return;
@@ -167,7 +178,7 @@ export async function migrarAreas(wiki: string, opcoes: { simular?: boolean } = 
   const caminhoDoMapa = join(wiki, "_meta", "migration-routing.md");
   if (!ehArquivo(caminhoDoMapa)) throw new ErroDeMigracao(`mapa de roteamento ausente: ${caminhoDoMapa}`);
 
-  const texto = await readFile(caminhoDoMapa, "utf8");
+  const texto = await lerUtf8Estrito(caminhoDoMapa);
   const resultado: ResultadoDaMigracao = {
     movidas: [],
     jaMigradas: [],
@@ -188,6 +199,13 @@ export async function migrarAreas(wiki: string, opcoes: { simular?: boolean } = 
     const pastaDeDestino = pastaDaPagina === "" ? area : `${area}/${pastaDaPagina}`;
     if (areaSaiDaWiki(raiz, pastaDeDestino)) {
       throw new ErroDeMigracao(`área sai da wiki por link simbólico: ${pastaDeDestino} (página ${pagina})`);
+    }
+  }
+
+  // Toda página que a migração pode reescrever (origem e destino) tem de ser UTF-8, inclusive na simulação.
+  for (const { pagina, area } of entradas) {
+    for (const caminho of [join(raiz, `${pagina}.md`), join(raiz, area, `${pagina}.md`)]) {
+      if (ehArquivo(caminho)) await lerUtf8Estrito(caminho);
     }
   }
 

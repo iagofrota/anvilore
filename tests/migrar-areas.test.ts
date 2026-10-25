@@ -733,3 +733,74 @@ describe("migrar-areas: atribuição", () => {
     }
   });
 });
+
+describe("migrar-areas: bytes que não são UTF-8", () => {
+  // Latin-1: "café" com E9. O script em bash preservava os bytes; ler como utf8 gravaria U+FFFD e diria que deu certo.
+  const latin1 = Buffer.concat([Buffer.from("---\ntitle: \"caf"), Buffer.from([0xe9]), Buffer.from("\"\nslug: pagina-um\ntype: concept\ntags: []\n---\n\nCorpo.\n")]);
+
+  function bytesDe(relativo: string): Buffer {
+    return readFileSync(join(wiki, relativo));
+  }
+
+  test("Dado página Latin-1 na origem, Quando migro, Então reprova com FAIL nomeando o arquivo e não toca em nada", async () => {
+    gravar("pagina-valida.md", conteudoDaPagina("pagina-valida", "concept"));
+    writeFileSync(join(wiki, "pagina-um.md"), latin1);
+    mapa(["| pagina-valida | alfa |", "| pagina-um | alfa |"]);
+    const r = await capturar(() => comandoMigrarAreas([wiki]));
+    expect(r.codigo).toBe(1);
+    expect(r.erro.join("\n")).toContain("FAIL");
+    expect(r.erro.join("\n")).toContain(join(wiki, "pagina-um.md"));
+    expect(r.erro.join("\n")).toMatch(/UTF-8/);
+    expect(r.saida.join("\n")).not.toContain("movida:");
+    expect(bytesDe("pagina-um.md").equals(latin1)).toBe(true);
+    expect(existsSync(join(wiki, "pagina-valida.md"))).toBe(true);
+    expect(existsSync(join(wiki, "alfa"))).toBe(false);
+  });
+
+  test("Dado página Latin-1 e --simular, Quando migro, Então também reprova com rc 1 e nada muda", async () => {
+    writeFileSync(join(wiki, "pagina-um.md"), latin1);
+    mapa(["| pagina-um | alfa |"]);
+    const r = await capturar(() => comandoMigrarAreas([wiki, "--simular"]));
+    expect(r.codigo).toBe(1);
+    expect(r.erro.join("\n")).toContain(join(wiki, "pagina-um.md"));
+    expect(r.saida.join("\n")).not.toContain("moveria:");
+    expect(bytesDe("pagina-um.md").equals(latin1)).toBe(true);
+  });
+
+  test("Dado página já no destino com bytes Latin-1, Quando migro, Então reprova antes de injetar area:", async () => {
+    writeFileSync(join(wiki, "pagina-um.md"), "");
+    rmSync(join(wiki, "pagina-um.md"));
+    mkdirSync(join(wiki, "alfa"), { recursive: true });
+    writeFileSync(join(wiki, "alfa", "pagina-um.md"), latin1);
+    mapa(["| pagina-um | alfa |"]);
+    const r = await capturar(() => comandoMigrarAreas([wiki]));
+    expect(r.codigo).toBe(1);
+    expect(r.erro.join("\n")).toContain(join(wiki, "alfa", "pagina-um.md"));
+    expect(bytesDe("alfa/pagina-um.md").equals(latin1)).toBe(true);
+  });
+
+  test("Dado mapa de roteamento que não é UTF-8, Quando migro, Então reprova nomeando o mapa", async () => {
+    gravar("pagina-um.md", conteudoDaPagina("pagina-um", "concept"));
+    const mapaLatin1 = Buffer.concat([Buffer.from("<!-- ROUTING-START -->\n| page | area |\n|---|---|\n| pagina-um | alfa |\n<!-- ROUTING-END -->\n# caf"), Buffer.from([0xe9]), Buffer.from("\n")]);
+    writeFileSync(join(wiki, "_meta", "migration-routing.md"), mapaLatin1);
+    const r = await capturar(() => comandoMigrarAreas([wiki]));
+    expect(r.codigo).toBe(1);
+    expect(r.erro.join("\n")).toContain("migration-routing.md");
+    expect(existsSync(join(wiki, "pagina-um.md"))).toBe(true);
+  });
+
+  test("Dado páginas UTF-8 válidas com acento e BOM, Quando migro, Então migra e preserva os bytes do corpo", async () => {
+    const acentuada = "---\ntitle: \"café\"\nslug: pagina-um\ntype: concept\ntags: []\n---\n\nCorpo com ção.\n";
+    gravar("pagina-um.md", acentuada);
+    mapa(["| pagina-um | alfa |"]);
+    const r = await capturar(() => comandoMigrarAreas([wiki]));
+    expect(r.codigo).toBe(0);
+    expect(ler("alfa/pagina-um.md")).toBe(acentuada.replace("type: concept\n", "type: concept\narea: alfa\n"));
+  });
+
+  test("Dado a API, Quando uma página não é UTF-8, Então migrarAreas lança ErroDeMigracao", async () => {
+    writeFileSync(join(wiki, "pagina-um.md"), latin1);
+    mapa(["| pagina-um | alfa |"]);
+    await expect(migrarAreas(wiki)).rejects.toBeInstanceOf(ErroDeMigracao);
+  });
+});
