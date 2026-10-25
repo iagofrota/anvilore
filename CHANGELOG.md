@@ -11,6 +11,17 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Added
 
+- Correções do ensaio dos dez minutos. A skill `ingest` passa a gravar `generated` (`by`, `at`) em toda página que escreve,
+  então logo depois do ingest o `validar` reprova com "página gerada sem aprovação humana" até a pessoa acrescentar
+  `verified` com `by: human:<id>`; o README mostra esse passo. A skill também grava o log em `wiki/log/log-AAAA-MM-DD.md`
+  (o `wiki/log.md` é gerado e não se edita; `query` e `lint` seguem o mesmo caminho), usa a área do `init` (ou o layout plano),
+  dispensa subagentes para fonte pequena, não grava URL em `raw/` e termina rodando `bash scripts/fechar-wiki.sh wiki`.
+- `anvilore init` lê o `anvilore.toml`: área fora de `areas` é recusada nomeando a área e a lista, sem criar nada, e avisa quando
+  `wiki/exemplo/` ficaria fora da lista.
+- `anvilore instalar` termina com "Próximo passo: reabra o agente neste clone ... e rode `bun src/cli.ts init`" na instalação
+  real; a simulação diz "Nada foi alterado" e "seriam instalados".
+- `anvilore doctor` só cobra o agente que o clone configurou (pasta de configuração no destino); agente que só tem a CLI no PATH
+  aparece como "encontrado, sem trava neste clone (opcional)". Sai 1 se nenhum agente do clone tem a trava.
 - Comando `anvilore doctor [pasta]`: mostra, em linguagem simples, quais travas estão ligadas (proteção do `raw/` em
   cada agente, validação no fechamento da wiki, CI ou pré-commit, perfil da empresa) e o comando que liga cada uma que
   falta; confere `bun` e `git` no PATH. Sai 1 se faltar trava ou pré-requisito. Hook antigo conta como desligado.
