@@ -423,3 +423,36 @@ describe("validarProveniencia: portão humano (R28)", () => {
     expect(avaliar({ generated: "2026-10-24" }).erros).toEqual([]);
   });
 });
+
+describe("validarProveniencia: comparação exata da fração", () => {
+  for (const [geracao, anterior] of [["900", "100"], ["1004", "1001"], ["10000000004", "10000000001"]]) {
+    test(`Dado geração .${geracao} e verificação .${anterior} Quando valido Então reprova a anterior e aceita a igualdade`, () => {
+      const generated = { by: "process:x", at: `2026-10-24T10:00:00.${geracao}Z` };
+      const antes = avaliar({ generated, verified: { by: "human:ana", at: `2026-10-24T10:00:00.${anterior}Z` } });
+      expect(antes.erros).toContain("página gerada sem aprovação humana: pagina.md");
+      expect(antes.geradaAposVerificacao).toBe(true);
+      const igual = avaliar({ generated, verified: { by: "human:ana", at: `${generated.at.slice(0, -1)}0Z` } });
+      expect(igual.erros).toEqual([]);
+      expect(igual.geradaAposVerificacao).toBe(false);
+      expect(avaliar({ generated: { by: "process:x", at: "2026-10-24T10:00:00Z" }, verified: { by: "human:ana", at: "2026-10-24T10:00:00Z" } }).erros).toEqual([]);
+    });
+  }
+
+  test("Dado fração com offset Quando comparo em UTC Então distingue a anterior e aceita o mesmo instante", () => {
+    const generated = { by: "process:x", at: "2026-10-24T10:00:00.5-03:00" };
+    expect(avaliar({ generated, verified: { by: "human:ana", at: "2026-10-24T13:00:00.4Z" } }).erros).toContain("página gerada sem aprovação humana: pagina.md");
+    expect(avaliar({ generated, verified: { by: "human:ana", at: "2026-10-24T13:00:00.500Z" } }).erros).toEqual([]);
+  });
+
+  test("Dado várias verificações no mesmo segundo Quando só a última fração aprova Então conserva a mais recente", () => {
+    const resultado = avaliar({
+      generated: { by: "process:x", at: "2026-10-24T10:00:00.5Z" },
+      verified: [
+        { by: "human:ana", at: "2026-10-24T10:00:00.9Z" },
+        { by: "human:ana", at: "2026-10-24T10:00:00.1Z" },
+      ],
+      stale_after: "2026-10-24T12:00:00.00000000001Z",
+    });
+    expect(resultado).toEqual({ erros: [], vencida: false, geradaAposVerificacao: false });
+  });
+});

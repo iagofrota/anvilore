@@ -78,6 +78,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
+- O validador preserva toda a fração de segundo da proveniência: uma aprovação anterior à geração reprova mesmo dentro do mesmo milissegundo; as métricas usam a mesma precisão.
+
 - O hook identifica o destino de `cp` pelo último operando, mesmo com opções depois dos caminhos, e continua permitindo copiar fontes de `raw/` para a wiki.
 
 - O instalador também segue skills que são links simbólicos para diretórios.

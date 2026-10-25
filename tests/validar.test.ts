@@ -442,6 +442,15 @@ stale_after: 2099-09-03T00:00:00-03:00
     const aprovada = await comOkf(`${gerada}verified:\n  - by: human:ana\n    at: 2026-10-24T11:00:00-03:00\n`, "rascunho");
     expect(aprovada.codigo).toBe(0);
   });
+
+  test("Dado página gerada com fração Quando a aprovação é anterior no mesmo segundo Então o comando reprova até haver igualdade", async () => {
+    const gerada = "generated:\n  by: process:ingest\n  at: 2026-10-24T10:00:00.1004Z\n";
+    const antes = await comOkf(`${gerada}verified:\n  - by: human:ana\n    at: 2026-10-24T10:00:00.1001Z\n`);
+    expect(antes.codigo).toBe(1);
+    expect(antes.saida).toContain("página gerada sem aprovação humana: okf.md");
+    const igual = await comOkf(`${gerada}verified:\n  - by: human:ana\n    at: 2026-10-24T10:00:00.1004Z\n`);
+    expect(igual.codigo).toBe(0);
+  });
 });
 
 describe("validar: proveniência também nos arquivos fora das páginas de conteúdo", () => {

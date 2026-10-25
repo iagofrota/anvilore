@@ -16,7 +16,7 @@ const ATOR_HUMANO = /^human:[a-z0-9_-]+$/i;
 // As formas que o PyYAML do validador antigo convertia em datetime com offset: separador T, t ou
 // espaço, mês/dia/hora com um ou dois dígitos, fração de segundo e fuso `Z`, `±H`, `±HH` ou
 // `±HH:MM` (com espaços antes). `+0300`, sem fuso, ou só data continuavam fora.
-const TIMESTAMP_COM_OFFSET = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[Tt]|\s+)(\d{1,2}):(\d{2}):(\d{2})(?:\.\d*)?\s*(?:(Z)|([+-])(\d{1,2})(?::(\d{2}))?)$/;
+const TIMESTAMP_COM_OFFSET = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[Tt]|\s+)(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d*))?\s*(?:(Z)|([+-])(\d{1,2})(?::(\d{2}))?)$/;
 const DATA_LEGADA = /^\d{4}-\d{2}-\d{2}$/;
 // Esquema de URI. `C:\notas.md` casa de propósito: a letra de unidade vira url, como no baseline.
 const ESQUEMA_DE_URI = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
@@ -56,7 +56,17 @@ function diasDoMes(ano: number, mes: number): number {
   return [4, 6, 9, 11].includes(mes) ? 30 : 31;
 }
 
-type Instante = { erro: string } | { data: Date };
+type DataPrecisa = { segundos: number; fracao: string };
+type Instante = { erro: string } | { data: DataPrecisa };
+
+function compararInstantes(a: DataPrecisa, b: DataPrecisa): number {
+  if (a.segundos !== b.segundos) return a.segundos - b.segundos;
+  // Compare todos os dígitos aceitos, inclusive além dos milissegundos e nanossegundos.
+  const tamanho = Math.max(a.fracao.length, b.fracao.length);
+  const esquerda = a.fracao.padEnd(tamanho, "0");
+  const direita = b.fracao.padEnd(tamanho, "0");
+  return esquerda === direita ? 0 : esquerda < direita ? -1 : 1;
+}
 
 // ISO 8601 com offset explícito. Formato certo e calendário impossível também reprova:
 // um campo presente e malformado nunca vira "sem data" em silêncio.
@@ -64,14 +74,14 @@ function lerTimestamp(valor: unknown, campo: string, arquivo: string): Instante 
   const texto = String(valor);
   const partes = TIMESTAMP_COM_OFFSET.exec(texto);
   if (partes === null) return { erro: `${campo} sem offset explicito: ${arquivo} (valor: ${texto})` };
-  const [ano, mes, dia, hora, minuto, segundo, offsetHoras, offsetMinutos] = [1, 2, 3, 4, 5, 6, 9, 10].map((i) => Number(partes[i] ?? 0));
-  const sinal = partes[8] === "-" ? -1 : 1;
+  const [ano, mes, dia, hora, minuto, segundo, offsetHoras, offsetMinutos] = [1, 2, 3, 4, 5, 6, 10, 11].map((i) => Number(partes[i] ?? 0));
+  const sinal = partes[9] === "-" ? -1 : 1;
   const valido =
     mes! >= 1 && mes! <= 12 && dia! >= 1 && dia! <= diasDoMes(ano!, mes!) &&
     hora! <= 23 && minuto! <= 59 && segundo! <= 59 && offsetHoras! <= 23 && offsetMinutos! <= 59;
   if (!valido) return { erro: `${campo} com data invalida: ${arquivo} (valor: ${texto})` };
   const utc = Date.UTC(ano!, mes! - 1, dia!, hora!, minuto!, segundo!);
-  return { data: new Date(utc - sinal * (offsetHoras! * 60 + offsetMinutos!) * 60_000) };
+  return { data: { segundos: utc / 1000 - sinal * (offsetHoras! * 60 + offsetMinutos!) * 60, fracao: partes[7] ?? "" } };
 }
 
 function lerAtor(valor: unknown, campo: string, arquivo: string): string | null {
@@ -107,7 +117,7 @@ function validarFontes(fontes: unknown, arquivo: string, raiz: string): string[]
   return erros;
 }
 
-type Verificacoes = { erros: string[]; humanas: (Date | null)[]; ultima: Date | null };
+type Verificacoes = { erros: string[]; humanas: (DataPrecisa | null)[]; ultima: DataPrecisa | null };
 
 function lerVerificacoes(verified: unknown, arquivo: string): Verificacoes {
   const resultado: Verificacoes = { erros: [], humanas: [], ultima: null };
@@ -121,13 +131,13 @@ function lerVerificacoes(verified: unknown, arquivo: string): Verificacoes {
       resultado.erros.push(`verified[${i}] deve ser mapping: ${arquivo}`);
       return;
     }
-    let quando: Date | null = null;
+    let quando: DataPrecisa | null = null;
     if ("at" in entrada) {
       const lido = lerTimestamp(entrada.at, `verified[${i}].at`, arquivo);
       if ("erro" in lido) resultado.erros.push(lido.erro);
       else {
         quando = lido.data;
-        if (resultado.ultima === null || quando > resultado.ultima) resultado.ultima = quando;
+        if (resultado.ultima === null || compararInstantes(quando, resultado.ultima) > 0) resultado.ultima = quando;
       }
     }
     if (!("by" in entrada)) {
@@ -152,7 +162,7 @@ export function validarProveniencia(frontmatter: Mapa, arquivo: string, raiz: st
   if (frontmatter.sources != null) erros.push(...validarFontes(frontmatter.sources, arquivo, raiz));
 
   const generated = frontmatter.generated;
-  let geradoEm: Date | null = null;
+  let geradoEm: DataPrecisa | null = null;
   const geradaEmMapa = ehMapa(generated);
   // Só a data legada AAAA-MM-DD é isenta; qualquer outro `generated` que não seja o mapping
   // {by, at} reprova, para o portão humano não ser contornável por um campo malformado.
@@ -181,14 +191,14 @@ export function validarProveniencia(frontmatter: Mapa, arquivo: string, raiz: st
   if (frontmatter.stale_after != null) {
     const lido = lerTimestamp(frontmatter.stale_after, "stale_after", arquivo);
     if ("erro" in lido) erros.push(lido.erro);
-    else vencida = agora >= lido.data;
+    else vencida = compararInstantes({ segundos: Math.floor(agora.getTime() / 1000), fracao: String(agora.getUTCMilliseconds()).padStart(3, "0") }, lido.data) >= 0;
   }
 
   if (portaoHumano && geradaEmMapa) {
-    const aprovada = verificacoes.humanas.some((quando) => geradoEm === null || (quando !== null && quando >= geradoEm));
+    const aprovada = verificacoes.humanas.some((quando) => geradoEm === null || (quando !== null && compararInstantes(quando, geradoEm) >= 0));
     if (!aprovada) erros.push(`página gerada sem aprovação humana: ${arquivo}`);
   }
 
-  const geradaAposVerificacao = geradoEm !== null && verificacoes.ultima !== null && geradoEm > verificacoes.ultima;
+  const geradaAposVerificacao = geradoEm !== null && verificacoes.ultima !== null && compararInstantes(geradoEm, verificacoes.ultima) > 0;
   return { erros, vencida, geradaAposVerificacao };
 }
