@@ -9,13 +9,18 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-25
+
+Tudo o que entrou na `main` depois da 0.1.0: validação, manutenção da wiki, instalador e hook em TypeScript no Bun,
+rodando em Linux, Windows e macOS (CI verde nos três). Os scripts de bash e Python foram portados, menos `scripts/lib-anvilore.sh`.
+
 ### Added
 
 - Correções do ensaio dos dez minutos. A skill `ingest` passa a gravar `generated` (`by`, `at`) em toda página que escreve,
   então logo depois do ingest o `validar` reprova com "página gerada sem aprovação humana" até a pessoa acrescentar
   `verified` com `by: human:<id>`; o README mostra esse passo. A skill também grava o log em `wiki/log/log-AAAA-MM-DD.md`
   (o `wiki/log.md` é gerado e não se edita; `query` e `lint` seguem o mesmo caminho), usa a área do `init` (ou o layout plano),
-  dispensa subagentes para fonte pequena, não grava URL em `raw/` e termina rodando `bash scripts/fechar-wiki.sh wiki`.
+  dispensa subagentes para fonte pequena, não grava URL em `raw/` e termina rodando `bun src/cli.ts fechar wiki`.
 - `anvilore init` lê o `anvilore.toml`: área fora de `areas` é recusada nomeando a área e a lista, sem criar nada, e avisa quando
   `wiki/exemplo/` ficaria fora da lista.
 - `anvilore instalar` termina com "Próximo passo: reabra o agente neste clone ... e rode `bun src/cli.ts init`" na instalação
@@ -169,6 +174,22 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - `scripts/validar-wiki.sh`, `scripts/validar-okf.py`, `scripts/resource-baseline-check.py` e os
   testes em bash que os cobriam.
 
+### Não resolvido nesta versão
+
+- O Anvilore **não protege contra vazamento de documentos internos**. Ele impede que o agente grave em `raw/`, mas nada
+  impede que o conteúdo de uma wiki seja copiado, enviado a um serviço externo ou lido por quem não deveria. Não use o
+  Anvilore, nesta versão, como garantia de sigilo.
+- A regra de que a pessoa dá o aval antes de uma ingestão gravar na wiki existe só como instrução escrita na skill.
+  Nenhum script ou teste confere se o aval aconteceu; o portão humano do `validar` confere a aprovação depois da escrita,
+  mas nenhum programa prova quem escreveu o `verified`.
+- O hook que protege o `raw/` lê o comando de terminal como texto: comando com codificação ou ofuscação do destino
+  (por exemplo `echo ... | base64 -d | sh`) passa de propósito. As classes de limite estão em
+  `docs/knowledge_base/governanca.md`.
+- A meta de 95% de cobertura para validação e proteção do `raw/` ainda não é imposta: o que roda é o mínimo de 80% no geral.
+- `scripts/lib-anvilore.sh` ainda existe (só os testes em bash `tests/test-lib-anvilore.sh` e `tests/test-esqueleto.sh` o
+  usam), e a knowledge base ainda não tem
+  `arquitetura.md` nem `comandos.md`: ficam para uma próxima versão.
+
 ## [0.1.0] - 2026-10-24
 
 Primeira versão da base nova do Anvilore, em TypeScript no Bun. Ela ainda não troca os scripts
@@ -176,8 +197,6 @@ antigos em bash e Python: eles continuam sendo o que valida a wiki e protege o `
 
 ### Added
 
-  Mudou de propósito: arquivo de dia que é symlink agora entra no índice (o antigo o ignorava) e link
-  quebrado gera um `AVISO:` em vez de sumir em silêncio.
 - Projeto em TypeScript rodando no Bun, com verificação de tipos e testes que exigem pelo menos
   80% de cobertura.
 - Verificação automática (CI) configurada para rodar os testes em Linux, Windows e macOS a cada
