@@ -7,9 +7,9 @@
 #   ANVILORE_PULAR_GATE_LOG=1   pula o gate do log do dia (escape explicito).
 #
 # Passos, nesta ordem — PARA no primeiro que falhar:
-#   1. sincronizar-indice      contagem do header a partir do disco
-#   2. indexar-log             reconstroi <WIKI>/log.md
-#   3. validar-wiki.sh         validacao estrutural
+#   1. anvilore sincronizar-indice   contagem do header a partir do disco
+#   2. anvilore indexar-log          reconstroi <WIKI>/log.md
+#   3. anvilore validar        validacao estrutural (src/cli.ts, em Bun)
 #   4. gate do log do dia      pagina curada alterada hoje exige entrada no log
 #
 # Parar no primeiro que falha nao e economia: e nao deixar o passo seguinte
@@ -33,9 +33,8 @@ if [ ! -d "$WIKI_ARG" ]; then
   echo "FECHAMENTO: FAIL — raiz da wiki nao encontrada: $WIKI_ARG"
   exit 1
 fi
-# Absoluto: `validar-wiki.sh` faz `cd` para a raiz do repositorio antes de
-# usar o caminho, entao um caminho relativo ao diretorio de quem chamou
-# apontaria para o lugar errado la dentro.
+# Absoluto: o `anvilore.toml` do perfil da empresa e lido no pai da wiki, e os
+# passos seguintes nao dependem do diretorio de quem chamou.
 WIKI="$(cd "$WIKI_ARG" && pwd)"
 HOJE="$(date +%F)"
 
@@ -50,7 +49,10 @@ bun "$AQUI/../src/cli.ts" indexar-log "$WIKI" \
   || { echo "FECHAMENTO: FAIL no passo indexar-log"; exit 1; }
 
 passo "3/4 validar-wiki"
-bash "$AQUI/validar-wiki.sh" "$WIKI" \
+# Sem o Bun nao ha validacao: nunca vira "passou".
+command -v bun >/dev/null 2>&1 \
+  || { echo "FECHAMENTO: FAIL no passo validar-wiki — bun nao encontrado (instale em https://bun.sh)"; exit 1; }
+bun "$AQUI/../src/cli.ts" validar "$WIKI" \
   || { echo "FECHAMENTO: FAIL no passo validar-wiki"; exit 1; }
 
 passo "4/4 gate do log do dia"

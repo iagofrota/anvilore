@@ -9,7 +9,69 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Added
+
+- Correções do ensaio dos dez minutos. A skill `ingest` passa a gravar `generated` (`by`, `at`) em toda página que escreve,
+  então logo depois do ingest o `validar` reprova com "página gerada sem aprovação humana" até a pessoa acrescentar
+  `verified` com `by: human:<id>`; o README mostra esse passo. A skill também grava o log em `wiki/log/log-AAAA-MM-DD.md`
+  (o `wiki/log.md` é gerado e não se edita; `query` e `lint` seguem o mesmo caminho), usa a área do `init` (ou o layout plano),
+  dispensa subagentes para fonte pequena, não grava URL em `raw/` e termina rodando `bash scripts/fechar-wiki.sh wiki`.
+- `anvilore init` lê o `anvilore.toml`: área fora de `areas` é recusada nomeando a área e a lista, sem criar nada, e avisa quando
+  `wiki/exemplo/` ficaria fora da lista.
+- `anvilore instalar` termina com "Próximo passo: reabra o agente neste clone ... e rode `bun src/cli.ts init`" na instalação
+  real; a simulação diz "Nada foi alterado" e "seriam instalados".
+- `init` e `validar` comparam a área com o `anvilore.toml` pela mesma política exata (sem caixa nem normalização): `areas = ["Pessoal"]`
+  recusa `pessoal` já no `init`. O `doctor` só reprova a versão antiga do Claude Code quando o Claude está configurado no clone (`.claude/`).
+  O README manda apagar, junto com `wiki/exemplo/`, a seção `## Área: exemplo` do `wiki/index.md`.
+- `anvilore doctor` só cobra o agente que o clone configurou (pasta de configuração no destino); agente que só tem a CLI no PATH
+  aparece como "encontrado, sem trava neste clone (opcional)". Sai 1 se nenhum agente do clone tem a trava.
+- Comando `anvilore doctor [pasta]`: mostra, em linguagem simples, quais travas estão ligadas (proteção do `raw/` em
+  cada agente, validação no fechamento da wiki, CI ou pré-commit, perfil da empresa) e o comando que liga cada uma que
+  falta; confere `bun` e `git` no PATH. Sai 1 se faltar trava ou pré-requisito. Hook antigo conta como desligado.
+- Comando `anvilore hook proteger-raw`: o hook que recusa escrita em `raw/` agora é TypeScript no Bun,
+  no lugar de `hooks/proteger-raw.sh` (sem `jq` nem Python). Mantém os códigos 0 e 2, a mensagem de
+  bloqueio e o rastro `ANVILORE_LOG_HOOK`. Passa a avaliar também o comando de terminal de cada agente
+  (`>`/`>>`, `tee`, `mv`, `cp`, `rm`, `sed -i`, `touch`, `git mv`/`rm`…), bloqueia `C:\p\raw\a.md` e payload
+  ilegível, e libera leitura. A reinstalação troca a entrada do hook antigo pela nova em Claude,
+  Gemini e Copilot. O CI imprime a latência do hook (mediana e p95) em cada sistema.
+  A rodada de correção da revisão fechou furos do terminal (pipe para `xargs`, git por lista de leitura, `cd` com
+  opção, `git clean -x` e apagar ancestral de `raw/`) e a forma instalada passa a fechar no Windows (Claude
+  `onFailure: "block"`, Copilot com `powershell`); o CI prova a forma gravada em cada shell.
+  A rodada 2 amplia a regra do terminal (verbo de escrita em qualquer segmento de um comando que cita `raw/`), abre cada
+  envolvedor com as próprias opções, resolve o ancestral de `raw/` contra o `cwd`, dá ao Codex um `command_windows`
+  em PowerShell e faz o `doctor` avisar Claude Code anterior à 2.1.295.
+- Comando `anvilore init`: o onboarding de áreas. Pergunta no terminal (aceitar as áreas padrão,
+  tirar algumas, adicionar outras) ou recebe `--areas a,b,c`, cria `wiki/<área>/{sources,entities,concepts}`
+  e termina com a mensagem de sucesso e o próximo passo. Recusa nome reservado, nome com `..`, `/`,
+  `\` ou `:`, nomes proibidos no Windows (`nul`, `con`, `a<b`), nomes ocultos e nomes que só diferem
+  na caixa; raiz inexistente reprova antes de escrever; repetir não altera nada. Sem terminal e sem `--areas`,
+  reprova em vez de esperar.
+- Comando `anvilore instalar`: configura Claude Code, Codex, Gemini e Copilot usando Bun.
+  Preserva preferências, recusa conflitos, simula sem escrever e não altera arquivos ao repetir.
+  As skills continuam ligadas à fonte; no Windows, diretórios usam junções. Falhas de ligação
+  são explícitas, sem copiar em silêncio. O CI passa a imprimir o resultado dessas ligações.
+
+- Comando `anvilore validar [pasta]`: o validador da wiki agora é TypeScript no Bun, no lugar dos
+  scripts em bash e Python. Mantém as mesmas regras e as mesmas saídas (`VALIDACAO: PASS` ou
+  `VALIDACAO: FAIL`, códigos 0 e 1) e acrescenta o que faltava: o YAML do frontmatter é lido pelo
+  próprio Bun, então a checagem de proveniência nunca mais é pulada, e uma página com YAML
+  ilegível reprova nomeando o arquivo.
+- O validador reprova wikilink que não aponta para nenhuma página e página que não aparece no
+  `index.md` (o da área, quando a área tem um; senão o da raiz). Wiki sem nenhum `index.md` passa
+  com um aviso de que o índice não foi conferido. Wiki existente com link quebrado ou página fora
+  do índice passa a reprovar.
+- Portão humano depois da escrita: página com `generated` precisa de uma verificação humana
+  (`verified` com `by: human:<id>`) igual ou posterior à geração, senão reprova como "página gerada
+  sem aprovação humana". Nenhum programa prova quem escreveu a verificação.
+- Perfil da empresa em `anvilore.toml` (áreas, tipos de página e campos obrigatórios permitidos).
+  Página fora do perfil reprova nomeando o arquivo e o valor; arquivo inválido ou com chave
+  desconhecida também reprova. Sem o arquivo, vale o `SCHEMA.md`.
+- Dois arquivos da mesma pasta que só diferem na caixa (`Pagina.md` e `pagina.md`) reprovam; o slug
+  é comparado com o nome do arquivo em Unicode NFC, então nome decomposto do macOS passa.
+
 ### Changed
+
+- Integração das duas ondas de TypeScript: o fechamento e as skills usam os comandos Bun de validação e manutenção, com proteção de fontes e aprovação humana preservadas.
 
 - O fatiamento do `wiki/log.md` em um arquivo por dia agora é o comando `bun src/cli.ts fatiar-log [WIKI]`
   (antes, `scripts/fatiar-log.py`). Mesmo comportamento: migração única que recusa rodar se algum arquivo
@@ -49,8 +111,29 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   diretório e diretório com nome de página (`x.md`) geram um `AVISO:` em vez de sumir em silêncio, e erro de leitura sai 2 com mensagem em vez de traceback;
   `--help` mostra o uso e sai 2.
 
+- `SCHEMA.md` descreve o portão humano, o índice, o resultado dos wikilinks e o `anvilore.toml`;
+  `AGENTS.md` proíbe o agente de escrever uma verificação humana por conta própria.
+- O fechamento da wiki (`scripts/fechar-wiki.sh`) passa a chamar o novo validador e exige o Bun.
+- O teste da tabela de vereditos de `sources[].resource` virou `tests/okf-baseline.test.ts`.
+
 ### Fixed
 
+- O validador ignora wikilinks dentro de código em linha que atravessa linhas, tanto nas páginas quanto no índice, sem esconder links após uma crase sem fecho.
+
+- O hook reconhece parâmetros comuns do PowerShell e seus apelidos, como `-ErrorAction Stop` e `-ea`, e confere todos os possíveis destinos após a origem para impedir que um valor extra esconda escrita em `raw/`.
+
+- O hook reconhece opções longas abreviadas do GNU, como `cp --target-dir=raw`, e abre corretamente envolvedores com opções abreviadas antes de julgar a escrita.
+
+- O hook protege também cópias e movimentos para `raw/` com destino omitido no PowerShell e no cmd: o destino padrão é o diretório atual.
+
+- O validador preserva toda a fração de segundo da proveniência: uma aprovação anterior à geração reprova mesmo dentro do mesmo milissegundo; as métricas usam a mesma precisão.
+
+- O hook identifica o destino de `cp` pelo último operando, mesmo com opções depois dos caminhos, e continua permitindo copiar fontes de `raw/` para a wiki.
+
+- O instalador também segue skills que são links simbólicos para diretórios.
+- O instalador ignora arquivos soltos e pastas ocultas em skills, segue para os demais agentes
+  após um erro e entrega o resumo com as causas das falhas. A descrição do Gemini vem só do
+  frontmatter; os testes de isolamento e paridade voltaram a conferir o que o instalador faz.
 - Links e imagens por referência agora têm seus destinos conferidos, inclusive quando a
   definição aparece depois do uso ou não é usada na página.
 - As definições de referência são reconhecidas antes do código em linha, e o título delas é literal: crases em
@@ -61,6 +144,11 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - A checagem de documentação mantém links visíveis depois de crases escapadas, comentários
   sem fecho no meio da linha e comentários dentro de código em linha que atravessa linhas.
   Remover um comentário não cria uma abertura de bloco de código cercado.
+
+### Removed
+
+- `scripts/validar-wiki.sh`, `scripts/validar-okf.py`, `scripts/resource-baseline-check.py` e os
+  testes em bash que os cobriam.
 
 ## [0.1.0] - 2026-10-24
 

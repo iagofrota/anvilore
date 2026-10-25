@@ -4,6 +4,8 @@ import { parseArgs } from "node:util";
 import { ESPACO_PYTHON, apararPython, caminhoPathlib, dataLocal, linkQuebrado, linhasPython, paginasMarkdown } from "../lib/paginas";
 import { nomeReservado } from "../lib/reservados";
 
+// `validar` cobra invariantes, inclusive wikilinks e índice; `auditar` relata também a dívida de navegação,
+// campos incompletos e esboços, sem escrever. A skill lint usa os dois.
 export type ResultadoAuditoria = { achados: string[]; codigo: 0 | 1 | 2; relatorio: string; erro?: string };
 
 type Pagina = { caminho: string; slug: string; frontmatter: string[] | null; campos: Map<string, string>; linhasDeCorpo: number; alvos: string[] };

@@ -9,6 +9,11 @@ import { comandoIndexarLog } from "./comandos/indexar-log";
 import { comandoListarLacunas } from "./comandos/listar-lacunas";
 import { comandoRejuntarLinhas } from "./comandos/rejuntar-linhas";
 import { comandoAuditar } from "./comandos/auditar";
+import { comandoValidar } from "./comandos/validar";
+import { comandoInstalar } from "./comandos/instalar";
+import { comandoDoctor } from "./comandos/doctor";
+import { comandoHook } from "./comandos/hook-proteger-raw";
+import { comandoInit } from "./comandos/init";
 
 export type Subcomando = (args: string[]) => Promise<number>;
 export type TabelaDeSubcomandos = Record<string, Subcomando>;
@@ -24,6 +29,11 @@ export const subcomandos: TabelaDeSubcomandos = {
   "listar-lacunas": comandoListarLacunas,
   "rejuntar-linhas": comandoRejuntarLinhas,
   auditar: comandoAuditar,
+  validar: comandoValidar,
+  instalar: comandoInstalar,
+  hook: comandoHook,
+  doctor: comandoDoctor,
+  init: comandoInit,
 };
 
 function listar(tabela: TabelaDeSubcomandos): string {

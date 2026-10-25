@@ -25,21 +25,21 @@ qualquer página, porque cada um responde, de graça, uma pergunta que você
 responderia caro lendo arquivo por arquivo.
 
 ```bash
-bash scripts/validar-wiki.sh wiki
+bun src/cli.ts validar wiki
 bun src/cli.ts auditar wiki
 bun src/cli.ts listar-lacunas wiki --consultar
 ```
 
 | Comando | O que responde | Como ler a saída |
 |---|---|---|
-| `scripts/validar-wiki.sh` | invariantes do `SCHEMA.md` — frontmatter ausente, `type` inválido, `slug` divergente, área do frontmatter brigando com o diretório | `VALIDACAO: FAIL` é violação de contrato: **isso vem antes de tudo**, porque uma wiki que não valida torna o resto da varredura ruído |
+| `bun src/cli.ts validar` | invariantes do `SCHEMA.md` — frontmatter ausente ou ilegível, `type` inválido, `slug` divergente, área do frontmatter brigando com o diretório ou fora do `anvilore.toml`, wikilink quebrado, página fora do índice, proveniência malformada e página gerada sem aprovação humana | `VALIDACAO: FAIL` é violação de contrato: **isso vem antes de tudo**, porque uma wiki que não valida torna o resto da varredura ruído |
 | `bun src/cli.ts auditar` | as cinco categorias estruturais do Passo 2 | sai `1` quando há achado, `0` quando não há; ele **nunca escreve**, só relata |
 | `bun src/cli.ts listar-lacunas … --consultar` | os callouts `[!gap]` e `[!contradiction]` abertos, um por linha, no formato `caminho.md:linha [tipo] texto` | é a dívida que quem cura **declarou** e ainda não fechou |
 
 Depois, e só depois:
 
 - Leia `wiki/index.md` inteiro. É o único índice da wiki — não existe outro.
-- Leia as últimas entradas de `wiki/log.md` (as três mais recentes bastam).
+- Leia as últimas entradas do log: os arquivos mais recentes de `wiki/log/log-*.md` (as três entradas mais recentes bastam; `wiki/log.md` é só o índice gerado).
   Anote o que foi ingerido recentemente, quais consultas rodaram, e se já houve
   um lint antes e quando.
 
@@ -87,7 +87,7 @@ Campos que o `SCHEMA.md` exige e a página não declara — os comuns (`title`,
 `authors` para `source`; `related_sources`, `related_concepts` para `concept` e
 `entity`). O relatório nomeia os campos ausentes, um a um.
 
-> Esta seção é **mais exigente** que `scripts/validar-wiki.sh` de propósito. O
+> Esta seção é **mais exigente** que `bun src/cli.ts validar` de propósito. O
 > validador cobra invariante: o que reprova o repositório. O lint cobra
 > completude: o que degrada a wiki sem quebrar nada.
 
@@ -118,13 +118,13 @@ nenhuma, porque ensina o usuário a ignorar a lista.
 
 ### 3c — Consultas não arquivadas
 
-A skill `query` registra toda consulta em `wiki/log.md`. Quando a resposta foi
+A skill `query` registra toda consulta no log do dia (`wiki/log/log-*.md`). Quando a resposta foi
 salva como página, a entrada traz uma linha `Resposta registrada como: …`;
 quando não foi, a entrada existe sem essa linha. É essa ausência que você
 procura:
 
 ```bash
-rg --no-ignore -n '^## \[.*\] query \|' wiki/log.md
+rg --no-ignore -n '^## \[.*\] query \|' wiki/log/
 ```
 
 Para cada entrada de consulta encontrada, confira se o bloco dela tem a linha
@@ -267,8 +267,9 @@ Opções:
 
 ## Passo 7 — Fechar o ciclo
 
-Acrescente a entrada em `wiki/log.md`, no mesmo formato que `ingest` e `query`
-usam:
+Acrescente a entrada no log do dia, `wiki/log/log-AAAA-MM-DD.md` (título
+`# Log — AAAA-MM-DD` se o arquivo for novo; `wiki/log.md` é gerado e não se edita), no
+mesmo formato que `ingest` e `query` usam:
 
 ```markdown
 ## [AAAA-MM-DD] lint | Varredura completa
@@ -310,7 +311,7 @@ Para conferir só a contagem dos índices sem escrever, rode
   proponha ao usuário tirá-la do índice. O arquivo fica. Este schema só define
   os callouts `[!gap]` e `[!contradiction]` — não invente um terceiro.
 - **Nunca apague um callout.** Ele sai da página quando a pessoa confirma a
-  resolução, e a remoção é registrada em `wiki/log.md`.
+  resolução, e a remoção é registrada no log do dia (`wiki/log/log-AAAA-MM-DD.md`).
 - **Nunca ingira fonte nova durante o lint.** Se uma lacuna se resolveria
   melhor com uma fonte nova, diga isso e pare. Ingestão é outra skill, outra
   sessão.

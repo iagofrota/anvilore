@@ -7,41 +7,82 @@ mesma regra com dentes.
 ## A regra mora num lugar só
 
 ```
-hooks/proteger-raw.sh    a decisão: "este caminho é uma escrita em raw/?"
-hooks/hooks.json         uma forma de configuração, apontando para o script
+src/comandos/hook-proteger-raw.ts   a decisão: "este caminho (ou comando) escreve em raw/?"
+hooks/hooks.json                    uma forma de configuração, chamando o subcomando
 ```
 
-`proteger-raw.sh` lê, na entrada padrão, o payload JSON que o agente entrega
-antes de executar uma ferramenta de escrita, procura o caminho alvo e sai com
-código `2` quando ele está dentro de `raw/`. O motivo vai para o stderr, que é
-o canal que os agentes devolvem ao modelo.
+O subcomando `anvilore hook proteger-raw` (`bun src/cli.ts hook proteger-raw`) lê, na
+entrada padrão, o payload JSON que o agente entrega antes de executar uma
+ferramenta, decide e sai com código `0` (segue) ou `2` (bloqueado). O motivo vai
+para o stderr, que é o canal que os agentes devolvem ao modelo. Não precisa de
+`jq` nem de Python: só do Bun, que o resto do kit já exige.
 
-Toda forma de configuração abaixo **aponta para esse script por caminho**.
-Nenhuma reimplementa a regra, e é isso que faz de `raw/` uma fronteira com um
-dono só: mudar a decisão é editar um arquivo, não lembrar de quatro.
+Toda forma de configuração abaixo **chama esse subcomando**. Claude e Copilot fecham quando o comando falha
+(`|| exit 2`, `onFailure: "block"`, campo `powershell`); Codex e Gemini levam o caminho absoluto do clone e
+`; exit $LASTEXITCODE`, sem `||` (ver [plataformas.md](../docs/knowledge_base/plataformas.md)): se o Bun faltar, esses dois
+ficam sem o hook, e o `anvilore doctor` cobra o `bun` como pré-requisito. Nenhuma
+reimplementa a regra, e é isso que faz de `raw/` uma fronteira com um dono só:
+mudar a decisão é editar um arquivo, não lembrar de quatro.
 
 Rodar à mão, sem nenhum agente envolvido:
 
 ```bash
-printf '{"tool_input":{"file_path":"raw/exemplo/teste.md"}}' | bash hooks/proteger-raw.sh; echo $?   # 2
-printf '{"tool_input":{"file_path":"wiki/exemplo/teste.md"}}' | bash hooks/proteger-raw.sh; echo $?  # 0
+printf '{"tool_input":{"file_path":"raw/exemplo/teste.md"}}'  | bun src/cli.ts hook proteger-raw; echo $?  # 2
+printf '{"tool_input":{"file_path":"wiki/exemplo/teste.md"}}' | bun src/cli.ts hook proteger-raw; echo $?  # 0
+printf '{"tool_name":"Bash","tool_input":{"command":"rm raw/a.md"}}' | bun src/cli.ts hook proteger-raw; echo $?  # 2
+printf '{"tool_name":"Bash","tool_input":{"command":"cat raw/a.md"}}' | bun src/cli.ts hook proteger-raw; echo $?  # 0
 ```
 
-O script aceita mais de uma grafia de chave (`file_path`, `filePath`, `path`,
-…) e procura em qualquer profundidade do payload, porque a decisão é sobre o
-caminho e não sobre o formato de um agente específico. Se não houver como
-isolar o caminho, ele **falha fechado**: recusa em vez de deixar passar. Isso
-vale para os três casos em que o caminho não sai do payload — JSON inválido,
-máquina sem leitor de JSON, e JSON válido em que **nenhuma** chave reconhecida
-aparece. O terceiro não é hipotético: é a forma do Codex CLI abaixo, que
-carrega o caminho alvo dentro do corpo do patch. Nesses casos a decisão passa a
-ser sobre o texto inteiro do payload — grosseira, podendo recusar demais, que é
-o lado certo de errar num hook de proteção:
+### Ferramentas de edição de arquivo
+
+O hook aceita mais de uma grafia de chave (`file_path`, `filePath`, `path`, …) e
+procura em qualquer profundidade do payload, porque a decisão é sobre o caminho
+e não sobre o formato de um agente específico. O componente `raw` é comparado
+sem diferenciar maiúsculas e aceita `\`, `raw.` e `C:raw` (`estaEmRaw`, em
+`src/lib/caminhos.ts`); `rawdata/` e `wiki/raw-notas.md` passam.
+
+Se não houver como isolar o caminho, ele **falha fechado**: recusa em vez de
+deixar passar. Vale para JSON ilegível (bloqueia sempre) e para JSON válido em
+que nenhuma chave de caminho reconhecida aparece: é a forma do Codex CLI
+(`apply_patch`), que leva o caminho alvo dentro do corpo do patch. Aí a decisão
+passa a ser sobre o texto inteiro do payload — grosseira, podendo recusar demais,
+que é o lado certo de errar num hook de proteção:
 
 ```bash
-printf '{"tool_input":{"patch":"*** Update File: raw/exemplo/x.md"}}'  | bash hooks/proteger-raw.sh; echo $?  # 2
-printf '{"tool_input":{"patch":"*** Update File: wiki/exemplo/x.md"}}' | bash hooks/proteger-raw.sh; echo $?  # 0
+printf '{"tool_input":{"patch":"*** Update File: raw/exemplo/x.md"}}'  | bun src/cli.ts hook proteger-raw; echo $?  # 2
+printf '{"tool_input":{"patch":"*** Update File: wiki/exemplo/x.md"}}' | bun src/cli.ts hook proteger-raw; echo $?  # 0
 ```
+
+Ferramentas de leitura (`Read`, `read_file`, `view`, `glob`, `grep`, …) passam
+mesmo apontando para `raw/`: ingerir uma fonte exige lê-la. Isto importa no
+Copilot, cujo evento roda em toda chamada de ferramenta.
+
+### Ferramenta de terminal
+
+O terminal escreve em `raw/` sem passar pelas ferramentas de edição, então o
+mesmo hook avalia o comando (`Bash` no Claude Code e no Codex, `run_shell_command`
+no Gemini, `bash`/`powershell` no Copilot). **Bloqueia** quando o comando
+escreve ou apaga algo em `raw/`: redirecionamento `>`/`>>`, `tee`, `mv`, `cp` com
+destino em `raw/`, `rm`, `rmdir`, `sed -i`/`w`/`e`, `perl` (qualquer script), `truncate`, `touch`, `ln`,
+`chmod`, `find -delete`/`-exec`, `git` com subcomando que não seja de leitura (`log`, `show`, `diff`, `status`, `blame`, `grep`, `add`, `commit`…)
+e os equivalentes de PowerShell (`Remove-Item`, `Set-Content`, …). **Libera**
+leituras (`cat`, `rg`, `grep`, `ls`, `head`, `tail`, `wc`, `stat`, `diff`, `git log`,
+`Get-Content`, …). Um verbo que o hook não conhece e que cita `raw/` é
+bloqueado: o erro cai do lado seguro, ao custo de falso positivo. `cd raw`
+seguido de um comando com caminho relativo conta como escrita em `raw/`.
+Comando que não dá para ler (aspas abertas, `$(...)`, crase) bloqueia **só se
+citar `raw/`**; sem citação, passa.
+
+**Regra ampla:** se o comando cita `raw/` em qualquer posição e algum segmento (pipe, `;`, laço, `xargs`, `find -exec`) tem
+um verbo de escrita ou remoção, ou um cmdlet de escrita do PowerShell, bloqueia (`cp` e `tee` são julgados pelo destino).
+Custo: `rm wiki/x.md; cat raw/y.md` também bloqueia.
+
+Limites, ditos de propósito: o hook não executa nem expande shell. Não são vistos, em sete classes: variável e expansão
+(`d=r; rm ${d}aw/a`), script externo (`bash limpa.sh`), alias e configuração (`git -c`), codificação (`> r\aw/a`),
+interpretador com código vindo de arquivo (`python apaga.py`, `sed -f`), destino em chave de payload desconhecida e o que
+fica fora do R64 (`mv * ../x`). Quem precisa de garantia contra um agente hostil tem de usar permissão de sistema de
+arquivos; o hook cobre o erro do agente, não o adversário. Lista completa, com exemplos, a regra de parada da revisão e a
+mitigação real (o git **não** é uma segunda trava: `raw/*` está ignorado) em `docs/knowledge_base/governanca.md`.
 
 ### Como saber que o hook rodou — `ANVILORE_LOG_HOOK`
 
@@ -51,14 +92,14 @@ está lá" está inferindo, não medindo — e a diferença importa, porque um a
 que leu o `AGENTS.md` e se recusou sozinho produz exatamente a mesma ausência,
 sem o hook ter rodado uma vez.
 
-Por isso o script aceita `ANVILORE_LOG_HOOK`. Quando essa variável aponta para
+Por isso o subcomando aceita `ANVILORE_LOG_HOOK`. Quando essa variável aponta para
 um arquivo, cada invocação deixa uma linha `<epoch>\t<veredito>\t<alvo>`, com
 `BLOQUEADO` ou `PASSOU`:
 
 ```bash
 export ANVILORE_LOG_HOOK=/tmp/rastro.log
-printf '{"tool_input":{"file_path":"raw/exemplo/x.md"}}'  | bash hooks/proteger-raw.sh
-printf '{"tool_input":{"file_path":"wiki/exemplo/x.md"}}' | bash hooks/proteger-raw.sh
+printf '{"tool_input":{"file_path":"raw/exemplo/x.md"}}'  | bun src/cli.ts hook proteger-raw
+printf '{"tool_input":{"file_path":"wiki/exemplo/x.md"}}' | bun src/cli.ts hook proteger-raw
 cat "$ANVILORE_LOG_HOOK"
 # 1790000000	BLOQUEADO	caminho dentro de raw/: raw/exemplo/x.md
 # 1790000000	PASSOU	wiki/exemplo/x.md
@@ -78,10 +119,10 @@ assunto, e ainda não está feito aqui.
 
 | Agente | Arquivo de configuração | Evento | Estado |
 |---|---|---|---|
-| Claude Code | `hooks/hooks.json` (fundido no `.claude/settings.json` do projeto) | `PreToolUse`, matcher `Write\|Edit\|NotebookEdit` | **versionado aqui**, instalado por `instalar.sh` |
-| Codex CLI | `.codex/config.toml` | `[[hooks.PreToolUse]]`, matcher `apply_patch\|Edit\|Write` | instalado por `instalar.sh` |
-| Gemini CLI | `.gemini/settings.json` | `hooks.BeforeTool`, matcher `write_file\|replace` | instalado por `instalar.sh` |
-| Copilot CLI | `.github/copilot/settings.json` | `hooks.preToolUse` | instalado por `instalar.sh` |
+| Claude Code | `hooks/hooks.json` (fundido no `.claude/settings.json` do projeto) | `PreToolUse`, matcher `Write\|Edit\|NotebookEdit\|Bash` | **versionado aqui**, instalado por `anvilore instalar` |
+| Codex CLI | `.codex/config.toml` | `[[hooks.PreToolUse]]`, matcher `apply_patch\|Edit\|Write\|Bash` | instalado por `anvilore instalar` |
+| Gemini CLI | `.gemini/settings.json` | `hooks.BeforeTool`, matcher `write_file\|replace\|run_shell_command` | instalado por `anvilore instalar` |
+| Copilot CLI | `.github/copilot/settings.json` | `hooks.preToolUse` | instalado por `anvilore instalar` |
 
 Cada forma abaixo traz a fonte da convenção. Formato sem referência é palpite, e
 quem vier depois não tem como saber se pode confiar nele.
@@ -90,16 +131,27 @@ quem vier depois não tem como saber se pode confiar nele.
 
 ```toml
 [[hooks.PreToolUse]]
-matcher = "apply_patch|Edit|Write"
+matcher = "apply_patch|Edit|Write|Bash"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = "./hooks/proteger-raw.sh"
+command = "bun \"<raiz do clone>/src/cli.ts\" hook proteger-raw; exit $LASTEXITCODE"
+command_windows = "bun \"<raiz do clone>/src/cli.ts\" hook proteger-raw; if ($LASTEXITCODE -ne 0) { exit 2 }"
 ```
 
-Fonte: <https://learn.chatgpt.com/docs/hooks> (acesso em 2026-09-22). O matcher
+Fonte: <https://learn.chatgpt.com/docs/hooks> (acesso em 2026-09-22 e 2026-10-24). `commandWindows`
+(`command_windows` em TOML) é a substituição só para Windows; a página não diz qual shell roda o hook, por isso a forma do
+Windows é PowerShell e mapeia qualquer falha, inclusive `bun` ausente, para a saída 2. O matcher
 de edição de arquivo aceita `apply_patch`, `Edit` e `Write`; os três entram,
 porque o mesmo agente edita por mais de um caminho.
+
+### Claude Code — `hooks/hooks.json`
+
+O hook leva `"shell": "bash"` (Git Bash no Windows) e `"onFailure": "block"`: se o comando não
+subir, sair com código diferente de 0 e 2 ou estourar o tempo, a ferramenta é bloqueada em vez de seguir. Fonte:
+<https://code.claude.com/docs/en/hooks> (acesso em 2026-10-24; `onFailure` pede o Claude Code 2.1.295 ou
+mais novo, e a página não diz o que versões anteriores fazem com a chave). Sem Git Bash no Windows, o
+`shell: "bash"` não sobe e, nas versões novas, o `onFailure` bloqueia tudo: falha fechada, e barulhenta.
 
 ### Gemini CLI — `.gemini/settings.json`
 
@@ -108,9 +160,9 @@ porque o mesmo agente edita por mais de um caminho.
   "hooks": {
     "BeforeTool": [
       {
-        "matcher": "write_file|replace",
+        "matcher": "write_file|replace|run_shell_command",
         "hooks": [
-          { "name": "proteger-raw", "type": "command", "command": "./hooks/proteger-raw.sh" }
+          { "name": "proteger-raw", "type": "command", "command": "bun \"<raiz do clone>/src/cli.ts\" hook proteger-raw; exit $LASTEXITCODE" }
         ]
       }
     ]
@@ -120,7 +172,8 @@ porque o mesmo agente edita por mais de um caminho.
 
 Fonte: <https://geminicli.com/docs/hooks/reference/> (acesso em 2026-09-22) para
 o evento e a forma; <https://geminicli.com/docs/reference/tools/> (mesmo acesso)
-para os nomes `write_file` e `replace`, que são as duas ferramentas de escrita.
+para os nomes `write_file` e `replace` (escrita) e `run_shell_command` (terminal, com
+`command` e `dir_path` em `tool_input`).
 
 ### Copilot CLI — `.github/copilot/settings.json`
 
@@ -128,14 +181,19 @@ para os nomes `write_file` e `replace`, que são as duas ferramentas de escrita.
 {
   "hooks": {
     "preToolUse": [
-      { "type": "command", "bash": "./hooks/proteger-raw.sh" }
+      {
+        "type": "command",
+        "bash": "bun ./src/cli.ts hook proteger-raw || exit 2",
+        "powershell": "bun ./src/cli.ts hook proteger-raw; if ($LASTEXITCODE -ne 0) { exit 2 }"
+      }
     ]
   }
 }
 ```
 
 Fonte: <https://docs.github.com/en/copilot/reference/hooks-reference> (acesso em
-2026-09-22).
+2026-09-22 e 2026-10-24). No Windows vale o campo `powershell`; o `preToolUse` fecha em qualquer saída diferente
+de 0 ("Denied by preToolUse hook (hook errored)"), e o `||` não existe no PowerShell 5.1, por isso os dois campos.
 
 > **Correção.** Até a onda anterior este documento descrevia, para o Copilot CLI,
 > um evento `hooks.toolCall` com um campo `"phase": "before"` no payload. **Isso
@@ -147,22 +205,23 @@ Fonte: <https://docs.github.com/en/copilot/reference/hooks-reference> (acesso em
 > a seção abaixo anunciava. Ficou registrada aqui, e não apagada, porque quem
 > tiver copiado a forma errada precisa saber que ela era errada.
 >
-> Este evento **não tem `matcher`**: ele roda em toda chamada de ferramenta.
-> Como `proteger-raw.sh` decide pelo caminho e sai `0` quando ele não é de
-> `raw/`, rodar sempre é inofensivo.
+> Este evento roda em toda chamada de ferramenta (a forma instalada não usa
+> `matcher`). `toolName` é `bash` ou `powershell` no terminal e `toolArgs` pode
+> chegar como texto JSON; o hook decodifica antes de decidir. Como ele sai `0`
+> quando o alvo não é de `raw/`, rodar sempre é inofensivo.
 
 ## O que está verificado, e o que não está
 
-O que está provado por teste (`tests/test-proteger-raw.sh`) é o **script**: que
+O que está provado por teste (`tests/hook-proteger-raw.test.ts`) é o **subcomando**: que
 ele bloqueia `raw/`, que ele **não** bloqueia `wiki/` na mesma execução, que um
 payload sem chave de caminho reconhecida citando `raw/` também é bloqueado (com
 o controle fora de `raw/` passando na mesma execução), e que desativar a
 condição de decisão faz o bloqueio desaparecer — sem essa última prova, o teste
 não estaria medindo nada.
 
-Instalar essas formas na máquina de quem clona é trabalho de `instalar.sh`, e
-`tests/test-instalar.sh` prova que cada uma chega ao disco no arquivo certo,
-referenciando o script por caminho em vez de reimplementar a decisão.
+Instalar essas formas na máquina de quem clona é trabalho de `anvilore instalar`, e
+`tests/instalar.test.ts` prova que cada uma chega ao disco no arquivo certo,
+chamando o subcomando em vez de reimplementar a decisão.
 
 **Só a forma do Claude Code foi exercitada de ponta a ponta com um agente de
 verdade** — sessão real, skill invocada, escrita em `raw/` recusada, e a recusa

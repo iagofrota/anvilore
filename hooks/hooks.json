@@ -2,12 +2,14 @@
   "hooks": {
     "PreToolUse": [
       {
-        "description": "Recusa qualquer escrita em raw/ — a camada de fontes é imutável para o agente. A decisão mora em hooks/proteger-raw.sh; esta forma só aponta para lá.",
-        "matcher": "Write|Edit|NotebookEdit",
+        "description": "Recusa qualquer escrita em raw/ — a camada de fontes é imutável para o agente. A decisão mora em `anvilore hook proteger-raw` (src/comandos/hook-proteger-raw.ts); esta forma só aponta para lá.",
+        "matcher": "Write|Edit|NotebookEdit|Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/hooks/proteger-raw.sh"
+            "command": "bun \"$CLAUDE_PROJECT_DIR\"/src/cli.ts hook proteger-raw || exit 2",
+            "shell": "bash",
+            "onFailure": "block"
           }
         ]
       }

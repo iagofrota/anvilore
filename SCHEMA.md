@@ -43,7 +43,9 @@ related_concepts: [outro-conceito]
 ```
 
 Regras:
-- `slug` bate com o nome do arquivo, sem `.md`.
+- `slug` bate com o nome do arquivo, sem `.md` (comparados em Unicode NFC, porque o macOS grava
+  nomes decompostos). Dois arquivos da mesma pasta que só diferem na caixa (`Pagina.md` e
+  `pagina.md`) são um conflito: o validador reprova.
 - Listas são sempre array, mesmo vazias: `[]`.
 - Datas em ISO 8601: `AAAA-MM-DD`.
 
@@ -51,8 +53,10 @@ Regras:
 
 Qualquer tipo de página **pode** registrar de onde a informação veio, quem a
 gerou, quem a revisou e quando ela vence. Todos os campos são opcionais: uma
-página sem nenhum deles é válida, e o validador **nunca** reprova por ausência.
-Ele só reprova um campo que esteja **presente e malformado**.
+página sem nenhum deles é válida, e o validador **nunca** reprova por ausência de campo.
+Ele reprova um campo que esteja **presente e malformado** (inclusive YAML que não lê:
+a página nunca é pulada) e, como única regra sobre o que **falta**, o portão humano
+descrito abaixo.
 
 ```yaml
 sources:
@@ -92,11 +96,28 @@ stale_after: 2027-02-28T00:00:00-03:00        # instante absoluto, ISO 8601 com 
 
 **Timestamps:** os campos novos (`generated.at`, `verified[].at`, `stale_after`,
 `sources[].last_modified`) usam ISO 8601 **com offset explícito**
-(`2026-09-03T10:30:00-03:00`). Os campos de data existentes (`date_ingested`)
+(`2026-09-03T10:30:00-03:00`). Também valem `Z` (`2026-09-03T13:30:00Z`), `±HH` (`-03`), fração de
+segundo e o espaço no lugar do `T`; `+0300` (sem dois-pontos), hora sem fuso e só a data não valem.
+Um dia ou uma hora que não existe no calendário reprova. Os campos de data existentes (`date_ingested`)
 seguem `AAAA-MM-DD`, inalterados.
 
-**Métricas** (nunca reprovam, só informam): quantas páginas estão vencidas
-(`agora ≥ stale_after`) e quantas foram geradas depois da última verificação.
+**Métricas** (só informam; não reprovam, com a exceção do portão humano abaixo): quantas
+páginas estão vencidas (`agora ≥ stale_after`) e quantas foram geradas depois da última
+verificação.
+
+**Portão humano.** Uma página com o bloco `generated` (em mapping) foi escrita por um agente e
+só vale depois de uma pessoa a aprovar: ela precisa de uma entrada em `verified` com
+`by: human:<id>` e `at` igual ou posterior a `generated.at`. Sem isso o validador reprova com
+"página gerada sem aprovação humana". Se `generated` não traz `at`, não há ordem a conferir e
+basta uma entrada `human:<id>`. Uma verificação feita por `process:<id>` ou por
+`<produtor>/<versão>` não conta. Página sem `generated` (escrita à mão) não é afetada, e um
+`generated` só com a data (`generated: AAAA-MM-DD`, o formato da documentação do próprio projeto)
+não é proveniência e fica de fora. Qualquer outro `generated` que não seja o mapping `by`/`at` (uma
+lista, um texto livre) reprova: o portão não pode ser contornado por um campo malformado. O
+portão vale para página de conteúdo; `index.md`, `log.md` e `_meta/`/`log/` só têm o YAML e a
+proveniência conferidos. **Limite:** nenhum programa prova quem escreveu `verified`; um
+agente que escreva `verified: human:…` por conta própria viola este contrato, e o validador
+não o detecta.
 
 ## Áreas (opcional)
 
@@ -143,6 +164,38 @@ Os diretórios `_meta/` e `log/` são reservados e não são áreas temáticas.
 Referencie outra página com `[[slug]]` — sem caminho, sem extensão. Na
 primeira menção a um conceito ou entidade dentro de uma página, use o
 wikilink; nas menções seguintes na mesma página, não precisa repetir.
+
+O validador **reprova** o wikilink que não resolve para uma página da wiki. `[[alvo|rótulo]]`
+e `[[alvo#seção]]` valem pelo `alvo`; o slug é comparado sem diferenciar caixa e em Unicode NFC.
+Bloco de código, código em linha e comentário HTML não contam como link, e `index.md` e `log.md`
+não são páginas (não são alvo de link).
+
+## Índice
+
+Toda página de conteúdo aparece no `index.md` como `[[slug]]`. A página da wiki plana (solta na
+raiz ou sob `sources/`, `concepts/`, `entities/`) é conferida contra o `wiki/index.md`; a página
+de uma área é conferida contra o `wiki/<área>/index.md` se ele existir e, se não existir, contra o
+`wiki/index.md`. O validador reprova a página que falta no índice aplicável. Uma wiki sem nenhum
+`index.md` aplicável não reprova, mas o validador **avisa** ("sem index.md: conferência do índice
+não feita"): a conferência não é feita em silêncio.
+
+## Perfil da empresa (opcional)
+
+Um arquivo `anvilore.toml` na raiz do projeto (o pai de `wiki/`) restringe o que a wiki aceita.
+Sem o arquivo, vale o que este documento descreve. Todas as chaves são listas de textos e
+opcionais:
+
+```toml
+areas = ["produto", "plataforma"]        # áreas permitidas (diretório e campo `area`)
+tipos = ["source", "concept"]            # tipos de página permitidos (dentre os três do schema)
+campos_obrigatorios = ["owner"]          # campos que toda página de conteúdo precisa ter preenchidos
+```
+
+O validador reprova a página fora do perfil nomeando o arquivo e o valor. Um `anvilore.toml` que
+não lê, com chave desconhecida ou com valor que não é lista de textos também reprova: uma regra
+da empresa nunca é ignorada em silêncio. Lista vazia vale literalmente (`areas = []` não permite
+nenhuma área). O perfil vale para o estado atual das páginas: mudá-lo reprova as páginas antigas
+que ele deixar de aceitar, e quem o muda decide se as corrige ou o afrouxa.
 
 ## Quando o agente encontra um problema
 

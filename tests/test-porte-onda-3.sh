@@ -14,7 +14,7 @@ ok()    { echo "  ok: $*"; }
 falha() { echo "  FALHA: $*"; falhas=$((falhas+1)); }
 
 SKILL=skills/lint/SKILL.md
-HOOK=hooks/proteger-raw.sh
+HOOK=src/comandos/hook-proteger-raw.ts
 FORMA=hooks/hooks.json
 DOC=hooks/README.md
 VARREDURA=src/comandos/auditar.ts
@@ -22,7 +22,7 @@ VARREDURA=src/comandos/auditar.ts
 NOVOS=(
   "$SKILL" "$HOOK" "$FORMA" "$DOC" "$VARREDURA"
   tests/auditar.test.ts
-  tests/test-proteger-raw.sh
+  tests/hook-proteger-raw.test.ts
   tests/test-porte-onda-3.sh
 )
 
@@ -37,7 +37,7 @@ done
 # proprio. Contar os arquivos que a contem e o que transforma "sem duplicacao"
 # de promessa em medida. `tests/` fica de fora: o teste de mutacao precisa
 # nomear a funcao para desativa-la.
-donos="$(grep -rl 'escreve_em_raw' --exclude-dir=tests --exclude-dir=.git . | sort)"
+donos="$(grep -rl 'escreveEmRaw' --exclude-dir=tests --exclude-dir=.git --exclude-dir=.superpowers --exclude-dir=node_modules . | sort)"
 if [ "$donos" = "./$HOOK" ]; then
   ok "a decisao mora em um arquivo so: $HOOK"
 else
@@ -50,15 +50,15 @@ else
   falha "$FORMA nao e JSON valido"
 fi
 
-if grep -qF 'hooks/proteger-raw.sh' "$FORMA"; then
-  ok "a forma de provedor referencia o script-fonte por caminho"
+if grep -qF 'src/cli.ts hook proteger-raw' "$FORMA"; then
+  ok "a forma de provedor chama o subcomando que e a fonte unica"
 else
-  falha "a forma de provedor nao referencia hooks/proteger-raw.sh"
+  falha "a forma de provedor nao chama 'src/cli.ts hook proteger-raw'"
 fi
 
 # Referenciar por caminho, nao copiar o conteudo: a forma nao pode conter a
 # decisao nem o texto da mensagem de bloqueio.
-if grep -qF 'escreve_em_raw' "$FORMA" || grep -qF 'Bloqueado:' "$FORMA"; then
+if grep -qF 'escreveEmRaw' "$FORMA" || grep -qF 'Bloqueado:' "$FORMA"; then
   falha "$FORMA reimplementa a logica em vez de referenciar o script"
 else
   ok "a forma de provedor nao reimplementa a logica"
@@ -101,7 +101,7 @@ else
 fi
 
 # A skill tem de citar os scripts REAIS deste repositorio, nao os da origem.
-for script in "src/cli.ts auditar" scripts/validar-wiki.sh "src/cli.ts listar-lacunas"; do
+for script in "src/cli.ts auditar" "src/cli.ts listar-lacunas" "src/cli.ts validar"; do
   grep -qF "$script" "$SKILL" && ok "a skill cita $script" || falha "a skill nao cita $script"
 done
 grep -qF "scripts/listar-lacunas.py" "$SKILL" && falha "a skill cita o caminho removido scripts/listar-lacunas.py" \
@@ -246,8 +246,13 @@ rm -f "$isca"
 # ============================================================================
 # Runtime e sintaxe dos arquivos novos
 # ============================================================================
-[ "$(head -1 "$HOOK")" = "#!/usr/bin/env bash" ] && ok "$HOOK: shebang bash" || falha "$HOOK: shebang '$(head -1 "$HOOK")'"
-bash -n "$HOOK" 2>/dev/null && ok "$HOOK: sintaxe bash ok" || falha "$HOOK: erro de sintaxe bash"
+sintaxe_tmp="$(mktemp -d)"
+if bun build "$HOOK" "$VARREDURA" --target=bun --outdir "$sintaxe_tmp" >/dev/null 2>&1; then
+  ok "hook e auditor: sintaxe TypeScript válida no Bun"
+else
+  falha "hook ou auditor: erro de sintaxe TypeScript"
+fi
+rm -rf "$sintaxe_tmp"
 rm -rf scripts/__pycache__
 
 # Os hooks moram em hooks/ na raiz, versionado — nao num diretorio de provedor.

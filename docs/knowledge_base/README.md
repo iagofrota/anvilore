@@ -23,14 +23,19 @@ Peças que existem hoje no repositório:
 - Contrato do agente: `AGENTS.md` (e `CLAUDE.md`, que só aponta para ele).
 - Skills de ingerir, consultar e varrer a wiki: `skills/ingest/SKILL.md`, `skills/query/SKILL.md`
   e `skills/lint/SKILL.md`.
-- Validador e scripts de manutenção que ainda estão em bash e Python: `scripts/`.
-- Proteção de `raw/` como hook: `hooks/proteger-raw.sh`.
-- Instalador para Claude Code, Codex, Gemini e Copilot: `instalar.sh`.
-- O porte para TypeScript no Bun, em andamento: `src/cli.ts` (tabela de subcomandos), a biblioteca
-  em `src/lib/` e os subcomandos `checar-docs`, `checar-release`, `fatiar-log`, `indexar-log`, `listar-lacunas`,
-  `auditar`, `migrar-areas`, `rejuntar-linhas` e `sincronizar-indice`, em `src/comandos/`. O `sincronizar-indice` atualiza só a linha 3 dos índices de área;
-  `--checar` detecta defasagem sem escrever (`src/comandos/sincronizar-indice.ts` e
-  `tests/sincronizar-indice.test.ts`). Os demais scripts, o hook e o instalador acima ainda não foram substituídos.
+- Validador da wiki (`anvilore validar`), em TypeScript: `src/comandos/validar.ts`, `src/lib/okf.ts` e
+  `src/lib/perfil.ts`. O ritual de fechamento ainda é bash: `scripts/fechar-wiki.sh`.
+- Onboarding de áreas: `anvilore init`, em `src/comandos/init.ts` (cenários em `tests/init.test.ts`). Cria
+  `wiki/<área>/{sources,entities,concepts}`, recusa nome reservado (`src/lib/reservados.ts`) e é idempotente.
+- Proteção de `raw/` como hook, em TypeScript: `anvilore hook proteger-raw`, em
+  `src/comandos/hook-proteger-raw.ts`, chamado pelas formas de `hooks/`.
+- Instalador para Claude Code, Codex, Gemini e Copilot: `anvilore instalar`, em
+  `src/comandos/instalar.ts`, com fusão em `src/lib/fundir-json.ts` e `src/lib/fundir-bloco.ts`.
+- Os comandos TypeScript no Bun estão em `src/cli.ts` (tabela de subcomandos) e `src/comandos/`, com a biblioteca em `src/lib/`:
+  `checar-docs`, `checar-release`, `validar`, `instalar`, `init`, `doctor`, `hook`, `fatiar-log`, `indexar-log`,
+  `sincronizar-indice`, `migrar-areas`, `listar-lacunas`, `auditar` e `rejuntar-linhas`.
+  O `sincronizar-indice` atualiza só a linha 3 dos índices de área; `--checar` detecta defasagem sem escrever
+  (`src/comandos/sincronizar-indice.ts` e `tests/sincronizar-indice.test.ts`).
 
 ## Para onde ir com cada pergunta
 
@@ -40,6 +45,7 @@ Peças que existem hoje no repositório:
 | O que protege a wiki hoje? O que não protege? Há risco de vazamento? | [governanca.md](governanca.md) |
 | Funciona em Windows e macOS? O que pode dar errado? | [plataformas.md](plataformas.md) |
 | Como rodo os testes? Como entrego uma mudança? Como sai uma release? | [contribuindo.md](contribuindo.md) |
+| Quanto tempo leva a primeira experiência? O que quebrou nos ensaios? A skill de ingestão funciona em outro agente? | [perguntas-frequentes.md](perguntas-frequentes.md) |
 
 ## Páginas a escrever
 
@@ -48,7 +54,6 @@ nasce quando o código novo que ela descreve estiver integrado.
 
 - arquitetura: o mapa das camadas, dos componentes e do fluxo;
 - comandos: cada subcomando, com entradas e códigos de saída;
-- perguntas frequentes: as dúvidas que um agente costuma receber.
 
 Enquanto não existem, a fonte é o código: `src/cli.ts` lista os subcomandos e cada um mora em
 `src/comandos/`.
