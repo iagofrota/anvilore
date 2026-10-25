@@ -20,6 +20,9 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   `wiki/exemplo/` ficaria fora da lista.
 - `anvilore instalar` termina com "Próximo passo: reabra o agente neste clone ... e rode `bun src/cli.ts init`" na instalação
   real; a simulação diz "Nada foi alterado" e "seriam instalados".
+- `init` e `validar` comparam a área com o `anvilore.toml` pela mesma política exata (sem caixa nem normalização): `areas = ["Pessoal"]`
+  recusa `pessoal` já no `init`. O `doctor` só reprova a versão antiga do Claude Code quando o Claude está configurado no clone (`.claude/`).
+  O README manda apagar, junto com `wiki/exemplo/`, a seção `## Área: exemplo` do `wiki/index.md`.
 - `anvilore doctor` só cobra o agente que o clone configurou (pasta de configuração no destino); agente que só tem a CLI no PATH
   aparece como "encontrado, sem trava neste clone (opcional)". Sai 1 se nenhum agente do clone tem a trava.
 - Comando `anvilore doctor [pasta]`: mostra, em linguagem simples, quais travas estão ligadas (proteção do `raw/` em
