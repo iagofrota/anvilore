@@ -652,3 +652,41 @@ test("Dado bloco do Codex sem command_windows Quando reinstalo Então o bloco é
   const antes = captura(destino);
   expect((await rodar(["codex"])).veredito).toBe("INALTERADO"); expect(captura(destino)).toEqual(antes);
 });
+
+// R70-G: a saída aponta o próximo passo só na instalação real; a simulação diz que nada foi alterado.
+test("Dado instalação real Quando termino sem erro Então a última linha manda reabrir o agente e rodar init", async () => {
+  const r = await rodar(["claude"]);
+  expect(r.codigo).toBe(0);
+  const ultima = r.mensagens.at(-1)!;
+  expect(ultima).toBe("Próximo passo: reabra o agente neste clone (o hook só vale em sessões abertas depois da instalação) e rode `bun src/cli.ts init`.");
+});
+
+test("Dado instalação repetida sem mudanças Quando termino Então ainda aponta o próximo passo", async () => {
+  await rodar(["claude"]);
+  const r = await rodar(["claude"]);
+  expect(r.veredito).toBe("INALTERADO");
+  expect(r.mensagens.at(-1)).toContain("Próximo passo: reabra o agente");
+});
+
+test("Dado simulação Quando termino Então diz que nada foi alterado e não sugere o próximo passo nem diz instalados", async () => {
+  const r = await rodar(["claude"], true);
+  const texto = r.mensagens.join("\n");
+  expect(texto).toContain("Nada foi alterado");
+  expect(texto).not.toContain("Próximo passo");
+  expect(texto).not.toMatch(/^instalados:/m);
+  expect(texto).toContain("seriam instalados: claude");
+});
+
+test("Dado instalação com erro Quando termino Então não sugere o próximo passo", async () => {
+  mkdirSync(join(destino, ".claude")); writeFileSync(join(destino, ".claude/settings.json"), "{ruim");
+  const r = await rodar(["claude"]);
+  expect(r.codigo).toBe(4);
+  expect(r.mensagens.join("\n")).not.toContain("Próximo passo");
+});
+
+test("Dado só CLI ausente Quando termino Então não há o que reabrir e o próximo passo não aparece", async () => {
+  rmSync(join(tmp, "bin", process.platform === "win32" ? "codex.cmd" : "codex"));
+  const r = await rodar(["codex"]);
+  expect(r.instalados).toEqual([]);
+  expect(r.mensagens.join("\n")).not.toContain("Próximo passo");
+});

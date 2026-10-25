@@ -332,7 +332,7 @@ async function instalarSkills(contexto: Contexto, alvo: Alvo, skills: string[]):
 
 function resumir(contexto: Contexto): RelatorioInstalacao {
   const relatorio = contexto.relatorio;
-  if (relatorio.instalados.length) relatorio.mensagens.push(`instalados: ${relatorio.instalados.join(", ")}`);
+  if (relatorio.instalados.length) relatorio.mensagens.push(`${contexto.simular ? "seriam instalados" : "instalados"}: ${relatorio.instalados.join(", ")}`);
   if (relatorio.ausentes.length) relatorio.mensagens.push(`ausentes do PATH, pulados: ${relatorio.ausentes.join(", ")}`);
   if (relatorio.avisos) relatorio.mensagens.push(`avisos: ${relatorio.avisos} (nada foi sobrescrito)`);
   if (relatorio.erros) {
@@ -340,9 +340,13 @@ function resumir(contexto: Contexto): RelatorioInstalacao {
   } else if (!relatorio.mudancas) {
     relatorio.mensagens.push("INALTERADO: nada a fazer — tudo já estava instalado.");
   } else if (contexto.simular) {
-    relatorio.mensagens.push(`SIMULAÇÃO: MUDOU: ${relatorio.mudancas} mudança(s) seriam aplicadas. Nenhum arquivo foi escrito.`);
+    relatorio.mensagens.push(`SIMULAÇÃO: MUDOU: ${relatorio.mudancas} mudança(s) seriam aplicadas. Nada foi alterado: nenhum arquivo foi escrito.`);
   } else {
     relatorio.mensagens.push(`MUDOU: ${relatorio.mudancas} mudança(s) aplicada(s).`);
+  }
+  // R70-G: só a instalação real, sem erro e com algum agente instalado, aponta o que fazer depois.
+  if (!contexto.simular && !relatorio.erros && relatorio.instalados.length) {
+    relatorio.mensagens.push("Próximo passo: reabra o agente neste clone (o hook só vale em sessões abertas depois da instalação) e rode `bun src/cli.ts init`.");
   }
   return relatorio;
 }
