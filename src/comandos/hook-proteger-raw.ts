@@ -244,7 +244,9 @@ function destinosDoCmdlet(verbo: string, args: string[]): string[] {
     if (/^-[A-Za-z]/.test(arg)) {
       const dois = arg.indexOf(":");
       const parametro = parametroPs(dois < 0 ? arg : arg.slice(0, dois));
-      if (parametro !== undefined) nomeados.set(parametro, (dois < 0 ? args[++i] ?? "" : arg.slice(dois + 1)).split(","));
+      // `-Path:valor` traz o valor colado; `-Path: valor` (dois-pontos no fim) é o mesmo parâmetro com o valor no token seguinte.
+      const colado = dois < 0 ? "" : arg.slice(dois + 1);
+      if (parametro !== undefined) nomeados.set(parametro, (colado === "" ? args[++i] ?? "" : colado).split(","));
     } else if (!/^\/[A-Za-z]$/.test(arg)) posicionais.push(arg);
   }
   if (["copy-item", "cpi", "copy"].includes(verbo)) {

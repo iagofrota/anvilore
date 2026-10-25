@@ -662,3 +662,20 @@ test("Dado env -S com valor colado ou abreviado Quando o texto apaga amplo Entã
   }
   expect(decidir(comCwd("env -Scat wiki/a.md", "/srv/equipe/proj")).acao).toBe("liberar");
 });
+
+// Rodada 4 (R72) — C3: parâmetro do PowerShell terminado em `:` com o valor no token seguinte (`-Path: raw\a.md`).
+test("Dado parâmetro com dois-pontos e o valor separado Quando o destino é raw Então bloqueia nos quatro cmdlets e nas abreviações", () => {
+  for (const comando of ["Set-Content -Path: raw\\\\a.md -Value x", "Out-File -FilePath: raw\\\\a.md", "Copy-Item wiki\\\\a.md -Destination: raw\\\\a.md", "Add-Content -LiteralPath: raw\\\\a.md -Value x", "Set-Content -Pa: raw\\\\a.md -Value x", "Copy-Item wiki\\\\a.md -Dest: raw\\\\", "Out-File -File: raw\\\\a.md", "New-Item -Path: raw\\\\x", "Set-Content -Path: raw\\\\a.md,wiki\\\\b.md x", "Set-Content -PSPath: raw\\\\a.md x"]) {
+    expect(decidir(terminal(comando, "powershell")).acao).toBe("bloquear");
+  }
+});
+test("Dado o mesmo parâmetro com dois-pontos separado Quando o destino é a wiki Então libera, inclusive a ingestão raw para wiki", () => {
+  for (const comando of ["Set-Content -Path: wiki\\\\a.md -Value x", "Out-File -FilePath: wiki\\\\a.md", "Copy-Item wiki\\\\a.md -Destination: wiki\\\\b.md", "Add-Content -LiteralPath: wiki\\\\a.md -Value x", "Copy-Item -Path: raw\\\\a.md -Destination: wiki\\\\a.md", "Copy-Item -Path: raw\\\\a.md -Dest: wiki\\\\", "Set-Content -Path: wiki\\\\a.md -Value: x"]) {
+    expect(decidir(terminal(comando, "powershell")).acao).toBe("liberar");
+  }
+});
+test("Dado dois-pontos colado ao valor e dois-pontos sem valor no fim Quando decido Então as duas formas continuam coerentes", () => {
+  expect(decidir(terminal("Set-Content -Path:raw\\\\a.md x", "powershell")).acao).toBe("bloquear");
+  expect(decidir(terminal("Set-Content -Path:wiki\\\\a.md x", "powershell")).acao).toBe("liberar");
+  expect(decidir(terminal("Set-Content wiki\\\\a.md -Path:", "powershell")).acao).toBe("liberar");
+});
