@@ -28,6 +28,9 @@ jobs:
       - name: Medir links de diretório e arquivo (imprime resultado por sistema)
         if: always()
         run: bun scripts/medir-ligacoes.ts
+      - name: Diagnosticar busca da skill query nos shells reais (obtido × esperado)
+        if: always()
+        run: bun scripts/provar-busca.ts
       - name: Medir latência do hook proteger-raw (20 execuções; imprime mediana e p95 por sistema)
         if: always()
         run: bun scripts/medir-latencia-hook.ts

@@ -9,6 +9,12 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Added
+
+- Diagnóstico da busca da skill `query` no CI de Windows, Linux e macOS: executa os comandos
+  literais nos shells reais, registra a origem do `rg`, acentos NFC/NFD, páginas ignoradas e
+  abertura dos caminhos citados. Divergências ficam explícitas no quadro, sem mudar a busca.
+
 ## [0.2.0] - 2026-10-25
 
 Tudo o que entrou na `main` depois da 0.1.0: validação, manutenção da wiki, instalador e hook em TypeScript no Bun,
