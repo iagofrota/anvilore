@@ -5,10 +5,11 @@ import { fundirBloco } from "../lib/fundir-bloco";
 import { fundirJson } from "../lib/fundir-json";
 import { NOME_DO_PERFIL, carregarPerfil } from "../lib/perfil";
 import { alvosConhecidos, configuracaoDoHook, tirarHookAntigo, valorDoPath, type Alvo } from "./instalar";
+import { avisoRg } from "../lib/rg";
 
 export type Trava = { nome: string; ligada: boolean; comoLigar?: string; detalhe?: string; opcional?: boolean; naoInstalado?: boolean; semTrava?: boolean };
 export type Prerequisito = { nome: string; presente: boolean };
-export type Diagnostico = { travas: Trava[]; prerequisitos: Prerequisito[] };
+export type Diagnostico = { travas: Trava[]; prerequisitos: Prerequisito[]; avisos: string[] };
 
 const AGENTES: Record<Alvo, string> = { claude: "Claude Code", codex: "Codex", gemini: "Gemini", copilot: "Copilot" };
 const HOOK_ANTIGO = "hooks/proteger-raw.sh";
@@ -181,7 +182,8 @@ export async function diagnosticar(raiz: string, ambiente: Record<string, string
   if (versao) travas.push(versao);
   travas.push(await validacaoNoFechamento(raiz), await checagemAntesDeAceitar(raiz), await perfilDaEmpresa(raiz));
   const prerequisitos = ["bun", "git"].map(nome => ({ nome, presente: Bun.which(nome, { PATH: path ?? "" }) !== null }));
-  return { travas, prerequisitos };
+  const aviso = avisoRg(path);
+  return { travas, prerequisitos, avisos: aviso ? [aviso] : [] };
 }
 
 function linhas(trava: Trava): string[] {
@@ -208,7 +210,7 @@ export async function comandoDoctor(args: string[]): Promise<number> {
     console.error(`doctor: ${raiz}: ${(erro as Error).message}`);
     return 1;
   }
-  const { travas, prerequisitos } = await diagnosticar(raiz);
+  const { travas, prerequisitos, avisos } = await diagnosticar(raiz);
   const faltam = travas.filter(trava => !trava.ligada && !trava.opcional).length;
   const ausentes = prerequisitos.filter(item => !item.presente).length;
   console.log(`anvilore doctor — ${raiz}`);
@@ -216,6 +218,7 @@ export async function comandoDoctor(args: string[]): Promise<number> {
   for (const trava of travas) for (const texto of linhas(trava)) console.log(texto);
   console.log("Pré-requisitos:");
   for (const item of prerequisitos) console.log(`  ${item.nome}: ${item.presente ? "presente" : `ausente — instale em ${ONDE_INSTALAR[item.nome]}`}`);
+  for (const aviso of avisos) console.log(`AVISO: ${aviso}`);
   if (!faltam && !ausentes) {
     console.log("Resultado: tudo ligado.");
     return 0;

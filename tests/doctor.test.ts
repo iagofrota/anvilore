@@ -23,7 +23,7 @@ beforeEach(() => {
   writeFileSync(join(clone, "AGENTS.md"), "contrato");
   mkdirSync(join(clone, "skills")); mkdirSync(join(clone, "src"));
   writeFileSync(join(clone, "src/cli.ts"), "cli");
-  for (const nome of ["bun", "git", ...alvosConhecidos]) executavel(nome);
+  for (const nome of ["bun", "git", "rg", ...alvosConhecidos]) executavel(nome);
   process.env.BUN_INSTALL = join(tmp, "bun"); process.env.BUN_INSTALL_CACHE_DIR = join(tmp, "bun-cache");
   process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH = join(tmp, "bun-transpiler"); process.env.XDG_CACHE_HOME = join(tmp, "cache");
   process.env.PATH = bin; process.env.HOME = join(tmp, "lar"); process.env.USERPROFILE = join(tmp, "lar");
@@ -51,6 +51,14 @@ function completar() {
 }
 async function travas() { return Object.fromEntries((await diagnosticar(clone)).travas.map(t => [t.nome, t])); }
 const protecao = (agente: string) => `Proteção do raw/ no ${agente}`;
+
+test("Dado rg ausente mas travas completas Quando rodo doctor Então avisa sobre query e continua com saída zero", async () => {
+  await instalarTudo(); completar();
+  rmSync(join(bin, process.platform === "win32" ? "rg.cmd" : "rg"));
+  expect(await comandoDoctor([clone])).toBe(0);
+  expect(consoleCapturado.saida.join("\n")).toMatch(/AVISO:.*query.*rg/);
+  expect(readdirSync(bin).some(nome => /^rg(?:\.cmd|\.exe)?$/.test(nome))).toBe(false);
+});
 
 test("Dado fechamento TypeScript atual Quando diagnostico Então a validação no fechamento está ligada", async () => {
   completar();

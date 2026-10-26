@@ -4,6 +4,7 @@ import { isDeepStrictEqual, parseArgs } from "node:util";
 import { lerFrontmatter } from "../lib/frontmatter";
 import { fundirJson } from "../lib/fundir-json";
 import { fundirBloco } from "../lib/fundir-bloco";
+import { avisoRg } from "../lib/rg";
 
 const fonte = resolve(import.meta.dir, "../..");
 export const alvosConhecidos = ["claude", "codex", "gemini", "copilot"] as const;
@@ -367,6 +368,8 @@ export async function instalar(opcoes: OpcoesInstalacao): Promise<RelatorioInsta
   const alvos = [...new Set(opcoes.alvos)];
   relatorio.mensagens.push("anvilore — instalação", `destino: ${destino}`, `alvos: ${alvos.join(", ")}`);
   if (opcoes.simular) relatorio.mensagens.push("SIMULAÇÃO (nada será escrito)");
+  const aviso = avisoRg(valorDoPath());
+  if (aviso) registrarAviso(contexto, aviso);
   try {
     await instalarEsqueleto(contexto);
   } catch (erro) {
