@@ -56,6 +56,7 @@ type Ocorrencia = { arquivo: string; linha: number; conteudo: string; aberturaDi
 type Obtido = { codigo: number; stdout: string; stderr: string; utf8: boolean; stdoutHex: string; ocorrencias: Ocorrencia[] };
 type Caso = { cenario: string; comando: string; esperado: { codigo: number; ocorrencias: number }; obtido: Obtido; confere: boolean };
 type Shell = { nome: string; exe?: string; erro?: string; ambiente?: string; rg?: { origem: string; versao: string }; casos: Caso[] };
+type Modo = "normal" | "bash-historico" | "cmd-850";
 
 // Fase 1: divergência funcional é MEDIÇÃO, não é sucesso da busca. Falha de infraestrutura sai 1.
 // O esperado funcional para Unicode é achar ambas as páginas equivalentes; rg pode não normalizar.
@@ -71,9 +72,16 @@ export function provarBusca(apenas?: string[]) {
       const shell = resolverShell(nome);
       if (!shell) { resultado.erro = "shell indisponível"; codigo = 1; continue; }
       resultado.exe = shell.exe;
-      const rodar = (comando: string): Obtido => {
-        const r = Bun.spawnSync([shell.exe, ...shell.args(comando)], {
-          cwd: wiki.cwd, env: process.env, stdout: "pipe", stderr: "pipe", stdin: "ignore",
+      const rodar = (comando: string, modo: Modo = "normal"): Obtido => {
+        const historico = modo === "bash-historico";
+        // Linhas separadas e -i: set -H tem que vigorar ANTES de o bash ler a linha medida.
+        // PS1/PS2 e HISTFILE isolados evitam prompts e escrita no histórico real.
+        const entrada = `set -H\nhistory -c\ncase $- in *H*) echo HISTEXPAND=on;; *) echo HISTEXPAND=off;; esac\nhistory -p 'echo "!anvilore_evento_ausente"' >/dev/null 2>&1\necho HISTORY_CONTROL=$?\n${comando}\nexit $?\n`;
+        const args = historico ? ["--noprofile", "--norc", "-i"] : shell.args(comando);
+        if (modo === "cmd-850") args.splice(1, 0, "/v:on");
+        const r = Bun.spawnSync([shell.exe, ...args], {
+          cwd: wiki.cwd, env: { ...process.env, PS1: "", PS2: "", HISTFILE: join(wiki.cwd, "historico") }, stdout: "pipe", stderr: "pipe",
+          stdin: historico ? Buffer.from(entrada) : "ignore",
           windowsVerbatimArguments: shell.verbatim, timeout: 30_000,
         });
         let utf8 = true;
@@ -102,15 +110,39 @@ export function provarBusca(apenas?: string[]) {
         codigo = 1;
       }
       const buscar = (termo: string) => comandos.termo.replace("<termo-chave>", termo);
-      const casos: Array<[string, string, number, number]> = [
+      const a = 'rg --no-ignore -n "\\[!gap\\]|\\[!contradiction\\]" wiki/';
+      const b = 'rg --no-ignore -n "\\[\\x21(gap|contradiction)\\]" wiki/';
+      const casos: Array<[string, string, number, number, Modo?]> = [
         ["termo ASCII com --no-ignore", buscar("busca-diagnostico"), 0, 2],
         ["lacunas (literal da skill)", comandos.lacunas, 0, 4],
         ...["governança", "tributação"].flatMap(termo => (["NFC", "NFD"] as const).map(forma =>
           [`${termo} (consulta ${forma})`, buscar(termo.normalize(forma)), 0, 2] as [string, string, number, number])),
         ["termo ASCII sem --no-ignore", buscar("busca-diagnostico").replace("--no-ignore ", ""), 1, 0],
+        ["callouts candidata a", a, 0, 4],
+        ["callouts candidata b", b, 0, 4],
+        ["radical govern", buscar("govern"), 0, 2],
+        ["radical tribut", buscar("tribut"), 0, 2],
       ];
-      for (const [cenario, comando, esperadoCodigo, esperadoOcorrencias] of casos) {
-        const obtido = rodar(comando);
+      if (nome === "bash") casos.push(
+        ["callouts candidata a (bash set -H)", a, 0, 4, "bash-historico"],
+        ["callouts candidata b (bash set -H)", b, 0, 4, "bash-historico"],
+      );
+      if (nome === "cmd") {
+        const paginaOriginal = /\d+/.exec(ambiente.stdout)?.[0];
+        if (!paginaOriginal) throw new Error(`não consegui ler a codepage original: ${ambiente.stdout}`);
+        // /v:on só neste caso: preserva o errorlevel do rg antes de restaurar a codepage.
+        // O comando chega como argumento Unicode, sem arquivo .cmd relido sob CP850.
+        const termo850 = `chcp 850 >nul & chcp & ${buscar("governança")} & set "ANVILORE_RG_RESULTADO=!errorlevel!" & chcp ${paginaOriginal} >nul & exit /b !ANVILORE_RG_RESULTADO!`;
+        casos.push(["governança (cmd chcp 850)", termo850, 0, 1, "cmd-850"]);
+      }
+      if (nome === "powershell") {
+        casos.push(["governança (PowerShell 5.1 OutputEncoding padrão)", `$OutputEncoding.WebName; ${buscar("governança")}`, 0, 1]);
+        casos.push(["governança (PowerShell 5.1 chcp 850, OutputEncoding padrão)", `try { chcp 850 > $null; chcp; $OutputEncoding.WebName; ${buscar("governança")}; $r = $LASTEXITCODE } finally { chcp ${Number(ambiente.stdout.split(/\r?\n/)[1])} > $null }; exit $r`, 0, 1]);
+      }
+      for (const [cenario, comando, esperadoCodigo, esperadoOcorrencias, modo] of casos) {
+        let obtido: Obtido;
+        try { obtido = rodar(comando, modo); }
+        finally { if (nome === "cmd" && cenario.includes("chcp 850")) rodar(`chcp ${/\d+/.exec(ambiente.stdout)![0]} >nul`); }
         const confere = obtido.codigo === esperadoCodigo && obtido.ocorrencias.length === esperadoOcorrencias
           && obtido.utf8 && obtido.ocorrencias.every(o => o.aberturaDireta && o.aberturaBarras)
           && (esperadoOcorrencias !== 0 || obtido.stdout === "");

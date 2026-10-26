@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { comandosDaSkill, prepararWiki, provarBusca, abrirCitacao } from "../scripts/provar-busca";
+import { comandosDaSkill, prepararWiki, provarBusca, abrirCitacao, imprimirProva } from "../scripts/provar-busca";
 import { pacoteDoRg, conferirHash } from "../scripts/pacote-rg-prova";
+import { capturarConsole } from "./apoio/console";
 
 test("Dado o rg ausente dos runners Quando preparo o ensaio Então fixa artefatos oficiais e rejeita download adulterado ou sistema não suportado", () => {
   for (const [sistema, arch] of [["linux", "x64"], ["win32", "x64"], ["darwin", "arm64"], ["darwin", "x64"]]) {
@@ -65,6 +67,9 @@ test("Dado os comandos literais Quando executo no bash real Então mede ignorado
   expect(nfd.confere).toBe(false);
   expect(nfc.obtido.ocorrencias[0]!.arquivo).not.toBe(nfd.obtido.ocorrencias[0]!.arquivo);
   expect(shell.casos.every(c => c.obtido.utf8)).toBe(true);
+  for (const radical of ["govern", "tribut"]) {
+    expect(shell.casos.find(c => c.cenario === `radical ${radical}`)?.obtido.ocorrencias).toHaveLength(2);
+  }
   expect(existsSync(resultado.temporario)).toBe(false);
 });
 
@@ -72,6 +77,22 @@ test("Dado um shell ausente Quando peço o diagnóstico Então falha a infraestr
   const resultado = provarBusca(["shell-inexistente-anvilore"]);
   expect(resultado.codigo).toBe(1);
   expect(resultado.shells[0]?.erro).toContain("shell indisponível");
+});
+
+test("Dado bash com expansão de histórico Quando comparo candidatas Então x21 encontra quatro callouts com expansão comprovadamente ligada", () => {
+  const shell = provarBusca(["bash"]).shells[0]!;
+  const a = shell.casos.find(c => c.cenario === "callouts candidata a (bash set -H)");
+  const b = shell.casos.find(c => c.cenario === "callouts candidata b (bash set -H)");
+  expect(b?.obtido.codigo).toBe(0);
+  expect(b?.obtido.ocorrencias).toHaveLength(4);
+  expect(b?.obtido.stdout).toContain("HISTEXPAND=on");
+  expect(a).toBeDefined();
+  expect(b?.obtido.stdout).toContain("HISTORY_CONTROL=1");
+  for (const candidata of ["a", "b"]) {
+    const caso = shell.casos.find(c => c.cenario === `callouts candidata ${candidata}`)!;
+    expect(caso.obtido.codigo).toBe(0);
+    expect(caso.obtido.ocorrencias).toHaveLength(4);
+  }
 });
 
 test("Dado o CI Quando mede a busca Então roda sempre nos três sistemas", () => {
@@ -84,4 +105,27 @@ test("Dado o CI Quando mede a busca Então roda sempre nos três sistemas", () =
   expect(preparar).toBeGreaterThan(-1);
   expect(preparar).toBeLessThan(checar);
   expect(fluxo.jobs.testes.steps.find((e: any) => e.run === "bun scripts/rg-temporario-prova.ts --limpar")?.if).toBe("always()");
+});
+
+test("Dado medições reais Quando publico o quadro Então o log mantém códigos, ocorrências, comandos e divergências", () => {
+  const resultado = provarBusca(["bash"]);
+  const consoleCapturado = capturarConsole();
+  const tmp = mkdtempSync(join(tmpdir(), "resumo-busca-"));
+  const resumoAnterior = process.env.GITHUB_STEP_SUMMARY;
+  try {
+    process.env.GITHUB_STEP_SUMMARY = join(tmp, "resumo.md");
+    imprimirProva(resultado);
+    const linhas = consoleCapturado.saida;
+    const json = linhas.find(l => l.startsWith("BUSCA_CASO ") && l.includes("termo ASCII com --no-ignore"))!;
+    const caso = JSON.parse(json.slice("BUSCA_CASO ".length));
+    expect(caso.obtido.codigo).toBe(0);
+    expect(caso.obtido.ocorrencias).toHaveLength(2);
+    expect(caso.comando).toBe('rg --no-ignore -in "busca-diagnostico" wiki/');
+    expect(linhas.join("\n")).toContain("DIVERGE");
+    expect(readFileSync(join(tmp, "resumo.md"), "utf8")).toContain("| 0 / 2 | 0 / 2 | ok |");
+  } finally {
+    if (resumoAnterior === undefined) delete process.env.GITHUB_STEP_SUMMARY; else process.env.GITHUB_STEP_SUMMARY = resumoAnterior;
+    consoleCapturado.restaurar();
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });

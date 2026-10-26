@@ -13,6 +13,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 - O instalador e o `doctor` avisam quando falta `rg`, usado pela skill `query`, e mostram como
   obtê-lo em Windows, macOS e Linux. O aviso não reprova nem instala nada automaticamente.
+- O ensaio da busca compara duas formas de procurar callouts em cada shell e no bash com
+  histórico ligado, mede acentos sob codepage 850 e confere a busca por radicais sem acento.
 
 - Diagnóstico da busca da skill `query` no CI de Windows, Linux e macOS: executa os comandos
   literais nos shells reais, registra a origem do `rg`, acentos NFC/NFD, páginas ignoradas e
