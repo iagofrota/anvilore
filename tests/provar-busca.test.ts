@@ -33,13 +33,8 @@ test("Dado a forma hexadecimal Quando extraio a skill Então o comando é execut
 test("Dado callouts que não encontram nada Quando a guarda executa Então reprova e distingue o erro obrigatório dos limites informativos", () => {
   const resultado = provarBusca(["bash"], { ...comandosDaSkill(), lacunas: 'rg --no-ignore -n "callout-inexistente" wiki/' });
   expect(resultado.codigo).toBe(1);
-  const consoleCapturado = capturarConsole();
-  try {
-    imprimirProva(resultado);
-    const saida = consoleCapturado.saida.join("\n");
-    expect(saida).toContain("FALHA");
-    expect(saida).toContain("INFO");
-  } finally { consoleCapturado.restaurar(); }
+  expect(resultado.shells[0]?.casos.find(c => c.cenario === "lacunas (literal da skill)")?.obrigatorio).toBe(true);
+  expect(resultado.shells[0]?.casos.find(c => c.cenario === "governança (consulta NFC)")?.obrigatorio).toBe(false);
 });
 
 test("Dado termos sem a flag obrigatória Quando a guarda executa Então reprova a busca vazia", () => {
@@ -129,8 +124,8 @@ test("Dado o CI Quando mede a busca Então roda sempre nos três sistemas", () =
   expect(fluxo.jobs.testes.steps.find((e: any) => e.run === "bun scripts/rg-temporario-prova.ts --limpar")?.if).toBe("always()");
 });
 
-test("Dado medições reais Quando publico o quadro Então o log mantém códigos, ocorrências, comandos e divergências", () => {
-  const resultado = provarBusca(["bash"]);
+test("Dado uma falha real Quando publico o quadro Então o log distingue FALHA de INFO sem escrever no resumo do runner", () => {
+  const resultado = provarBusca(["bash"], { ...comandosDaSkill(), lacunas: 'rg --no-ignore -n "callout-inexistente" wiki/' });
   const consoleCapturado = capturarConsole();
   const tmp = mkdtempSync(join(tmpdir(), "resumo-busca-"));
   const resumoAnterior = process.env.GITHUB_STEP_SUMMARY;
@@ -144,6 +139,7 @@ test("Dado medições reais Quando publico o quadro Então o log mantém código
     expect(caso.obtido.ocorrencias).toHaveLength(2);
     expect(caso.comando).toBe('rg --no-ignore -in "busca-diagnostico" wiki/');
     expect(linhas.join("\n")).toContain("INFO");
+    expect(linhas.join("\n")).toContain("FALHA");
     expect(readFileSync(join(tmp, "resumo.md"), "utf8")).toContain("| 0 / 2 | 0 / 2 | ok |");
   } finally {
     if (resumoAnterior === undefined) delete process.env.GITHUB_STEP_SUMMARY; else process.env.GITHUB_STEP_SUMMARY = resumoAnterior;

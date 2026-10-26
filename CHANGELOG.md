@@ -18,6 +18,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - A busca de callouts da skill `query` usa a forma hexadecimal de `!`, provada em cmd,
   PowerShell e bash com histórico ligado. O CI reprova regressões nos comandos obrigatórios;
   limites de NFC/NFD e codepage ficam explícitos na skill e na documentação de plataformas.
+- Os testes da guarda isolam suas falhas simuladas para não poluir o resumo real do CI.
 
 - Diagnóstico da busca da skill `query` no CI de Windows, Linux e macOS: executa os comandos
   literais nos shells reais, registra a origem do `rg`, acentos NFC/NFD, páginas ignoradas e
