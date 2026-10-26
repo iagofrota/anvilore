@@ -2,6 +2,18 @@ import { expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { comandosDaSkill, prepararWiki, provarBusca, abrirCitacao } from "../scripts/provar-busca";
+import { pacoteDoRg, conferirHash } from "../scripts/pacote-rg-prova";
+
+test("Dado o rg ausente dos runners Quando preparo o ensaio Então fixa artefatos oficiais e rejeita download adulterado ou sistema não suportado", () => {
+  for (const [sistema, arch] of [["linux", "x64"], ["win32", "x64"], ["darwin", "arm64"], ["darwin", "x64"]]) {
+    const pacote = pacoteDoRg(sistema!, arch!);
+    expect(pacote.url).toStartWith("https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-");
+    expect(pacote.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(() => conferirHash(Buffer.from("download adulterado"), pacote.sha256)).toThrow("SHA-256");
+  }
+  expect(() => pacoteDoRg("desconhecido", "x64")).toThrow("não suportado");
+  expect(() => conferirHash(Buffer.from("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")).not.toThrow();
+});
 
 test("Dado a skill query Quando preparo a prova Então preserva literalmente aspas e regex dos dois comandos", () => {
   const comandos = comandosDaSkill();
@@ -67,4 +79,9 @@ test("Dado o CI Quando mede a busca Então roda sempre nos três sistemas", () =
   expect(fluxo.jobs.testes.strategy.matrix.os).toEqual(["ubuntu-latest", "windows-latest", "macos-latest"]);
   const etapa = fluxo.jobs.testes.steps.find((e: any) => e.run === "bun scripts/provar-busca.ts");
   expect(etapa?.if).toBe("always()");
+  const preparar = fluxo.jobs.testes.steps.findIndex((e: any) => e.run === "bun scripts/rg-temporario-prova.ts");
+  const checar = fluxo.jobs.testes.steps.findIndex((e: any) => e.run === "bun run checar");
+  expect(preparar).toBeGreaterThan(-1);
+  expect(preparar).toBeLessThan(checar);
+  expect(fluxo.jobs.testes.steps.find((e: any) => e.run === "bun scripts/rg-temporario-prova.ts --limpar")?.if).toBe("always()");
 });

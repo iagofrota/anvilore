@@ -21,6 +21,9 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
+      - name: Registrar PATH original e preparar rg temporário só para a prova
+        if: always()
+        run: bun scripts/rg-temporario-prova.ts
       - name: Tipos, testes e cobertura (limite 0.8 em bunfig.toml)
         run: bun run checar
       - name: Checar links e referências da knowledge base
@@ -43,3 +46,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: bun src/cli.ts checar-release "${GITHUB_REF_NAME#v}"
+      - name: Remover rg temporário da prova
+        if: always()
+        run: bun scripts/rg-temporario-prova.ts --limpar

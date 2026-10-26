@@ -60,8 +60,8 @@ type Shell = { nome: string; exe?: string; erro?: string; ambiente?: string; rg?
 // Fase 1: divergência funcional é MEDIÇÃO, não é sucesso da busca. Falha de infraestrutura sai 1.
 // O esperado funcional para Unicode é achar ambas as páginas equivalentes; rg pode não normalizar.
 export function provarBusca(apenas?: string[]) {
-  const wiki = prepararWiki();
   const comandos = comandosDaSkill();
+  const wiki = prepararWiki();
   const shells: Shell[] = [];
   let codigo = 0;
   try {
@@ -117,25 +117,26 @@ export function provarBusca(apenas?: string[]) {
         resultado.casos.push({ cenario, comando, esperado: { codigo: esperadoCodigo, ocorrencias: esperadoOcorrencias }, obtido, confere });
       }
     }
-    return { codigo, sistema: process.platform, temporario: wiki.tmp, shells };
+    return { codigo, sistema: process.platform, contexto: process.env.ANVILORE_RG_PROVA_CONTEXTO ?? "PATH original", temporario: wiki.tmp, shells };
   } finally { rmSync(wiki.tmp, { recursive: true, force: true }); }
 }
 
 export function imprimirProva(resultado: ReturnType<typeof provarBusca>) {
+  console.log(`CONTEXTO: ${resultado.contexto}`);
   const linhas = ["| Sistema | Shell | Cenário | Obtido (saída / ocorrências) | Esperado | Resultado |", "|---|---|---|---|---|---|"];
   for (const shell of resultado.shells) {
-    console.log(`BUSCA_AMBIENTE ${JSON.stringify({ sistema: resultado.sistema, ...shell, casos: undefined })}`);
+    console.log(`BUSCA_AMBIENTE ${JSON.stringify({ sistema: resultado.sistema, contexto: resultado.contexto, ...shell, casos: undefined })}`);
     if (shell.erro) console.log(`FALHA infraestrutura: ${shell.nome}: ${shell.erro}`);
     for (const caso of shell.casos) {
       const estado = caso.confere ? "ok" : "DIVERGE (diagnóstico)";
       linhas.push(`| ${resultado.sistema} | ${shell.nome} | ${caso.cenario} | ${caso.obtido.codigo} / ${caso.obtido.ocorrencias.length} | ${caso.esperado.codigo} / ${caso.esperado.ocorrencias} | ${estado} |`);
-      console.log(`BUSCA_CASO ${JSON.stringify({ sistema: resultado.sistema, shell: shell.nome, ...caso })}`);
+      console.log(`BUSCA_CASO ${JSON.stringify({ sistema: resultado.sistema, contexto: resultado.contexto, shell: shell.nome, ...caso })}`);
     }
   }
   const quadro = linhas.join("\n");
   console.log(quadro);
   console.log("DIVERGE registra uma diferença funcional, sem corrigi-la nesta fase. Unicode esperado: duas páginas canonicamente equivalentes. Infraestrutura ausente reprova (saída 1).");
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n### Diagnóstico da busca\n\n${quadro}\n\nAs linhas BUSCA_AMBIENTE/BUSCA_CASO no log contêm origem, versão, locale/codepage, comandos literais, bytes UTF-8, stderr e abertura das citações. DIVERGE é medição da Fase 1, sem correção.\n`);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n### Diagnóstico da busca — ${resultado.contexto}\n\n${quadro}\n\nAs linhas BUSCA_AMBIENTE/BUSCA_CASO no log contêm origem, versão, locale/codepage, comandos literais, bytes UTF-8, stderr e abertura das citações. DIVERGE é medição da Fase 1, sem correção.\n`);
 }
 
 if (import.meta.main) {

@@ -14,6 +14,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - Diagnóstico da busca da skill `query` no CI de Windows, Linux e macOS: executa os comandos
   literais nos shells reais, registra a origem do `rg`, acentos NFC/NFD, páginas ignoradas e
   abertura dos caminhos citados. Divergências ficam explícitas no quadro, sem mudar a busca.
+  Registra primeiro o PATH original; se faltar `rg`, usa uma versão fixa conferida por SHA-256
+  apenas no diretório temporário do ensaio e a remove ao terminar.
 
 ## [0.2.0] - 2026-10-25
 
