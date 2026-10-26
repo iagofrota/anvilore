@@ -20,8 +20,30 @@ test("Dado o rg ausente dos runners Quando preparo o ensaio Então fixa artefato
 test("Dado a skill query Quando preparo a prova Então preserva literalmente aspas e regex dos dois comandos", () => {
   const comandos = comandosDaSkill();
   expect(comandos.termo).toBe('rg --no-ignore -in "<termo-chave>" wiki/');
-  expect(comandos.lacunas).toBe("rg --no-ignore -n '\\[!gap\\]|\\[!contradiction\\]' wiki/");
+  expect(comandos.lacunas).toBe('rg --no-ignore -n "\\[\\x21(gap|contradiction)\\]" wiki/');
   expect(() => comandosDaSkill("sem os comandos")).toThrow();
+});
+
+test("Dado a forma hexadecimal Quando extraio a skill Então o comando é executável sem perder barras ou aspas", () => {
+  const texto = 'rg --no-ignore -in "<termo-chave>" wiki/\nrg --no-ignore -n "\\[\\x21(gap|contradiction)\\]" wiki/';
+  const comandos = comandosDaSkill(texto);
+  expect(provarBusca(["bash"], comandos).shells[0]?.casos.find(c => c.cenario === "lacunas (literal da skill)")?.obtido.ocorrencias).toHaveLength(4);
+});
+
+test("Dado callouts que não encontram nada Quando a guarda executa Então reprova e distingue o erro obrigatório dos limites informativos", () => {
+  const resultado = provarBusca(["bash"], { ...comandosDaSkill(), lacunas: 'rg --no-ignore -n "callout-inexistente" wiki/' });
+  expect(resultado.codigo).toBe(1);
+  const consoleCapturado = capturarConsole();
+  try {
+    imprimirProva(resultado);
+    const saida = consoleCapturado.saida.join("\n");
+    expect(saida).toContain("FALHA");
+    expect(saida).toContain("INFO");
+  } finally { consoleCapturado.restaurar(); }
+});
+
+test("Dado termos sem a flag obrigatória Quando a guarda executa Então reprova a busca vazia", () => {
+  expect(provarBusca(["bash"], { ...comandosDaSkill(), termo: 'rg -in "<termo-chave>" wiki/' }).codigo).toBe(1);
 });
 
 test("Dado a wiki temporária Quando leio as páginas Então usa o gitignore real e preserva NFC e NFD em nome e conteúdo", () => {
@@ -121,7 +143,7 @@ test("Dado medições reais Quando publico o quadro Então o log mantém código
     expect(caso.obtido.codigo).toBe(0);
     expect(caso.obtido.ocorrencias).toHaveLength(2);
     expect(caso.comando).toBe('rg --no-ignore -in "busca-diagnostico" wiki/');
-    expect(linhas.join("\n")).toContain("DIVERGE");
+    expect(linhas.join("\n")).toContain("INFO");
     expect(readFileSync(join(tmp, "resumo.md"), "utf8")).toContain("| 0 / 2 | 0 / 2 | ok |");
   } finally {
     if (resumoAnterior === undefined) delete process.env.GITHUB_STEP_SUMMARY; else process.env.GITHUB_STEP_SUMMARY = resumoAnterior;

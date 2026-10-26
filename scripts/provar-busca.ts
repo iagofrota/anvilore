@@ -9,7 +9,7 @@ const raiz = resolve(import.meta.dir, "..");
 export function comandosDaSkill(texto = readFileSync(join(raiz, "skills/query/SKILL.md"), "utf8")) {
   const comandos = texto.split(/\r?\n/).map(l => l.trim());
   const termo = comandos.find(l => l.startsWith('rg ') && l.includes('"<termo-chave>"'));
-  const lacunas = comandos.find(l => l.startsWith("rg ") && l.includes("[!gap"));
+  const lacunas = comandos.find(l => l.startsWith("rg --no-ignore -n "));
   if (!termo || !lacunas) throw new Error("comandos da skill query ausentes; revisar a prova explicitamente");
   return { termo, lacunas };
 }
@@ -54,14 +54,12 @@ function resolverShell(nome: string) {
 
 type Ocorrencia = { arquivo: string; linha: number; conteudo: string; aberturaDireta: boolean; aberturaBarras: boolean };
 type Obtido = { codigo: number; stdout: string; stderr: string; utf8: boolean; stdoutHex: string; ocorrencias: Ocorrencia[] };
-type Caso = { cenario: string; comando: string; esperado: { codigo: number; ocorrencias: number }; obtido: Obtido; confere: boolean };
+type Caso = { cenario: string; comando: string; obrigatorio: boolean; esperado: { codigo: number; ocorrencias: number }; obtido: Obtido; confere: boolean };
 type Shell = { nome: string; exe?: string; erro?: string; ambiente?: string; rg?: { origem: string; versao: string }; casos: Caso[] };
 type Modo = "normal" | "bash-historico" | "cmd-850";
 
-// Fase 1: divergência funcional é MEDIÇÃO, não é sucesso da busca. Falha de infraestrutura sai 1.
-// O esperado funcional para Unicode é achar ambas as páginas equivalentes; rg pode não normalizar.
-export function provarBusca(apenas?: string[]) {
-  const comandos = comandosDaSkill();
+// Guarda obrigatória para comandos da skill. Candidatas, Unicode cruzado e CP850 são INFO.
+export function provarBusca(apenas?: string[], comandos = comandosDaSkill()) {
   const wiki = prepararWiki();
   const shells: Shell[] = [];
   let codigo = 0;
@@ -124,6 +122,7 @@ export function provarBusca(apenas?: string[]) {
         ["radical tribut", buscar("tribut"), 0, 2],
       ];
       if (nome === "bash") casos.push(
+        ["lacunas (literal da skill, bash set -H)", comandos.lacunas, 0, 4, "bash-historico"],
         ["callouts candidata a (bash set -H)", a, 0, 4, "bash-historico"],
         ["callouts candidata b (bash set -H)", b, 0, 4, "bash-historico"],
       );
@@ -145,8 +144,11 @@ export function provarBusca(apenas?: string[]) {
         finally { if (nome === "cmd" && cenario.includes("chcp 850")) rodar(`chcp ${/\d+/.exec(ambiente.stdout)![0]} >nul`); }
         const confere = obtido.codigo === esperadoCodigo && obtido.ocorrencias.length === esperadoOcorrencias
           && obtido.utf8 && obtido.ocorrencias.every(o => o.aberturaDireta && o.aberturaBarras)
-          && (esperadoOcorrencias !== 0 || obtido.stdout === "");
-        resultado.casos.push({ cenario, comando, esperado: { codigo: esperadoCodigo, ocorrencias: esperadoOcorrencias }, obtido, confere });
+          && (esperadoOcorrencias !== 0 || obtido.stdout === "")
+          && (modo !== "bash-historico" || (obtido.stdout.includes("HISTEXPAND=on") && obtido.stdout.includes("HISTORY_CONTROL=1")));
+        const obrigatorio = ["termo ASCII com --no-ignore", "lacunas (literal da skill)", "lacunas (literal da skill, bash set -H)", "termo ASCII sem --no-ignore", "radical govern", "radical tribut"].includes(cenario);
+        if (obrigatorio && !confere) codigo = 1;
+        resultado.casos.push({ cenario, comando, obrigatorio, esperado: { codigo: esperadoCodigo, ocorrencias: esperadoOcorrencias }, obtido, confere });
       }
     }
     return { codigo, sistema: process.platform, contexto: process.env.ANVILORE_RG_PROVA_CONTEXTO ?? "PATH original", temporario: wiki.tmp, shells };
@@ -160,15 +162,15 @@ export function imprimirProva(resultado: ReturnType<typeof provarBusca>) {
     console.log(`BUSCA_AMBIENTE ${JSON.stringify({ sistema: resultado.sistema, contexto: resultado.contexto, ...shell, casos: undefined })}`);
     if (shell.erro) console.log(`FALHA infraestrutura: ${shell.nome}: ${shell.erro}`);
     for (const caso of shell.casos) {
-      const estado = caso.confere ? "ok" : "DIVERGE (diagnóstico)";
+      const estado = caso.obrigatorio ? (caso.confere ? "ok" : "FALHA") : (caso.confere ? "INFO (confere)" : "INFO (diverge)");
       linhas.push(`| ${resultado.sistema} | ${shell.nome} | ${caso.cenario} | ${caso.obtido.codigo} / ${caso.obtido.ocorrencias.length} | ${caso.esperado.codigo} / ${caso.esperado.ocorrencias} | ${estado} |`);
       console.log(`BUSCA_CASO ${JSON.stringify({ sistema: resultado.sistema, contexto: resultado.contexto, shell: shell.nome, ...caso })}`);
     }
   }
   const quadro = linhas.join("\n");
   console.log(quadro);
-  console.log("DIVERGE registra uma diferença funcional, sem corrigi-la nesta fase. Unicode esperado: duas páginas canonicamente equivalentes. Infraestrutura ausente reprova (saída 1).");
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n### Diagnóstico da busca — ${resultado.contexto}\n\n${quadro}\n\nAs linhas BUSCA_AMBIENTE/BUSCA_CASO no log contêm origem, versão, locale/codepage, comandos literais, bytes UTF-8, stderr e abertura das citações. DIVERGE é medição da Fase 1, sem correção.\n`);
+  console.log("Casos obrigatórios e infraestrutura ausente reprovam (saída 1). Candidatas, Unicode cruzado e codepage 850 são INFO; Unicode esperado exploratório: duas páginas canonicamente equivalentes.");
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n### Prova da busca — ${resultado.contexto}\n\n${quadro}\n\nBUSCA_AMBIENTE/BUSCA_CASO registram comandos, bytes, locale/codepage e abertura das citações. Casos obrigatórios reprovam; candidatas, Unicode cruzado e codepage 850 são INFO.\n`);
 }
 
 if (import.meta.main) {

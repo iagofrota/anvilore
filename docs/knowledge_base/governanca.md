@@ -45,7 +45,7 @@ está dito.
 - O hook é o subcomando `anvilore hook proteger-raw` (`src/comandos/hook-proteger-raw.ts`). O Claude
   Code o liga para `Write|Edit|NotebookEdit|Bash` (`hooks/hooks.json`, linha 6); o Codex usa
   `apply_patch|Edit|Write|Bash` e o Gemini `write_file|replace|run_shell_command`
-  (`src/comandos/instalar.ts`, função `configuracaoDoHook`, linha 121). O evento do Copilot não tem
+  (`src/comandos/instalar.ts`, função `configuracaoDoHook`). O evento do Copilot não tem
   `matcher` e roda em toda chamada de ferramenta.
 - **O que a forma instalada garante em cada agente** (detalhe e prova do CI em [plataformas.md](plataformas.md)):
   Claude Code leva `|| exit 2`, `shell: "bash"` e `onFailure: "block"` (esta chave pede a 2.1.295; o `doctor` avisa
