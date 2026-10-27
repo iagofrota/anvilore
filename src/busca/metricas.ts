@@ -34,10 +34,18 @@ function dbAberto(arquivo: string): Database {
   mkdirSync(resolve(arquivo, ".."), { recursive: true });
   const db = new Database(arquivo, { create: true });
   db.exec("PRAGMA busy_timeout = 5000"); db.exec("PRAGMA journal_mode = WAL");
-  db.exec("CREATE TABLE IF NOT EXISTS chamadas (hora TEXT NOT NULL, tool TEXT NOT NULL, ms REAL NOT NULL, bytes INTEGER NOT NULL, resultados INTEGER NOT NULL, vazia INTEGER NOT NULL, palavras INTEGER NOT NULL, explicita INTEGER NOT NULL, filtros TEXT NOT NULL, manual INTEGER NOT NULL, verificada INTEGER NOT NULL, rascunho INTEGER NOT NULL, com_aviso INTEGER NOT NULL, reindexadas INTEGER NOT NULL, ms_reindexacao REAL NOT NULL, erro TEXT, cliente_nome TEXT, cliente_versao TEXT, conexao TEXT NOT NULL, posicao_lida INTEGER, vencidas INTEGER NOT NULL DEFAULT 0, lacunas INTEGER NOT NULL DEFAULT 0, contradicoes INTEGER NOT NULL DEFAULT 0, busca_id TEXT)");
-  const colunas = new Set((db.query("PRAGMA table_info(chamadas)").all() as { name: string }[]).map((c) => c.name));
-  for (const [nome, tipo] of [["vencidas", "INTEGER NOT NULL DEFAULT 0"], ["lacunas", "INTEGER NOT NULL DEFAULT 0"], ["contradicoes", "INTEGER NOT NULL DEFAULT 0"], ["busca_id", "TEXT"]]) {
-    if (!colunas.has(nome!)) db.exec(`ALTER TABLE chamadas ADD COLUMN ${nome} ${tipo}`);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("CREATE TABLE IF NOT EXISTS chamadas (hora TEXT NOT NULL, tool TEXT NOT NULL, ms REAL NOT NULL, bytes INTEGER NOT NULL, resultados INTEGER NOT NULL, vazia INTEGER NOT NULL, palavras INTEGER NOT NULL, explicita INTEGER NOT NULL, filtros TEXT NOT NULL, manual INTEGER NOT NULL, verificada INTEGER NOT NULL, rascunho INTEGER NOT NULL, com_aviso INTEGER NOT NULL, reindexadas INTEGER NOT NULL, ms_reindexacao REAL NOT NULL, erro TEXT, cliente_nome TEXT, cliente_versao TEXT, conexao TEXT NOT NULL, posicao_lida INTEGER, vencidas INTEGER NOT NULL DEFAULT 0, lacunas INTEGER NOT NULL DEFAULT 0, contradicoes INTEGER NOT NULL DEFAULT 0, busca_id TEXT)");
+    const colunas = new Set((db.query("PRAGMA table_info(chamadas)").all() as { name: string }[]).map((c) => c.name));
+    for (const [nome, tipo] of [["vencidas", "INTEGER NOT NULL DEFAULT 0"], ["lacunas", "INTEGER NOT NULL DEFAULT 0"], ["contradicoes", "INTEGER NOT NULL DEFAULT 0"], ["busca_id", "TEXT"]]) {
+      if (!colunas.has(nome!)) db.exec(`ALTER TABLE chamadas ADD COLUMN ${nome} ${tipo}`);
+    }
+    db.exec("COMMIT");
+  } catch (causa) {
+    try { db.exec("ROLLBACK"); } catch { /* mantém a falha de abertura */ }
+    db.close();
+    throw causa;
   }
   return db;
 }

@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -91,4 +92,12 @@ test("Dado métricas locais, Quando usa saída padrão, Então imprime resumo le
   expect(await executarMetricas([], { arquivoDb: arquivo(), ligado: true, stdout: (texto) => saidas.push(texto) })).toBe(0);
   expect(saidas[0]).toContain("Uso:");
   expect(saidas[0]).toContain("JSON:");
+});
+
+test("Dado banco de métricas da versão anterior, Quando abre, Então migra colunas aditivas", () => {
+  const dbPath = arquivo(); const antigo = new Database(dbPath);
+  antigo.exec("CREATE TABLE chamadas (hora TEXT NOT NULL, tool TEXT NOT NULL, ms REAL NOT NULL, bytes INTEGER NOT NULL, resultados INTEGER NOT NULL, vazia INTEGER NOT NULL, palavras INTEGER NOT NULL, explicita INTEGER NOT NULL, filtros TEXT NOT NULL, manual INTEGER NOT NULL, verificada INTEGER NOT NULL, rascunho INTEGER NOT NULL, com_aviso INTEGER NOT NULL, reindexadas INTEGER NOT NULL, ms_reindexacao REAL NOT NULL, erro TEXT, cliente_nome TEXT, cliente_versao TEXT, conexao TEXT NOT NULL, posicao_lida INTEGER)");
+  antigo.close();
+  const m = abrirMetricas(dbPath); m.registrar(chamada());
+  expect(m.resumo().totalChamadas).toBe(1);
 });
