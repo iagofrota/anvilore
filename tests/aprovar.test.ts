@@ -32,6 +32,40 @@ test("Dado git sem user.name Quando aprovo Então grava human:local sem pedir id
   expect(readFileSync(pagina, "utf8")).toContain("by: human:local");
 });
 
+test("Dado auto-commit ligado Quando aprovo Então commita verified no repo da wiki", async () => {
+  const wiki = join(raiz, "wiki");
+  for (const args of [["init", "-q"], ["config", "user.name", "Iago Avila"], ["config", "user.email", "iago@example.test"]]) {
+    expect(Bun.spawnSync(["git", "-C", wiki, ...args], { stdout: "pipe", stderr: "pipe" }).exitCode).toBe(0);
+  }
+  writeFileSync(join(raiz, "anvilore.toml"), "[hooks]\nauto_commit = true\n");
+  const pagina = join(wiki, "pessoal/concepts/ideia.md");
+  mkdirSync(join(wiki, "pessoal/concepts"), { recursive: true });
+  writeFileSync(pagina, "---\ngenerated:\n  by: agente\n  at: 2026-10-27T10:00:00Z\n---\nIdeia.\n");
+  const resultado = await aprovarPaginas(raiz, ["wiki/pessoal/concepts/ideia.md"]);
+  expect(resultado.codigo).toBe(0);
+  const commit = Bun.spawnSync(["git", "-C", wiki, "log", "-1", "--format=%s"], { stdout: "pipe", stderr: "pipe" });
+  expect(commit.stdout.toString().trim()).toBe("wiki(verify): ideia");
+  expect(Bun.spawnSync(["git", "-C", wiki, "show", "HEAD:pessoal/concepts/ideia.md"], { stdout: "pipe", stderr: "pipe" }).stdout.toString()).toContain("by: human:iago-avila");
+});
+
+test("Dado falha no commit automático Quando aprovo Então avisa sem descartar verified", async () => {
+  const wiki = join(raiz, "wiki");
+  for (const args of [["init", "-q"], ["config", "user.name", "Iago Avila"], ["config", "user.email", "iago@example.test"], ["add", "."], ["commit", "-qm", "base"]]) {
+    if (args[0] === "add") writeFileSync(join(wiki, "alheio.txt"), "alheio\n");
+    if (args[0] === "commit") expect(Bun.spawnSync(["git", "-C", wiki, ...args], { stdout: "pipe", stderr: "pipe" }).exitCode).toBe(0);
+    else expect(Bun.spawnSync(["git", "-C", wiki, ...args], { stdout: "pipe", stderr: "pipe" }).exitCode).toBe(0);
+  }
+  writeFileSync(join(raiz, "anvilore.toml"), "[hooks]\nauto_commit = true\n");
+  const pagina = join(wiki, "pessoal/ideia.md");
+  writeFileSync(pagina, "---\ngenerated:\n  by: agente\n  at: 2026-10-27T10:00:00Z\n---\nIdeia.\n");
+  writeFileSync(join(wiki, "alheio.txt"), "alterado\n");
+  Bun.spawnSync(["git", "-C", wiki, "add", "alheio.txt"], { stdout: "pipe", stderr: "pipe" });
+  const resultado = await aprovarPaginas(raiz, ["wiki/pessoal/ideia.md"]);
+  expect(resultado.codigo).toBe(0);
+  expect(resultado.mensagens.join(" ")).toContain("AVISO: aprovação registrada, mas commit automático não realizado");
+  expect(readFileSync(pagina, "utf8")).toContain("by: human:iago-avila");
+});
+
 test("Dado página fora de wiki Quando aprovo Então recusa sem alterar o arquivo", async () => {
   const pagina = join(raiz, "fora.md");
   writeFileSync(pagina, "---\ngenerated:\n  by: agente\n  at: 2026-10-27T10:00:00Z\n---\n");

@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { caminhoWiki } from "../lib/wiki-repo";
+import { autoCommitWiki, opcoesHooksWiki } from "./hooks-wiki";
 
 export type ResultadoAprovacao = { codigo: number; mensagens: string[] };
 
@@ -71,7 +72,13 @@ export async function aprovarPaginas(raiz: string, arquivos: string[], ambiente:
     await mkdir(resolve(raiz, ".anvilore"), { recursive: true });
     await writeFile(identidadeArquivo, `${identidade}\n`);
     for (const item of alteradas) await writeFile(item.caminho, item.texto);
-    return { codigo: 0, mensagens: [`Aprovadas: ${alteradas.length} ${alteradas.length === 1 ? "página" : "páginas"} (${identidade}).`] };
+    const mensagens = [`Aprovadas: ${alteradas.length} ${alteradas.length === 1 ? "página" : "páginas"} (${identidade}).`];
+    if ((await opcoesHooksWiki(raiz)).autoCommit) {
+      for (const item of alteradas) if (!(await autoCommitWiki(raiz, item.caminho, "verify"))) {
+        mensagens.push(`AVISO: aprovação registrada, mas commit automático não realizado para ${basename(item.caminho)}; confira o repositório Git da wiki.`);
+      }
+    }
+    return { codigo: 0, mensagens };
   } catch (erro) {
     return { codigo: 1, mensagens: [`Aprovação recusada: ${(erro as Error).message}`] };
   }

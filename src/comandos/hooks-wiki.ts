@@ -11,7 +11,7 @@ async function git(raiz: string, args: string[], timeout = 30_000): Promise<{ co
   return { codigo, saida: `${saida}${erro}`.trim() };
 }
 
-export async function autoCommitWiki(raiz: string, arquivo: string): Promise<boolean> {
+export async function autoCommitWiki(raiz: string, arquivo: string, categoria?: "verify"): Promise<boolean> {
   const wiki = caminhoWiki(raiz);
   const abs = isAbsolute(arquivo) ? resolve(arquivo) : resolve(raiz, arquivo);
   const rel = relative(wiki, abs).split(sep).join("/");
@@ -35,7 +35,7 @@ export async function autoCommitWiki(raiz: string, arquivo: string): Promise<boo
   const stagedDepois = await git(wiki, ["diff", "--cached", "--name-only", "-z"]);
   if (stagedDepois.codigo !== 0 || stagedDepois.saida.split("\0").filter(Boolean).some(arquivo => !permitidos.has(arquivo))) return false;
   if ((await git(wiki, ["diff", "--cached", "--quiet"])).codigo === 0) return false;
-  const tipo = rel.includes("sources/") ? "ingest" : rel.includes("concepts/") ? "concept" : rel.includes("entities/") ? "entity" : "update";
+  const tipo = categoria ?? (rel.includes("sources/") ? "ingest" : rel.includes("concepts/") ? "concept" : rel.includes("entities/") ? "entity" : "update");
   const slug = basename(rel).replace(/\.md$/i, "");
   return (await git(wiki, ["commit", "-m", `wiki(${tipo}): ${slug}`])).codigo === 0;
 }
@@ -99,7 +99,7 @@ export async function sugerirLint(raiz: string): Promise<string | undefined> {
 const sugestao = (ingestoes: number) => `Anvilore: ${ingestoes} ingestões desde o último lint. Considere rodar a skill lint.`;
 const notificar = (mensagem: string) => console.log(JSON.stringify({ systemMessage: mensagem }));
 
-async function config(raiz: string): Promise<{ autoCommit: boolean; backup: boolean }> {
+export async function opcoesHooksWiki(raiz: string): Promise<{ autoCommit: boolean; backup: boolean }> {
   try {
     const texto = await readFile(resolve(raiz, "anvilore.toml"), "utf8");
     const toml = Bun.TOML.parse(texto) as Json;
@@ -183,7 +183,7 @@ export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise
       const dadosFerramenta = (payload.tool_input ?? payload.toolInput ?? payload.toolArgs) as Json | undefined;
       const arquivo = dadosFerramenta?.file_path ?? dadosFerramenta?.filePath ?? dadosFerramenta?.path;
       if (typeof arquivo !== "string") return 0;
-      const opcoes = await config(raiz);
+      const opcoes = await opcoesHooksWiki(raiz);
       if (opcoes.autoCommit && !(await autoCommitWiki(raiz, arquivo))) {
         notificar("Commit automático não realizado; confira o repositório Git da wiki com `anvilore doctor`.");
       }
@@ -192,7 +192,7 @@ export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise
     if (acao === "proteger-aprovacao") { await protegerAprovacao(raiz, await lerEntrada()); return 0; }
     if (acao === "proteger-verified") { await protegerVerified(raiz, await lerEntrada()); return 0; }
     if (acao === "backup") {
-      if (!(await config(raiz)).backup) return 0;
+      if (!(await opcoesHooksWiki(raiz)).backup) return 0;
       const resultado = await backupGitHub(raiz);
       // SessionEnd não exibe saída para a pessoa; a condição sem upstream é diagnosticada pelo doctor.
       if (!resultado.sincronizado && resultado.motivo && resultado.motivo.includes("upstream")) {
