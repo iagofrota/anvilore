@@ -32,22 +32,29 @@ function dataLocal(agora: Date): string {
 }
 function dbAberto(arquivo: string): Database {
   mkdirSync(resolve(arquivo, ".."), { recursive: true });
-  const db = new Database(arquivo, { create: true });
-  db.exec("PRAGMA busy_timeout = 5000"); db.exec("PRAGMA journal_mode = WAL");
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    db.exec("CREATE TABLE IF NOT EXISTS chamadas (hora TEXT NOT NULL, tool TEXT NOT NULL, ms REAL NOT NULL, bytes INTEGER NOT NULL, resultados INTEGER NOT NULL, vazia INTEGER NOT NULL, palavras INTEGER NOT NULL, explicita INTEGER NOT NULL, filtros TEXT NOT NULL, manual INTEGER NOT NULL, verificada INTEGER NOT NULL, rascunho INTEGER NOT NULL, com_aviso INTEGER NOT NULL, reindexadas INTEGER NOT NULL, ms_reindexacao REAL NOT NULL, erro TEXT, cliente_nome TEXT, cliente_versao TEXT, conexao TEXT NOT NULL, posicao_lida INTEGER, vencidas INTEGER NOT NULL DEFAULT 0, lacunas INTEGER NOT NULL DEFAULT 0, contradicoes INTEGER NOT NULL DEFAULT 0, busca_id TEXT)");
-    const colunas = new Set((db.query("PRAGMA table_info(chamadas)").all() as { name: string }[]).map((c) => c.name));
-    for (const [nome, tipo] of [["vencidas", "INTEGER NOT NULL DEFAULT 0"], ["lacunas", "INTEGER NOT NULL DEFAULT 0"], ["contradicoes", "INTEGER NOT NULL DEFAULT 0"], ["busca_id", "TEXT"]]) {
-      if (!colunas.has(nome!)) db.exec(`ALTER TABLE chamadas ADD COLUMN ${nome} ${tipo}`);
+  for (let tentativa = 0; ; tentativa++) {
+    let db: Database | undefined;
+    let transacao = false;
+    try {
+      db = new Database(arquivo, { create: true });
+      db.exec("PRAGMA busy_timeout = 5000");
+      db.exec("PRAGMA journal_mode = WAL");
+      db.exec("BEGIN IMMEDIATE"); transacao = true;
+      db.exec("CREATE TABLE IF NOT EXISTS chamadas (hora TEXT NOT NULL, tool TEXT NOT NULL, ms REAL NOT NULL, bytes INTEGER NOT NULL, resultados INTEGER NOT NULL, vazia INTEGER NOT NULL, palavras INTEGER NOT NULL, explicita INTEGER NOT NULL, filtros TEXT NOT NULL, manual INTEGER NOT NULL, verificada INTEGER NOT NULL, rascunho INTEGER NOT NULL, com_aviso INTEGER NOT NULL, reindexadas INTEGER NOT NULL, ms_reindexacao REAL NOT NULL, erro TEXT, cliente_nome TEXT, cliente_versao TEXT, conexao TEXT NOT NULL, posicao_lida INTEGER, vencidas INTEGER NOT NULL DEFAULT 0, lacunas INTEGER NOT NULL DEFAULT 0, contradicoes INTEGER NOT NULL DEFAULT 0, busca_id TEXT)");
+      const colunas = new Set((db.query("PRAGMA table_info(chamadas)").all() as { name: string }[]).map((c) => c.name));
+      for (const [nome, tipo] of [["vencidas", "INTEGER NOT NULL DEFAULT 0"], ["lacunas", "INTEGER NOT NULL DEFAULT 0"], ["contradicoes", "INTEGER NOT NULL DEFAULT 0"], ["busca_id", "TEXT"]]) {
+        if (!colunas.has(nome!)) db.exec(`ALTER TABLE chamadas ADD COLUMN ${nome} ${tipo}`);
+      }
+      db.exec("COMMIT"); transacao = false;
+      return db;
+    } catch (causa) {
+      if (transacao) try { db?.exec("ROLLBACK"); } catch { /* mantém a falha original */ }
+      try { db?.close(); } catch { /* mantém a falha original */ }
+      const codigo = typeof causa === "object" && causa !== null && "code" in causa ? String((causa as { code: unknown }).code) : "";
+      if (!codigo.includes("SQLITE_BUSY") && !codigo.includes("SQLITE_LOCKED") || tentativa >= 5) throw causa;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * (2 ** tentativa));
     }
-    db.exec("COMMIT");
-  } catch (causa) {
-    try { db.exec("ROLLBACK"); } catch { /* mantém a falha de abertura */ }
-    db.close();
-    throw causa;
   }
-  return db;
 }
 function numero(valor: number): number { return Number.isFinite(valor) && valor > 0 ? valor : 0; }
 function vazio(): RelatorioMetricas {
@@ -136,8 +143,8 @@ export function abrirMetricas(arquivoDb: string, ligadas = process.env.ANVILORE_
       r.custo.reindexadas = rows.reduce((n, x) => n + Number(x.reindexadas), 0); r.custo.msReindexacao = rows.reduce((n, x) => n + Number(x.ms_reindexacao), 0);
       for (const item of rows) {
         r.confianca.porEstado.manual += Number(item.manual); r.confianca.porEstado.verificada += Number(item.verificada); r.confianca.porEstado.rascunho += Number(item.rascunho);
-      r.confianca.comAviso += Number(item.com_aviso);
-      r.confianca.vencidas += Number(item.vencidas ?? 0); r.confianca.lacunas += Number(item.lacunas ?? 0); r.confianca.contradicoes += Number(item.contradicoes ?? 0);
+        r.confianca.comAviso += Number(item.com_aviso);
+        r.confianca.vencidas += Number(item.vencidas ?? 0); r.confianca.lacunas += Number(item.lacunas ?? 0); r.confianca.contradicoes += Number(item.contradicoes ?? 0);
         if (item.erro) r.saude.erros[String(item.erro)] = (r.saude.erros[String(item.erro)] ?? 0) + 1;
       }
       const totalResultados = Object.values(r.confianca.porEstado).reduce((a, b) => a + b, 0);

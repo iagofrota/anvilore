@@ -50,3 +50,18 @@ test("Dado cwd fora do clone, Quando executa métricas, Então grava em .anvilor
     expect(await import("node:fs").then(fs => fs.existsSync(join(alheio, ".anvilore")))).toBe(false);
   } finally { log.mockRestore(); rmSync(clone, { recursive: true, force: true }); rmSync(alheio, { recursive: true, force: true }); }
 });
+
+test("Dado oito processos abrindo banco de métricas novo ao mesmo tempo, Quando inicializam, Então todos completam", async () => {
+  for (let rodada = 0; rodada < 3; rodada++) {
+    const dir = mkdtempSync(join(tmpdir(), "anvilore-metricas-concorrentes-")); const db = join(dir, "metricas.db");
+    const modulo = new URL("../src/busca/metricas.ts", import.meta.url).href;
+    const codigo = `import { abrirMetricas } from ${JSON.stringify(modulo)}; abrirMetricas(process.argv[1]).resumo();`;
+    const processos = Array.from({ length: 8 }, () => Bun.spawn([process.execPath, "-e", codigo, db], { stdout: "pipe", stderr: "pipe" }));
+    const resultados = await Promise.all(processos.map(async (processo) => {
+      const [saida, erro, codigoSaida] = await Promise.all([new Response(processo.stdout).text(), new Response(processo.stderr).text(), processo.exited]);
+      return { codigo: codigoSaida, saida, erro };
+    }));
+    expect(resultados.filter((resultado) => resultado.codigo !== 0)).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
