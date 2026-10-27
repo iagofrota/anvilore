@@ -136,14 +136,37 @@ async function protegerVerified(raiz: string, entrada: string): Promise<void> {
   const base = caminhoWiki(raiz);
   const abs = isAbsolute(caminho) ? resolve(caminho) : resolve(typeof payload.cwd === "string" ? payload.cwd : raiz, caminho);
   if (!dentro(base, abs)) return;
-  const textos: string[] = [];
-  const visitar = (valor: unknown) => {
-    if (typeof valor === "string") textos.push(valor);
-    else if (Array.isArray(valor)) valor.forEach(visitar);
-    else if (valor && typeof valor === "object") Object.values(valor).forEach(visitar);
+  const blocoVerified = (texto: string): string => {
+    const linhas = texto.split(/\r?\n/);
+    const inicioFrontmatter = linhas[0] === "---" ? 1 : 0;
+    const fimFrontmatter = linhas.indexOf("---", inicioFrontmatter);
+    const limite = fimFrontmatter < 0 ? linhas.length : fimFrontmatter;
+    const inicio = linhas.findIndex((linha, i) => i < limite && /^\s*verified\s*:/i.test(linha));
+    if (inicio < 0) {
+      return linhas.flatMap((linha, i) => /^\s*-?\s*by\s*:\s*human:/i.test(linha)
+        ? [linha.trim(), ...(linhas[i + 1] && /^\s+at\s*:/.test(linhas[i + 1]!) ? [linhas[i + 1]!.trim()] : [])]
+        : []).join("\n");
+    }
+    let fim = inicio + 1;
+    while (fim < limite && !/^[A-Za-z_][\w-]*\s*:/.test(linhas[fim]!)) fim++;
+    return linhas.slice(inicio, fim).map(linha => linha.trim()).join("\n");
   };
-  visitar(ferramenta);
-  if (textos.some(texto => /(?:^|\r?\n)\s*verified\s*:/i.test(texto))) negarPermissao("PreToolUse", "Só o comando de aprovação pode gravar verified em wiki/.");
+  const mudouBloco = (anterior: string, novo: string) => blocoVerified(anterior) !== blocoVerified(novo);
+  let mudou = false;
+  if (typeof ferramenta.content === "string") {
+    let atual = "";
+    try { atual = await readFile(abs, "utf8"); }
+    catch (erro) { if ((erro as NodeJS.ErrnoException).code !== "ENOENT") { negarPermissao("PreToolUse", "Não foi possível comparar verified com o arquivo atual."); return; } }
+    mudou = mudouBloco(atual, ferramenta.content);
+  } else {
+    const edicoes = Array.isArray(ferramenta.edits) ? ferramenta.edits as Json[] : [ferramenta];
+    mudou = edicoes.some(edicao => {
+      const anterior = typeof edicao.old_string === "string" ? edicao.old_string : "";
+      const novo = typeof edicao.new_string === "string" ? edicao.new_string : "";
+      return mudouBloco(anterior, novo);
+    });
+  }
+  if (mudou) negarPermissao("PreToolUse", "Só o comando de aprovação pode alterar verified em wiki/.");
 }
 
 export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise<string> = () => Bun.stdin.text()): Promise<number> {

@@ -162,7 +162,7 @@ describe("hooks da wiki", () => {
     } finally { c.restaurar(); }
   });
 
-  test("Dado tentativa de gravar verified em wiki Quando Write, Edit ou MultiEdit chama o hook Então nega", async () => {
+  test("Dado tentativa de acrescentar verified em wiki Quando Write, Edit ou MultiEdit chama o hook Então nega", async () => {
     for (const tool_input of [
       { file_path: join(raiz, "wiki/a.md"), content: "---\nverified:\n  - by: human:x\n---" },
       { file_path: join(raiz, "wiki/a.md"), new_string: "verified: human:x" },
@@ -174,6 +174,34 @@ describe("hooks da wiki", () => {
         expect(JSON.parse(c.saida.join("\n"))).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
       } finally { c.restaurar(); }
     }
+  });
+
+  test("Dado página já aprovada Quando Write/Edit preservam o bloco verified Então deixa atualizar o restante", async () => {
+    const pagina = join(raiz, "wiki/a.md");
+    mkdirSync(join(raiz, "wiki"), { recursive: true });
+    const verified = "verified:\n  - by: human:ana\n    at: 2026-10-27T11:00:00Z";
+    writeFileSync(pagina, `---\ngenerated: agente\n${verified}\n---\nAntigo.\n`);
+    const inputs = [
+      { file_path: pagina, content: `---\ngenerated: agente\n${verified}\n---\nNovo.\n` },
+      { file_path: pagina, old_string: "Antigo.", new_string: "Novo." },
+    ];
+    for (const tool_input of inputs) {
+      const c = capturarConsole();
+      try {
+        await comandoHooksWiki(["proteger-verified", raiz], async () => JSON.stringify({ cwd: raiz, tool_input }));
+        expect(c.saida.join("\n")).toBe("");
+      } finally { c.restaurar(); }
+    }
+  });
+
+  test("Dado Edit que introduz uma nova entrada verified Quando o hook avalia Então nega", async () => {
+    const c = capturarConsole();
+    try {
+      await comandoHooksWiki(["proteger-verified", raiz], async () => JSON.stringify({ cwd: raiz, tool_input: {
+        file_path: join(raiz, "wiki/a.md"), old_string: "generated: agente", new_string: "generated: agente\nverified:\n  - by: human:ana",
+      } }));
+      expect(JSON.parse(c.saida.join("\n"))).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+    } finally { c.restaurar(); }
   });
 
   test("Dado anvilore.toml malformado Quando eventos Git rodam Então falham em modo desligado", async () => {

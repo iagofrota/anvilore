@@ -25,7 +25,7 @@ test("Dado git sem user.name Quando aprovo Então grava human:local sem pedir id
   const wiki = join(raiz, "wiki");
   expect(Bun.spawnSync(["git", "-C", wiki, "init", "-q"], { stdout: "pipe", stderr: "pipe" }).exitCode).toBe(0);
   const pagina = join(wiki, "pessoal/local.md");
-  writeFileSync(pagina, "---\ngenerated: agente\n---\n");
+  writeFileSync(pagina, "---\ngenerated:\n  by: agente\n  at: 2026-10-27T10:00:00Z\n---\n");
   const ambiente = { ...process.env, GIT_CONFIG_GLOBAL: join(raiz, "gitconfig-ausente"), GIT_CONFIG_NOSYSTEM: "1" };
   expect(await aprovarPaginas(raiz, ["wiki/pessoal/local.md"], ambiente)).toEqual({ codigo: 0, mensagens: ["Aprovadas: 1 página (human:local)."] });
   expect(readFileSync(join(raiz, ".anvilore/identidade"), "utf8")).toBe("human:local\n");
@@ -34,19 +34,31 @@ test("Dado git sem user.name Quando aprovo Então grava human:local sem pedir id
 
 test("Dado página fora de wiki Quando aprovo Então recusa sem alterar o arquivo", async () => {
   const pagina = join(raiz, "fora.md");
-  writeFileSync(pagina, "---\ngenerated: agente\n---\n");
+  writeFileSync(pagina, "---\ngenerated:\n  by: agente\n  at: 2026-10-27T10:00:00Z\n---\n");
   const resultado = await aprovarPaginas(raiz, [pagina]);
   expect(resultado.codigo).toBe(1);
   expect(readFileSync(pagina, "utf8")).not.toContain("verified:");
 });
 
-test("Dado página sem generated ou já aprovada Quando aprovo Então recusa", async () => {
+test("Dado página sem generated ou aprovada depois da última geração Quando aprovo Então recusa", async () => {
   const semGerada = join(raiz, "wiki/sem-gerada.md");
   const jaAprovada = join(raiz, "wiki/aprovada.md");
   writeFileSync(semGerada, "---\ntitle: rascunho\n---\n");
-  writeFileSync(jaAprovada, "---\ngenerated: agente\nverified: human:ana\n---\n");
+  writeFileSync(jaAprovada, "---\ngenerated:\n  at: 2026-10-27T10:00:00Z\nverified:\n  - by: human:ana\n    at: 2026-10-27T11:00:00Z\n---\n");
   expect((await aprovarPaginas(raiz, ["wiki/sem-gerada.md"])).codigo).toBe(1);
   expect((await aprovarPaginas(raiz, ["wiki/aprovada.md"])).codigo).toBe(1);
+});
+
+test("Dado página aprovada antes da geração atual Quando aprovo Então acrescenta nova entrada ao verified", async () => {
+  const wiki = join(raiz, "wiki");
+  expect(Bun.spawnSync(["git", "-C", wiki, "init", "-q"], { stdout: "pipe", stderr: "pipe" }).exitCode).toBe(0);
+  expect(Bun.spawnSync(["git", "-C", wiki, "config", "user.name", "Iago Ávila"], { stdout: "pipe", stderr: "pipe" }).exitCode).toBe(0);
+  const pagina = join(wiki, "pessoal/atualizada.md");
+  writeFileSync(pagina, "---\ngenerated:\n  by: agente\n  at: 2026-10-27T12:00:00Z\nverified:\n  - by: human:ana\n    at: 2026-10-27T11:00:00Z\n---\n\nAtualizada.\n");
+  expect((await aprovarPaginas(raiz, ["wiki/pessoal/atualizada.md"])).codigo).toBe(0);
+  const texto = readFileSync(pagina, "utf8");
+  expect(texto).toContain("- by: human:ana\n    at: 2026-10-27T11:00:00Z");
+  expect(texto).toMatch(/- by: human:iago-avila\n    at: \d{4}-\d\d-\d\dT.*Z/);
 });
 
 test("Dado lista vazia Quando aprovo Então informa o uso", async () => {
@@ -57,7 +69,7 @@ test("Dado identidade local já armazenada Quando aprovo outra página Então re
   const pagina = join(raiz, "wiki/pessoal/ideia.md");
   mkdirSync(join(raiz, ".anvilore"), { recursive: true });
   writeFileSync(join(raiz, ".anvilore/identidade"), "human:iago-avila\n");
-  writeFileSync(pagina, "---\ngenerated: agente\n---\n");
+  writeFileSync(pagina, "---\ngenerated:\n  by: agente\n  at: 2026-10-27T10:00:00Z\n---\n");
   const resultado = await aprovarPaginas(raiz, ["wiki/pessoal/ideia.md"]);
   expect(resultado).toEqual({ codigo: 0, mensagens: ["Aprovadas: 1 página (human:iago-avila)."] });
 });
@@ -66,7 +78,7 @@ test("Dado identidade armazenada inválida Quando aprovo Então recusa sem aprov
   const pagina = join(raiz, "wiki/pessoal/ideia.md");
   mkdirSync(join(raiz, ".anvilore"), { recursive: true });
   writeFileSync(join(raiz, ".anvilore/identidade"), "alguém\n");
-  const original = "---\ngenerated: agente\n---\n";
+  const original = "---\ngenerated:\n  by: agente\n  at: 2026-10-27T10:00:00Z\n---\n";
   writeFileSync(pagina, original);
   expect((await aprovarPaginas(raiz, ["wiki/pessoal/ideia.md"])).codigo).toBe(1);
   expect(readFileSync(pagina, "utf8")).toBe(original);
@@ -78,7 +90,7 @@ test("Dado comando com caminhos absolutos Quando aprovo Então aceita página na
     expect(Bun.spawnSync(["git", "-C", wiki, ...args], { stdout: "pipe", stderr: "pipe" }).exitCode).toBe(0);
   }
   const pagina = join(wiki, "pessoal/absoluta.md");
-  writeFileSync(pagina, "---\ngenerated: agente\n---\n");
+  writeFileSync(pagina, "---\ngenerated:\n  by: agente\n  at: 2026-10-27T10:00:00Z\n---\n");
   expect(await aprovarPaginas(raiz, [pagina])).toMatchObject({ codigo: 0 });
 });
 
@@ -88,7 +100,7 @@ test("Dado parser da CLI Quando a identidade vem após o caminho Então aprova a
     expect(Bun.spawnSync(["git", "-C", wiki, ...args], { stdout: "pipe", stderr: "pipe" }).exitCode).toBe(0);
   }
   const pagina = join(wiki, "pessoal/cli.md");
-  writeFileSync(pagina, "---\ngenerated: agente\n---\n");
+  writeFileSync(pagina, "---\ngenerated:\n  by: agente\n  at: 2026-10-27T10:00:00Z\n---\n");
   const raizAnterior = process.env.ANVILORE_DESTINO;
   process.env.ANVILORE_DESTINO = raiz;
   try {
