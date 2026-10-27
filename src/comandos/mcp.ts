@@ -20,9 +20,11 @@ function nucleoDaRaiz(raiz: string) {
   return criarNucleo({ raiz, wiki, arquivoDb: join(dados, "indice.db") });
 }
 
+function raizDoClone(): string { return resolve(import.meta.dir, "../.."); }
+
 export async function comandoIndexar(args: string[]): Promise<number> {
   if (args.some(arg => arg !== "--completo") || args.filter(arg => arg === "--completo").length > 1) { console.error("Uso: anvilore indexar [--completo]"); return 2; }
-  const relatorio = await nucleoDaRaiz(process.cwd()).indexar({ completo: args.includes("--completo") });
+  const relatorio = await nucleoDaRaiz(raizDoClone()).indexar({ completo: args.includes("--completo") });
   console.log(JSON.stringify(relatorio, null, 2)); return 0;
 }
 
@@ -33,10 +35,10 @@ export async function comandoMcp(args: string[], amb: Ambiente = ambiente()): Pr
   const nomes: Agente[] = args.slice(1).filter((item): item is Agente => ["claude", "codex", "gemini", "copilot"].includes(item));
   if (args.length > (acao === "estado" ? 1 : 2) || args.slice(1).some(item => !["claude", "codex", "gemini", "copilot"].includes(item))) { console.error("Uso: anvilore mcp [ligar|desligar|estado] [claude|codex|gemini|copilot]"); return 2; }
   const selecionados = nomes.length ? registradores.filter(r => nomes.includes(r.agente)) : registradores;
-  const raiz = resolve(import.meta.dir, "../..");
+  const raiz = raizDoClone();
   const comando = ["bun", resolve(raiz, "src/cli.ts"), "mcp"];
   if (acao === "ligar") {
-    const relatorio = await nucleoDaRaiz(process.cwd()).indexar(); console.log(`Índice atualizado: ${JSON.stringify(relatorio)}`);
+    const relatorio = await nucleoDaRaiz(raiz).indexar(); console.log(`Índice atualizado: ${JSON.stringify(relatorio)}`);
     let ligados = 0;
     for (const r of selecionados) if (await r.ligar(comando, amb) === "ligado") ligados++;
     return ligados ? 0 : 1;
@@ -49,8 +51,8 @@ export async function comandoMcp(args: string[], amb: Ambiente = ambiente()): Pr
   if (acao !== "estado") { console.error("Uso: anvilore mcp [ligar|desligar|estado] [claude|codex|gemini|copilot]"); return 2; }
   const ligados = [];
   for (const r of selecionados) if (await r.ligado(amb)) ligados.push(r.agente);
-  const resumo = await nucleoDaRaiz(process.cwd()).resumoDaWiki();
-  const relatorio = await nucleoDaRaiz(process.cwd()).indexar();
+  const resumo = await nucleoDaRaiz(raiz).resumoDaWiki();
+  const relatorio = await nucleoDaRaiz(raiz).indexar();
   console.log(`Agentes MCP ligados: ${ligados.join(", ") || "nenhum"}\nPáginas: ${resumo.paginas}\nÚltima reindexação: ${relatorio.reindexadas} reindexadas em ${relatorio.ms} ms`);
   return 0;
 }

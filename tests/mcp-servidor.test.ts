@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { montarInstrucoes } from "../src/mcp/instrucoes";
@@ -50,6 +50,23 @@ test("Dado comando MCP registrado, Quando o agente executa exatamente `bun <raiz
     const resposta = await client.callTool({ name: "buscar", arguments: { consulta: "anvilore" } });
     expect(resposta.isError).not.toBe(true);
   } finally { await client.close(); rmSync(dados, { recursive: true, force: true }); }
+});
+
+test("Dado outro cwd, Quando inicia o comando registrado, Então usa wiki e dados da raiz do clone", async () => {
+  const cwdAlheio = mkdtempSync(join(tmpdir(), "outro-projeto-"));
+  const dados = mkdtempSync(join(tmpdir(), "anvilore-dados-"));
+  const transport = new StdioClientTransport({
+    command: "bun", args: [join(process.cwd(), "src/cli.ts"), "mcp"], cwd: cwdAlheio,
+    env: { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)), ANVILORE_DIR: dados },
+  });
+  const client = new Client({ name: "teste-mcp-cwd", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    const resposta = await client.callTool({ name: "buscar", arguments: { consulta: "anvilore" } });
+    expect(resposta.isError).not.toBe(true);
+    expect(existsSync(join(cwdAlheio, ".anvilore"))).toBe(false);
+    expect(existsSync(join(dados, "indice.db"))).toBe(true);
+  } finally { await client.close(); rmSync(cwdAlheio, { recursive: true, force: true }); rmSync(dados, { recursive: true, force: true }); }
 });
 
 test("Dado ferramentas do servidor, Quando lista, Então tools/list cabe em 2048 bytes", async () => {
