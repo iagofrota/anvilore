@@ -83,9 +83,11 @@ describe("skill ingest: contrato do fluxo (R70-B a E)", () => {
   });
 
   test("Dado o último passo Quando fecha Então roda o fechamento e não declara concluído se reprovar por outro motivo", () => {
-    expect(skill).toContain("bun src/cli.ts fechar wiki");
-    expect(skill).toMatch(/Não diga que o ingest está concluído se o fechamento reprovou/);
-    expect(skill).toContain("verified:\n  - by: human:<seu-id>");
+    expect(skill).toContain("fechar wiki");
+    expect(skill).toMatch(/não declare o ingest concluído/i);
+    expect(skill).toContain("Aprovar estas N páginas?");
+    expect(skill).not.toContain("bun src/cli.ts fechar wiki");
+    expect(skill).not.toContain("verified:\n  - by: human:<seu-id>");
   });
 
   test("Dado o Passo 3 Quando escolhe onde gravar Então usa a área (única, perguntada ou nenhuma) e grava area no frontmatter", () => {

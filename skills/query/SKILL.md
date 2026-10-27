@@ -118,7 +118,7 @@ uma fonte sobre isso se for relevante para o seu trabalho.
 
 **Não alucine fontes.** Se você ficar tentado a citar algo que não está na wiki, não cite. Escreva "não está na wiki" em vez disso.
 
-**Extensão:** acompanhe a profundidade da pergunta. Uma busca factual recebe um parágrafo. Uma pergunta de síntese recebe seções estruturadas. Uma pergunta de comparação recebe um lado a lado, se útil.
+**Extensão:** por padrão, responda em poucas linhas. Amplie só quando a pergunta pedir síntese detalhada ou comparação.
 
 ---
 
@@ -130,7 +130,7 @@ Depois de responder, pergunte:
 Quer que eu salve isso como uma página da wiki?
 ```
 
-Se o usuário disser sim, pergunte um título se não for óbvio. Então crie `wiki/concepts/<slug>.md` usando o modelo de página de conceito de `skills/ingest/SKILL.md`. O frontmatter tem que obedecer ao `SCHEMA.md` — é ele que `bun src/cli.ts validar` cobra. A página deve conter a resposta sintetizada, com todas as citações intactas, mais uma seção `## Pergunta de origem` no topo:
+Se o usuário disser sim, pergunte um título se não for óbvio. Então crie `wiki/concepts/<slug>.md` usando o modelo de conceito de `skills/ingest/SKILL.md`. A página inclui a resposta citada e a seção `## Pergunta de origem`:
 
 ```markdown
 ## Pergunta de origem
@@ -149,7 +149,7 @@ Páginas lidas: concepts/x, concepts/y, sources/z (N no total)
 Lacunas identificadas: 1 (mixture-of-experts não coberto)
 ```
 
-Se o usuário disser não, registre no log mesmo assim, sem a linha "registrada como".
+Depois de criar a página e atualizar índice/log, pergunte **"Aprovar esta página?"**. Se sim, execute `aprovar` para ela e depois `fechar wiki`; Claude pedirá a confirmação em um clique. Se a pessoa não aprovar, mantenha o rascunho e não diga que está validado. Se o usuário disser não à gravação, registre só a consulta no log. Nunca mostre YAML nem peça para a pessoa digitar comandos.
 
 ---
 

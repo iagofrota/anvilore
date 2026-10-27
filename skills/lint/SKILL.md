@@ -153,31 +153,7 @@ cura **declarou**; esta é uma que ninguém percebeu ainda.
 
 ## Passo 4 — Apresentar o relatório
 
-Antes de corrigir qualquer coisa, apresente o consolidado. Formato:
-
-```
-## Relatório de lint — AAAA-MM-DD
-
-### Contrato
-- Validação: PASS | FAIL (N violações de invariante)
-
-### Estrutural
-- Páginas órfãs (N): caminho, caminho, …
-- Entradas ausentes do índice (N): …
-- Wikilinks quebrados (N): página → [[alvo]] não existe
-- Frontmatter incompleto (N): página — campo ausente: X
-- Páginas vazias ou esboço (N): …
-
-### Conteúdo
-- Contradições declaradas (N): caminho.md:linha — resumo dos dois lados
-- Contradições implícitas (N): página X ↔ página Y sobre Z
-- Lacunas declaradas [!gap] (N): caminho.md:linha — texto
-- Consultas não arquivadas (N): "pergunta" — AAAA-MM-DD
-- Lacunas de conceito (N): termo aparece em N páginas, sem página própria
-
-### Resumo
-N problemas. N corrigíveis sem julgamento. N precisam de você.
-```
+Antes de corrigir qualquer coisa, resuma em poucas linhas: validação, totais estruturais e de conteúdo, até três achados prioritários e quantos itens precisam de decisão humana. Mostre caminhos completos só quando a pessoa precisar escolher.
 
 Depois pergunte:
 
@@ -215,7 +191,7 @@ Corrigido: página mínima criada para entities/nome-da-pessoa (alvo de link que
 Corrigido: campo slug acrescentado a sources/artigo-tal (inferido do nome do arquivo)
 ```
 
-Depois de corrigir, rode `bun src/cli.ts auditar wiki` de novo e
+Depois de corrigir, execute novamente a auditoria e
 confira que os itens que você diz ter corrigido **saíram** do relatório. Dizer
 "corrigi" sem essa segunda passada é afirmar sobre o estado da wiki algo que
 você não pode apontar numa saída de validação — o que o `AGENTS.md` proíbe.
@@ -281,11 +257,10 @@ Adiados: N
 Contradições em aberto: N
 ```
 
-Depois rode o ritual de fechamento, que reconstrói o que é derivado e valida o
-resultado:
+Se alguma página foi alterada, informe em poucas linhas o que mudou e pergunte **"Aprovar estas N páginas?"**. Se houver sim, execute `aprovar` com os caminhos alterados; Claude pede a confirmação em um clique. Nunca edite `verified` diretamente. Depois, execute o fechamento você mesmo:
 
 ```bash
-bun src/cli.ts fechar wiki
+`fechar wiki`
 ```
 
 Ele sincroniza a contagem dos índices, chama `bun src/cli.ts indexar-log` para
@@ -294,8 +269,7 @@ regenerar o log a partir do log fatiado
 o lint não terminou** — leia o passo que falhou e resolva antes de dizer ao
 usuário que acabou.
 
-Para conferir só a contagem dos índices sem escrever, rode
-`bun src/cli.ts sincronizar-indice wiki --checar`.
+Se o fechamento reprovar, corrija o motivo e execute novamente. Não peça à pessoa que rode comandos nem edite frontmatter.
 
 ---
 
@@ -322,8 +296,7 @@ Para conferir só a contagem dos índices sem escrever, rode
   arquivadas) e o 3d implícito: em escala pequena eles produzem mais ruído que
   sinal.
 - **Um lint é uma varredura completa.** Se o usuário quer saber só quais
-  páginas não têm link de entrada, isso é uma consulta — rode
-  `bun src/cli.ts auditar wiki` e responda. Não chame de lint.
+  páginas não têm link de entrada, execute a auditoria e responda. Não chame de lint.
 
 ---
 

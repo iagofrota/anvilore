@@ -1,4 +1,7 @@
 {
+  "permissions": {
+    "ask": ["Bash(bun src/cli.ts aprovar *)"]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -12,6 +15,16 @@
             "onFailure": "block"
           }
         ]
+      },
+      {
+        "description": "Só permite aprovar com confirmação manual; recusa modos sem prompt humano garantido.",
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "bun \"$CLAUDE_PROJECT_DIR\"/src/cli.ts hooks-wiki proteger-aprovacao \"$CLAUDE_PROJECT_DIR\"", "shell": "bash", "onFailure": "block" }]
+      },
+      {
+        "description": "Impede o agente de gravar verified diretamente em páginas da wiki.",
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [{ "type": "command", "command": "bun \"$CLAUDE_PROJECT_DIR\"/src/cli.ts hooks-wiki proteger-verified \"$CLAUDE_PROJECT_DIR\"", "shell": "bash", "onFailure": "block" }]
       }
     ],
     "PostToolUse": [
