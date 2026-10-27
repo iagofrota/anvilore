@@ -37,6 +37,12 @@ test("Dado aspas e operador explícito, Quando monta, Então preserva a entrada"
   expect(consulta.match).toBe(original);
 });
 
+test("Dado consulta explícita com filtro de coluna FTS, Quando monta, Então trata o nome da coluna como sintaxe", () => {
+  const consulta = montarConsulta('"alfa" OR corpo:beta', aceita);
+  expect(consulta.match).toBe('"alfa" OR beta');
+  expect(consulta.termos).toEqual(["alfa", "beta"]);
+});
+
 test("Dado candidato FTS recusado, Quando valida, Então usa saco de palavras entre aspas", () => {
   const consulta = montarConsulta("IBS: crédito", () => false);
   expect(consulta.match).toBe('"IBS" OR "crédito"');

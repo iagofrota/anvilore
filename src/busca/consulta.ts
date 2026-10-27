@@ -29,11 +29,13 @@ export function montarConsulta(texto: string, valida: (match: string) => boolean
   const normalizado = texto.normalize("NFC");
   const palavras = normalizado.match(PALAVRA) ?? [];
   const explicita = normalizado.includes('"') || OPERADOR.test(normalizado);
+  const colunasExplicitas = new Set([...normalizado.matchAll(/\b(titulo|title|corpo|body|caminho|path):/gi)].map((m) => m[1]!.toLocaleLowerCase("pt-BR")));
   const semStopwords = palavras.filter((termo) => !STOPWORDS_PT.has(termo.toLocaleLowerCase("pt-BR")));
-  const termos = (semStopwords.length > 0 ? semStopwords : palavras).filter((termo, i, todos) => todos.indexOf(termo) === i && !/^(?:AND|OR|NOT|NEAR)$/i.test(termo));
+  const termosBase = semStopwords.length > 0 ? semStopwords : palavras;
+  const termos = termosBase.filter((termo, i, todos) => todos.indexOf(termo) === i && !/^(?:AND|OR|NOT|NEAR)$/i.test(termo) && !colunasExplicitas.has(termo.toLocaleLowerCase("pt-BR")));
   if (termos.length === 0) return { match: null, termos: [], explicita, palavras: palavras.length };
 
-  const candidata = explicita ? normalizado.trim() : candidataLivre(termos);
+  const candidata = explicita ? normalizado.trim().replace(/\b(?:titulo|title|corpo|body|caminho|path):/gi, "") : candidataLivre(termos);
   try {
     if (valida(candidata)) return { match: candidata, termos, explicita, palavras: palavras.length };
   } catch {

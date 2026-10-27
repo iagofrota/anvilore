@@ -14,5 +14,6 @@
   {"path":"ibs-transicao.md","title":"Transição do IBS","slug":"ibs-transicao","type":"concept","area":"tributos","state":"manual","content":"## Etapas\nA transição do IBS usa a sequência fictícia farol.\nUma lacuna foi anotada para revisão futura.\n> [!gap]"},
   {"path":"tributacao-digital.md","title":"Tributação digital","slug":"tributacao-digital","type":"concept","area":"economia-digital","state":"manual","content":"## Plataforma\nA tributação digital considera o operador de plataforma.\nO código de exemplo é satélite."},
   {"path":"log/diario.md","title":"Diário de importação","slug":"diario","type":"source","area":"log","state":"manual","content":"## Registro\nEste log inclui o termo secreto-diario."},
-  {"path":"_meta/index-gerado.md","title":"Índice gerado","slug":"index-gerado","type":"source","area":"meta","state":"manual","content":"## Cache\nEste metadado contém secreto-meta."}
+  {"path":"_meta/index-gerado.md","title":"Índice gerado","slug":"index-gerado","type":"source","area":"meta","state":"manual","content":"## Cache\nEste metadado contém secreto-meta."},
+  {"path":"ibs-expirado.md","title":"IBS e base comum expirada","slug":"ibs-expirado","type":"concept","area":"tributos","state":"expired","content":"## Base comum expirada\nA página repete IBS, CBS e base comum, mas sua validade temporal terminou."}
 ]

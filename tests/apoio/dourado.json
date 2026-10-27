@@ -18,5 +18,8 @@
   { "consulta": "termo destino município", "esperado": "ibs-aliquotas.md#13" },
   { "consulta": "split-payment", "esperado": "split-payment.md#8" },
   { "consulta": "alíquota", "esperado": "ibs-aliquotas.md#13" },
-  { "consulta": "consolidado contradiz", "esperado": "nota-tecnica.md#8" }
+  { "consulta": "consolidado contradiz", "esperado": "nota-tecnica.md#8" },
+  { "consulta": "IBS CBS base comum", "esperado": "ibs-aliquotas.md#13" },
+  { "consulta": "CBS créditos regime caixa", "esperado": "cbs-creditos.md#10" },
+  { "consulta": "IBS base comum expirada", "esperado": "ibs-expirado.md#9" }
 ]

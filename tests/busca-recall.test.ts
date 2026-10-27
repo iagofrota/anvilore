@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { criarNucleo } from "../src/busca/nucleo";
 
-type Pagina = { path: string; title: string; slug: string; type: string; area: string; state: "manual" | "draft" | "verified"; content: string };
+type Pagina = { path: string; title: string; slug: string; type: string; area: string; state: "manual" | "draft" | "verified" | "expired"; content: string };
 type Par = { consulta: string; esperado: string };
 const diretorioFonte = join(import.meta.dir, "apoio", "wiki-dourada");
 const paginas = JSON.parse(readFileSync(join(diretorioFonte, "pages.json"), "utf8")) as Pagina[];
@@ -15,14 +15,15 @@ function criarWikiTemporaria(prefixo: string): { raiz: string; wiki: string; nuc
   writeFileSync(join(wiki, ".gitignore"), readFileSync(join(diretorioFonte, ".gitignore")));
   for (const pagina of paginas) {
     const destino = join(wiki, pagina.path); mkdirSync(join(destino, ".."), { recursive: true });
-    const geracao = pagina.state === "manual" ? "generated: 2026-01-01\n" : "generated:\n  by: agent/model\n  at: '2026-01-01T00:00:00Z'\n";
+    const geracao = pagina.state === "manual" || pagina.state === "expired" ? "generated: 2026-01-01\n" : "generated:\n  by: agent/model\n  at: '2026-01-01T00:00:00Z'\n";
     const aprovacao = pagina.state === "verified" ? "verified:\n  by: human:iago\n  at: '2026-01-02T00:00:00Z'\n" : "";
-    writeFileSync(destino, `---\ntitle: ${pagina.title}\nslug: ${pagina.slug}\ntype: ${pagina.type}\narea: ${pagina.area}\n${geracao}${aprovacao}---\n${pagina.content}\n`);
+    const expirada = pagina.state === "expired" ? "stale_after: '2026-01-02T00:00:00Z'\n" : "";
+    writeFileSync(destino, `---\ntitle: ${pagina.title}\nslug: ${pagina.slug}\ntype: ${pagina.type}\narea: ${pagina.area}\n${geracao}${aprovacao}${expirada}---\n${pagina.content}\n`);
   }
   return { raiz, wiki, nucleo: criarNucleo({ raiz, wiki, arquivoDb: join(raiz, ".anvilore", "indice.db") }) };
 }
 
-test("Dado wiki dourada de 15 páginas, Quando busca os pares dourados, Então recall@5 é pelo menos 0,8", async () => {
+test("Dado wiki dourada com estados, vencida e termos compartilhados, Quando busca, Então recall@5 é pelo menos 0,8", async () => {
   const f = criarWikiTemporaria("anvilore-recall-");
   try {
     let acertos = 0; const erros: string[] = [];
