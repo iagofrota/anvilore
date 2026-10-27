@@ -160,11 +160,18 @@ async function protegerVerified(raiz: string, entrada: string): Promise<void> {
     mudou = mudouBloco(atual, ferramenta.content);
   } else {
     const edicoes = Array.isArray(ferramenta.edits) ? ferramenta.edits as Json[] : [ferramenta];
-    mudou = edicoes.some(edicao => {
+    let atual = "";
+    try { atual = await readFile(abs, "utf8"); }
+    catch (erro) { if ((erro as NodeJS.ErrnoException).code !== "ENOENT") { negarPermissao("PreToolUse", "Não foi possível comparar verified com o arquivo atual."); return; } }
+    let proposto = atual;
+    for (const edicao of edicoes) {
       const anterior = typeof edicao.old_string === "string" ? edicao.old_string : "";
       const novo = typeof edicao.new_string === "string" ? edicao.new_string : "";
-      return mudouBloco(anterior, novo);
-    });
+      const indice = anterior ? proposto.indexOf(anterior) : -1;
+      if (indice >= 0) proposto = `${proposto.slice(0, indice)}${novo}${proposto.slice(indice + anterior.length)}`;
+      else if (mudouBloco(anterior, novo)) mudou = true;
+    }
+    mudou ||= mudouBloco(atual, proposto);
   }
   if (mudou) negarPermissao("PreToolUse", "Só o comando de aprovação pode alterar verified em wiki/.");
 }

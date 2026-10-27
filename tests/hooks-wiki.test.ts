@@ -204,6 +204,19 @@ describe("hooks da wiki", () => {
     } finally { c.restaurar(); }
   });
 
+  test("Dado Edit só da linha at dentro de verified Quando adianta a aprovação Então nega", async () => {
+    const pagina = join(raiz, "wiki/a.md");
+    mkdirSync(join(raiz, "wiki"), { recursive: true });
+    writeFileSync(pagina, "---\ngenerated:\n  at: 2026-10-27T10:00:00Z\nverified:\n  - by: human:ana\n    at: 2026-10-27T11:00:00Z\n---\nTexto.\n");
+    const c = capturarConsole();
+    try {
+      await comandoHooksWiki(["proteger-verified", raiz], async () => JSON.stringify({ cwd: raiz, tool_input: {
+        file_path: pagina, old_string: "    at: 2026-10-27T11:00:00Z", new_string: "    at: 2026-10-27T09:00:00Z",
+      } }));
+      expect(JSON.parse(c.saida.join("\n"))).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+    } finally { c.restaurar(); }
+  });
+
   test("Dado anvilore.toml malformado Quando eventos Git rodam Então falham em modo desligado", async () => {
     writeFileSync(join(raiz, "anvilore.toml"), "[hooks\n");
     expect(await comandoHooksWiki(["autocommit", raiz], async () => JSON.stringify({ tool_input: { file_path: "wiki/a.md" } }))).toBe(0);
