@@ -36,6 +36,7 @@ estruturada, responda com **um único** bloco ```json, sem texto antes ou depois
     Nunca promova: "provável" na fonte não vira `comprovado`.
   - Uma afirmação, uma citação. Uma lista (clientes, fornecedores, números) leva um trecho por item, não
     um trecho para a lista inteira; se não couber, vire dois takeaways ou uma lacuna.
+- **Caminhos sempre com `/`, mesmo no Windows** (`raw/notas/x.md`, nunca `raw\notas\x.md`).
 - **`paginas`**: caminhos **relativos à wiki**, com `tipo`, `acao` e `motivo`.
   - Exatamente uma página `source`: `<área>/sources/<slug>.md` (ou `sources/<slug>.md` sem áreas).
     `<slug>` é o título da fonte em minúsculas e com hífens. Se a fonte já tem página, `atualizar`.
