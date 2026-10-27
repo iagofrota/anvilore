@@ -14,6 +14,36 @@ export type Diagnostico = { travas: Trava[]; prerequisitos: Prerequisito[]; avis
 
 const AGENTES: Record<Alvo, string> = { claude: "Claude Code", codex: "Codex", gemini: "Gemini", copilot: "Copilot" };
 const HOOK_ANTIGO = "hooks/proteger-raw.sh";
+const TIMEOUT_CLI_AGENTE_MS = 3_500;
+
+async function executarAgenteLimitado(cmd: string[], timeoutMs = TIMEOUT_CLI_AGENTE_MS): Promise<{ codigo: number; saida: string; expirou: boolean }> {
+  const processo = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+  const stdout = processo.stdout.getReader();
+  const stderr = processo.stderr.getReader();
+  const ler = async <T extends { read(): Promise<{ done: boolean; value?: Uint8Array }> }>(reader: T): Promise<string> => {
+    const partes: Uint8Array[] = [];
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) partes.push(value);
+      }
+    } catch { /* timeout ou pipe fechado: usa o que já chegou */ }
+    return Buffer.concat(partes).toString();
+  };
+  const leitura = Promise.all([ler(stdout), ler(stderr), processo.exited]).then(([out, err, codigo]) => ({ codigo, saida: out + err, expirou: false }));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<{ codigo: number; saida: string; expirou: boolean }>(resolve => {
+    timer = setTimeout(() => {
+      processo.kill();
+      void stdout.cancel().catch(() => {});
+      void stderr.cancel().catch(() => {});
+      resolve({ codigo: 124, saida: "", expirou: true });
+    }, timeoutMs);
+  });
+  try { return await Promise.race([leitura, timeout]); }
+  finally { if (timer !== undefined) clearTimeout(timer); }
+}
 
 async function ler(caminho: string): Promise<string | undefined> {
   try {
@@ -71,11 +101,14 @@ async function versaoDoClaude(raiz: string, path: string | undefined): Promise<T
   if (exe === null) return undefined;
   const nome = "Versão do Claude Code (o hook usa onFailure)";
   let saida = "";
+  let expirou = false;
   try {
-    saida = Bun.spawnSync([exe, "--version"], { stdout: "pipe", stderr: "pipe" }).stdout.toString();
+    const resultado = await executarAgenteLimitado([exe, "--version"]);
+    saida = resultado.saida;
+    expirou = resultado.expirou;
   } catch { /* cai no aviso de versão ilegível */ }
   const achada = /(\d+)\.(\d+)\.(\d+)/.exec(saida);
-  if (!achada) return { nome, ligada: false, opcional: true, comoLigar: "rode `claude --version` e confira que é a 2.1.295 ou mais nova", detalhe: "não consegui ler a versão" };
+  if (!achada) return { nome, ligada: false, opcional: true, comoLigar: "rode `claude --version` e confira que é a 2.1.295 ou mais nova", detalhe: expirou ? `consulta excedeu ${TIMEOUT_CLI_AGENTE_MS} ms` : "não consegui ler a versão" };
   const [maior, menor, correcao] = [Number(achada[1]), Number(achada[2]), Number(achada[3])];
   const antiga = maior < 2 || (maior === 2 && (menor < 1 || (menor === 1 && correcao < 295)));
   if (!antiga) return { nome, ligada: true };
@@ -223,9 +256,9 @@ export async function comandoDoctor(args: string[], deps: { ambienteMcp?: Ambien
     home,
     existe: async (bin: string) => Bun.which(bin) !== null,
     executar: async (cmd: string[], timeoutMs?: number) => {
-      const processo = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", ...(timeoutMs === undefined ? {} : { signal: AbortSignal.timeout(timeoutMs + 100) }) });
-      const [stdout, stderr, codigo] = await Promise.all([new Response(processo.stdout).text(), new Response(processo.stderr).text(), processo.exited]);
-      return { codigo, saida: stdout + stderr };
+      const limite = Math.min(timeoutMs ?? TIMEOUT_CLI_AGENTE_MS, TIMEOUT_CLI_AGENTE_MS);
+      const resultado = await executarAgenteLimitado(cmd, limite);
+      return { codigo: resultado.codigo, saida: resultado.saida };
     },
   };
   const ligados: string[] = [];

@@ -219,6 +219,32 @@ test("Dado nenhum argumento Quando rodo o doctor Então usa ANVILORE_DESTINO ou 
   try { expect(await comandoDoctor([])).toBe(0); } finally { process.chdir(antes); }
 });
 
+test.skipIf(process.platform === "win32")("Dado o Claude que dorme e deixa um filho segurando stdout, Quando roda doctor, Então termina em menos de 10 segundos", async () => {
+  const claude = join(bin, "claude");
+  writeFileSync(claude, "#!/bin/sh\n/bin/sleep 12\n", { mode: 0o755 });
+  const processo = Bun.spawn([process.execPath, join(raizKit, "src/cli.ts"), "doctor", clone], {
+    env: { ...process.env, PATH: bin, HOME: join(tmp, "lar"), USERPROFILE: join(tmp, "lar") },
+    stdout: "pipe", stderr: "pipe",
+  });
+  const inicio = Date.now();
+  const concluiu = await Promise.race([
+    processo.exited.then(() => true),
+    new Promise<false>(resolve => setTimeout(() => resolve(false), 9_000)),
+  ]);
+  if (!concluiu) processo.kill();
+  expect(concluiu).toBe(true);
+  expect(Date.now() - inicio).toBeLessThan(10_000);
+}, 15_000);
+
+test.skipIf(process.platform === "win32")("Dado --version do Claude que não responde e deixa stdout aberto, Quando diagnostico, Então aplica timeout sem esperar o pipe", async () => {
+  writeFileSync(join(bin, "claude"), "#!/bin/sh\n/bin/sleep 12\n", { mode: 0o755 });
+  const inicio = Date.now();
+  const d = await diagnosticar(clone, { PATH: bin });
+  const versao = d.travas.find(trava => trava.nome === VERSAO);
+  expect(versao?.detalhe).toBe("consulta excedeu 3500 ms");
+  expect(Date.now() - inicio).toBeLessThan(5_000);
+}, 7_000);
+
 test("Dado o CLI Quando executo doctor Então o subcomando está registrado", async () => {
   await instalarTudo(); completar();
   expect(await executar(["doctor", clone])).toBe(0);
