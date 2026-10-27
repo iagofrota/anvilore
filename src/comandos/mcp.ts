@@ -27,6 +27,7 @@ export async function comandoIndexar(args: string[]): Promise<number> {
 }
 
 export async function comandoMcp(args: string[], amb: Ambiente = ambiente()): Promise<number> {
+  if (args.length === 0) return (await import("./mcp-servidor")).comandoMcpServidor(args);
   if (args.includes("--wiki")) return (await import("./mcp-servidor")).comandoMcpServidor(args);
   const acao = args[0] ?? "estado";
   const nomes: Agente[] = args.slice(1).filter((item): item is Agente => ["claude", "codex", "gemini", "copilot"].includes(item));

@@ -37,6 +37,21 @@ test("Dado servidor MCP e wiki, Quando inicializa, Então instructions citam ass
   } finally { await client.close(); rmSync(raiz, { recursive: true, force: true }); }
 });
 
+test("Dado comando MCP registrado, Quando o agente executa exatamente `bun <raiz>/src/cli.ts mcp`, Então conecta ao servidor", async () => {
+  const dados = mkdtempSync(join(tmpdir(), "anvilore-dados-"));
+  const comandoRegistrado = [join(process.cwd(), "src/cli.ts"), "mcp"];
+  const transport = new StdioClientTransport({
+    command: "bun", args: comandoRegistrado, cwd: process.cwd(),
+    env: { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)), ANVILORE_DIR: dados },
+  });
+  const client = new Client({ name: "teste-comando-registrado", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    const resposta = await client.callTool({ name: "buscar", arguments: { consulta: "anvilore" } });
+    expect(resposta.isError).not.toBe(true);
+  } finally { await client.close(); rmSync(dados, { recursive: true, force: true }); }
+});
+
 test("Dado ferramentas do servidor, Quando lista, Então tools/list cabe em 2048 bytes", async () => {
   const raiz = mkdtempSync(join(tmpdir(), "anvilore-mcp-tools-")); const wikiPath = wiki(raiz); const { client, transport } = conectar(raiz, wikiPath);
   try { await client.connect(transport); expect(Buffer.byteLength(JSON.stringify(await client.listTools()))).toBeLessThanOrEqual(2048); }
