@@ -46,6 +46,11 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   Registra primeiro o PATH original; se faltar `rg`, usa uma versão fixa conferida por SHA-256
   apenas no diretório temporário do ensaio e a remove ao terminar.
 
+### Changed
+
+- O README avisa que, no Windows, só o CI testa o kit por enquanto: ainda não houve teste numa máquina Windows de
+  verdade.
+
 ## [0.2.0] - 2026-10-25
 
 Tudo o que entrou na `main` depois da 0.1.0: validação, manutenção da wiki, instalador e hook em TypeScript no Bun,
