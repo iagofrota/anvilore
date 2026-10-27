@@ -26,6 +26,8 @@ jobs:
         run: bun scripts/rg-temporario-prova.ts
       - name: Tipos, testes e cobertura (limite 0.8 em bunfig.toml)
         run: bun run checar
+      - name: Conferir assets versionados da interface
+        run: git diff --exit-code -- src/ui/public
       - name: Checar links e referências da knowledge base
         run: bun src/cli.ts checar-docs
       - name: Medir links de diretório e arquivo (imprime resultado por sistema)

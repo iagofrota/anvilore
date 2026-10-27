@@ -3,7 +3,8 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ESNext"],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
     "types": ["bun"],
     "strict": true,
     "noEmit": true,
@@ -11,5 +12,5 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true
   },
-  "include": ["src", "tests"]
+  "include": ["src", "tests", "ui/web", "scripts/build-ui.ts"]
 }

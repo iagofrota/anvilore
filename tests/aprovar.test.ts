@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { aprovarPaginas, comandoAprovar } from "../src/comandos/aprovar";
@@ -74,6 +74,14 @@ test("Dado página fora de wiki Quando aprovo Então recusa sem alterar o arquiv
   expect(readFileSync(pagina, "utf8")).not.toContain("verified:");
 });
 
+test("Dado symlink dentro de wiki apontando para fora Quando aprovo Então recusa sem escrever no alvo", async () => {
+  const fora = join(raiz, "fora.md");
+  writeFileSync(fora, "---\ngenerated:\n  by: agente/teste\n  at: 2026-10-27T10:00:00Z\n---\n");
+  symlinkSync(fora, join(raiz, "wiki/pessoal/atalho.md"));
+  expect((await aprovarPaginas(raiz, ["wiki/pessoal/atalho.md"])).codigo).toBe(1);
+  expect(readFileSync(fora, "utf8")).not.toContain("verified:");
+});
+
 test("Dado página sem generated ou aprovada depois da última geração Quando aprovo Então recusa", async () => {
   const semGerada = join(raiz, "wiki/sem-gerada.md");
   const jaAprovada = join(raiz, "wiki/aprovada.md");
@@ -93,6 +101,17 @@ test("Dado página aprovada antes da geração atual Quando aprovo Então acresc
   const texto = readFileSync(pagina, "utf8");
   expect(texto).toContain("- by: human:ana\n    at: 2026-10-27T11:00:00Z");
   expect(texto).toMatch(/- by: human:iago-avila\n    at: \d{4}-\d\d-\d\dT.*Z/);
+});
+
+test("Dado página em CRLF Quando aprovo Então preservo os bytes do corpo e o fim de linha", async () => {
+  const pagina = join(raiz, "wiki/pessoal/crlf.md");
+  const original = Buffer.from("---\r\ntitle: CRLF\r\ngenerated:\r\n  by: agente\r\n  at: 2026-10-27T10:00:00Z\r\n---\r\nCorpo preservado.\r\n", "utf8");
+  writeFileSync(pagina, original);
+  expect((await aprovarPaginas(raiz, ["wiki/pessoal/crlf.md"])).codigo).toBe(0);
+  const atualizado = readFileSync(pagina);
+  const sufixoOriginal = Buffer.from("\r\n---\r\nCorpo preservado.\r\n", "utf8");
+  expect(atualizado.subarray(atualizado.length - sufixoOriginal.length)).toEqual(sufixoOriginal);
+  expect(Buffer.from(atualizado.toString("utf8").replaceAll("\r\n", ""), "utf8").includes(Buffer.from("\n"))).toBe(false);
 });
 
 test("Dado lista vazia Quando aprovo Então informa o uso", async () => {

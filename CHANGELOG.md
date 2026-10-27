@@ -20,6 +20,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - A abertura concorrente de um índice SQLite novo repete operações bloqueadas antes de falhar.
 - Registros MCP com símbolos/ANSI são reconhecidos; remoção falha por agente e continua para os seguintes.
 - Symlinks internos são indexados uma vez pelo caminho canônico; consultas livres preservam termos como `caminho` e `title`.
+- `anvilore ui` abre uma Revisão local de rascunhos com aprovação pela lógica existente, navegação por teclado e validação real da wiki. A interface usa React+TypeScript e pode desligar o autocommit durante a escrita com `ANVILORE_SEM_AUTOCOMMIT=1`.
+- A Revisão alinha a aprovação à proveniência humana, preserva CRLF, mostra a URL com token, protege POST por Origin e Referrer-Policy, indexa cópias sem bloquear o event loop e deixa avisos globais sem bloquear a aprovação. O CI confere que os assets compilados estão versionados e atualizados.
 - Hooks nos quatro agentes para commit opcional de páginas em `wiki/`, backup opcional no GitHub ao fim da sessão e
   sugestão de lint após cinco ingestões. Claude Code observa `raw/` com SessionStart `watchPaths` + FileChanged e
   restaura o contexto após compactação; Codex restaura o contexto após compactação. O doctor informa eventos

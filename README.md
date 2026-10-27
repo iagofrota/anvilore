@@ -137,6 +137,9 @@ Com o clone configurado:
    > verificação humana posterior. Uma empresa pode restringir áreas, tipos e
    > campos obrigatórios num `anvilore.toml` (veja o `SCHEMA.md`).
 
+Para abrir a fila de rascunhos em uma tela local, execute `anvilore ui`. A página
+abre no navegador; use **Aprovar** ou a tecla `A`, e `J`/`K` para navegar.
+
 Quando a wiki crescer, `skills/lint/SKILL.md` faz a varredura de manutenção:
 o que está estruturalmente quebrado, o que virou dívida de conhecimento e o
 que ficou invisível na navegação.
