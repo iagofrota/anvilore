@@ -40,6 +40,7 @@ export const subcomandos: TabelaDeSubcomandos = {
   fechar: comandoFechar,
   baseline: comandoBaseline,
   metricas: comandoMetricas,
+  mcp: async (args) => (await import("./comandos/mcp-servidor")).comandoMcpServidor(args),
 };
 
 function listar(tabela: TabelaDeSubcomandos): string {

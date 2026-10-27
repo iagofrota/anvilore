@@ -11,7 +11,8 @@ import { lerUtf8Estrito } from "../lib/utf8";
 import { abrirMetricas, type Chamada, type RelatorioMetricas, type RegistroDeMetricas } from "./metricas";
 import type { Aviso, CodigoErro, Endereco, ErroDeBusca, NucleoDeBusca, OpcoesBusca, RespostaBusca, ResumoDaWiki, Resultado, ResultadoOuErro, Trecho } from "./tipos";
 
-type Config = { raiz: string; wiki: string; arquivoDb: string; agora?: () => Date; metricas?: RegistroDeMetricas };
+type ContextoMetricas = { cliente?: { nome: string; versao: string }; conexao?: string; posicaoLida?: number | null };
+type Config = { raiz: string; wiki: string; arquivoDb: string; agora?: () => Date; metricas?: RegistroDeMetricas; contextoMetricas?: () => ContextoMetricas };
 type LinhaResultado = {
   id: number; caminho: string; slug: string; pagina_titulo: string; secao: string; linha_inicio: number; linha_fim: number; corpo: string;
   avisos: string; estado: string; vencida: number; tipo: string | null; area: string | null; bm25: number; trecho: string | null;
@@ -109,7 +110,15 @@ export function criarNucleo(cfg: Config): NucleoDeBusca {
   const conexao = randomUUID();
 
   function registrar(chamada: Chamada): void {
-    try { cfg.metricas?.registrar(chamada, agora()); } catch { /* telemetria local nunca interrompe a consulta */ }
+    try {
+      const contexto = cfg.contextoMetricas?.();
+      cfg.metricas?.registrar({
+        ...chamada,
+        conexao: contexto?.conexao ?? chamada.conexao,
+        ...(contexto?.cliente ? { cliente: contexto.cliente } : {}),
+        ...(chamada.tool === "ler" ? { posicaoLida: contexto?.posicaoLida ?? null } : {}),
+      }, agora());
+    } catch { /* telemetria local nunca interrompe a consulta */ }
   }
   function resumoDaChamada(resultados: Resultado[] = []): Chamada["porEstado"] {
     const porEstado: Chamada["porEstado"] = { manual: 0, verificada: 0, rascunho: 0 };
