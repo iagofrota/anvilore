@@ -80,7 +80,8 @@ Para a linhagem do método e a argumentação completa das posições de design,
 - **Decisão do dono do projeto em 2026-10-27.** `anvilore ui` oferece uma interface local opcional
   para revisar rascunhos. O servidor só existe enquanto o comando roda; a wiki segue em arquivos
   Markdown e continua legível sem ele. Esta é uma exceção explícita à posição de não manter servidor
-  (`FILOSOFIA.md`, seção 4).
+  (`FILOSOFIA.md`, seção 4). O backend usa `Bun.serve`; o front React+TypeScript é compilado por
+  `bun run build:ui` e os assets são empacotados em `src/ui/public/`.
 - Durante a escrita de uma ingestão, `ANVILORE_SEM_AUTOCOMMIT=1` desliga o autocommit do hook
   `hooks-wiki autocommit`; a aprovação posterior continua sendo feita pela interface.
 - O comportamento está em `src/ui/servidor/`, `src/comandos/hooks-wiki.ts` e `tests/hooks-wiki.test.ts`.

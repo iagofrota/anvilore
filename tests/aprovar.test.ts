@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { aprovarPaginas, comandoAprovar } from "../src/comandos/aprovar";
@@ -72,6 +72,14 @@ test("Dado página fora de wiki Quando aprovo Então recusa sem alterar o arquiv
   const resultado = await aprovarPaginas(raiz, [pagina]);
   expect(resultado.codigo).toBe(1);
   expect(readFileSync(pagina, "utf8")).not.toContain("verified:");
+});
+
+test("Dado symlink dentro de wiki apontando para fora Quando aprovo Então recusa sem escrever no alvo", async () => {
+  const fora = join(raiz, "fora.md");
+  writeFileSync(fora, "---\ngenerated:\n  by: agente/teste\n  at: 2026-10-27T10:00:00Z\n---\n");
+  symlinkSync(fora, join(raiz, "wiki/pessoal/atalho.md"));
+  expect((await aprovarPaginas(raiz, ["wiki/pessoal/atalho.md"])).codigo).toBe(1);
+  expect(readFileSync(fora, "utf8")).not.toContain("verified:");
 });
 
 test("Dado página sem generated ou aprovada depois da última geração Quando aprovo Então recusa", async () => {

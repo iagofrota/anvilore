@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { caminhoWiki } from "../lib/wiki-repo";
 import { autoCommitWiki, opcoesHooksWiki } from "./hooks-wiki";
@@ -59,6 +59,10 @@ export async function aprovarPaginas(raiz: string, arquivos: string[], ambiente:
       const caminho = isAbsolute(arquivo) ? resolve(arquivo) : resolve(raiz, arquivo);
       const rel = relative(wiki, caminho);
       if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel) || !rel.toLowerCase().endsWith(".md")) throw new Error(`página fora de wiki/: ${arquivo}`);
+      const caminhoReal = await realpath(caminho);
+      const wikiReal = await realpath(wiki);
+      const relReal = relative(wikiReal, caminhoReal);
+      if (relReal === ".." || relReal.startsWith(`..${sep}`) || isAbsolute(relReal)) throw new Error(`página fora de wiki/: ${arquivo}`);
       const original = await readFile(caminho, "utf8");
       preparados.push({ caminho, texto: original });
     }
