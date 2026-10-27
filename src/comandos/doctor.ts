@@ -190,7 +190,7 @@ export async function diagnosticar(raiz: string, ambiente: Record<string, string
   const aviso = avisoRg(path);
   const avisos = aviso ? [aviso] : [];
   if (await stat(join(raiz, ".gemini")).then(info => info.isDirectory(), () => false)) avisos.push("Gemini: não há evento FileChanged nem origem compact para SessionStart; W12/W13 não estão disponíveis neste agente.");
-  if (await stat(join(raiz, ".github/copilot")).then(info => info.isDirectory(), () => false)) avisos.push("Copilot: não há evento FileChanged nem matcher de compactação; W12/W13 não estão disponíveis neste agente.");
+  if (await stat(join(raiz, ".github/copilot")).then(info => info.isDirectory(), () => false)) avisos.push("Copilot: não há evento FileChanged nem matcher de compactação; W12/W13 não estão disponíveis. O evento agentStop não oferece mensagem terminal sem bloquear a próxima rodada, então W14 não está disponível.");
   if (await stat(join(raiz, ".codex")).then(info => info.isDirectory(), () => false)) avisos.push("Codex: não há evento FileChanged; W12 não está disponível neste agente.");
   return { travas, prerequisitos, avisos };
 }

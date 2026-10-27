@@ -159,15 +159,16 @@ command_windows = ${JSON.stringify(`${comandoEvento(destino, "contexto")}; exit 
 
 [[hooks.Stop.hooks]]
 type = "command"
+command = ${JSON.stringify(`${comandoEvento(destino, "sugerir-lint")}; exit $LASTEXITCODE`)}
+command_windows = ${JSON.stringify(`${comandoEvento(destino, "sugerir-lint")}; exit $LASTEXITCODE`)}
+
+[[hooks.SessionEnd]]
+
+[[hooks.SessionEnd.hooks]]
+type = "command"
 command = ${JSON.stringify(`${comandoEvento(destino, "backup")}; exit $LASTEXITCODE`)}
 command_windows = ${JSON.stringify(`${comandoEvento(destino, "backup")}; exit $LASTEXITCODE`)}
-
-[[hooks.Stop]]
-
-[[hooks.Stop.hooks]]
-type = "command"
-command = ${JSON.stringify(`${comandoEvento(destino, "sugerir-lint")}; exit $LASTEXITCODE`)}
-command_windows = ${JSON.stringify(`${comandoEvento(destino, "sugerir-lint")}; exit $LASTEXITCODE`)}`,
+timeout = 3`,
       };
     case "gemini":
       return {
@@ -183,10 +184,8 @@ command_windows = ${JSON.stringify(`${comandoEvento(destino, "sugerir-lint")}; e
               matcher: "write_file|replace",
               hooks: [{ name: "anvilore-autocommit", type: "command", command: comandoEventoRelativo("autocommit") }],
             }],
-            AfterAgent: [{ hooks: [
-              { name: "anvilore-backup", type: "command", command: comandoEventoRelativo("backup") },
-              { name: "anvilore-sugerir-lint", type: "command", command: comandoEventoRelativo("sugerir-lint") },
-            ] }],
+            AfterAgent: [{ hooks: [{ name: "anvilore-sugerir-lint", type: "command", command: comandoEventoRelativo("sugerir-lint") }] }],
+            SessionEnd: [{ hooks: [{ name: "anvilore-backup", type: "command", command: comandoEventoRelativo("backup") }] }],
           },
         },
       };
@@ -450,10 +449,7 @@ export async function instalar(opcoes: OpcoesInstalacao): Promise<RelatorioInsta
       if (alvo === "copilot") {
         await configurar(contexto, ".github/hooks/anvilore.json", { json: { version: 1, hooks: {
           postToolUse: [{ type: "command", bash: comandoEventoRelativo("autocommit"), powershell: comandoEventoRelativo("autocommit"), cwd: "." }],
-          agentStop: [
-            { type: "command", bash: comandoEventoRelativo("backup"), powershell: comandoEventoRelativo("backup"), cwd: "." },
-            { type: "command", bash: comandoEventoRelativo("sugerir-lint"), powershell: comandoEventoRelativo("sugerir-lint"), cwd: "." },
-          ],
+          sessionEnd: [{ type: "command", bash: comandoEventoRelativo("backup"), powershell: comandoEventoRelativo("backup"), cwd: "." }],
         } } });
       }
       await instalarSkills(contexto, alvo, await listarSkills());

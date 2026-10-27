@@ -43,9 +43,13 @@ passaram nos três. Uma mudança que passa só no seu sistema não está pronta.
 
 Os hooks da wiki ficam em `src/comandos/hooks-wiki.ts` e são exercitados por
 `tests/hooks-wiki.test.ts`. Commit e backup são opt-in: `anvilore instalar --auto-commit` e
-`anvilore instalar --github-backup`; `anvilore doctor` mostra o estado. Claude Code e Codex recebem
-Claude Code recebe FileChanged e SessionStart=compact. Codex recebe SessionStart=compact, mas não
-FileChanged. Gemini e Copilot não têm esses eventos equivalentes; o doctor informa as limitações.
+`anvilore instalar --github-backup`; `anvilore doctor` mostra o estado. A matriz configurada é:
+Claude Code: W11/W12/W13/W14/W17; Codex: W11/W13/W14/W17; Gemini: W11/W14/W17; Copilot CLI:
+W11/W17. W12 usa FileChanged com `SessionStart.watchPaths` só no Claude; W13 usa SessionStart=compact
+no Claude e Codex; W14 não está disponível no Copilot porque `agentStop` não fornece uma mensagem
+visível sem bloquear a próxima rodada. W17 usa SessionEnd nos quatro, com limites de tempo: Codex até
+3 segundos e Gemini sem garantia de espera. Os testes verificam lógica e configurações geradas, não
+executam ciclos de vida reais dos agentes.
 
 ## Testes primeiro, com cenários em gherkin
 

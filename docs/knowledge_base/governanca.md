@@ -197,17 +197,31 @@ só por causa do checkout. Páginas ignoradas pelo Git e symlinks continuam pelo
   aviso para novo arquivo em `raw/`, restauração do índice e dos últimos logs diários após compactação e
   sugestão de lint após cinco ingestões desde o último lint (`src/comandos/hooks-wiki.ts`). Os logs diários ficam em
   `wiki/log/`, com nomes log-AAAA-MM-DD.md; o índice gerado `wiki/log.md` nunca é editado por essa lógica.
-- `hooks/hooks.json` instala `PostToolUse`, `FileChanged`, `SessionStart:compact` e `Stop` no Claude Code.
-  O Codex recebe `PostToolUse`, `SessionStart:compact` e `Stop`; não possui `FileChanged`, então W12 não é instalado.
-  Gemini usa `AfterTool` e `AfterAgent`; Copilot usa `postToolUse` e `agentStop`. Gemini e Copilot não oferecem
-  FileChanged nem o gatilho de compactação equivalente, e o doctor avisa que W12/W13 não estão disponíveis nesses agentes.
-  As formas seguem as referências atuais de [Claude Code](https://code.claude.com/docs/en/hooks),
-  [Codex](https://learn.chatgpt.com/docs/hooks), [Gemini CLI](https://geminicli.com/docs/hooks/reference/) e
-  [GitHub Copilot](https://docs.github.com/en/copilot/reference/hooks-reference).
-- Commit automático e backup no GitHub exigem opt-in explícito em anvilore.toml, feito por
+  O commit agrupa a página, o índice da área correspondente e o log do dia.
+- W11 (autocommit) usa `PostToolUse` no Claude/Codex, `AfterTool` no Gemini e `postToolUse` no Copilot CLI.
+  W13 (restaurar contexto na compactação) usa `SessionStart` com `compact` no Claude e no Codex.
+  W14 (sugerir lint) usa `Stop` no Claude/Codex e `AfterAgent` no Gemini; Copilot não tem saída de mensagem
+  de terminal em `agentStop`, então o doctor informa W14 indisponível ali.
+- W12 usa `SessionStart` para retornar `hookSpecificOutput.watchPaths` com o caminho absoluto de `raw/` e um
+  grupo `FileChanged` sem matcher. A documentação oficial do Claude Code descreve `event: "add"` para arquivo
+  criado em caminho observado. A tentativa de verificação runtime com Claude Code 2.1.311 parou na tela de
+  autenticação inicial, sem login e sem chamada ao modelo; os testes verificam a forma e o tratamento do payload,
+  não a emissão real do evento.
+- W17 roda no fim da sessão (`SessionEnd`) no Claude Code, Codex, Gemini CLI e Copilot CLI. O Codex limita
+  esse hook a 3 segundos; o Gemini informa que SessionEnd é best-effort e não aguarda o comando terminar.
+  O backup exige upstream já configurado. Sem upstream, não faz push nem cria branch remota e escreve o aviso
+  em stderr com saída 2 (o evento de SessionEnd do Copilot não processa JSON de saída).
+- Os formatos e a superfície de cada evento foram conferidos nas documentações oficiais de
+  [Claude Code](https://code.claude.com/docs/en/hooks), [Codex](https://learn.chatgpt.com/docs/hooks),
+  [Gemini CLI](https://geminicli.com/docs/hooks/reference/) e
+  [GitHub Copilot](https://docs.github.com/en/copilot/reference/hooks-reference). Os testes em
+  `tests/hooks-wiki.test.ts` e `tests/instalar.test.ts` verificam lógica e arquivos gerados, não simulam
+  os ciclos de vida reais dos agentes.
+- Commit automático e backup no GitHub exigem opt-in explícito na configuração anvilore.toml, feito por
   `anvilore instalar --auto-commit` e `anvilore instalar --github-backup`. Sem esses campos, os dois ficam desligados.
-  O commit adiciona somente a página em `wiki/` e os arquivos de navegação; não adiciona `raw/`. O backup envia commits
-  da branch atual, só se houver upstream ou `origin`, sem criar commits de fallback e sem reescrever histórico.
+  O commit adiciona somente a página em `wiki/`, índices de navegação relacionados e o log do dia; não adiciona
+  `raw/`. O backup envia commits existentes da branch atual, somente quando há upstream e commits locais, sem
+  criar commits nem reescrever histórico.
 
 ## O que o Anvilore não resolve: vazamento
 

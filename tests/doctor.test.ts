@@ -122,6 +122,7 @@ test("Dado agente sem eventos de arquivo/compactação Quando doctor diagnostica
   const avisos = (await diagnosticar(clone)).avisos.join("\n");
   expect(avisos).toContain("Gemini: não há evento FileChanged"); expect(avisos).toContain("W12/W13 não estão disponíveis");
   expect(avisos).toContain("Copilot: não há evento FileChanged");
+  expect(avisos).toContain("W14 não está disponível");
   expect(avisos).toContain("Codex: não há evento FileChanged");
 });
 

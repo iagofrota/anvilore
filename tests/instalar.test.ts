@@ -79,7 +79,8 @@ test("Dado destino com espaço Quando instalo quatro agentes e repito Então INA
   const copilotWikiHooks = JSON.parse(readFileSync(join(destino, ".github/hooks/anvilore.json"), "utf8"));
   expect(copilotWikiHooks.version).toBe(1);
   expect(copilotWikiHooks.hooks.postToolUse).toHaveLength(1);
-  expect(copilotWikiHooks.hooks.agentStop).toHaveLength(2);
+  expect(copilotWikiHooks.hooks.agentStop).toBeUndefined();
+  expect(copilotWikiHooks.hooks.sessionEnd).toHaveLength(1);
   const antes = captura(destino);
   expect((await rodar(["claude", "codex", "gemini", "copilot"])).veredito).toBe("INALTERADO");
   expect(captura(destino)).toEqual(antes); expect(readdirSync(lar)).toEqual([]);

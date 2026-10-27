@@ -26,15 +26,24 @@ describe("hooks da wiki", () => {
   test("Dado quatro agentes Quando monto configurações Então só registra eventos disponíveis", async () => {
     const claude = (await configuracaoDoHook("claude", raiz)).json as { hooks: Record<string, unknown[]> };
     expect(claude.hooks.PostToolUse).toHaveLength(1); expect(claude.hooks.FileChanged).toHaveLength(1);
-    expect(claude.hooks.SessionStart).toHaveLength(1); expect(claude.hooks.Stop).toHaveLength(2);
+    expect((claude.hooks.FileChanged![0] as any).matcher).toBeUndefined();
+    expect((claude.hooks.FileChanged![0] as any).hooks[0].shell).toBe("bash");
+    expect(claude.hooks.SessionStart!).toHaveLength(2); expect(claude.hooks.SessionEnd!).toHaveLength(1); expect(claude.hooks.Stop!).toHaveLength(1);
+    expect((claude.hooks.SessionStart![1] as any).hooks[0].command).toContain("watch-paths");
+    expect((claude.hooks.SessionStart![1] as any).hooks[0].shell).toBe("bash");
+    expect((claude.hooks.Stop![0] as any).hooks[0].shell).toBe("bash");
     const codex = Bun.TOML.parse((await configuracaoDoHook("codex", raiz)).bloco!) as { hooks: Record<string, unknown[]> };
-    expect(codex.hooks.FileChanged).toBeUndefined(); expect(codex.hooks.SessionStart).toHaveLength(1);
+    expect(codex.hooks.FileChanged).toBeUndefined(); expect(codex.hooks.SessionStart).toHaveLength(1); expect(codex.hooks.SessionEnd).toHaveLength(1);
     const gemini = (await configuracaoDoHook("gemini", raiz)).json as { hooks: Record<string, unknown[]> };
-    expect(gemini.hooks.AfterTool).toHaveLength(1); expect(gemini.hooks.AfterAgent).toHaveLength(1);
+    expect(gemini.hooks.AfterTool).toHaveLength(1); expect(gemini.hooks.AfterAgent).toHaveLength(1); expect(gemini.hooks.SessionEnd).toHaveLength(1);
     expect(gemini.hooks.FileChanged).toBeUndefined(); expect(gemini.hooks.SessionStart).toBeUndefined();
     const copilot = (await configuracaoDoHook("copilot", raiz)).json as { hooks: Record<string, unknown[]> };
-    expect(copilot.hooks.preToolUse).toHaveLength(1);
+    expect(copilot.hooks.preToolUse).toHaveLength(1); expect(copilot.hooks.sessionEnd).toBeUndefined();
     expect(copilot.hooks.fileChanged).toBeUndefined(); expect(copilot.hooks.sessionStart).toBeUndefined();
+    const camposClaude = (await configuracaoDoHook("claude", raiz)).json as { hooks: Record<string, any[]> };
+    for (const grupo of Object.values(camposClaude.hooks).flat()) for (const hook of grupo.hooks ?? []) {
+      if (hook.command.includes("hooks-wiki")) expect(hook.shell).toBe("bash");
+    }
   });
 
   test("Dado edição em wiki e git limpo Quando autoCommitWiki roda Então cria commit da página sem incluir raw", async () => {
@@ -46,10 +55,12 @@ describe("hooks da wiki", () => {
     expect((await git("log", "-1", "--pretty=%s")).out.trim()).toBe("wiki(concept): ideia");
   });
 
-  test("Dado caminho fora de wiki ou navegação Quando autoCommitWiki roda Então não cria commit", async () => {
+  test("Dado caminho fora de wiki ou arquivo de navegação Quando autoCommitWiki roda Então não cria commit", async () => {
     await git("init", "-q"); await git("config", "user.name", "Teste"); await git("config", "user.email", "teste@example.test");
-    mkdirSync(join(raiz, "wiki"), { recursive: true }); writeFileSync(join(raiz, "wiki/index.md"), "índice");
+    mkdirSync(join(raiz, "wiki/pessoal"), { recursive: true }); writeFileSync(join(raiz, "wiki/index.md"), "índice"); writeFileSync(join(raiz, "wiki/pessoal/index.md"), "índice área");
     expect(await autoCommitWiki(raiz, "wiki/index.md")).toBe(false);
+    expect(await autoCommitWiki(raiz, "wiki/pessoal/index.md")).toBe(false);
+    expect(await autoCommitWiki(raiz, "wiki/log/log-2026-01-01.md")).toBe(false);
     expect((await git("log", "-1", "--pretty=%s")).code).not.toBe(0);
   });
 
@@ -82,6 +93,11 @@ describe("hooks da wiki", () => {
     mkdirSync(join(raiz, "wiki/log"), { recursive: true });
     writeFileSync(join(raiz, "wiki/log/log-2026-01-05.md"), [1, 2, 3, 4, 5].map((n) => `## [2026-01-0${n}] ingest | Fonte ${n}\nlinha`).join("\n"));
     expect(await sugerirLint(raiz)).toMatch(/5 ingestões.*lint/i);
+    const c = capturarConsole();
+    try {
+      expect(await comandoHooksWiki(["sugerir-lint", raiz])).toBe(0);
+      expect(JSON.parse(c.saida.join("\n"))).toHaveProperty("systemMessage");
+    } finally { c.restaurar(); }
   });
 
   test("Dado log sem cinco ingestões e sem arquivos de contexto Quando os ganchos rodam Então não inventam conteúdo nem recomendação", async () => {
@@ -91,10 +107,19 @@ describe("hooks da wiki", () => {
     expect(await sugerirLint(join(raiz, "nao-existe"))).toBeUndefined();
   });
 
+  test("Dado evento SessionStart do Claude Quando watch-paths roda Então registra raw como caminho absoluto", async () => {
+    mkdirSync(join(raiz, "raw"));
+    const c = capturarConsole();
+    try {
+      expect(await comandoHooksWiki(["watch-paths", raiz])).toBe(0);
+      expect(JSON.parse(c.saida.join("\n"))).toEqual({ hookSpecificOutput: { hookEventName: "SessionStart", watchPaths: [join(raiz, "raw")] } });
+    } finally { c.restaurar(); }
+  });
+
   test("Dado hooks desligados Quando os comandos de evento rodam Então não alteram Git e só avisam raw/", async () => {
     expect((await comando("autocommit", JSON.stringify({ tool_input: { file_path: "wiki/a.md" } }))).codigo).toBe(0);
     expect((await comando("backup")).codigo).toBe(0);
-    expect((await comando("arquivo-raw", JSON.stringify({ file_path: `${raiz}/raw/novo.md`, event: "add" }))).saida).toContain("Diga \"ingest\"");
+    expect(JSON.parse((await comando("arquivo-raw", JSON.stringify({ file_path: `${raiz}/raw/novo.md`, event: "add" }))).saida)).toHaveProperty("systemMessage");
     expect((await comando("arquivo-raw", JSON.stringify({ file_path: `${raiz}/raw/antigo.md`, event: "change" }))).saida).toBe("");
     expect((await comando("arquivo-raw", JSON.stringify({ file_path: `${raiz}/wiki/novo.md`, event: "add" }))).saida).toBe("");
     expect((await comando("sugerir-lint")).codigo).toBe(0);
@@ -121,7 +146,8 @@ describe("hooks da wiki", () => {
     const remoto = `${raiz}-remote.git`;
     await git("init", "--initial-branch=main", "-q"); await git("config", "user.name", "Teste"); await git("config", "user.email", "teste@example.test");
     const init = Bun.spawnSync(["git", "init", "--bare", remoto], { stdout: "pipe", stderr: "pipe" }); expect(init.exitCode).toBe(0);
-    writeFileSync(join(raiz, "nota.md"), "ok"); await git("add", "nota.md"); await git("commit", "-m", "nota"); await git("remote", "add", "origin", remoto);
+    writeFileSync(join(raiz, "nota.md"), "ok"); await git("add", "nota.md"); await git("commit", "-m", "nota"); await git("remote", "add", "origin", remoto); await git("push", "-u", "origin", "main");
+    writeFileSync(join(raiz, "nota.md"), "nova versão"); await git("add", "nota.md"); await git("commit", "-m", "atualização");
     writeFileSync(join(raiz, "anvilore.toml"), "[hooks]\ngithub_backup = true\n");
     const c = capturarConsole();
     try {
@@ -129,6 +155,34 @@ describe("hooks da wiki", () => {
       expect(c.saida.join("\n")).toContain("Backup do Anvilore enviado ao GitHub");
     } finally { c.restaurar(); }
     expect((await git("rev-parse", "--verify", "origin/main")).code).toBe(0);
+  });
+
+  test("Dado remoto sem upstream Quando backup roda Então avisa e não cria branch remota", async () => {
+    const remoto = `${raiz}-remote.git`;
+    await git("init", "--initial-branch=main", "-q"); await git("config", "user.name", "Teste"); await git("config", "user.email", "teste@example.test");
+    const init = Bun.spawnSync(["git", "init", "--bare", remoto], { stdout: "pipe", stderr: "pipe" }); expect(init.exitCode).toBe(0);
+    writeFileSync(join(raiz, "nota.md"), "ok"); await git("add", "nota.md"); await git("commit", "-m", "nota"); await git("remote", "add", "origin", remoto);
+    writeFileSync(join(raiz, "anvilore.toml"), "[hooks]\ngithub_backup = true\n");
+    expect(await backupGitHub(raiz)).toMatchObject({ sincronizado: false, motivo: expect.stringContaining("upstream") });
+    expect((await Bun.spawnSync(["git", "--git-dir", remoto, "branch", "--list"], { stdout: "pipe" })).stdout.toString()).toBe("");
+    const c = capturarConsole();
+    try {
+      expect(await comandoHooksWiki(["backup", raiz])).toBe(2);
+      expect(c.erros.join("\n")).toContain("upstream");
+    } finally { c.restaurar(); }
+  });
+
+  test("Dado página em área e log diário Quando autoCommitWiki roda Então agrupa página, índice da área e log de hoje", async () => {
+    await git("init", "-q"); await git("config", "user.name", "Teste"); await git("config", "user.email", "teste@example.test");
+    mkdirSync(join(raiz, "wiki/pessoal/concepts"), { recursive: true }); mkdirSync(join(raiz, "wiki/log"), { recursive: true });
+    const agora = new Date(); const dia = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
+    writeFileSync(join(raiz, "wiki/pessoal/concepts/ideia.md"), "nova");
+    writeFileSync(join(raiz, "wiki/pessoal/index.md"), "índice área atualizado");
+    writeFileSync(join(raiz, `wiki/log/log-${dia}.md`), "ingest de hoje");
+    expect(await autoCommitWiki(raiz, "wiki/pessoal/concepts/ideia.md")).toBe(true);
+    expect((await git("show", "--pretty=", "--name-only", "HEAD")).out.split(/\r?\n/).filter(Boolean).sort()).toEqual([
+      `wiki/log/log-${dia}.md`, "wiki/pessoal/concepts/ideia.md", "wiki/pessoal/index.md",
+    ]);
   });
 
   test("Dado comando desconhecido Quando hooks-wiki executa Então mostra o uso e sai com 2", async () => {
