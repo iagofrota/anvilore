@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
+import { caminhoReal, dentroDe, estaEmRaw } from "../lib/caminhos";
 import { conferirLeitura, extrairJson, validarRelatorioLeitor, type RelatorioLeitor } from "../lib/relatorio-leitor";
 import { lerUtf8Estrito } from "../lib/utf8";
 import { caminhoWiki } from "../lib/wiki-repo";
@@ -36,15 +37,28 @@ export async function conferirArquivoDeLeitura(
   if (!doEsquema.ok) return falha(doEsquema.erros);
 
   const relatorio = valor as RelatorioLeitor;
+  // B1: o esquema confere o texto dos caminhos; aqui vale o disco. Um link em raw/ não traz fonte de fora, e um link na wiki
+  // não leva a página para fora dela nem para dentro de raw/.
   let textoFonte: string;
+  let paginasReais: string[];
   try {
-    textoFonte = await lerUtf8Estrito(resolve(raiz, relatorio.fonte));
+    const rawReal = caminhoReal(join(raiz, "raw"));
+    const fonteReal = caminhoReal(resolve(raiz, relatorio.fonte));
+    if (!dentroDe(fonteReal, rawReal)) return falha([`a fonte sai de raw/ pelo caminho real: ${relatorio.fonte}`]);
+    const wiki = caminhoWiki(raiz, ambiente);
+    const wikiReal = caminhoReal(wiki);
+    paginasReais = relatorio.paginas.map(pagina => caminhoReal(join(wiki, pagina.caminho)));
+    const fora = paginasReais.flatMap((real, i) => dentroDe(real, wikiReal) && !dentroDe(real, rawReal) && !estaEmRaw(relative(wikiReal, real))
+      ? []
+      : [`$.paginas[${i}].caminho: pelo caminho real a página sai da wiki ou cai em raw/ (${relatorio.paginas[i]!.caminho})`]);
+    if (fora.length) return falha(fora);
+    textoFonte = await lerUtf8Estrito(fonteReal);
   } catch (erro) {
     if ((erro as NodeJS.ErrnoException).code === "ENOENT") return falha([`fonte não encontrada: ${relatorio.fonte}`]);
     return falha([(erro as Error).message]);
   }
-  const wiki = caminhoWiki(raiz, ambiente);
-  const resultado = conferirLeitura(relatorio, { textoFonte, existe: caminho => existsSync(join(wiki, caminho)) });
+  const reais = new Map(relatorio.paginas.map((pagina, i) => [pagina.caminho, paginasReais[i]!]));
+  const resultado = conferirLeitura(relatorio, { textoFonte, existe: caminho => existsSync(reais.get(caminho)!) });
   if (!resultado.ok) return falha(resultado.erros);
 
   const criar = relatorio.paginas.filter(p => p.acao === "criar").length;

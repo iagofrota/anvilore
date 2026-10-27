@@ -63,6 +63,11 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   os dois papéis, guiada pelos mesmos arquivos. A pessoa nunca roda comando: quem confere, aprova e fecha é
   a ferramenta.
 
+### Fixed
+
+- A fronteira de `raw/` vale pelo caminho real, não só pelo texto: o hook bloqueia a escrita que, por um link na
+  wiki, cairia em `raw/`, e o `conferir-leitura` recusa fonte que sai de `raw/` por link e página que sai da wiki.
+
 ## [0.2.0] - 2026-10-25
 
 Tudo o que entrou na `main` depois da 0.1.0: validação, manutenção da wiki, instalador e hook em TypeScript no Bun,

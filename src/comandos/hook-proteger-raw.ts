@@ -1,6 +1,6 @@
 import { appendFile } from "node:fs/promises";
-import { posix } from "node:path";
-import { estaEmRaw } from "../lib/caminhos";
+import { posix, resolve } from "node:path";
+import { caminhoReal, estaEmRaw } from "../lib/caminhos";
 
 export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
 type Mapa = Record<string, unknown>;
@@ -556,6 +556,11 @@ export function decidir(payload: string): Decisao {
     const caminhos = [...new Set(caminhosDe([dados, entrada]))];
     const alvo = caminhos.find(caminho => escreveEmRaw(caminho, cwd));
     if (alvo !== undefined) return { acao: "bloquear", motivo: `caminho dentro de raw/: ${alvo}` };
+    // B1: o texto pode dizer wiki/ e o disco, por link, levar a raw/. Julga também o caminho real (relativo resolve contra o cwd).
+    for (const caminho of caminhos) {
+      const real = caminhoReal(resolve(cwd || process.cwd(), caminho));
+      if (estaEmRaw(real)) return { acao: "bloquear", motivo: `caminho dentro de raw/ pelo caminho real: ${caminho} -> ${real}` };
+    }
     if (TERMINAIS.has(nome) || "command" in entrada || "cmd" in entrada) return decidirTerminal(entrada.command ?? entrada.cmd, cwd, nome === "powershell" || nome === "pwsh");
     if (caminhos.length) return { acao: "liberar", motivo: caminhos.join(" ") };
     return citaRaw(payload)

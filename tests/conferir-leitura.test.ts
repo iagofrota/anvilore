@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { comandoConferirLeitura, conferirArquivoDeLeitura } from "../src/comandos/conferir-leitura";
@@ -117,4 +117,54 @@ test("Dado a tabela de subcomandos Quando chamo conferir-leitura Então roda na 
     process.chdir(anterior);
   }
   expect(consoleCapturado.saida.join("\n")).toContain("OK: leitura conferida");
+});
+
+// B1 (revisão 1 do PR #21): fonte e páginas valem pelo caminho real.
+const linkDeDiretorio = process.platform === "win32" ? "junction" : "dir";
+
+test.skipIf(process.platform === "win32")("Dado fonte em raw/ que é link para arquivo fora de raw/ Quando confiro Então reprova pela fronteira real", async () => {
+  writeFileSync(join(raiz, "fora.md"), "A wiki acumula. O agente mantém e a pessoa cura.\n");
+  rmSync(join(raiz, "raw/notas/fonte.md"));
+  symlinkSync(join(raiz, "fora.md"), join(raiz, "raw/notas/fonte.md"));
+  gravar("leitura.json", JSON.stringify(relatorio()));
+  expect(await conferirArquivoDeLeitura(raiz, "leitura.json")).toEqual({
+    codigo: 1, mensagens: ["FAIL: a fonte sai de raw/ pelo caminho real: raw/notas/fonte.md"],
+  });
+});
+
+test("Dado subpasta de raw/ que é link para pasta fora de raw/ Quando confiro Então reprova pela fronteira real", async () => {
+  gravar("fora/fonte.md", "A wiki acumula. O agente mantém e a pessoa cura.\n");
+  rmSync(join(raiz, "raw/notas"), { recursive: true });
+  symlinkSync(join(raiz, "fora"), join(raiz, "raw/notas"), linkDeDiretorio);
+  gravar("leitura.json", JSON.stringify(relatorio()));
+  expect((await conferirArquivoDeLeitura(raiz, "leitura.json")).mensagens).toEqual(["FAIL: a fonte sai de raw/ pelo caminho real: raw/notas/fonte.md"]);
+});
+
+test("Dado raw/ inteiro como link para outro disco Quando confiro Então aprova: a fonte continua dentro do raw/ real", async () => {
+  gravar("disco/notas/fonte.md", "A wiki acumula. O agente mantém e a pessoa cura.\n");
+  rmSync(join(raiz, "raw"), { recursive: true });
+  symlinkSync(join(raiz, "disco"), join(raiz, "raw"), linkDeDiretorio);
+  gravar("leitura.json", JSON.stringify(relatorio()));
+  expect((await conferirArquivoDeLeitura(raiz, "leitura.json")).codigo).toBe(0);
+});
+
+test("Dado área da wiki que é link para raw/ Quando confiro Então reprova as páginas que cairiam em raw/", async () => {
+  rmSync(join(raiz, "wiki/pessoal"), { recursive: true });
+  gravar("raw/concepts/wiki.md", "---\ntitle: Wiki\n---\n");
+  symlinkSync(join(raiz, "raw"), join(raiz, "wiki/pessoal"), linkDeDiretorio);
+  gravar("leitura.json", JSON.stringify(relatorio()));
+  expect((await conferirArquivoDeLeitura(raiz, "leitura.json")).mensagens).toEqual([
+    "FAIL: $.paginas[0].caminho: pelo caminho real a página sai da wiki ou cai em raw/ (pessoal/sources/fonte.md)",
+    "FAIL: $.paginas[1].caminho: pelo caminho real a página sai da wiki ou cai em raw/ (pessoal/concepts/wiki.md)",
+  ]);
+});
+
+test.skipIf(process.platform === "win32")("Dado página a atualizar que é link para arquivo fora da wiki Quando confiro Então reprova", async () => {
+  gravar("fora/wiki.md", "---\ntitle: Wiki\n---\n");
+  rmSync(join(raiz, "wiki/pessoal/concepts/wiki.md"));
+  symlinkSync(join(raiz, "fora/wiki.md"), join(raiz, "wiki/pessoal/concepts/wiki.md"));
+  gravar("leitura.json", JSON.stringify(relatorio()));
+  expect((await conferirArquivoDeLeitura(raiz, "leitura.json")).mensagens).toEqual([
+    "FAIL: $.paginas[1].caminho: pelo caminho real a página sai da wiki ou cai em raw/ (pessoal/concepts/wiki.md)",
+  ]);
 });

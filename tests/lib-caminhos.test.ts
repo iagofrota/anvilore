@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { chaveDeNome, estaEmRaw, normalizarFimDeLinha } from "../src/lib/caminhos";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { caminhoReal, chaveDeNome, dentroDe, estaEmRaw, normalizarFimDeLinha } from "../src/lib/caminhos";
 
 test("Dado texto com CRLF, Quando normalizo o fim de linha, Então só restam LF", () => {
   expect(normalizarFimDeLinha("a\r\nb\r\n")).toBe("a\nb\n");
@@ -95,4 +98,60 @@ test("Dado nomes que só lembram raw, Quando pergunto se está em raw, Então n�
   for (const alvo of ["rawdata/a.md", "wiki/raw-notas.md", "raw.md", "wiki/raw.md", "notas.raw", "C:\\p\\raw.md", "C:\\p\\a.md"]) {
     expect(estaEmRaw(alvo)).toBe(false);
   }
+});
+
+// B1 (revisão 1 do PR #21): a fronteira de raw/ vale pelo caminho real, não pelo texto.
+
+const linkDeDiretorio = process.platform === "win32" ? "junction" : "dir";
+
+function cenario(montar: (base: string) => void): string {
+  const base = realpathSync.native(mkdtempSync(join(tmpdir(), "anvilore-real-")));
+  mkdirSync(join(base, "raw"));
+  mkdirSync(join(base, "wiki"));
+  montar(base);
+  return base;
+}
+
+test("Dado diretório da wiki que é link para raw/ Quando resolvo um arquivo novo dentro dele Então o caminho real cai em raw/", () => {
+  const base = cenario(b => symlinkSync(join(b, "raw"), join(b, "wiki", "pessoal"), linkDeDiretorio));
+  try {
+    expect(caminhoReal(join(base, "wiki/pessoal/sources/x.md"))).toBe(join(base, "raw/sources/x.md"));
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+test.skipIf(process.platform === "win32")("Dado arquivo da wiki que é link para arquivo de raw/ Quando resolvo Então o caminho real é o de raw/", () => {
+  const base = cenario(b => { writeFileSync(join(b, "raw/a.md"), "x"); symlinkSync(join(b, "raw/a.md"), join(b, "wiki/a.md")); });
+  try {
+    expect(caminhoReal(join(base, "wiki/a.md"))).toBe(join(base, "raw/a.md"));
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+test.skipIf(process.platform === "win32")("Dado link pendente para raw/ Quando resolvo Então segue o link até o arquivo que seria criado", () => {
+  const base = cenario(b => symlinkSync(join(b, "raw/novo.md"), join(b, "wiki/n.md")));
+  try {
+    expect(caminhoReal(join(base, "wiki/n.md"))).toBe(join(base, "raw/novo.md"));
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+test.skipIf(process.platform === "win32")("Dado links em ciclo Quando resolvo Então falha em vez de girar para sempre", () => {
+  const base = cenario(b => { symlinkSync(join(b, "wiki/b.md"), join(b, "wiki/a.md")); symlinkSync(join(b, "wiki/a.md"), join(b, "wiki/b.md")); });
+  try {
+    expect(() => caminhoReal(join(base, "wiki/a.md"))).toThrow();
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+test("Dado caminho sem link Quando resolvo Então é o mesmo caminho, exista ou não", () => {
+  const base = cenario(() => {});
+  try {
+    expect(caminhoReal(join(base, "wiki/x/y.md"))).toBe(join(base, "wiki/x/y.md"));
+    expect(caminhoReal(join(base, "wiki"))).toBe(join(base, "wiki"));
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+test("Dado dois caminhos Quando pergunto se um está dentro do outro Então o próprio e os filhos contam, o vizinho com prefixo não", () => {
+  const pai = join(tmpdir(), "p", "raw");
+  expect(dentroDe(join(pai, "a.md"), pai)).toBe(true);
+  expect(dentroDe(pai, pai)).toBe(true);
+  expect(dentroDe(`${pai}-velho`, pai)).toBe(false);
+  expect(dentroDe(join(tmpdir(), "p", "wiki"), pai)).toBe(false);
 });

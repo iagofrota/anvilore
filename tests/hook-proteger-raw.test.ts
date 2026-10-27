@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { comandoHook, decidir, executarProtecao } from "../src/comandos/hook-proteger-raw";
@@ -806,4 +806,54 @@ test("Dado env -S com \\_ no lugar do espaço Quando o comando escreve em raw En
   }
   expect(decidir(comCwd("env -S 'cat\\_raw/a.md'", "/srv/equipe/proj")).acao).toBe("liberar");
   expect(decidir(comCwd("env -S 'cat\\_wiki/a.md'", "/srv/equipe/proj")).acao).toBe("liberar");
+});
+
+// B1 (revisão 1 do PR #21): o destino vale pelo caminho real. Um caminho escrito dentro de wiki/ que, por link, cai em raw/
+// é bloqueado; arquivo que ainda não existe é julgado pelo diretório pai existente mais próximo (ou pelo alvo do link pendente).
+const linkDeDiretorio = process.platform === "win32" ? "junction" : "dir";
+function projeto(): string {
+  const base = join(temporario, "projeto");
+  mkdirSync(join(base, "raw"), { recursive: true }); mkdirSync(join(base, "wiki"), { recursive: true });
+  return base;
+}
+
+test("Dado área da wiki que é link para raw/ Quando escrevo um arquivo novo nela Então bloqueia pelo caminho real", () => {
+  const base = projeto();
+  symlinkSync(join(base, "raw"), join(base, "wiki/pessoal"), linkDeDiretorio);
+  const decisao = decidir(arquivo(join(base, "wiki/pessoal/sources/x.md")));
+  expect(decisao.acao).toBe("bloquear");
+  expect(decisao.motivo).toContain("pelo caminho real");
+  expect(decidir(arquivo(join(base, "wiki/outra/sources/x.md"))).acao).toBe("liberar");
+});
+
+test("Dado caminho relativo e cwd do projeto Quando a área é link para raw/ Então bloqueia também", () => {
+  const base = projeto();
+  symlinkSync(join(base, "raw"), join(base, "wiki/pessoal"), linkDeDiretorio);
+  const payload = JSON.stringify({ tool_name: "Edit", cwd: base, tool_input: { file_path: "wiki/pessoal/a.md" } });
+  expect(decidir(payload).acao).toBe("bloquear");
+  const livre = JSON.stringify({ tool_name: "Edit", cwd: base, tool_input: { file_path: "wiki/a.md" } });
+  expect(decidir(livre).acao).toBe("liberar");
+});
+
+test.skipIf(process.platform === "win32")("Dado página da wiki que é link para arquivo de raw/ Quando edito Então bloqueia", () => {
+  const base = projeto();
+  writeFileSync(join(base, "raw/a.md"), "evidência");
+  symlinkSync(join(base, "raw/a.md"), join(base, "wiki/a.md"));
+  expect(decidir(arquivo(join(base, "wiki/a.md"))).acao).toBe("bloquear");
+});
+
+test.skipIf(process.platform === "win32")("Dado link pendente na wiki que aponta para raw/ Quando escrevo nele Então bloqueia: a escrita criaria o arquivo em raw/", () => {
+  const base = projeto();
+  symlinkSync(join(base, "raw/novo.md"), join(base, "wiki/n.md"));
+  expect(decidir(arquivo(join(base, "wiki/n.md"))).acao).toBe("bloquear");
+});
+
+test("Dado raw/ que é link para outro disco Quando escrevo no disco pelo caminho real Então bloqueia; a wiki continua liberada", () => {
+  const base = projeto();
+  const disco = join(temporario, "disco", "raw");
+  mkdirSync(disco, { recursive: true });
+  rmSync(join(base, "raw"), { recursive: true });
+  symlinkSync(disco, join(base, "raw"), linkDeDiretorio);
+  expect(decidir(arquivo(join(base, "raw/a.md"))).acao).toBe("bloquear");
+  expect(decidir(arquivo(join(base, "wiki/a.md"))).acao).toBe("liberar");
 });

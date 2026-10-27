@@ -16,7 +16,7 @@ fica para depois (veja a última seção).
 
 | Trava | O que faz | Onde |
 |---|---|---|
-| Hook `proteger-raw` | Bloqueia (saída 2) a escrita em `raw/` feita pelas ferramentas de edição de arquivo e por comando de terminal (limites na seção abaixo). Sem caminho isolável no payload, bloqueia se o texto citar `raw/`; JSON ilegível bloqueia sempre. | `src/comandos/hook-proteger-raw.ts`, funções `decidir` e `executarProtecao`; `hooks/hooks.json`, linha 6 |
+| Hook `proteger-raw` | Bloqueia (saída 2) a escrita em `raw/` feita pelas ferramentas de edição de arquivo e por comando de terminal (limites na seção abaixo). Sem caminho isolável no payload, bloqueia se o texto citar `raw/`; JSON ilegível bloqueia sempre. O caminho de ferramenta de arquivo vale também pelo caminho real: um link na wiki que leva a `raw/` bloqueia (para arquivo novo, vale o diretório pai existente mais próximo; link pendente é seguido). O comando de terminal continua julgado pelo texto. | `src/comandos/hook-proteger-raw.ts`, funções `decidir` e `executarProtecao`; `src/lib/caminhos.ts`, função `caminhoReal`; `hooks/hooks.json`, linha 6 |
 | MCP de consulta | A ferramenta `ler` confina caminhos à `wiki/`; `buscar` e `ler` devolvem estado de revisão, validade e avisos de lacuna/contradição. A porta MCP não oferece ferramentas de escrita. | `src/mcp/servidor.ts`, `src/busca/nucleo.ts`, testes em `tests/mcp-servidor.test.ts` |
 | Validador da wiki (`anvilore validar`) | Reprova página sem frontmatter ou com frontmatter que não lê (YAML inválido nunca é pulado), com `type` inválido, com `slug` diferente do nome do arquivo (comparado em Unicode NFC), com `area` em conflito com o diretório, dois arquivos da mesma pasta que só diferem na caixa, wikilink que não resolve, página fora do index.md aplicável e campo de proveniência malformado. Reprova wiki inexistente e diretório sem nenhum arquivo `.md`; uma wiki só com index.md e log.md passa. Sem o Bun o comando não roda, e nunca imprime PASS. | `src/comandos/validar.ts`, linhas 100 a 244 |
 | Portão humano, depois da escrita | Reprova a página com `generated` em mapping e sem uma entrada `verified` com `by: human:<id>` e `at` igual ou posterior a `generated.at`. Compara o instante com offset e todos os dígitos da fração de segundo. A mensagem é "página gerada sem aprovação humana". | `src/lib/okf.ts`, funções `validarProveniencia` e `compararInstantes` |
@@ -139,11 +139,11 @@ mostra os avisos ao modelo. A configuração do MCP é opcional e não substitui
   dois papéis" e "Passo 2 — A parada: takeaways e páginas juntos". Nenhum script confere que ele aconteceu.
 - O que o código confere antes da parada é o relatório do leitor: `anvilore conferir-leitura` reprova relatório
   fora do esquema, trecho citado que não existe na fonte e página a criar que já existe (ou a atualizar que não
-  existe) (`src/comandos/conferir-leitura.ts`, `src/lib/relatorio-leitor.ts`). Prova que o trecho existe, não que o
+  existe), sempre pelo caminho real: fonte que, por link, sai de `raw/` e página que sai da wiki ou cai em `raw/` reprovam (`src/comandos/conferir-leitura.ts`, `src/lib/relatorio-leitor.ts`). Prova que o trecho existe, não que o
   takeaway decorre dele.
 - A restrição de ferramentas por papel só tem dentes no Claude Code: os agentes `.claude/agents/anvilore-*.md`
   gerados pelo instalador declaram `tools` (leitor só lê; escritor sem `Bash`), e o `doctor` acusa agente ausente ou
-  desatualizado (`src/lib/papeis-ingestao.ts`). O escritor pode editar fora da wiki; só `raw/` é barrado, pelo hook.
+  desatualizado (`src/lib/papeis-ingestao.ts`). O escritor pode editar fora da wiki; só `raw/` é barrado, pelo hook, inclusive por link.
   Nos outros agentes a própria sessão faz os dois papéis, e a separação é texto de skill.
 - O aval **depois** da escrita é imposto (tabela acima), mas só para a página que traz o bloco
   `generated`. O escritor grava esse bloco em toda página que escreve (`skills/ingest/escritor.md`, seções 1 a 3), e
