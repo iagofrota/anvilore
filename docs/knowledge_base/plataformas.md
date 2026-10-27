@@ -52,8 +52,8 @@ progressiva antes de retornar falha.
 O Gemini CLI documenta linhas de `mcp list` prefixadas por `✓`/`✗`; o leitor remove ANSI e aceita o
 prefixo do status antes do nome do servidor.
 
-O teste de FTS5/SDK e o [CI do PR #17, run 40564322309](https://github.com/iagofrota/anvilore/actions/runs/40564322309)
-passaram em Linux, macOS e Windows para o commit 981bc9e. Esse run confirmou também a reconstrução
+O teste de FTS5/SDK e o [CI do PR #17, run 40576697228](https://github.com/iagofrota/anvilore/actions/runs/40576697228)
+passaram em Linux, macOS e Windows para o commit 7bae5b2. Esse run confirmou também a reconstrução
 do índice SQLite corrompido no Windows sem deixar arquivo bloqueado. As páginas desta base de
 conhecimento descrevem a implementação e aguardam revisão do Iago.
 
