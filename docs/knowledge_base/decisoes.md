@@ -62,8 +62,8 @@ Para a linhagem do método e a argumentação completa das posições de design,
 
 - A wiki continua sendo Markdown. O índice FTS5 local é opcional, derivado e descartável, fica no
   diretório oculto local ignorado pelo Git, e pode ser reconstruído a partir de `wiki/`.
-- Os comandos de métricas e o MCP usam `.anvilore/` na raiz do clone; `ANVILORE_DIR` substitui esse
-  diretório para ambientes isolados.
+- Os comandos de métricas e o MCP usam o diretório local de dados na raiz do clone; `ANVILORE_DIR`
+  substitui esse diretório para ambientes isolados.
 - O servidor MCP roda sob demanda. Não há RAG, banco vetorial ou serviço residente.
 - Uma falha temporária ao abrir o índice não desativa a sessão MCP: cada `buscar` tenta sincronizar
   de novo, e falhas de acesso/ocupação são relatadas como `indice_indisponivel`.
