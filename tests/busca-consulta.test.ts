@@ -42,6 +42,10 @@ test("Dado candidato FTS recusado, Quando valida, Então usa saco de palavras en
   expect(consulta.match).toBe('"IBS" OR "crédito"');
 });
 
+test("Dado parser FTS que lança em ambas as formas, Quando monta consulta, Então nunca propaga erro", () => {
+  expect(montarConsulta("termo", () => { throw new Error("erro sqlite"); }).match).toBe('"termo"');
+});
+
 test("Dado consulta NFD, Quando normaliza, Então termos saem em NFC", () => {
   expect(montarConsulta("tributac\u0327a\u0303o", aceita).termos).toEqual(["tributação"]);
 });
