@@ -190,6 +190,7 @@ export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise
       const dadosFerramenta = (payload.tool_input ?? payload.toolInput ?? payload.toolArgs) as Json | undefined;
       const arquivo = dadosFerramenta?.file_path ?? dadosFerramenta?.filePath ?? dadosFerramenta?.path;
       if (typeof arquivo !== "string") return 0;
+      if (process.env.ANVILORE_SEM_AUTOCOMMIT === "1") return 0;
       const opcoes = await opcoesHooksWiki(raiz);
       if (opcoes.autoCommit && !(await autoCommitWiki(raiz, arquivo))) {
         notificar("Commit automático não realizado; confira o repositório Git da wiki com `anvilore doctor`.");

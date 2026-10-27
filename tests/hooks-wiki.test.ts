@@ -61,6 +61,24 @@ describe("hooks da wiki", () => {
     expect((await git("log", "-1", "--pretty=%s")).out.trim()).toBe("wiki(concept): ideia");
   });
 
+  test("Dado ANVILORE_SEM_AUTOCOMMIT=1 Quando o hook roda Então não cria commit automático", async () => {
+    await git("init", "-q"); await git("config", "user.name", "Teste"); await git("config", "user.email", "teste@example.test");
+    mkdirSync(join(raiz, "wiki/concepts"), { recursive: true });
+    writeFileSync(join(raiz, "wiki/concepts/ideia.md"), "nova");
+    writeFileSync(join(raiz, "anvilore.toml"), "[hooks]\nauto_commit = true\n");
+    const c = capturarConsole();
+    const anterior = process.env.ANVILORE_SEM_AUTOCOMMIT;
+    process.env.ANVILORE_SEM_AUTOCOMMIT = "1";
+    try {
+      expect(await comandoHooksWiki(["autocommit", raiz], async () => JSON.stringify({ tool_input: { file_path: "wiki/concepts/ideia.md" } }))).toBe(0);
+      expect((await git("log", "-1", "--pretty=%s")).code).not.toBe(0);
+    } finally {
+      if (anterior === undefined) delete process.env.ANVILORE_SEM_AUTOCOMMIT;
+      else process.env.ANVILORE_SEM_AUTOCOMMIT = anterior;
+      c.restaurar();
+    }
+  });
+
   test("Dado wiki como repositório Git próprio Quando autoCommitWiki roda Então commita a página dentro desse repositório", async () => {
     mkdirSync(join(raiz, "wiki/concepts"), { recursive: true });
     await Bun.spawnSync(["git", "init", "-q", join(raiz, "wiki")]);
