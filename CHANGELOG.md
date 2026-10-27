@@ -16,6 +16,12 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   confere o esquema, que cada trecho existe na fonte e que a ação de cada página casa com a wiki.
 - `anvilore conferir-leitura <arquivo>`: a ferramenta confere o relatório do leitor antes da parada humana
   (esquema, trecho literal na fonte, páginas a criar ou atualizar na wiki, inclusive com `ANVILORE_WIKI`).
+- Prompts do leitor e do escritor em `skills/ingest/leitor.md` e `skills/ingest/escritor.md`: a mesma fonte
+  para a skill no terminal e para a interface. `anvilore instalar --alvo claude` gera deles os agentes
+  `anvilore-leitor` (só lê) e `anvilore-escritor` (edita a wiki, sem comandos), mais as versões `-grande`;
+  o `doctor` acusa agente ausente ou desatualizado.
+- `anvilore rota-ingestao <fonte>`: pelo tamanho da fonte, diz se a ingestão usa a janela padrão, a grande
+  (acima de 400 000 bytes) ou se é preciso dividir (acima de 1 150 000 bytes).
 - Índice de busca FTS5 local e MCP opcional para consulta confinada à wiki, com `buscar`, `ler`,
   métricas locais agregadas e registro de usuário para Claude Code, Codex, Gemini CLI e Copilot CLI.
 - Comandos `anvilore mcp ligar|desligar|estado` e `anvilore indexar [--completo]`.

@@ -21,6 +21,7 @@ import { comandoIndexar, comandoMcp } from "./comandos/mcp";
 import { comandoHooksWiki } from "./comandos/hooks-wiki";
 import { comandoAprovar } from "./comandos/aprovar";
 import { comandoConferirLeitura } from "./comandos/conferir-leitura";
+import { comandoRotaIngestao } from "./comandos/rota-ingestao";
 
 export type Subcomando = (args: string[]) => Promise<number>;
 export type TabelaDeSubcomandos = Record<string, Subcomando>;
@@ -49,6 +50,7 @@ export const subcomandos: TabelaDeSubcomandos = {
   "hooks-wiki": comandoHooksWiki,
   aprovar: comandoAprovar,
   "conferir-leitura": comandoConferirLeitura,
+  "rota-ingestao": comandoRotaIngestao,
 };
 
 function listar(tabela: TabelaDeSubcomandos): string {

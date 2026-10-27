@@ -4,6 +4,7 @@ import { isDeepStrictEqual, parseArgs } from "node:util";
 import { lerFrontmatter } from "../lib/frontmatter";
 import { fundirJson } from "../lib/fundir-json";
 import { fundirBloco } from "../lib/fundir-bloco";
+import { agentesDaIngestao, MARCA_DE_GERADO } from "../lib/papeis-ingestao";
 import { avisoRg } from "../lib/rg";
 import { inicializarRepositorioWiki } from "../lib/wiki-repo";
 
@@ -382,6 +383,23 @@ async function instalarSkills(contexto: Contexto, alvo: Alvo, skills: string[]):
   }
 }
 
+// Os agentes do Claude Code são cópia gerada dos prompts de skills/ingest/ (o Agent tool não
+// restringe ferramentas por chamada; o arquivo de agente, sim). Arquivo nosso desatualizado é
+// regravado; arquivo da pessoa com o mesmo nome é preservado.
+async function instalarAgentesDaIngestao(contexto: Contexto): Promise<void> {
+  for (const agente of await agentesDaIngestao(fonte)) {
+    let atual: string | undefined;
+    try {
+      atual = await readFile(join(contexto.destino, agente.rel), "utf8");
+    } catch (erro) {
+      if ((erro as NodeJS.ErrnoException).code !== "ENOENT") throw new Error(`${agente.rel}: ${motivo(erro)}`, { cause: erro });
+    }
+    if (atual === agente.conteudo) contexto.relatorio.mensagens.push(`inalterado: ${agente.rel}`);
+    else if (atual === undefined || atual.includes(MARCA_DE_GERADO)) await escrever(contexto, agente.rel, agente.conteudo);
+    else registrarAviso(contexto, `${agente.rel} já existe e não foi gerado pelo anvilore — preservado, nada escrito`);
+  }
+}
+
 function resumir(contexto: Contexto): RelatorioInstalacao {
   const relatorio = contexto.relatorio;
   if (relatorio.instalados.length) relatorio.mensagens.push(`${contexto.simular ? "seriam instalados" : "instalados"}: ${relatorio.instalados.join(", ")}`);
@@ -467,7 +485,9 @@ export async function instalar(opcoes: OpcoesInstalacao): Promise<RelatorioInsta
           sessionEnd: [{ type: "command", bash: comandoEventoRelativo("backup"), powershell: comandoEventoRelativo("backup"), cwd: "." }],
         } } });
       }
-      await instalarSkills(contexto, alvo, await listarSkills());
+      const skills = await listarSkills();
+      await instalarSkills(contexto, alvo, skills);
+      if (alvo === "claude" && skills.includes("ingest")) await instalarAgentesDaIngestao(contexto);
       if (relatorio.erros === errosAntes) relatorio.instalados.push(alvo);
     } catch (erro) {
       registrarErro(contexto, `${alvo}: ${motivo(erro)}`);
@@ -485,6 +505,7 @@ Padrão: todos os alvos; destino = ANVILORE_DESTINO ou diretório do kit.
 
 Agente   Skills/comandos                      Configuração do hook
 claude   .claude/skills/<nome>                 .claude/settings.json
+         .claude/agents/anvilore-*.md (leitor e escritor da ingestão, gerados de skills/ingest/)
 codex    .agents/skills/<nome>                 .codex/config.toml
 gemini   .gemini/commands/<nome>.toml           .gemini/settings.json
 copilot  .github/agents/<nome>.agent.md         .github/copilot/settings.json
