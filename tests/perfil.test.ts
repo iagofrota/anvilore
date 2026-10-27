@@ -31,6 +31,11 @@ describe("carregarPerfil", () => {
     });
   });
 
+  test("Dado opções de ganchos no anvilore.toml, Quando carrego, Então reconhece opt-in booleano", async () => {
+    toml('[hooks]\nauto_commit = true\ngithub_backup = false\n');
+    expect(await carregarPerfil(raiz)).toEqual({ hooks: { autoCommit: true, githubBackup: false } });
+  });
+
   test("Dado um anvilore.toml só com as áreas, Quando carrego, Então as outras chaves ficam ausentes", async () => {
     toml('areas = ["produto"]\n');
     expect(await carregarPerfil(raiz)).toEqual({ areas: ["produto"] });

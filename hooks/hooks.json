@@ -1,4 +1,7 @@
 {
+  "permissions": {
+    "ask": ["Bash(bun src/cli.ts aprovar *)"]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -12,6 +15,52 @@
             "onFailure": "block"
           }
         ]
+      },
+      {
+        "description": "Só permite aprovar com confirmação manual; recusa modos sem prompt humano garantido.",
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "bun \"$CLAUDE_PROJECT_DIR\"/src/cli.ts hooks-wiki proteger-aprovacao \"$CLAUDE_PROJECT_DIR\"", "shell": "bash", "onFailure": "block" }]
+      },
+      {
+        "description": "Impede o agente de gravar verified diretamente em páginas da wiki.",
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [{ "type": "command", "command": "bun \"$CLAUDE_PROJECT_DIR\"/src/cli.ts hooks-wiki proteger-verified \"$CLAUDE_PROJECT_DIR\"", "shell": "bash", "onFailure": "block" }]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "description": "Faz commit opcional de uma página escrita em wiki/",
+        "matcher": "Write|Edit",
+        "hooks": [{ "type": "command", "command": "bun \"$CLAUDE_PROJECT_DIR\"/src/cli.ts hooks-wiki autocommit \"$CLAUDE_PROJECT_DIR\"", "shell": "bash" }]
+      }
+    ],
+    "FileChanged": [
+      {
+        "description": "Sugere ingestão quando um arquivo novo muda em raw/",
+        "hooks": [{ "type": "command", "command": "bun \"$CLAUDE_PROJECT_DIR\"/src/cli.ts hooks-wiki arquivo-raw \"$CLAUDE_PROJECT_DIR\"", "shell": "bash" }]
+      }
+    ],
+    "SessionStart": [
+      {
+        "description": "Restaura o contexto da wiki após compactação",
+        "matcher": "compact",
+        "hooks": [{ "type": "command", "command": "bun \"$CLAUDE_PROJECT_DIR\"/src/cli.ts hooks-wiki contexto \"$CLAUDE_PROJECT_DIR\"", "shell": "bash" }]
+      },
+      {
+        "description": "Registra raw/ para avisos FileChanged, quando a CLI suporta o evento",
+        "hooks": [{ "type": "command", "command": "bun \"$CLAUDE_PROJECT_DIR\"/src/cli.ts hooks-wiki watch-paths \"$CLAUDE_PROJECT_DIR\"", "shell": "bash" }]
+      }
+    ],
+    "Stop": [
+      {
+        "description": "Sugere lint após cinco ingestões desde o último lint",
+        "hooks": [{ "type": "command", "command": "bun \"$CLAUDE_PROJECT_DIR\"/src/cli.ts hooks-wiki sugerir-lint \"$CLAUDE_PROJECT_DIR\"", "shell": "bash" }]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "description": "Envia o backup opcional ao GitHub ao encerrar a sessão",
+        "hooks": [{ "type": "command", "command": "bun \"$CLAUDE_PROJECT_DIR\"/src/cli.ts hooks-wiki backup \"$CLAUDE_PROJECT_DIR\"", "shell": "bash", "timeout": 15 }]
       }
     ]
   }

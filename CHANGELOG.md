@@ -20,6 +20,14 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - A abertura concorrente de um índice SQLite novo repete operações bloqueadas antes de falhar.
 - Registros MCP com símbolos/ANSI são reconhecidos; remoção falha por agente e continua para os seguintes.
 - Symlinks internos são indexados uma vez pelo caminho canônico; consultas livres preservam termos como `caminho` e `title`.
+- Hooks nos quatro agentes para commit opcional de páginas em `wiki/`, backup opcional no GitHub ao fim da sessão e
+  sugestão de lint após cinco ingestões. Claude Code observa `raw/` com SessionStart `watchPaths` + FileChanged e
+  restaura o contexto após compactação; Codex restaura o contexto após compactação. O doctor informa eventos
+  indisponíveis, inclusive W14 no Copilot. Commit e backup ficam desligados até a pessoa pedir no `anvilore instalar`.
+- `anvilore hooks-wiki` centraliza a lógica em TypeScript e Bun. O commit agrupa página, índice da área e log do dia;
+  o backup exige upstream já configurado, não cria branches e não força atualizações remotas. O hook SessionEnd
+  do Claude Code tem timeout de 15 segundos; doctor avisa se o backup estiver ligado sem upstream. No Codex e Gemini,
+  o backup é melhor esforço e pode não completar. W12 no Claude Code segue a documentação, mas ainda não foi observado em execução.
 
 - O instalador e o `doctor` avisam quando falta `rg`, usado pela skill `query`, e mostram como
   obtê-lo em Windows, macOS e Linux. O aviso não reprova nem instala nada automaticamente.

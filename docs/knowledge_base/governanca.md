@@ -197,6 +197,40 @@ só por causa do checkout. Páginas ignoradas pelo Git e symlinks continuam pelo
   versão; nenhum arquivo do repositório a registra e não há mecanismo por arquivo que a imponha
   hoje.
 
+## Ganchos da wiki e opções Git
+
+- `anvilore hooks-wiki` concentra os comandos dos eventos: commit da página após escrita, backup da branch,
+  aviso para novo arquivo em `raw/`, restauração do índice e dos últimos logs diários após compactação e
+  sugestão de lint após cinco ingestões desde o último lint (`src/comandos/hooks-wiki.ts`). Os logs diários ficam em
+  `wiki/log/`, com nomes log-AAAA-MM-DD.md; o índice gerado `wiki/log.md` nunca é editado por essa lógica.
+  O commit opera no repositório Git próprio da wiki e agrupa a página, o índice da área correspondente e o log do dia.
+- W11 (autocommit) usa `PostToolUse` no Claude/Codex, `AfterTool` no Gemini e `postToolUse` no Copilot CLI.
+  W13 (restaurar contexto na compactação) usa `SessionStart` com `compact` no Claude e no Codex.
+  W14 (sugerir lint) usa `Stop` no Claude/Codex e `AfterAgent` no Gemini; Copilot não tem saída de mensagem
+  de terminal em `agentStop`, então o doctor informa W14 indisponível ali.
+- W12 usa `SessionStart` para retornar `hookSpecificOutput.watchPaths` com o caminho absoluto de `raw/` e um
+  grupo `FileChanged` sem matcher. Conforme a documentação do Claude Code, arquivo novo observado gera
+  `event: "add"`. Iago observou esse evento no Claude Code 2.1.311 em 2026-10-27. Os testes verificam a forma
+  e o tratamento do payload, não executam o ciclo de vida real do agente.
+- W17 roda no fim da sessão (`SessionEnd`) no Claude Code, Codex, Gemini CLI e Copilot CLI. O Codex limita
+  esse hook a 3 segundos; no Gemini, SessionEnd é best-effort e não aguarda o comando terminar. Em ambos,
+  o backup é melhor esforço e pode não completar. O Claude Code configura timeout de 15 segundos no hook.
+  O backup exige upstream já configurado. Sem upstream, não faz push nem cria branch remota; o doctor avisa
+  enquanto a pessoa ainda está na sessão. O comando não tenta mostrar notificação de sucesso no SessionEnd,
+  cujo retorno não é visível.
+- Os formatos e a superfície de cada evento foram conferidos nas documentações oficiais de
+  [Claude Code](https://code.claude.com/docs/en/hooks), [Codex](https://learn.chatgpt.com/docs/hooks),
+  [Gemini CLI](https://geminicli.com/docs/hooks/reference/) e
+  [GitHub Copilot](https://docs.github.com/en/copilot/reference/hooks-reference). Os testes em
+  `tests/hooks-wiki.test.ts` e `tests/instalar.test.ts` verificam lógica e arquivos gerados, não simulam
+  os ciclos de vida reais dos agentes.
+- Commit automático e backup no GitHub exigem opt-in explícito na configuração anvilore.toml, feito por
+  `anvilore instalar --auto-commit` e `anvilore instalar --github-backup`. Sem esses campos, os dois ficam desligados.
+  Ao habilitar, a instalação inicializa `wiki/` como repositório próprio e commita o esqueleto existente. O commit
+  automático adiciona somente a página, índices relacionados e o log do dia nesse repositório; não adiciona `raw/`.
+  O backup envia commits existentes da branch da wiki, somente quando há upstream e commits locais, sem
+  criar commits nem reescrever histórico.
+
 ## O que o Anvilore não resolve: vazamento
 
 **O Anvilore não protege contra vazamento de documentos internos.** O `CHANGELOG.md` diz o mesmo

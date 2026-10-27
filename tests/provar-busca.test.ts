@@ -58,7 +58,7 @@ test("Dado a wiki temporária Quando leio as páginas Então usa o gitignore rea
 
 test("Dado os comandos literais Quando executo no bash real Então mede ignorados, lacunas, Unicode e abre cada citação", () => {
   const resultado = provarBusca(["bash"]);
-  expect(resultado.codigo).toBe(0);
+  expect(resultado.codigo, JSON.stringify(resultado.shells[0]?.casos.filter(c => c.obrigatorio && !c.confere))).toBe(0);
   expect(resultado.shells).toHaveLength(1);
   const shell = resultado.shells[0]!;
   expect(shell.rg?.versao).toContain("ripgrep");

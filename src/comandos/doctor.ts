@@ -3,10 +3,11 @@ import { dirname, join, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { fundirBloco } from "../lib/fundir-bloco";
 import { fundirJson } from "../lib/fundir-json";
-import { NOME_DO_PERFIL, carregarPerfil } from "../lib/perfil";
+import { NOME_DO_PERFIL, carregarPerfil, type Perfil } from "../lib/perfil";
 import { alvosConhecidos, configuracaoDoHook, tirarHookAntigo, valorDoPath, type Alvo } from "./instalar";
 import { avisoRg } from "../lib/rg";
 import { registradores, type Ambiente } from "../mcp/registro";
+import { caminhoWiki, repositorioDaWiki } from "../lib/wiki-repo";
 
 export type Trava = { nome: string; ligada: boolean; comoLigar?: string; detalhe?: string; opcional?: boolean; naoInstalado?: boolean; semTrava?: boolean };
 export type Prerequisito = { nome: string; presente: boolean };
@@ -215,9 +216,43 @@ export async function diagnosticar(raiz: string, ambiente: Record<string, string
   const versao = await versaoDoClaude(raiz, path);
   if (versao) travas.push(versao);
   travas.push(await validacaoNoFechamento(raiz), await checagemAntesDeAceitar(raiz), await perfilDaEmpresa(raiz));
+  const perfil: Perfil = await carregarPerfil(raiz).catch(() => ({}));
+  const wiki = caminhoWiki(raiz, ambiente);
+  const gitBin = Bun.which("git", { PATH: path ?? "" });
+  const wikiRepo = gitBin !== null && await repositorioDaWiki(wiki, gitBin);
+  let ignorada = false;
+  if (wikiRepo && gitBin !== null) {
+    try { ignorada = Bun.spawnSync([gitBin, "-C", wiki, "check-ignore", "--quiet", ".__anvilore-doctor-pagina.md"], { stdout: "ignore", stderr: "ignore" }).exitCode === 0; }
+    catch { ignorada = true; }
+  }
+  const commitConfig = perfil.hooks?.autoCommit === true;
+  const backupConfig = perfil.hooks?.githubBackup === true;
+  const commitOk = commitConfig && wikiRepo && !ignorada;
+  let backupUpstream: ReturnType<typeof Bun.spawnSync> | undefined;
+  if (wikiRepo && gitBin !== null) {
+    try { backupUpstream = Bun.spawnSync([gitBin, "-C", wiki, "rev-parse", "--verify", "--quiet", "@{u}"], { stdout: "pipe", stderr: "ignore" }); }
+    catch { backupUpstream = undefined; }
+  }
+  const backupOk = backupConfig && wikiRepo && backupUpstream?.exitCode === 0 && Boolean(backupUpstream.stdout?.toString().trim());
+  travas.push(
+    { nome: "Commit automático das páginas de wiki", ligada: commitOk, opcional: !commitConfig, comoLigar: `${comandoInstalar(raiz, "claude")} --auto-commit`, detalhe: commitConfig && !wikiRepo ? `wiki não é um repositório Git: ${wiki}` : ignorada ? "uma página nova é ignorada pelo Git da wiki" : undefined },
+    { nome: "Backup da branch no GitHub", ligada: backupOk, opcional: !backupConfig, comoLigar: `${comandoInstalar(raiz, "claude")} --github-backup`, detalhe: backupConfig && !wikiRepo ? `wiki não é um repositório Git: ${wiki}` : undefined },
+  );
   const prerequisitos = ["bun", "git"].map(nome => ({ nome, presente: Bun.which(nome, { PATH: path ?? "" }) !== null }));
   const aviso = avisoRg(path);
-  return { travas, prerequisitos, avisos: aviso ? [aviso] : [] };
+  const avisos = aviso ? [aviso] : [];
+  if (perfil.hooks?.githubBackup === true) {
+    if (!backupOk) {
+      avisos.push("Backup do GitHub está ligado, mas a branch atual não tem upstream; o backup não será enviado. Configure um upstream manualmente para habilitá-lo.");
+    }
+  }
+  if (await stat(join(raiz, ".gemini")).then(info => info.isDirectory(), () => false)) avisos.push("Gemini: não há evento FileChanged nem origem compact para SessionStart; W12/W13 não estão disponíveis neste agente.");
+  if (await stat(join(raiz, ".github/copilot")).then(info => info.isDirectory(), () => false)) avisos.push("Copilot: não há evento FileChanged nem matcher de compactação; W12/W13 não estão disponíveis. O evento agentStop não oferece mensagem terminal sem bloquear a próxima rodada, então W14 não está disponível.");
+  if (await stat(join(raiz, ".codex")).then(info => info.isDirectory(), () => false)) avisos.push("Codex: não há evento FileChanged; W12 não está disponível neste agente.");
+  if (await stat(join(raiz, ".codex")).then(info => info.isDirectory(), () => false)) avisos.push("Aprovação com um clique indisponível neste agente (Codex).");
+  if (await stat(join(raiz, ".gemini")).then(info => info.isDirectory(), () => false)) avisos.push("Aprovação com um clique indisponível neste agente (Gemini).");
+  if (await stat(join(raiz, ".github/copilot")).then(info => info.isDirectory(), () => false)) avisos.push("Aprovação com um clique indisponível neste agente (Copilot).");
+  return { travas, prerequisitos, avisos };
 }
 
 function linhas(trava: Trava): string[] {

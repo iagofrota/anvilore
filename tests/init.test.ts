@@ -49,6 +49,14 @@ describe("inicializar", () => {
     expect(listar(join(raiz, "wiki", "saude"))).toEqual(TIPOS);
   });
 
+  test("Dado W11 ligado Quando init cria áreas Então inicializa repositório próprio e faz commit do esqueleto", async () => {
+    writeFileSync(join(raiz, "anvilore.toml"), "[hooks]\nauto_commit = true\n");
+    await inicializar({ raiz, areas: ["pessoal"] });
+    const log = Bun.spawnSync(["git", "-C", join(raiz, "wiki"), "log", "-1", "--pretty=%s"], { stdout: "pipe" });
+    expect(log.exitCode).toBe(0);
+    expect(log.stdout.toString().trim()).toBe("wiki: início");
+  });
+
   test("Dado init repetido, Quando inicializar de novo, Então devolve jaExistiam e não altera nada", async () => {
     await inicializar({ raiz, areas: ["pessoal"] });
     const pagina = join(raiz, "wiki", "pessoal", "concepts", "minha.md");

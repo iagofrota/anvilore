@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 // Perfil da empresa, lido de `anvilore.toml` na raiz do projeto. Sem o arquivo, vale o SCHEMA.md.
-export type Perfil = { areas?: string[]; tipos?: string[]; camposObrigatorios?: string[] };
+export type Perfil = { areas?: string[]; tipos?: string[]; camposObrigatorios?: string[]; hooks?: { autoCommit?: boolean; githubBackup?: boolean } };
 
 export class PerfilInvalido extends Error {
   override name = "PerfilInvalido";
@@ -20,6 +20,7 @@ const CHAVES: Record<string, keyof Perfil> = {
   areas: "areas",
   tipos: "tipos",
   campos_obrigatorios: "camposObrigatorios",
+  hooks: "hooks",
 };
 
 function listaDeTextos(chave: string, valor: unknown): string[] {
@@ -54,7 +55,17 @@ export async function carregarPerfil(raiz: string): Promise<Perfil> {
     if (destino === undefined) {
       throw new PerfilInvalido(`${NOME_DO_PERFIL}: chave desconhecida "${chave}" (use ${Object.keys(CHAVES).join(", ")})`);
     }
-    perfil[destino] = listaDeTextos(chave, valor);
+    if (chave === "hooks") {
+      if (valor === null || typeof valor !== "object" || Array.isArray(valor)) throw new PerfilInvalido(`${NOME_DO_PERFIL}: "hooks" deve ser uma tabela`);
+      const hooks = valor as Record<string, unknown>;
+      for (const [opcao, ativo] of Object.entries(hooks)) {
+        if (opcao !== "auto_commit" && opcao !== "github_backup") throw new PerfilInvalido(`${NOME_DO_PERFIL}: opção desconhecida em hooks: "${opcao}"`);
+        if (typeof ativo !== "boolean") throw new PerfilInvalido(`${NOME_DO_PERFIL}: "hooks.${opcao}" deve ser true ou false`);
+      }
+      perfil.hooks = { autoCommit: hooks.auto_commit as boolean | undefined, githubBackup: hooks.github_backup as boolean | undefined };
+    } else {
+      perfil[destino] = listaDeTextos(chave, valor);
+    }
   }
   return perfil;
 }

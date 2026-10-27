@@ -5,11 +5,24 @@ raw/*
 !raw/.gitkeep
 !raw/exemplo/
 
-# A fronteira da wiki (esqueleto versionado × conteúdo de quem usa) mora em
-# `wiki/.gitignore`, não aqui. Motivo: uma regra `wiki/*` na raiz faz o ripgrep
-# deixar de descer nos diretórios-neto da wiki e esconder o esqueleto que o git
-# rastreia; um `.gitignore` ancorado dentro de `wiki/`, com `*` e reinclusões
-# relativas, é respeitado igual por git e por ripgrep. Ver `wiki/.gitignore`.
+# O repositório do kit rastreia só o esqueleto. O repositório aninhado em wiki/
+# aplica seu próprio .gitignore e rastreia o conteúdo pessoal.
+/wiki/**
+!/wiki/.gitignore
+!/wiki/index.md
+!/wiki/log.md
+!/wiki/_meta/
+!/wiki/_meta/.gitkeep
+!/wiki/log/
+!/wiki/log/.gitkeep
+!/wiki/exemplo/
+!/wiki/exemplo/sources/
+!/wiki/exemplo/sources/.gitkeep
+!/wiki/exemplo/entities/
+!/wiki/exemplo/entities/.gitkeep
+!/wiki/exemplo/concepts/
+!/wiki/exemplo/concepts/.gitkeep
+!/wiki/exemplo/concepts/area-tematica.md
 
 # O que `anvilore instalar` põe no clone é configuração DAQUELA máquina — qual agente
 # a pessoa usa, quais CLIs ela tem. Versionar isso obrigaria todo mundo a
@@ -21,6 +34,7 @@ raw/*
 .gemini/
 .github/agents/
 .github/copilot/
+.github/hooks/anvilore.json
 
 logs/
 .DS_Store
@@ -35,3 +49,4 @@ coverage/
 # versionados nem enviados (pedido do Iago, 2026-10-24).
 specs/
 docs/superpowers/
+/.anvilore/
