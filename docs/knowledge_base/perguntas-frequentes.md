@@ -31,8 +31,8 @@ números abaixo, com as condições em que foram obtidos.
 Condições, para ninguém ler isso como promessa:
 
 - Bun e git já estavam instalados nas duas máquinas. Instalar o Bun não entrou na conta.
-- A fonte era pequena (12 347 bytes), abaixo do limite de 400 000 bytes da skill, então nenhum subagente foi
-  usado.
+- A fonte era pequena (12 347 bytes), abaixo do limite de 400 000 bytes da skill de então, e nenhum subagente foi
+  usado. Hoje a skill separa leitor e escritor em qualquer tamanho; esses números não medem isso.
 - **Não havia pessoa para conversar.** A skill pede que a pessoa aprove os pontos principais e a lista de páginas
   antes de escrever, e depois revise e aprove as páginas. Nos ensaios, um plano escrito pelo executor ocupou o
   lugar da conversa e **a aprovação humana não aconteceu**: as páginas terminaram como rascunho. O tempo de uma
@@ -44,7 +44,7 @@ Condições, para ninguém ler isso como promessa:
 ## Por que o `validar` reprova logo depois do ingest?
 
 Porque é assim que o portão humano funciona. Toda página que o agente escreve nasce com o bloco `generated`
-(`skills/ingest/SKILL.md`, Passo 3), e o validador reprova a página até uma pessoa acrescentar `verified` com
+(`skills/ingest/escritor.md`, seção 1), e o validador reprova a página até uma pessoa acrescentar `verified` com
 `by: human:<id>` e uma hora igual ou posterior à da geração (`SCHEMA.md`, "Portão humano"). O primeiro
 `validar` e o primeiro `anvilore fechar` terminam em `FAIL`, com um erro "página gerada sem aprovação
 humana" por página, e isso é o esperado. O agente nunca escreve `verified` (`AGENTS.md`). O README mostra o
@@ -61,7 +61,7 @@ As correções saíram em rodadas numeradas do projeto (R70, R73 e R74); a colun
 | A skill mandava escrever o log em `wiki/log.md`, que o fechamento regenera e sobrescreve; o gate cobrava outro arquivo | R70: a skill escreve o log do dia em `wiki/log/` (um arquivo log-AAAA-MM-DD.md por dia) e não edita `wiki/log.md` (o mesmo vale para `query` e `lint`) |
 | O fechamento (`anvilore fechar`) não aparecia no fluxo do `ingest` nem no README | R70: é o último passo da skill, e o README o cita |
 | A skill criava páginas no layout plano e ignorava as áreas que o `init` acabou de criar | R70: uma área, usa-se essa; várias, pergunta-se; nenhuma, layout plano. O README manda dizer a área |
-| O Passo 0 da skill pressupunha subagentes e um modelo específico do Claude Code | R70: subagentes só para fonte acima de 400 000 bytes; o modelo citado é exemplo; a skill declara que conversa com a pessoa |
+| O Passo 0 da skill pressupunha subagentes e um modelo específico do Claude Code | R70: subagentes só para fonte acima de 400 000 bytes; o modelo citado é exemplo; a skill declara que conversa com a pessoa. Depois (W06, 2026-10-27): leitor e escritor sempre separados; sem subagente restrito, a própria sessão faz os dois papéis (veja "Leitor e escritor sempre separados" em [decisoes.md](decisoes.md)) |
 | O `init` ignorava o anvilore.toml, e o esqueleto `wiki/exemplo/` reprovava qualquer perfil de áreas | R70: o `init` recusa área fora da lista (`src/comandos/init.ts`). R74: `init` e `validar` usam a mesma comparação, exata, sem caixa nem normalização (`src/lib/perfil.ts`) |
 | O instalador terminava sem dizer o próximo passo, e a simulação terminava com "instalados:" | R70: a instalação real termina com "Próximo passo: reabra o agente neste clone … e rode `init`"; a simulação diz "Nada foi alterado" |
 | O `doctor` saía com código 1 ("faltam 3 travas") para quem instalou só um agente | R70: só se cobra o agente configurado no clone; agente só no PATH é opcional. R74: a versão antiga do Claude Code só reprova se o Claude estiver configurado (`src/comandos/doctor.ts`) |
@@ -86,7 +86,7 @@ Ainda aberto, de propósito ou por estar fora do escopo da primeira onda:
 Funcionou, sem mudar o contrato de três camadas nem a curadoria humana. O ensaio com Codex rodou a skill já
 corrigida pelo R70. O que o executor registrou:
 
-- Fonte de 12 347 bytes, lida inteira na própria sessão; nenhum subagente, que a skill só pede acima de 400 000 bytes.
+- Fonte de 12 347 bytes, lida inteira na própria sessão; nenhum subagente, que a skill de então só pedia acima de 400 000 bytes.
 - Cinco páginas na única área criada pelo `init` (uma fonte, dois conceitos, duas entidades), todas com `area` e
   `generated` (produtor e versão do agente, hora local com fuso) e nenhuma com `verified`.
 - Entrada no log do dia, em `wiki/log/` (um arquivo log-AAAA-MM-DD.md por dia); o fechamento regenerou `wiki/log.md`.

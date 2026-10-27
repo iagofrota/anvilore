@@ -23,6 +23,10 @@ Peças que existem hoje no repositório:
 - Contrato do agente: `AGENTS.md` (e `CLAUDE.md`, que só aponta para ele).
 - Skills de ingerir, consultar e varrer a wiki: `skills/ingest/SKILL.md`, `skills/query/SKILL.md`
   e `skills/lint/SKILL.md`.
+- Papéis da ingestão: prompts do leitor e do escritor (`skills/ingest/leitor.md`,
+  `skills/ingest/escritor.md`), esquema do relatório do leitor (`skills/ingest/relatorio-leitor.schema.json`,
+  validado por `src/lib/relatorio-leitor.ts`), agentes do Claude Code e rota por tamanho
+  (`src/lib/papeis-ingestao.ts`), e os comandos `conferir-leitura` e `rota-ingestao` (`src/comandos/`).
 - Validador da wiki (`anvilore validar`), em TypeScript: `src/comandos/validar.ts`, `src/lib/okf.ts` e
   `src/lib/perfil.ts`. O ritual de fechamento também é TypeScript: `src/comandos/fechar.ts`.
 - Onboarding de áreas: `anvilore init`, em `src/comandos/init.ts` (cenários em `tests/init.test.ts`). Cria

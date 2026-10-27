@@ -22,7 +22,7 @@ fica para depois (veja a última seção).
 | Portão humano, depois da escrita | Reprova a página com `generated` em mapping e sem uma entrada `verified` com `by: human:<id>` e `at` igual ou posterior a `generated.at`. Compara o instante com offset e todos os dígitos da fração de segundo. A mensagem é "página gerada sem aprovação humana". | `src/lib/okf.ts`, funções `validarProveniencia` e `compararInstantes` |
 | Perfil da empresa | Um anvilore.toml na raiz do projeto restringe áreas, tipos de página e campos obrigatórios; reprova nomeando arquivo e valor. Arquivo ilegível, chave desconhecida ou valor que não é lista de textos também reprova. | `src/lib/perfil.ts`, linhas 28 a 54; `src/comandos/validar.ts`, linhas 189 a 191 e 204 a 212 |
 | Relatório das travas (`anvilore doctor`) | Lê os arquivos do clone e diz, em linguagem simples, se a proteção do `raw/` está ligada em cada agente configurado no clone (pasta de configuração no destino; agente que só tem a CLI no PATH aparece como "encontrado, sem trava neste clone" e agente ausente como "não instalado", ambos opcionais), e sai 1 se nenhum agente do clone tem a trava (a mesma configuração que o instalador escreve; hook antigo conta como desligado), se o fechamento chama o validador e se há CI ou pré-commit com a checagem; comentário e etapa com `if: false` não contam como chamada ativa. **Limite:** o texto `checar-docs` dentro de uma string de `echo` (ou de outro comando) ainda conta como etapa ligada; o `doctor` lê arquivos, não executa o CI. Pré-requisitos `bun` e `git` no PATH. Sai 1 se faltar trava ou pré-requisito; perfil ausente é opcional. Não conta quantas vezes algo foi barrado e não executa agente. | `src/comandos/doctor.ts` |
-| Instalador | Funde JSON sem trocar escalares divergentes e mantém um bloco delimitado no TOML. Conflito ou JSON inválido nomeia o arquivo, preserva seus bytes e sai com 4 ao fim, depois de processar os demais agentes; uso ou destino inválido sai com 1. Simulação não escreve, e reinstalação sem mudanças devolve INALTERADO. O relatório inclui instalados, ausentes, avisos e causas das falhas de link; agente com link que falhou não é contado como instalado. Nunca copia uma skill como alternativa ao link. Arquivos soltos e pastas ocultas em skills são ignorados. | `src/comandos/instalar.ts`, `src/lib/fundir-json.ts`, `src/lib/fundir-bloco.ts`; cenários em `tests/instalar.test.ts` |
+| Instalador | Funde JSON sem trocar escalares divergentes e mantém um bloco delimitado no TOML. Conflito ou JSON inválido nomeia o arquivo, preserva seus bytes e sai com 4 ao fim, depois de processar os demais agentes; uso ou destino inválido sai com 1. Simulação não escreve, e reinstalação sem mudanças devolve INALTERADO. O relatório inclui instalados, ausentes, avisos e causas das falhas de link; agente com link que falhou não é contado como instalado. Nunca copia uma skill como alternativa ao link. Arquivos soltos e pastas ocultas em skills são ignorados. Para o Claude Code, gera os agentes da ingestão (`.claude/agents/anvilore-*.md`) a partir dos prompts de `skills/ingest/`; regrava só o arquivo que traz a marca de gerado, e o `doctor` acusa agente ausente ou desatualizado. | `src/comandos/instalar.ts`, `src/lib/fundir-json.ts`, `src/lib/fundir-bloco.ts`, `src/lib/papeis-ingestao.ts`; cenários em `tests/instalar.test.ts` |
 | Tipos e cobertura | `tsc --noEmit` e testes com cobertura mínima de 80% no geral. | `package.json` (script `checar`); `bunfig.toml`, linha 2 |
 | Checagem de links | Reprova link e menção a arquivo inexistente nesta pasta. | `src/comandos/checar-docs.ts` |
 | Trava de release | Reprova versão sem seção no CHANGELOG, seção vazia, pasta desta KB ausente ou sem página, ou página sem `verified`. | `src/comandos/checar-release.ts` |
@@ -134,12 +134,20 @@ mostra os avisos ao modelo. A configuração do MCP é opcional e não substitui
 
 ### 2. O portão humano só vale para a página que declara `generated`
 
-- O aval **antes** da escrita (a pessoa aprova os takeaways e a lista de páginas; no caso de fonte grande, "o primeiro
-  subagente lê e não escreve; o segundo só escreve depois do aval") continua sendo texto, em
-  `skills/ingest/SKILL.md`, linhas 1 a 12, 36 a 55 e 73 a 92. Nenhum script confere que ele aconteceu.
+- O aval **antes** da escrita (a pessoa aprova os takeaways e a lista de páginas numa parada só; o leitor lê e não
+  escreve, e o escritor só escreve depois do aval) continua sendo texto, em `skills/ingest/SKILL.md`, seções "Os
+  dois papéis" e "Passo 2 — A parada: takeaways e páginas juntos". Nenhum script confere que ele aconteceu.
+- O que o código confere antes da parada é o relatório do leitor: `anvilore conferir-leitura` reprova relatório
+  fora do esquema, trecho citado que não existe na fonte e página a criar que já existe (ou a atualizar que não
+  existe) (`src/comandos/conferir-leitura.ts`, `src/lib/relatorio-leitor.ts`). Prova que o trecho existe, não que o
+  takeaway decorre dele.
+- A restrição de ferramentas por papel só tem dentes no Claude Code: os agentes `.claude/agents/anvilore-*.md`
+  gerados pelo instalador declaram `tools` (leitor só lê; escritor sem `Bash`), e o `doctor` acusa agente ausente ou
+  desatualizado (`src/lib/papeis-ingestao.ts`). O escritor pode editar fora da wiki; só `raw/` é barrado, pelo hook.
+  Nos outros agentes a própria sessão faz os dois papéis, e a separação é texto de skill.
 - O aval **depois** da escrita é imposto (tabela acima), mas só para a página que traz o bloco
-  `generated`. A skill `ingest` manda gravar esse bloco em toda página que escreve (`skills/ingest/SKILL.md`, Passo 3, linhas 94
-  a 130, e Passo 5), e `tests/skill-ingest.test.ts` prova que os modelos dela fazem o validador reprovar até haver `verified`
+  `generated`. O escritor grava esse bloco em toda página que escreve (`skills/ingest/escritor.md`, seções 1 a 3), e
+  `tests/skill-ingest.test.ts` prova que os modelos dele fazem o validador reprovar até haver `verified`
   humano. O limite real que fica: uma página **sem** `generated` (escrita à mão, ou por um agente que não seguiu a skill) é
   tratada como escrita à mão e não aciona o portão.
 - Nenhum programa prova quem escreveu `verified`. Um agente que grave `verified` com
