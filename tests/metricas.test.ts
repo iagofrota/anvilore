@@ -40,3 +40,13 @@ test("Dado o subcomando público, Quando executa sem argumentos, Então imprime 
     if (metricasAnterior === undefined) delete process.env.ANVILORE_METRICAS; else process.env.ANVILORE_METRICAS = metricasAnterior;
   }
 });
+
+test("Dado cwd fora do clone, Quando executa métricas, Então grava em .anvilore da raiz do clone", async () => {
+  const clone = mkdtempSync(join(tmpdir(), "anvilore-metricas-clone-")); const alheio = mkdtempSync(join(tmpdir(), "anvilore-metricas-cwd-"));
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  try {
+    expect(await comandoMetricas([], { raiz: clone, ambiente: {} })).toBe(0);
+    expect(await import("node:fs").then(fs => fs.existsSync(join(clone, ".anvilore", "metricas.db")))).toBe(true);
+    expect(await import("node:fs").then(fs => fs.existsSync(join(alheio, ".anvilore")))).toBe(false);
+  } finally { log.mockRestore(); rmSync(clone, { recursive: true, force: true }); rmSync(alheio, { recursive: true, force: true }); }
+});

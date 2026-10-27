@@ -3,7 +3,7 @@ import { abrirMetricas } from "../busca/metricas";
 
 export async function executarMetricas(
   args: string[],
-  opcoes: { arquivoDb?: string; stdout?: (texto: string) => void; stderr?: (texto: string) => void; ligado?: boolean } = {},
+  opcoes: { arquivoDb?: string; stdout?: (texto: string) => void; stderr?: (texto: string) => void; ligado?: boolean; raiz?: string; ambiente?: Record<string, string | undefined> } = {},
 ): Promise<number> {
   let desde: Date | undefined; let json = false; let limpar = false;
   for (let i = 0; i < args.length; i++) {
@@ -21,7 +21,9 @@ export async function executarMetricas(
       (opcoes.stderr ?? console.error)(`FAIL: argumento desconhecido: ${arg}`); return 1;
     }
   }
-  const diretorio = process.env.ANVILORE_DIR ? resolve(process.env.ANVILORE_DIR) : resolve(".anvilore");
+  const ambiente = opcoes.ambiente ?? process.env;
+  const raiz = opcoes.raiz ? resolve(opcoes.raiz) : resolve(import.meta.dir, "../..");
+  const diretorio = ambiente.ANVILORE_DIR ? resolve(ambiente.ANVILORE_DIR) : join(raiz, ".anvilore");
   const registro = abrirMetricas(opcoes.arquivoDb ?? join(diretorio, "metricas.db"), opcoes.ligado);
   if (limpar) registro.limpar();
   const relatorio = registro.resumo(desde);
@@ -40,4 +42,4 @@ export async function executarMetricas(
   return 0;
 }
 
-export async function comandoMetricas(args: string[]): Promise<number> { return executarMetricas(args); }
+export async function comandoMetricas(args: string[], opcoes: { raiz?: string; ambiente?: Record<string, string | undefined> } = {}): Promise<number> { return executarMetricas(args, opcoes); }
