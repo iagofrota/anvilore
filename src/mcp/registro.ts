@@ -1,5 +1,5 @@
 export type Agente = "claude" | "codex" | "gemini" | "copilot";
-export type Ambiente = { home: string; executar: (cmd: string[]) => Promise<{ codigo: number; saida: string }>; existe: (bin: string) => Promise<boolean> };
+export type Ambiente = { home: string; executar: (cmd: string[], timeoutMs?: number) => Promise<{ codigo: number; saida: string }>; existe: (bin: string) => Promise<boolean> };
 export interface Registrador { agente: Agente; ligar(comando: string[], amb: Ambiente): Promise<"ligado" | "pulado">; desligar(amb: Ambiente): Promise<"removido" | "ausente">; ligado(amb: Ambiente): Promise<boolean> }
 
 function linhaAnvilore(saida: string): string | undefined {
@@ -16,12 +16,21 @@ const cli: Record<Agente, { add: (comando: string[]) => string[]; remove: string
   copilot: { add: c => ["copilot", "mcp", "add", "anvilore", "--", ...c], remove: ["copilot", "mcp", "remove", "anvilore"], list: ["copilot", "mcp", "list"] },
 };
 
-export function criarRegistrador(agente: Agente): Registrador {
+export function criarRegistrador(agente: Agente, timeoutMs = 5_000): Registrador {
+  async function listarComTimeout(amb: Ambiente): Promise<{ codigo: number; saida: string }> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        amb.executar(cli[agente].list, timeoutMs),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`timeout ao consultar ${agente}`)), timeoutMs); }),
+      ]);
+    } finally { if (timer !== undefined) clearTimeout(timer); }
+  }
   return {
     agente,
     async ligar(comando, amb) {
       if (!(await amb.existe(agente))) { console.warn(`AVISO: ${agente} não encontrado; configuração pulada.`); return "pulado"; }
-      const estado = await amb.executar(cli[agente].list);
+      const estado = await listarComTimeout(amb);
       if (estado.codigo !== 0) { console.warn(`AVISO: não foi possível consultar a configuração de ${agente}; configuração preservada.`); return "pulado"; }
       if (estado.codigo === 0 && linhaAnvilore(estado.saida)) {
         if (correspondeComando(linhaAnvilore(estado.saida))) return "ligado";
@@ -34,7 +43,7 @@ export function criarRegistrador(agente: Agente): Registrador {
     },
     async desligar(amb) {
       if (!(await amb.existe(agente))) return "ausente";
-      const estado = await amb.executar(cli[agente].list);
+      const estado = await listarComTimeout(amb);
       const linha = estado.codigo === 0 ? linhaAnvilore(estado.saida) : undefined;
       if (linha && !correspondeComando(linha)) console.warn(`AVISO: ${agente} tem um servidor chamado anvilore com outro comando; configuração preservada.`);
       if (!correspondeComando(linha)) return "ausente";
@@ -44,8 +53,13 @@ export function criarRegistrador(agente: Agente): Registrador {
     },
     async ligado(amb) {
       if (!(await amb.existe(agente))) return false;
-      const resultado = await amb.executar(cli[agente].list);
-      return resultado.codigo === 0 && correspondeComando(linhaAnvilore(resultado.saida));
+      try {
+        const resultado = await listarComTimeout(amb);
+        return resultado.codigo === 0 && correspondeComando(linhaAnvilore(resultado.saida));
+      } catch (erro) {
+        if (erro instanceof Error && erro.message.startsWith("timeout ao consultar ")) console.warn(`AVISO: não foi possível consultar ${agente}; a consulta excedeu ${timeoutMs} ms.`);
+        throw erro;
+      }
     },
   };
 }

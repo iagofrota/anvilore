@@ -14,6 +14,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - Índice de busca FTS5 local e MCP opcional para consulta confinada à wiki, com `buscar`, `ler`,
   métricas locais agregadas e registro de usuário para Claude Code, Codex, Gemini CLI e Copilot CLI.
 - Comandos `anvilore mcp ligar|desligar|estado` e `anvilore indexar [--completo]`.
+- Timeout de cinco segundos por agente ao consultar registros MCP no `doctor` e em `mcp estado`.
 
 - O instalador e o `doctor` avisam quando falta `rg`, usado pela skill `query`, e mostram como
   obtê-lo em Windows, macOS e Linux. O aviso não reprova nem instala nada automaticamente.

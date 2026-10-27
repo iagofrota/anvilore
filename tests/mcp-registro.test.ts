@@ -78,3 +78,10 @@ test("Dado comando de agente que falha, Quando liga, Então avisa e pula sem abo
     expect(avisos).toHaveBeenCalled();
   } finally { avisos.mockRestore(); }
 });
+
+test("Dado list de agente que nunca responde, Quando consulta status, Então falha com timeout curto", async () => {
+  const amb: Ambiente = { home: "/home/teste", existe: async () => true, executar: async () => new Promise(() => {}) };
+  const inicio = Date.now();
+  await expect(Promise.race([criarRegistrador("claude", 20).ligado(amb), new Promise((_, reject) => setTimeout(() => reject(new Error("teste excedeu timeout")), 500))])).rejects.toThrow("timeout");
+  expect(Date.now() - inicio).toBeLessThan(500);
+});

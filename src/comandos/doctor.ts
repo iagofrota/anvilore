@@ -222,9 +222,10 @@ export async function comandoDoctor(args: string[], deps: { ambienteMcp?: Ambien
   const mcpAmbiente: Ambiente = deps.ambienteMcp ?? {
     home,
     existe: async (bin: string) => Bun.which(bin) !== null,
-    executar: async (cmd: string[]) => {
-      const resultado = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe" });
-      return { codigo: resultado.exitCode, saida: resultado.stdout.toString() + resultado.stderr.toString() };
+    executar: async (cmd: string[], timeoutMs?: number) => {
+      const processo = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", ...(timeoutMs === undefined ? {} : { signal: AbortSignal.timeout(timeoutMs + 100) }) });
+      const [stdout, stderr, codigo] = await Promise.all([new Response(processo.stdout).text(), new Response(processo.stderr).text(), processo.exited]);
+      return { codigo, saida: stdout + stderr };
     },
   };
   const ligados: string[] = [];

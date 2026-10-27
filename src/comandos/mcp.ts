@@ -8,9 +8,10 @@ function ambiente(): Ambiente {
   return {
     home,
     existe: async bin => Bun.which(bin) !== null,
-    executar: async cmd => {
-      const processo = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe", env: { ...process.env, HOME: home, USERPROFILE: home, CODEX_HOME: join(home, ".codex") } });
-      return { codigo: processo.exitCode, saida: processo.stdout.toString() + processo.stderr.toString() };
+    executar: async (cmd, timeoutMs) => {
+      const processo = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", env: { ...process.env, HOME: home, USERPROFILE: home, CODEX_HOME: join(home, ".codex") }, ...(timeoutMs === undefined ? {} : { signal: AbortSignal.timeout(timeoutMs + 100) }) });
+      const [stdout, stderr, codigo] = await Promise.all([new Response(processo.stdout).text(), new Response(processo.stderr).text(), processo.exited]);
+      return { codigo, saida: stdout + stderr };
     },
   };
 }
@@ -58,7 +59,10 @@ export async function comandoMcp(args: string[], amb: Ambiente = ambiente()): Pr
   }
   if (acao !== "estado") { console.error("Uso: anvilore mcp [ligar|desligar|estado] [--agente claude|codex|gemini|copilot|todos]"); return 2; }
   const ligados = [];
-  for (const r of selecionados) if (await r.ligado(amb)) ligados.push(r.agente);
+  for (const r of selecionados) {
+    try { if (await r.ligado(amb)) ligados.push(r.agente); }
+    catch { /* agente indisponível não interrompe o estado dos demais */ }
+  }
   const nucleo = nucleoDaRaiz(raiz);
   const resumo = await nucleo.resumoDaWiki();
   const arquivoIndice = join(process.env.ANVILORE_DIR ? resolve(process.env.ANVILORE_DIR) : join(raiz, ".anvilore"), "indice.db");
