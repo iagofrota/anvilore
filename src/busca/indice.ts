@@ -117,7 +117,7 @@ export async function sincronizar(
     if (dentroDaWiki(realWiki, realArquivo)) canonicos.set(realArquivo, realArquivo);
     else console.error("AVISO: symlink fora da wiki ignorado durante a indexação.");
   }
-  const entradas = listar(absolutoWiki, [...canonicos.values()]);
+  const entradas = listar(realWiki, [...canonicos.values()]);
   const prepararAgora = new Map<string, { mtime: number; tamanho: number; conteudo?: string; erro?: true }>();
   const metadadosAtuais = new Map((db.query("SELECT caminho, mtime, tamanho FROM paginas").all() as { caminho: string; mtime: number; tamanho: number }[]).map((linha) => [linha.caminho, linha]));
   await Promise.all(entradas.map(async (entrada) => {

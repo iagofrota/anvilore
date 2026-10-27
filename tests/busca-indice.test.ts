@@ -56,6 +56,17 @@ test("Dado symlink .md interno, Quando indexa, Então usa apenas o caminho canô
   } finally { db.close(); }
 });
 
+test("Dado raiz da wiki alcançada por symlink, Quando indexa, Então caminhos seguem relativos à raiz real", async () => {
+  if (process.platform === "win32") return;
+  const f = fixture(); pagina(join(f.wiki, "normal.md"));
+  const apelido = join(f.raiz, "wiki-link"); symlinkSync(f.wiki, apelido);
+  const db = abrirIndice(f.db);
+  try {
+    await sincronizar(db, apelido, f.raiz);
+    expect(db.query("SELECT caminho FROM paginas").all()).toEqual([{ caminho: "normal.md" }]);
+  } finally { db.close(); }
+});
+
 test("Dado índice atualizado, Quando não há mudanças, Então não reindexa", async () => {
   const f = fixture(); pagina(join(f.wiki, "a.md")); const db = abrirIndice(f.db);
   try { await sincronizar(db, f.wiki, f.raiz); expect((await sincronizar(db, f.wiki, f.raiz)).reindexadas).toBe(0); }
