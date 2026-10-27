@@ -133,7 +133,7 @@ export function criarNucleo(cfg: Config): NucleoDeBusca {
           const resultado: Resultado = {
             caminho: linha.caminho.normalize("NFC").replaceAll("\\", "/"), linhaInicio: linha.linha_inicio, linhaFim: linha.linha_fim,
             pagina: linha.slug.normalize("NFC"), titulo: linha.pagina_titulo.normalize("NFC"), secao: linha.secao.normalize("NFC"),
-            trecho: limiteDeCaracteres(corpoCasa ? (linha.trecho ?? linha.corpo) : linha.corpo, 200), estado: estado(linha.estado), vencida: Boolean(linha.vencida),
+            trecho: limiteDeCaracteres(corpoCasa ? (linha.trecho ?? linha.corpo) : linha.corpo, 120), estado: estado(linha.estado), vencida: Boolean(linha.vencida),
             avisos: lerAvisos(linha.avisos), score: -linha.bm25 * fator,
           };
           if (linha.tipo === "source" || linha.tipo === "concept" || linha.tipo === "entity") resultado.tipo = linha.tipo;

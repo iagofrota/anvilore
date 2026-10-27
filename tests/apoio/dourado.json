@@ -1,0 +1,22 @@
+[
+  { "consulta": "aliquota referencia IBS", "esperado": "ibs-aliquotas.md#13" },
+  { "consulta": "credito CBS nebulosa", "esperado": "cbs-creditos.md#10" },
+  { "consulta": "bromelia", "esperado": "imposto-verde.md#8" },
+  { "consulta": "jangada ressarcimento", "esperado": "credito-exportacao.md#8" },
+  { "consulta": "split-payment prisma", "esperado": "split-payment.md#8" },
+  { "consulta": "colibri cashback", "esperado": "cashback.md#8" },
+  { "consulta": "mosaico fiscal", "esperado": "periodo-teste.md#8" },
+  { "consulta": "andorinha fundo", "esperado": "fundo-climatico.md#8" },
+  { "consulta": "mirante nota", "esperado": "nota-tecnica.md#8" },
+  { "consulta": "ipe adicional municipal", "esperado": "adicional-municipal.md#8" },
+  { "consulta": "girassol base calculo", "esperado": "base-calculo.md#8" },
+  { "consulta": "cometa apuração", "esperado": "apuracao-assistida.md#8" },
+  { "consulta": "farol transição", "esperado": "ibs-transicao.md#8" },
+  { "consulta": "satélite plataforma", "esperado": "tributacao-digital.md#8" },
+  { "consulta": "créditos", "esperado": "cbs-creditos.md#10" },
+  { "consulta": "IBS", "esperado": "ibs-aliquotas.md#13" },
+  { "consulta": "termo destino município", "esperado": "ibs-aliquotas.md#13" },
+  { "consulta": "split-payment", "esperado": "split-payment.md#8" },
+  { "consulta": "alíquota", "esperado": "ibs-aliquotas.md#13" },
+  { "consulta": "consolidado contradiz", "esperado": "nota-tecnica.md#8" }
+]
