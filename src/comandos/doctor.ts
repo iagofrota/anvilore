@@ -189,6 +189,13 @@ export async function diagnosticar(raiz: string, ambiente: Record<string, string
   const prerequisitos = ["bun", "git"].map(nome => ({ nome, presente: Bun.which(nome, { PATH: path ?? "" }) !== null }));
   const aviso = avisoRg(path);
   const avisos = aviso ? [aviso] : [];
+  if (perfil.hooks?.githubBackup === true) {
+    const git = Bun.which("git", { PATH: path ?? "" });
+    const upstream = git === null ? undefined : Bun.spawnSync([git, "-C", raiz, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], { stdout: "pipe", stderr: "pipe" });
+    if (!upstream || upstream.exitCode !== 0 || !upstream.stdout.toString().trim()) {
+      avisos.push("Backup do GitHub está ligado, mas a branch atual não tem upstream; o backup não será enviado. Configure um upstream manualmente para habilitá-lo.");
+    }
+  }
   if (await stat(join(raiz, ".gemini")).then(info => info.isDirectory(), () => false)) avisos.push("Gemini: não há evento FileChanged nem origem compact para SessionStart; W12/W13 não estão disponíveis neste agente.");
   if (await stat(join(raiz, ".github/copilot")).then(info => info.isDirectory(), () => false)) avisos.push("Copilot: não há evento FileChanged nem matcher de compactação; W12/W13 não estão disponíveis. O evento agentStop não oferece mensagem terminal sem bloquear a próxima rodada, então W14 não está disponível.");
   if (await stat(join(raiz, ".codex")).then(info => info.isDirectory(), () => false)) avisos.push("Codex: não há evento FileChanged; W12 não está disponível neste agente.");

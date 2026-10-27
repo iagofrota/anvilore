@@ -47,9 +47,10 @@ Os hooks da wiki ficam em `src/comandos/hooks-wiki.ts` e são exercitados por
 Claude Code: W11/W12/W13/W14/W17; Codex: W11/W13/W14/W17; Gemini: W11/W14/W17; Copilot CLI:
 W11/W17. W12 usa FileChanged com `SessionStart.watchPaths` só no Claude; W13 usa SessionStart=compact
 no Claude e Codex; W14 não está disponível no Copilot porque `agentStop` não fornece uma mensagem
-visível sem bloquear a próxima rodada. W17 usa SessionEnd nos quatro, com limites de tempo: Codex até
-3 segundos e Gemini sem garantia de espera. Os testes verificam lógica e configurações geradas, não
-executam ciclos de vida reais dos agentes.
+visível sem bloquear a próxima rodada. W17 usa SessionEnd nos quatro. Claude Code define timeout de
+15 segundos para o hook. No Codex, cujo limite é 3 segundos, e no Gemini, onde SessionEnd é
+best-effort e não aguarda o comando terminar, o backup é melhor esforço e pode não completar. Os
+testes verificam lógica e configurações geradas, não executam ciclos de vida reais dos agentes.
 
 ## Testes primeiro, com cenários em gherkin
 

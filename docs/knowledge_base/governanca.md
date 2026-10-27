@@ -203,14 +203,15 @@ só por causa do checkout. Páginas ignoradas pelo Git e symlinks continuam pelo
   W14 (sugerir lint) usa `Stop` no Claude/Codex e `AfterAgent` no Gemini; Copilot não tem saída de mensagem
   de terminal em `agentStop`, então o doctor informa W14 indisponível ali.
 - W12 usa `SessionStart` para retornar `hookSpecificOutput.watchPaths` com o caminho absoluto de `raw/` e um
-  grupo `FileChanged` sem matcher. A documentação oficial do Claude Code descreve `event: "add"` para arquivo
-  criado em caminho observado. A tentativa de verificação runtime com Claude Code 2.1.311 parou na tela de
-  autenticação inicial, sem login e sem chamada ao modelo; os testes verificam a forma e o tratamento do payload,
-  não a emissão real do evento.
+  grupo `FileChanged` sem matcher. Conforme a documentação do Claude Code, arquivo novo observado gera
+  `event: "add"`; isso não foi observado em execução. A confirmação manual está pendente; não houve autenticação
+  nem chamada ao modelo nesta revisão. Os testes verificam a forma e o tratamento do payload, não a emissão real.
 - W17 roda no fim da sessão (`SessionEnd`) no Claude Code, Codex, Gemini CLI e Copilot CLI. O Codex limita
-  esse hook a 3 segundos; o Gemini informa que SessionEnd é best-effort e não aguarda o comando terminar.
-  O backup exige upstream já configurado. Sem upstream, não faz push nem cria branch remota e escreve o aviso
-  em stderr com saída 2 (o evento de SessionEnd do Copilot não processa JSON de saída).
+  esse hook a 3 segundos; no Gemini, SessionEnd é best-effort e não aguarda o comando terminar. Em ambos,
+  o backup é melhor esforço e pode não completar. O Claude Code configura timeout de 15 segundos no hook.
+  O backup exige upstream já configurado. Sem upstream, não faz push nem cria branch remota; o doctor avisa
+  enquanto a pessoa ainda está na sessão. O comando não tenta mostrar notificação de sucesso no SessionEnd,
+  cujo retorno não é visível.
 - Os formatos e a superfície de cada evento foram conferidos nas documentações oficiais de
   [Claude Code](https://code.claude.com/docs/en/hooks), [Codex](https://learn.chatgpt.com/docs/hooks),
   [Gemini CLI](https://geminicli.com/docs/hooks/reference/) e

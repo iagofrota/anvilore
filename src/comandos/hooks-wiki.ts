@@ -126,8 +126,8 @@ export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise
     if (acao === "backup") {
       if (!(await config(raiz)).backup) return 0;
       const resultado = await backupGitHub(raiz);
-      if (resultado.sincronizado) notificar("Backup do Anvilore enviado ao GitHub.");
-      else if (resultado.motivo && resultado.motivo.includes("upstream")) {
+      // SessionEnd não exibe saída para a pessoa; a condição sem upstream é diagnosticada pelo doctor.
+      if (!resultado.sincronizado && resultado.motivo && resultado.motivo.includes("upstream")) {
         console.error(`Backup não realizado: ${resultado.motivo}`); return 2;
       }
       else if (resultado.motivo) console.error(`Backup não realizado: ${resultado.motivo}`);

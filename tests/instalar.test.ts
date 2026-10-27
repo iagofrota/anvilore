@@ -552,6 +552,7 @@ test("Dado instalação com opções de Git solicitadas Quando instala Então re
   const r = await rodar(["claude"], false, { autoCommit: true, githubBackup: true });
   expect(r.codigo).toBe(0);
   expect(Bun.TOML.parse(readFileSync(join(destino, "anvilore.toml"), "utf8"))).toEqual({ areas: ["pessoal"], hooks: { auto_commit: true, github_backup: true } });
+  expect(lerConfig(".claude/settings.json").hooks.SessionEnd[0].hooks[0].timeout).toBe(15);
 });
 
 test("Dado bloco antigo do Codex Quando reinstalo Então o bloco é trocado inteiro", async () => {

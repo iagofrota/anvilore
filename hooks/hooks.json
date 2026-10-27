@@ -47,7 +47,7 @@
     "SessionEnd": [
       {
         "description": "Envia o backup opcional ao GitHub ao encerrar a sessão",
-        "hooks": [{ "type": "command", "command": "bun \"$CLAUDE_PROJECT_DIR\"/src/cli.ts hooks-wiki backup \"$CLAUDE_PROJECT_DIR\"", "shell": "bash" }]
+        "hooks": [{ "type": "command", "command": "bun \"$CLAUDE_PROJECT_DIR\"/src/cli.ts hooks-wiki backup \"$CLAUDE_PROJECT_DIR\"", "shell": "bash", "timeout": 15 }]
       }
     ]
   }

@@ -32,6 +32,7 @@ describe("hooks da wiki", () => {
     expect((claude.hooks.SessionStart![1] as any).hooks[0].command).toContain("watch-paths");
     expect((claude.hooks.SessionStart![1] as any).hooks[0].shell).toBe("bash");
     expect((claude.hooks.Stop![0] as any).hooks[0].shell).toBe("bash");
+    expect((claude.hooks.SessionEnd![0] as any).hooks[0]).toMatchObject({ shell: "bash", timeout: 15 });
     const codex = Bun.TOML.parse((await configuracaoDoHook("codex", raiz)).bloco!) as { hooks: Record<string, unknown[]> };
     expect(codex.hooks.FileChanged).toBeUndefined(); expect(codex.hooks.SessionStart).toHaveLength(1); expect(codex.hooks.SessionEnd).toHaveLength(1);
     const gemini = (await configuracaoDoHook("gemini", raiz)).json as { hooks: Record<string, unknown[]> };
@@ -152,7 +153,7 @@ describe("hooks da wiki", () => {
     const c = capturarConsole();
     try {
       expect(await comandoHooksWiki(["backup", raiz])).toBe(0);
-      expect(c.saida.join("\n")).toContain("Backup do Anvilore enviado ao GitHub");
+      expect(c.saida.join("\n")).toBe("");
     } finally { c.restaurar(); }
     expect((await git("rev-parse", "--verify", "origin/main")).code).toBe(0);
   });
