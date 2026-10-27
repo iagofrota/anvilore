@@ -37,6 +37,8 @@ test("Dado rascunho no vault Quando consulto com token e Host local Então retor
 
 test("Dado aprovação autorizada Quando envio a ação Então o servidor usa o domínio de aprovação", async () => {
   const arquivo = join(raiz, "wiki/concepts/aprovar.md");
+  mkdirSync(join(raiz, ".anvilore"), { recursive: true });
+  writeFileSync(join(raiz, ".anvilore/identidade"), "human:local\n");
   writeFileSync(arquivo, "---\ntype: concept\nslug: aprovar\ntitle: Aprovar\ngenerated:\n  by: agente/teste\n  at: 2026-10-27T10:00:00Z\n---\nCorpo.\n");
   const app = await servidor();
   const resposta = await fetch(`http://127.0.0.1:${app.porta}/api/aprovar?token=token-teste`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ caminho: "concepts/aprovar.md" }) });
