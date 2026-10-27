@@ -30,26 +30,31 @@ function criarEsquema(db: Database): void {
 
 export function abrirIndice(arquivoDb: string): Database {
   mkdirSync(resolve(arquivoDb, ".."), { recursive: true });
-  const db = new Database(arquivoDb, { create: true });
-  try {
-    db.exec("PRAGMA busy_timeout = 5000");
-    db.exec("PRAGMA journal_mode = WAL");
-    db.exec("BEGIN IMMEDIATE");
+  for (let tentativa = 0; ; tentativa++) {
+    let db: Database | undefined;
     try {
-      const versao = (db.query("PRAGMA user_version").get() as { user_version: number }).user_version;
-      if (versao !== VERSAO_ESQUEMA) {
-        db.exec("DROP TRIGGER IF EXISTS secoes_ai; DROP TRIGGER IF EXISTS secoes_ad; DROP TRIGGER IF EXISTS secoes_au; DROP TRIGGER IF EXISTS paginas_ad; DROP TABLE IF EXISTS secoes_fts; DROP TABLE IF EXISTS secoes; DROP TABLE IF EXISTS paginas;");
-        criarEsquema(db);
+      db = new Database(arquivoDb, { create: true });
+      db.exec("PRAGMA busy_timeout = 5000");
+      db.exec("PRAGMA journal_mode = WAL");
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        const versao = (db.query("PRAGMA user_version").get() as { user_version: number }).user_version;
+        if (versao !== VERSAO_ESQUEMA) {
+          db.exec("DROP TRIGGER IF EXISTS secoes_ai; DROP TRIGGER IF EXISTS secoes_ad; DROP TRIGGER IF EXISTS secoes_au; DROP TRIGGER IF EXISTS paginas_ad; DROP TABLE IF EXISTS secoes_fts; DROP TABLE IF EXISTS secoes; DROP TABLE IF EXISTS paginas;");
+          criarEsquema(db);
+        }
+        db.exec("COMMIT");
+        return db;
+      } catch (erro) {
+        db.exec("ROLLBACK");
+        throw erro;
       }
-      db.exec("COMMIT");
     } catch (erro) {
-      db.exec("ROLLBACK");
-      throw erro;
+      try { db?.close(); } catch { /* mantém o erro original */ }
+      const codigo = typeof erro === "object" && erro !== null && "code" in erro ? String((erro as { code: unknown }).code) : "";
+      if (!codigo.includes("SQLITE_BUSY") && !codigo.includes("SQLITE_LOCKED") || tentativa >= 5) throw erro;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * (2 ** tentativa));
     }
-    return db;
-  } catch (erro) {
-    try { db.close(); } catch { /* preserve the schema/open error */ }
-    throw erro;
   }
 }
 

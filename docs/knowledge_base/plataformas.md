@@ -47,6 +47,8 @@ oficiais: [Claude Code MCP](https://code.claude.com/docs/en/mcp), [Codex MCP](ht
 
 `doctor` e `mcp estado` limitam a cinco segundos a consulta `mcp list` de cada agente. O processo
 é encerrado se exceder o prazo, um aviso identifica o agente e as consultas seguintes continuam.
+Na abertura concorrente do índice FTS5, operações SQLite bloqueadas são repetidas com espera
+progressiva antes de retornar falha.
 
 O teste de FTS5/SDK e o [CI do PR #17, run 40564322309](https://github.com/iagofrota/anvilore/actions/runs/40564322309)
 passaram em Linux, macOS e Windows para o commit 981bc9e. Esse run confirmou também a reconstrução

@@ -17,6 +17,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - Timeout de cinco segundos por agente ao consultar registros MCP no `doctor` e em `mcp estado`.
 - `anvilore metricas` usa o diretório local da raiz do clone, respeitando `ANVILORE_DIR`.
 - MCP tenta sincronizar o índice novamente a cada chamada de busca após falha de inicialização.
+- A abertura concorrente de um índice SQLite novo repete operações bloqueadas antes de falhar.
 
 - O instalador e o `doctor` avisam quando falta `rg`, usado pela skill `query`, e mostram como
   obtê-lo em Windows, macOS e Linux. O aviso não reprova nem instala nada automaticamente.

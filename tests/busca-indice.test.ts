@@ -122,3 +122,17 @@ test("Dado duas conexões concorrentes, Quando sincronizam, Então não duplicam
     expect(db1.query("SELECT count(*) AS n FROM secoes").get()).toEqual({ n: 2 });
   } finally { db1.close(); db2.close(); }
 });
+
+test("Dado oito processos abrindo banco SQLite novo ao mesmo tempo, Quando inicializam o índice, Então todos completam", async () => {
+  for (let rodada = 0; rodada < 3; rodada++) {
+    const f = fixture();
+    const modulo = new URL("../src/busca/indice.ts", import.meta.url).href;
+    const codigo = `import { abrirIndice } from ${JSON.stringify(modulo)}; const db = abrirIndice(process.argv[1]!); db.close();`;
+    const processos = Array.from({ length: 8 }, () => Bun.spawn([process.execPath, "-e", codigo, f.db], { stdout: "pipe", stderr: "pipe" }));
+    const resultados = await Promise.all(processos.map(async (processo) => {
+      const [saida, erro, codigoSaida] = await Promise.all([new Response(processo.stdout).text(), new Response(processo.stderr).text(), processo.exited]);
+      return { codigo: codigoSaida, saida, erro };
+    }));
+    expect(resultados.filter((resultado) => resultado.codigo !== 0)).toEqual([]);
+  }
+});
