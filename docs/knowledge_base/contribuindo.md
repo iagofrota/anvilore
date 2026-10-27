@@ -11,13 +11,17 @@ desta página.
 
 ```bash
 bun install
+bun run build:ui
 bun run checar
 ```
 
 - `bun install` instala dependências de desenvolvimento e a dependência de produção do servidor
   MCP (@modelcontextprotocol/sdk, declarado em package.json). O `bun.lock` é versionado, e o CI usa
   `bun install --frozen-lockfile`.
-- `bun run checar` roda `tsc --noEmit` e `bun test --coverage` (script `checar` em
+- `bun run build:ui` gera os assets de React+TS em `src/ui/public/` com o Bun. O script `checar`
+  executa esse build antes de `tsc --noEmit` e `bun test --coverage`;
+  `src/ui/public/` é o artefato usado por `anvilore ui`.
+- `bun run checar` roda o build, `tsc --noEmit` e `bun test --coverage` (script `checar` em
   `package.json`). A cobertura mínima é 80% no geral (`bunfig.toml`). A meta de 95% em validação e
   proteção de `raw/`, declarada pelo dono do projeto, ainda não tem trava por arquivo (veja
   [governanca.md](governanca.md)).
@@ -46,6 +50,8 @@ Os hooks da wiki ficam em `src/comandos/hooks-wiki.ts` e são exercitados por
 `tests/hooks-wiki.test.ts`. Commit e backup são opt-in: `anvilore instalar --auto-commit` e
 `anvilore instalar --github-backup`; `anvilore doctor` valida o repositório da wiki, o ignore de páginas
 novas e o upstream. A instalação inicializa `wiki/` como repositório Git próprio quando necessário.
+Durante a escrita da ingestão pela interface, `ANVILORE_SEM_AUTOCOMMIT=1` desliga o hook de autocommit;
+a aprovação posterior continua disponível na Revisão.
 A matriz configurada é:
 Claude Code: W11/W12/W13/W14/W17; Codex: W11/W13/W14/W17; Gemini: W11/W14/W17; Copilot CLI:
 W11/W17. W12 usa FileChanged com `SessionStart.watchPaths` só no Claude; W13 usa SessionStart=compact

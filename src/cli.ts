@@ -22,6 +22,7 @@ import { comandoHooksWiki } from "./comandos/hooks-wiki";
 import { comandoAprovar } from "./comandos/aprovar";
 import { comandoConferirLeitura } from "./comandos/conferir-leitura";
 import { comandoRotaIngestao } from "./comandos/rota-ingestao";
+import { comandoUi } from "./comandos/ui";
 
 export type Subcomando = (args: string[]) => Promise<number>;
 export type TabelaDeSubcomandos = Record<string, Subcomando>;
@@ -51,6 +52,7 @@ export const subcomandos: TabelaDeSubcomandos = {
   aprovar: comandoAprovar,
   "conferir-leitura": comandoConferirLeitura,
   "rota-ingestao": comandoRotaIngestao,
+  ui: comandoUi,
 };
 
 function listar(tabela: TabelaDeSubcomandos): string {

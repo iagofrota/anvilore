@@ -1,5 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
+import { lerFrontmatter } from "../lib/frontmatter";
+import { estadoAprovacaoHumana } from "../lib/okf";
 import { caminhoWiki } from "../lib/wiki-repo";
 import { autoCommitWiki, opcoesHooksWiki } from "./hooks-wiki";
 
@@ -15,39 +17,47 @@ function identidadeSugerida(raiz: string, wiki: string, ambiente: Record<string,
   return slug ? `human:${slug}` : "human:local";
 }
 
-function fimDoBloco(linhas: string[], inicio: number, fimFrontmatter: number): number {
-  for (let i = inicio + 1; i < fimFrontmatter; i++) if (/^[A-Za-z_][\w-]*\s*:/.test(linhas[i]!)) return i;
-  return fimFrontmatter;
-}
-
-function dataDaChave(linhas: string[], chave: string, fimFrontmatter: number): number | undefined {
-  const inicio = linhas.findIndex((linha, i) => i < fimFrontmatter && new RegExp(`^${chave}\\s*:`).test(linha));
-  if (inicio < 0) return undefined;
-  const fim = fimDoBloco(linhas, inicio, fimFrontmatter);
-  const linhaData = linhas.slice(inicio, fim).reverse().find(linha => /^\s+at\s*:\s*/.test(linha));
-  if (!linhaData) return undefined;
-  const data = Date.parse(linhaData.replace(/^\s+at\s*:\s*/, "").trim());
-  return Number.isFinite(data) ? data : undefined;
+function serializarYaml(valor: unknown): string {
+  if (valor instanceof Date) return valor.toISOString();
+  if (typeof valor === "string") {
+    if (/^(?:human:[a-z0-9_-]+|process:[a-z0-9_-]+|[a-z0-9_-]+\/[a-z0-9._-]+)$/i.test(valor) || /^\d{4}-\d\d-\d\dT.*(?:Z|[+-]\d\d(?::?\d\d)?)$/.test(valor)) return valor;
+    return JSON.stringify(valor);
+  }
+  return String(valor);
 }
 
 function provenienciaAprovada(texto: string, identidade: string): string {
+  const quebra = texto.includes("\r\n") ? "\r\n" : "\n";
   const linhas = texto.split(/\r?\n/);
-  if (linhas[0] !== "---") throw new Error("página sem frontmatter YAML");
+  const frontmatter = lerFrontmatter(texto);
+  if (!frontmatter) throw new Error("página sem frontmatter YAML");
   const fim = linhas.indexOf("---", 1);
   if (fim < 0) throw new Error("frontmatter sem fechamento");
-  const geradaEm = dataDaChave(linhas, "generated", fim);
-  if (geradaEm === undefined) throw new Error("página sem generated.at válido; não há rascunho para aprovar");
-  const indiceVerified = linhas.findIndex((linha, i) => i < fim && /^verified\s*:/.test(linha));
-  if (indiceVerified >= 0) {
-    const aprovadaEm = dataDaChave(linhas, "verified", fim);
-    if (aprovadaEm === undefined) throw new Error("página tem verified sem data válida");
-    if (geradaEm <= aprovadaEm) throw new Error("página já foi aprovada após sua última geração");
-    const fimVerified = fimDoBloco(linhas, indiceVerified, fim);
-    linhas.splice(fimVerified, 0, `  - by: ${identidade}`, `    at: ${new Date().toISOString()}`);
-  } else {
-    linhas.splice(fim, 0, "verified:", `  - by: ${identidade}`, `    at: ${new Date().toISOString()}`);
+  const estado = estadoAprovacaoHumana(frontmatter);
+  if (estado === "invalida") throw new Error("página tem proveniência inválida");
+  if (estado === "vigente") throw new Error("página já foi aprovada após sua última geração");
+
+  const existentes = frontmatter.verified == null ? [] : Array.isArray(frontmatter.verified) ? frontmatter.verified : [frontmatter.verified];
+  const aprovacoes = existentes.map((entrada, indice) => {
+    if (typeof entrada !== "object" || entrada === null || Array.isArray(entrada)) throw new Error(`verified[${indice}] inválido`);
+    return Object.entries(entrada as Record<string, unknown>);
+  });
+  aprovacoes.push([["by", identidade], ["at", new Date().toISOString()]]);
+  const secao = ["verified:", ...aprovacoes.flatMap(entrada => [
+    `  - by: ${serializarYaml(entrada.find(([chave]) => chave === "by")?.[1])}`,
+    ...entrada.filter(([chave]) => chave !== "by").map(([chave, valor]) => `    ${chave}: ${serializarYaml(valor)}`),
+  ])];
+
+  const indiceVerified = linhas.findIndex((linha, indice) => indice < fim && /^verified\s*:/.test(linha));
+  if (indiceVerified < 0) linhas.splice(fim, 0, ...secao);
+  else {
+    let fimVerified = fim;
+    for (let indice = indiceVerified + 1; indice < fim; indice++) {
+      if (/^[A-Za-z_][\w-]*\s*:/.test(linhas[indice]!)) { fimVerified = indice; break; }
+    }
+    linhas.splice(indiceVerified, fimVerified - indiceVerified, ...secao);
   }
-  return linhas.join("\n");
+  return linhas.join(quebra);
 }
 
 export async function aprovarPaginas(raiz: string, arquivos: string[], ambiente: Record<string, string | undefined> = process.env): Promise<ResultadoAprovacao> {
@@ -59,6 +69,10 @@ export async function aprovarPaginas(raiz: string, arquivos: string[], ambiente:
       const caminho = isAbsolute(arquivo) ? resolve(arquivo) : resolve(raiz, arquivo);
       const rel = relative(wiki, caminho);
       if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel) || !rel.toLowerCase().endsWith(".md")) throw new Error(`página fora de wiki/: ${arquivo}`);
+      const caminhoReal = await realpath(caminho);
+      const wikiReal = await realpath(wiki);
+      const relReal = relative(wikiReal, caminhoReal);
+      if (relReal === ".." || relReal.startsWith(`..${sep}`) || isAbsolute(relReal)) throw new Error(`página fora de wiki/: ${arquivo}`);
       const original = await readFile(caminho, "utf8");
       preparados.push({ caminho, texto: original });
     }

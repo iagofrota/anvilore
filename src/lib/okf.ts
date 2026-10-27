@@ -203,3 +203,16 @@ export function validarProveniencia(frontmatter: Mapa, arquivo: string, raiz: st
   const geradaAposVerificacao = geradoEm !== null && verificacoes.ultima !== null && compararInstantes(geradoEm, verificacoes.ultima) > 0;
   return { erros, vencida, geradaAposVerificacao, aprovadaPorHumano };
 }
+
+export function estadoAprovacaoHumana(frontmatter: Mapa): "ausente" | "antiga" | "vigente" | "invalida" {
+  const gerada = frontmatter.generated;
+  if (!ehMapa(gerada) || !("at" in gerada)) return "invalida";
+  const generated = lerTimestamp(gerada.at, "generated.at", "pagina");
+  if ("erro" in generated) return "invalida";
+  const verificacoes = frontmatter.verified == null
+    ? { erros: [], humanas: [], ultima: null }
+    : lerVerificacoes(frontmatter.verified, "pagina");
+  if (verificacoes.erros.length) return "invalida";
+  if (verificacoes.humanas.some(data => data !== null && compararInstantes(data, generated.data) >= 0)) return "vigente";
+  return verificacoes.humanas.length ? "antiga" : "ausente";
+}

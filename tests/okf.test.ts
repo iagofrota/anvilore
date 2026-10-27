@@ -7,6 +7,7 @@ import {
   problemaDoRecurso,
   validarProveniencia,
   validarRecurso,
+  estadoAprovacaoHumana,
 } from "../src/lib/okf";
 
 let raiz: string;
@@ -16,6 +17,11 @@ beforeEach(() => {
 });
 afterEach(() => {
   rmSync(raiz, { recursive: true, force: true });
+});
+
+test("Dado timestamps com nanos Quando comparo aprovação Então leio todos os dígitos da fração", () => {
+  expect(estadoAprovacaoHumana({ generated: { by: "agente/x", at: "2026-10-27T10:00:00.000000002Z" }, verified: [{ by: "human:ana", at: "2026-10-27T10:00:00.000000001Z" }] })).toBe("antiga");
+  expect(estadoAprovacaoHumana({ generated: { by: "agente/x", at: "2026-10-27T10:00:00.000000002Z" }, verified: [{ by: "human:ana", at: "2026-10-27T10:00:00.000000002Z" }] })).toBe("vigente");
 });
 
 function gravar(relativo: string, conteudo = "bruto\n"): void {
