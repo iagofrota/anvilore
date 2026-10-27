@@ -1,6 +1,5 @@
 ---
-generated: 2026-10-24
-verified: 2026-10-25
+generated: 2026-10-27
 ---
 
 # Governança: padrões, guardrails e o que ainda não é imposto
@@ -191,6 +190,24 @@ só por causa do checkout. Páginas ignoradas pelo Git e symlinks continuam pelo
   proteção de `raw/` é uma meta declarada (decisão do dono do projeto em 2026-10-23) para esta
   versão; nenhum arquivo do repositório a registra e não há mecanismo por arquivo que a imponha
   hoje.
+
+## Ganchos da wiki e opções Git
+
+- `anvilore hooks-wiki` concentra os comandos dos eventos: commit da página após escrita, backup da branch,
+  aviso para novo arquivo em `raw/`, restauração do índice e dos últimos logs diários após compactação e
+  sugestão de lint após cinco ingestões desde o último lint (`src/comandos/hooks-wiki.ts`). Os logs diários ficam em
+  `wiki/log/`, com nomes log-AAAA-MM-DD.md; o índice gerado `wiki/log.md` nunca é editado por essa lógica.
+- `hooks/hooks.json` instala `PostToolUse`, `FileChanged`, `SessionStart:compact` e `Stop` no Claude Code.
+  O Codex recebe `PostToolUse`, `SessionStart:compact` e `Stop`; não possui `FileChanged`, então W12 não é instalado.
+  Gemini usa `AfterTool` e `AfterAgent`; Copilot usa `postToolUse` e `agentStop`. Gemini e Copilot não oferecem
+  FileChanged nem o gatilho de compactação equivalente, e o doctor avisa que W12/W13 não estão disponíveis nesses agentes.
+  As formas seguem as referências atuais de [Claude Code](https://code.claude.com/docs/en/hooks),
+  [Codex](https://learn.chatgpt.com/docs/hooks), [Gemini CLI](https://geminicli.com/docs/hooks/reference/) e
+  [GitHub Copilot](https://docs.github.com/en/copilot/reference/hooks-reference).
+- Commit automático e backup no GitHub exigem opt-in explícito em anvilore.toml, feito por
+  `anvilore instalar --auto-commit` e `anvilore instalar --github-backup`. Sem esses campos, os dois ficam desligados.
+  O commit adiciona somente a página em `wiki/` e os arquivos de navegação; não adiciona `raw/`. O backup envia commits
+  da branch atual, só se houver upstream ou `origin`, sem criar commits de fallback e sem reescrever histórico.
 
 ## O que o Anvilore não resolve: vazamento
 

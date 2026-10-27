@@ -16,6 +16,7 @@ import { comandoHook } from "./comandos/hook-proteger-raw";
 import { comandoInit } from "./comandos/init";
 import { comandoFechar } from "./comandos/fechar";
 import { comandoBaseline } from "./comandos/baseline";
+import { comandoHooksWiki } from "./comandos/hooks-wiki";
 
 export type Subcomando = (args: string[]) => Promise<number>;
 export type TabelaDeSubcomandos = Record<string, Subcomando>;
@@ -38,6 +39,7 @@ export const subcomandos: TabelaDeSubcomandos = {
   init: comandoInit,
   fechar: comandoFechar,
   baseline: comandoBaseline,
+  "hooks-wiki": comandoHooksWiki,
 };
 
 function listar(tabela: TabelaDeSubcomandos): string {

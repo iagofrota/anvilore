@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { fundirBloco } from "../lib/fundir-bloco";
 import { fundirJson } from "../lib/fundir-json";
-import { NOME_DO_PERFIL, carregarPerfil } from "../lib/perfil";
+import { NOME_DO_PERFIL, carregarPerfil, type Perfil } from "../lib/perfil";
 import { alvosConhecidos, configuracaoDoHook, tirarHookAntigo, valorDoPath, type Alvo } from "./instalar";
 import { avisoRg } from "../lib/rg";
 
@@ -181,9 +181,18 @@ export async function diagnosticar(raiz: string, ambiente: Record<string, string
   const versao = await versaoDoClaude(raiz, path);
   if (versao) travas.push(versao);
   travas.push(await validacaoNoFechamento(raiz), await checagemAntesDeAceitar(raiz), await perfilDaEmpresa(raiz));
+  const perfil: Perfil = await carregarPerfil(raiz).catch(() => ({}));
+  travas.push(
+    { nome: "Commit automático das páginas de wiki", ligada: perfil.hooks?.autoCommit === true, opcional: true, comoLigar: `${comandoInstalar(raiz, "claude")} --auto-commit` },
+    { nome: "Backup da branch no GitHub", ligada: perfil.hooks?.githubBackup === true, opcional: true, comoLigar: `${comandoInstalar(raiz, "claude")} --github-backup` },
+  );
   const prerequisitos = ["bun", "git"].map(nome => ({ nome, presente: Bun.which(nome, { PATH: path ?? "" }) !== null }));
   const aviso = avisoRg(path);
-  return { travas, prerequisitos, avisos: aviso ? [aviso] : [] };
+  const avisos = aviso ? [aviso] : [];
+  if (await stat(join(raiz, ".gemini")).then(info => info.isDirectory(), () => false)) avisos.push("Gemini: não há evento FileChanged nem origem compact para SessionStart; W12/W13 não estão disponíveis neste agente.");
+  if (await stat(join(raiz, ".github/copilot")).then(info => info.isDirectory(), () => false)) avisos.push("Copilot: não há evento FileChanged nem matcher de compactação; W12/W13 não estão disponíveis neste agente.");
+  if (await stat(join(raiz, ".codex")).then(info => info.isDirectory(), () => false)) avisos.push("Codex: não há evento FileChanged; W12 não está disponível neste agente.");
+  return { travas, prerequisitos, avisos };
 }
 
 function linhas(trava: Trava): string[] {

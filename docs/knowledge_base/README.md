@@ -1,6 +1,5 @@
 ---
-generated: 2026-10-24
-verified: 2026-10-25
+generated: 2026-10-27
 ---
 
 # Knowledge base do Anvilore
@@ -34,7 +33,8 @@ Peças que existem hoje no repositório:
   `src/comandos/instalar.ts`, com fusão em `src/lib/fundir-json.ts` e `src/lib/fundir-bloco.ts`.
 - Os comandos TypeScript no Bun estão em `src/cli.ts` (tabela de subcomandos) e `src/comandos/`, com a biblioteca em `src/lib/`:
   `checar-docs`, `checar-release`, `validar`, `instalar`, `init`, `doctor`, `hook`, `fatiar-log`, `indexar-log`,
-  `sincronizar-indice`, `migrar-areas`, `listar-lacunas`, `auditar`, `rejuntar-linhas`, `fechar` e `baseline`.
+  `sincronizar-indice`, `migrar-areas`, `listar-lacunas`, `auditar`, `rejuntar-linhas`, `fechar`, `baseline` e `hooks-wiki`.
+  `hooks-wiki` concentra os eventos de commit, backup e manutenção de contexto (`src/comandos/hooks-wiki.ts`).
   O `sincronizar-indice` atualiza só a linha 3 dos índices de área; `--checar` detecta defasagem sem escrever
   (`src/comandos/sincronizar-indice.ts` e `tests/sincronizar-indice.test.ts`).
 

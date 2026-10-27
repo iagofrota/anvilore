@@ -11,6 +11,13 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Added
 
+- Hooks nos quatro agentes para commit opcional de páginas em `wiki/`, backup opcional da branch no GitHub e
+  sugestão de lint após cinco ingestões. Claude Code avisa quando surge arquivo em `raw/` e restaura o contexto
+  após compactação; Codex restaura o contexto após compactação. O doctor informa eventos indisponíveis. Commit e
+  backup ficam desligados até a pessoa pedir no `anvilore instalar`; o doctor exibe o estado.
+- `anvilore hooks-wiki` centraliza a lógica dos hooks em TypeScript e Bun. Commit automático só inclui a página e
+  arquivos de navegação; backup só envia commits existentes e nunca força a atualização do remoto.
+
 - O instalador e o `doctor` avisam quando falta `rg`, usado pela skill `query`, e mostram como
   obtê-lo em Windows, macOS e Linux. O aviso não reprova nem instala nada automaticamente.
 - O ensaio da busca compara duas formas de procurar callouts em cada shell e no bash com

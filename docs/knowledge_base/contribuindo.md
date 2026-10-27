@@ -1,6 +1,5 @@
 ---
-generated: 2026-10-24
-verified: 2026-10-25
+generated: 2026-10-27
 ---
 
 # Contribuindo
@@ -41,6 +40,12 @@ bun run checar
 O CI roda `bun run checar` e `checar-docs` em Ubuntu, Windows e macOS a cada push e pull request
 (`.github/workflows/ci.yml`). Os PRs das Ondas 1 (#13, run 40150863576) e 2 (#11, run 40191764239)
 passaram nos três. Uma mudança que passa só no seu sistema não está pronta.
+
+Os hooks da wiki ficam em `src/comandos/hooks-wiki.ts` e são exercitados por
+`tests/hooks-wiki.test.ts`. Commit e backup são opt-in: `anvilore instalar --auto-commit` e
+`anvilore instalar --github-backup`; `anvilore doctor` mostra o estado. Claude Code e Codex recebem
+Claude Code recebe FileChanged e SessionStart=compact. Codex recebe SessionStart=compact, mas não
+FileChanged. Gemini e Copilot não têm esses eventos equivalentes; o doctor informa as limitações.
 
 ## Testes primeiro, com cenários em gherkin
 

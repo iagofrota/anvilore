@@ -111,6 +111,20 @@ test("Dado o PATH escrito como Path Quando diagnostico Então ainda acha os pré
   expect((await diagnosticar(clone, { OUTRA: "x" })).prerequisitos.every(p => !p.presente)).toBe(true);
 });
 
+test("Dado opções Git ausentes Quando rodo doctor Então mostra ambas desligadas como opcionais", async () => {
+  const d = await diagnosticar(clone);
+  expect(d.travas.find(t => t.nome === "Commit automático das páginas de wiki")).toMatchObject({ ligada: false, opcional: true, comoLigar: expect.stringContaining("--auto-commit") });
+  expect(d.travas.find(t => t.nome === "Backup da branch no GitHub")).toMatchObject({ ligada: false, opcional: true, comoLigar: expect.stringContaining("--github-backup") });
+});
+
+test("Dado agente sem eventos de arquivo/compactação Quando doctor diagnostica Então explicita a indisponibilidade", async () => {
+  mkdirSync(join(clone, ".gemini")); mkdirSync(join(clone, ".github/copilot"), { recursive: true }); mkdirSync(join(clone, ".codex"));
+  const avisos = (await diagnosticar(clone)).avisos.join("\n");
+  expect(avisos).toContain("Gemini: não há evento FileChanged"); expect(avisos).toContain("W12/W13 não estão disponíveis");
+  expect(avisos).toContain("Copilot: não há evento FileChanged");
+  expect(avisos).toContain("Codex: não há evento FileChanged");
+});
+
 test("Dado hook antigo apontando para o script removido Quando diagnostico Então está desligada e manda reinstalar", async () => {
   gravar(".claude/settings.json", JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Write|Edit|NotebookEdit", hooks: [{ type: "command", command: '"$CLAUDE_PROJECT_DIR"/hooks/proteger-raw.sh' }] }] } }));
   gravar(".github/copilot/settings.json", JSON.stringify({ hooks: { preToolUse: [{ type: "command", bash: "./hooks/proteger-raw.sh" }] } }));
