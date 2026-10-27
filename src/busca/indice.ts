@@ -5,6 +5,7 @@ import { estadoDaPagina } from "./estado";
 import { secoesDe } from "./secoes";
 import { lerUtf8Estrito, lerUtf8EstritoSync } from "../lib/utf8";
 import { paginasMarkdown } from "../lib/paginas";
+import { comRetentativaSqlite } from "./sqlite-retry";
 
 export const VERSAO_ESQUEMA = 2;
 export type RelatorioIndexacao = { paginas: number; secoes: number; reindexadas: number; removidas: number; puladas: number; ms: number };
@@ -30,7 +31,7 @@ function criarEsquema(db: Database): void {
 
 export function abrirIndice(arquivoDb: string): Database {
   mkdirSync(resolve(arquivoDb, ".."), { recursive: true });
-  for (let tentativa = 0; ; tentativa++) {
+  return comRetentativaSqlite(() => {
     let db: Database | undefined;
     try {
       db = new Database(arquivoDb, { create: true });
@@ -51,11 +52,9 @@ export function abrirIndice(arquivoDb: string): Database {
       }
     } catch (erro) {
       try { db?.close(); } catch { /* mantém o erro original */ }
-      const codigo = typeof erro === "object" && erro !== null && "code" in erro ? String((erro as { code: unknown }).code) : "";
-      if (!codigo.includes("SQLITE_BUSY") && !codigo.includes("SQLITE_LOCKED") || tentativa >= 5) throw erro;
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * (2 ** tentativa));
+      throw erro;
     }
-  }
+  });
 }
 
 type ArquivoLista = { arquivo: string; caminho: string };
@@ -110,15 +109,15 @@ export async function sincronizar(
   let realWiki: string;
   try { realWiki = realpathSync(absolutoWiki); }
   catch { return { paginas: 0, secoes: 0, reindexadas: 0, removidas: 0, puladas: 0, ms: Date.now() - inicio }; }
-  const confinados = arquivos.filter((arquivo) => {
+  const canonicos = new Map<string, string>();
+  for (const arquivo of arquivos) {
     let realArquivo: string;
     try { realArquivo = realpathSync(arquivo); }
-    catch { console.error("AVISO: symlink quebrado ignorado durante a indexação."); return false; }
-    if (dentroDaWiki(realWiki, realArquivo)) return true;
-    console.error("AVISO: symlink fora da wiki ignorado durante a indexação.");
-    return false;
-  });
-  const entradas = listar(absolutoWiki, confinados);
+    catch { console.error("AVISO: symlink quebrado ignorado durante a indexação."); continue; }
+    if (dentroDaWiki(realWiki, realArquivo)) canonicos.set(realArquivo, realArquivo);
+    else console.error("AVISO: symlink fora da wiki ignorado durante a indexação.");
+  }
+  const entradas = listar(absolutoWiki, [...canonicos.values()]);
   const prepararAgora = new Map<string, { mtime: number; tamanho: number; conteudo?: string; erro?: true }>();
   const metadadosAtuais = new Map((db.query("SELECT caminho, mtime, tamanho FROM paginas").all() as { caminho: string; mtime: number; tamanho: number }[]).map((linha) => [linha.caminho, linha]));
   await Promise.all(entradas.map(async (entrada) => {

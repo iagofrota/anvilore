@@ -62,7 +62,7 @@ test("Dado rg ausente mas travas completas Quando rodo doctor Então avisa sobre
 });
 
 test("Dado servidor MCP registrado no agente, Quando roda doctor, Então mostra estado real", async () => {
-  const ambienteMcp = { home: tmp, existe: async (nome: string) => nome === "claude", executar: async () => ({ codigo: 0, saida: "anvilore: bun /repo/src/cli.ts mcp" }) };
+  const ambienteMcp = { home: tmp, existe: async (nome: string) => nome === "claude", executar: async () => ({ codigo: 0, saida: `anvilore: bun "${join(clone, "src", "cli.ts")}" mcp` }) };
   await comandoDoctor([clone], { ambienteMcp });
   expect(consoleCapturado.saida.join("\n")).toContain("MCP de consulta à wiki: opcional — ligado em claude");
 });

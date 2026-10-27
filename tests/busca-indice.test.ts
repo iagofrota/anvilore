@@ -44,6 +44,18 @@ test("Dado symlink .md para fora da wiki, Quando indexa, Então ignora o alvo e 
   } finally { avisos.mockRestore(); db.close(); }
 });
 
+test("Dado symlink .md interno, Quando indexa, Então usa apenas o caminho canônico do alvo", async () => {
+  if (process.platform === "win32") return;
+  const f = fixture(); pagina(join(f.wiki, "legitima.md"), "## Tema\ntermo interno"); mkdirSync(join(f.wiki, "sub"));
+  symlinkSync(join(f.wiki, "legitima.md"), join(f.wiki, "sub", "interno.md"));
+  const db = abrirIndice(f.db);
+  try {
+    await sincronizar(db, f.wiki, f.raiz);
+    expect(db.query("SELECT caminho FROM paginas").all()).toEqual([{ caminho: "legitima.md" }]);
+    expect(db.query("SELECT caminho FROM secoes").all()).toEqual([{ caminho: "legitima.md" }]);
+  } finally { db.close(); }
+});
+
 test("Dado índice atualizado, Quando não há mudanças, Então não reindexa", async () => {
   const f = fixture(); pagina(join(f.wiki, "a.md")); const db = abrirIndice(f.db);
   try { await sincronizar(db, f.wiki, f.raiz); expect((await sincronizar(db, f.wiki, f.raiz)).reindexadas).toBe(0); }
@@ -113,6 +125,15 @@ test("Dado versão de esquema diferente, Quando abre o índice, Então reconstr�
   const reconstruido = abrirIndice(f.db);
   try { expect(reconstruido.query("PRAGMA user_version").get()).toEqual({ user_version: 2 }); expect(reconstruido.query("SELECT count(*) AS n FROM paginas").get()).toEqual({ n: 0 }); }
   finally { reconstruido.close(); }
+});
+
+test("Dado versão antiga com objeto incompatível, Quando recria o esquema, Então desfaz a transação e falha", () => {
+  const f = fixture(); mkdirSync(join(f.raiz, ".anvilore")); const original = new Database(f.db);
+  original.exec("CREATE VIEW paginas AS SELECT 1 AS conflito; PRAGMA user_version = 999"); original.close();
+  expect(() => abrirIndice(f.db)).toThrow();
+  const preservado = new Database(f.db);
+  try { expect(preservado.query("PRAGMA user_version").get()).toEqual({ user_version: 999 }); }
+  finally { preservado.close(); }
 });
 
 test("Dado duas conexões concorrentes, Quando sincronizam, Então não duplicam seções", async () => {

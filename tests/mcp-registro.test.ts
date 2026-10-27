@@ -31,7 +31,7 @@ test("Dado entrada Anvilore e outra entrada, Quando desliga, Então remove só A
   expect(await r.desligar(f.amb)).toBe("removido");
   expect(f.ligado()).toBe(false);
   expect(f.comandos.at(-1)).toEqual(["claude", "mcp", "remove", "-s", "user", "anvilore"]);
-  expect(f.amb.home).toBe("/home/teste");
+  expect(f.comandos.filter((cmd) => cmd.includes("remove"))).toHaveLength(1);
 });
 
 test("Dado agente ligado, Quando consulto e removo, Então o estado alterna", async () => {
@@ -84,4 +84,23 @@ test("Dado list de agente que nunca responde, Quando consulta status, Então fal
   const inicio = Date.now();
   await expect(Promise.race([criarRegistrador("claude", 20).ligado(amb), new Promise((_, reject) => setTimeout(() => reject(new Error("teste excedeu timeout")), 500))])).rejects.toThrow("timeout");
   expect(Date.now() - inicio).toBeLessThan(500);
+});
+
+test("Dado list com símbolo e ANSI antes do servidor, Quando consulta status, Então reconhece anvilore", async () => {
+  const amb: Ambiente = { home: "/home/teste", existe: async () => true, executar: async () => ({ codigo: 0, saida: "\u001b[32m✓\u001b[0m anvilore: bun /repo/src/cli.ts mcp" }) };
+  expect(await criarRegistrador("claude").ligado(amb)).toBe(true);
+});
+
+test("Dado registro aponta para outro clone, Quando compara com o script deste clone, Então não considera ligado", async () => {
+  const amb: Ambiente = { home: "/home/teste", existe: async () => true, executar: async () => ({ codigo: 0, saida: "anvilore: bun /outro/src/cli.ts mcp" }) };
+  expect(await criarRegistrador("claude").ligado(amb, "/repo/src/cli.ts")).toBe(false);
+});
+
+test("Dado falha ao remover registro, Quando desliga, Então avisa e retorna ausente", async () => {
+  const avisos = spyOn(console, "warn").mockImplementation(() => {});
+  const amb: Ambiente = { home: "/home/teste", existe: async () => true, executar: async cmd => ({ codigo: cmd.includes("list") ? 0 : 1, saida: cmd.includes("list") ? "anvilore: bun /repo/src/cli.ts mcp" : "falhou" }) };
+  try {
+    expect(await criarRegistrador("claude").desligar(amb)).toBe("ausente");
+    expect(avisos).toHaveBeenCalledWith(expect.stringContaining("não foi possível remover claude"));
+  } finally { avisos.mockRestore(); }
 });

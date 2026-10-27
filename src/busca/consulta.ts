@@ -29,7 +29,7 @@ export function montarConsulta(texto: string, valida: (match: string) => boolean
   const normalizado = texto.normalize("NFC");
   const palavras = normalizado.match(PALAVRA) ?? [];
   const explicita = normalizado.includes('"') || OPERADOR.test(normalizado);
-  const colunasExplicitas = new Set([...normalizado.matchAll(/\b(titulo|title|corpo|body|caminho|path):/gi)].map((m) => m[1]!.toLocaleLowerCase("pt-BR")));
+  const colunasExplicitas = new Set(explicita ? [...normalizado.matchAll(/\b(titulo|title|corpo|body|caminho|path):/gi)].map((m) => m[1]!.toLocaleLowerCase("pt-BR")) : []);
   const semStopwords = palavras.filter((termo) => !STOPWORDS_PT.has(termo.toLocaleLowerCase("pt-BR")));
   const termosBase = semStopwords.length > 0 ? semStopwords : palavras;
   const termos = termosBase.filter((termo, i, todos) => todos.indexOf(termo) === i && !/^(?:AND|OR|NOT|NEAR)$/i.test(termo) && !colunasExplicitas.has(termo.toLocaleLowerCase("pt-BR")));

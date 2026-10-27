@@ -67,6 +67,8 @@ Para a linhagem do método e a argumentação completa das posições de design,
 - O servidor MCP roda sob demanda. Não há RAG, banco vetorial ou serviço residente.
 - Uma falha temporária ao abrir o índice não desativa a sessão MCP: cada `buscar` tenta sincronizar
   de novo, e falhas de acesso/ocupação são relatadas como `indice_indisponivel`.
+- Um symlink de Markdown cujo alvo real continua dentro de `wiki/` entra no índice só pelo caminho
+  canônico do alvo, mantendo o endereço de busca consistente com `ler`.
 
 ## SDK oficial do protocolo MCP
 

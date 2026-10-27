@@ -230,7 +230,7 @@ export async function comandoDoctor(args: string[], deps: { ambienteMcp?: Ambien
   };
   const ligados: string[] = [];
   for (const registrador of registradores) {
-    try { if (await registrador.ligado(mcpAmbiente)) ligados.push(registrador.agente); } catch { /* diagnóstico informativo */ }
+    try { if (await registrador.ligado(mcpAmbiente, join(raiz, "src", "cli.ts"))) ligados.push(registrador.agente); } catch { /* diagnóstico informativo */ }
   }
   console.log(`  MCP de consulta à wiki: opcional — ${ligados.length ? `ligado em ${ligados.join(", ")}` : "nenhum agente configurado"}; para ligar: bun src/cli.ts mcp ligar`);
   for (const item of prerequisitos) console.log(`  ${item.nome}: ${item.presente ? "presente" : `ausente — instale em ${ONDE_INSTALAR[item.nome]}`}`);

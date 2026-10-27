@@ -1,5 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { comandoMetricas, executarMetricas } from "../src/comandos/metricas";
@@ -64,4 +65,11 @@ test("Dado oito processos abrindo banco de métricas novo ao mesmo tempo, Quando
     expect(resultados.filter((resultado) => resultado.codigo !== 0)).toEqual([]);
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("Dado banco de métricas corrompido, Quando lê o resumo, Então fecha e propaga o erro", () => {
+  const dir = mkdtempSync(join(tmpdir(), "anvilore-metricas-corrompidas-")); const db = join(dir, "metricas.db");
+  writeFileSync(db, "lixo sqlite");
+  try { expect(() => abrirMetricas(db).resumo()).toThrow(); }
+  finally { rmSync(dir, { recursive: true, force: true }); }
 });

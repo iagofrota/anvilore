@@ -43,6 +43,12 @@ test("Dado consulta explícita com filtro de coluna FTS, Quando monta, Então tr
   expect(consulta.termos).toEqual(["alfa", "beta"]);
 });
 
+test("Dado consulta livre com palavras que parecem filtro, Quando monta, Então preserva caminho e title como termos", () => {
+  const consulta = montarConsulta("caminho: title: IBS", aceita);
+  expect(consulta.explicita).toBe(false);
+  expect(consulta.termos).toEqual(["caminho", "title", "IBS"]);
+});
+
 test("Dado candidato FTS recusado, Quando valida, Então usa saco de palavras entre aspas", () => {
   const consulta = montarConsulta("IBS: crédito", () => false);
   expect(consulta.match).toBe('"IBS" OR "crédito"');

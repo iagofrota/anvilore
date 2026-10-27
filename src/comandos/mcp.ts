@@ -54,13 +54,16 @@ export async function comandoMcp(args: string[], amb: Ambiente = ambiente()): Pr
   }
   if (acao === "desligar") {
     let removidos = 0;
-    for (const r of selecionados) if (await r.desligar(amb) === "removido") removidos++;
+    for (const r of selecionados) {
+      try { if (await r.desligar(amb, join(raiz, "src", "cli.ts")) === "removido") removidos++; }
+      catch { console.warn(`AVISO: não foi possível consultar ou desligar ${r.agente}; seguindo para o próximo agente.`); }
+    }
     console.log(`MCP removido de ${removidos} agente(s).`); return 0;
   }
   if (acao !== "estado") { console.error("Uso: anvilore mcp [ligar|desligar|estado] [--agente claude|codex|gemini|copilot|todos]"); return 2; }
   const ligados = [];
   for (const r of selecionados) {
-    try { if (await r.ligado(amb)) ligados.push(r.agente); }
+    try { if (await r.ligado(amb, join(raiz, "src", "cli.ts"))) ligados.push(r.agente); }
     catch { /* agente indisponível não interrompe o estado dos demais */ }
   }
   const nucleo = nucleoDaRaiz(raiz);

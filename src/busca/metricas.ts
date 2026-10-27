@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Estado } from "./estado";
+import { comRetentativaSqlite } from "./sqlite-retry";
 
 export type Chamada = {
   tool: "buscar" | "ler" | "indexar"; ms: number; bytes: number; resultados: number; vazia: boolean; palavras: number; explicita: boolean;
@@ -32,7 +33,7 @@ function dataLocal(agora: Date): string {
 }
 function dbAberto(arquivo: string): Database {
   mkdirSync(resolve(arquivo, ".."), { recursive: true });
-  for (let tentativa = 0; ; tentativa++) {
+  return comRetentativaSqlite(() => {
     let db: Database | undefined;
     let transacao = false;
     try {
@@ -50,11 +51,9 @@ function dbAberto(arquivo: string): Database {
     } catch (causa) {
       if (transacao) try { db?.exec("ROLLBACK"); } catch { /* mantém a falha original */ }
       try { db?.close(); } catch { /* mantém a falha original */ }
-      const codigo = typeof causa === "object" && causa !== null && "code" in causa ? String((causa as { code: unknown }).code) : "";
-      if (!codigo.includes("SQLITE_BUSY") && !codigo.includes("SQLITE_LOCKED") || tentativa >= 5) throw causa;
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * (2 ** tentativa));
+      throw causa;
     }
-  }
+  });
 }
 function numero(valor: number): number { return Number.isFinite(valor) && valor > 0 ? valor : 0; }
 function vazio(): RelatorioMetricas {

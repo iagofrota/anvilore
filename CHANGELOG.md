@@ -18,6 +18,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - `anvilore metricas` usa o diretório local da raiz do clone, respeitando `ANVILORE_DIR`.
 - MCP tenta sincronizar o índice novamente a cada chamada de busca após falha de inicialização.
 - A abertura concorrente de um índice SQLite novo repete operações bloqueadas antes de falhar.
+- Registros MCP com símbolos/ANSI são reconhecidos; remoção falha por agente e continua para os seguintes.
+- Symlinks internos são indexados uma vez pelo caminho canônico; consultas livres preservam termos como `caminho` e `title`.
 
 - O instalador e o `doctor` avisam quando falta `rg`, usado pela skill `query`, e mostram como
   obtê-lo em Windows, macOS e Linux. O aviso não reprova nem instala nada automaticamente.

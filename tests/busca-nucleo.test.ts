@@ -150,9 +150,9 @@ test("Dado sintaxe explícita inválida, Quando busca, Então usa fallback liter
   expect("erro" in resposta).toBe(false);
 });
 
-test("Dado caminho do índice ocupado por diretório, Quando busca, Então devolve indice_corrompido", async () => {
+test("Dado caminho do índice ocupado por diretório, Quando busca, Então devolve indice_indisponivel", async () => {
   const raiz = raizTemporaria(); mkdirSync(join(raiz, "wiki")); mkdirSync(join(raiz, ".anvilore", "indice.db"), { recursive: true });
-  expect(await nucleo(raiz).buscar("termo")).toMatchObject({ erro: { codigo: "indice_corrompido" } });
+  expect(await nucleo(raiz).buscar("termo")).toMatchObject({ erro: { codigo: "indice_indisponivel" } });
 });
 
 test("Dado arquivo SQLite corrompido, Quando busca, Então reconstrói uma vez e encontra", async () => {

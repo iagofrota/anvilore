@@ -39,10 +39,12 @@ test("Dado agente disponível, Quando liga MCP, Então indexa e registra comando
 
 test("Dado registro ausente, Quando remove e consulta estado, Então não toca no índice e informa páginas", async () => {
   await comWiki(async () => ({ codigo: 0, saida: "" }), async () => {
-    const log = capturarConsole();
+    const log = capturarConsole(); const comandos: string[][] = [];
     try {
-      expect(await comandoMcp(["desligar", "claude"], { home: "/tmp", existe: async () => false, executar: async () => ({ codigo: 0, saida: "" }) })).toBe(0);
-      expect(await comandoMcp(["estado"], { home: "/tmp", existe: async () => false, executar: async () => ({ codigo: 0, saida: "" }) })).toBe(0);
+      const amb = { home: "/tmp", existe: async () => false, executar: async (cmd: string[]) => { comandos.push(cmd); return { codigo: 0, saida: "" }; } };
+      expect(await comandoMcp(["desligar", "claude"], amb)).toBe(0);
+      expect(await comandoMcp(["estado"], amb)).toBe(0);
+      expect(comandos).toEqual([]);
       expect(log.saida.join("\n")).toContain("Páginas: 1");
       expect(log.saida.join("\n")).toContain("Índice:");
       expect(log.saida.join("\n")).toContain("Última reindexação:");
@@ -69,6 +71,24 @@ test("Dado list de um agente que falha, Quando liga todos, Então segue para os 
       });
       expect(resultado).toBe(0);
       expect(comandos.some((cmd) => cmd[0] === "codex" && cmd.includes("add"))).toBe(true);
+    } finally { log.restaurar(); }
+  });
+});
+
+test("Dado erro ao remover um agente, Quando desliga todos, Então avisa e tenta os agentes seguintes", async () => {
+  await comWiki(async () => ({ codigo: 0, saida: "" }), async () => {
+    const comandos: string[][] = []; const log = capturarConsole();
+    try {
+      expect(await comandoMcp(["desligar", "todos"], {
+        home: "/tmp", existe: async () => true,
+        executar: async cmd => {
+          comandos.push(cmd);
+          if (cmd.includes("list")) return { codigo: 0, saida: `anvilore: bun "${join(process.cwd(), "src", "cli.ts")}" mcp` };
+          return { codigo: cmd[0] === "claude" ? 1 : 0, saida: "erro" };
+        },
+      })).toBe(0);
+      expect(comandos.filter(cmd => cmd.includes("remove"))).toHaveLength(4);
+      expect(log.avisos.join("\n")).toContain("não foi possível remover claude");
     } finally { log.restaurar(); }
   });
 });
