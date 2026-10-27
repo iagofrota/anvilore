@@ -103,6 +103,17 @@ test("Dado página aprovada antes da geração atual Quando aprovo Então acresc
   expect(texto).toMatch(/- by: human:iago-avila\n    at: \d{4}-\d\d-\d\dT.*Z/);
 });
 
+test("Dado página em CRLF Quando aprovo Então preservo os bytes do corpo e o fim de linha", async () => {
+  const pagina = join(raiz, "wiki/pessoal/crlf.md");
+  const original = Buffer.from("---\r\ntitle: CRLF\r\ngenerated:\r\n  by: agente\r\n  at: 2026-10-27T10:00:00Z\r\n---\r\nCorpo preservado.\r\n", "utf8");
+  writeFileSync(pagina, original);
+  expect((await aprovarPaginas(raiz, ["wiki/pessoal/crlf.md"])).codigo).toBe(0);
+  const atualizado = readFileSync(pagina);
+  const sufixoOriginal = Buffer.from("\r\n---\r\nCorpo preservado.\r\n", "utf8");
+  expect(atualizado.subarray(atualizado.length - sufixoOriginal.length)).toEqual(sufixoOriginal);
+  expect(Buffer.from(atualizado.toString("utf8").replaceAll("\r\n", ""), "utf8").includes(Buffer.from("\n"))).toBe(false);
+});
+
 test("Dado lista vazia Quando aprovo Então informa o uso", async () => {
   expect(await aprovarPaginas(raiz, [])).toEqual({ codigo: 2, mensagens: ["Uso: anvilore aprovar <página.md> [página.md ...]"] });
 });

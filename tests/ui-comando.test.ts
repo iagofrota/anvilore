@@ -40,13 +40,13 @@ test("Dado configuração padrão Quando recebo SIGTERM Então o handler registr
   } finally { spy.mockRestore(); }
 });
 
-test("Dado comando válido Quando o servidor abre Então exibe endereço local e encerra após o sinal", async () => {
+test("Dado comando válido Quando o servidor abre Então exibe a URL com token e encerra após o sinal", async () => {
   const c = capturarConsole();
   let encerrou = false;
-  const fake = { servidor: { stop: () => { encerrou = true; } }, porta: 4173, token: "token", url: "http://127.0.0.1:4173" } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>;
+  const fake = { servidor: { stop: () => { encerrou = true; } }, porta: 4173, token: "token", url: "http://127.0.0.1:4173/?token=token" } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>;
   try {
     expect(await comandoUi([], async () => fake, async servidor => { servidor.stop(true); })).toBe(0);
-    expect(c.saida.join(" ")).toContain("http://127.0.0.1:4173");
+    expect(c.saida.join(" ")).toContain("http://127.0.0.1:4173/?token=token");
     expect(encerrou).toBe(true);
   } finally { c.restaurar(); }
 });

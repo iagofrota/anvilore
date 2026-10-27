@@ -47,6 +47,23 @@ test("Dado aprovação autorizada Quando envio a ação Então o servidor usa o 
   expect(readFileSync(arquivo, "utf8")).toContain("by: human:local");
 });
 
+for (const caso of [
+  { nome: "verified posterior de ator não humano", verified: "verified:\n  - by: agente/revisor\n    at: 2026-10-27T11:00:00Z\n" },
+  { nome: "verified humano um nanossegundo anterior", verified: "verified:\n  - by: human:ana\n    at: 2026-10-27T10:00:00.000000001Z\n", generated: "2026-10-27T10:00:00.000000002Z" },
+  { nome: "verified humano em flow YAML", verified: 'verified: [{by: "human:ana", at: 2026-10-27T09:00:00Z}]\n', generated: "2026-10-27T10:00:00Z" },
+]) {
+  test(`Dado ${caso.nome} Quando aprovo via HTTP Então a decisão coincide com a fila`, async () => {
+    const arquivo = join(raiz, "wiki/concepts/consistente.md");
+    mkdirSync(join(raiz, ".anvilore"), { recursive: true });
+    writeFileSync(join(raiz, ".anvilore/identidade"), "human:local\n");
+    writeFileSync(arquivo, `---\ntype: concept\nslug: consistente\ntitle: Consistente\ngenerated:\n  by: agente/teste\n  at: ${caso.generated ?? "2026-10-27T10:00:00Z"}\n${caso.verified}---\nCorpo.\n`);
+    const app = await servidor();
+    const resposta = await fetch(`http://127.0.0.1:${app.porta}/api/aprovar?token=token-teste`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ caminho: "concepts/consistente.md" }) });
+    expect(resposta.status).toBe(200);
+    expect(readFileSync(arquivo, "utf8")).toContain("by: human:local");
+  });
+}
+
 test("Dado wiki válida Quando peço Tudo revisado Então roda validar e devolve saída e código reais", async () => {
   writeFileSync(join(raiz, "wiki/index.md"), "# Wiki\n");
   const app = await servidor();
