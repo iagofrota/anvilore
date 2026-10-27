@@ -15,8 +15,9 @@ Para a linhagem do método e a argumentação completa das posições de design,
 - **Decisão do dono do projeto em 2026-10-23.** Rust foi descartado. TypeScript rodando no Bun foi
   escolhido pela integração futura com SDKs de agentes.
 - O que o repositório mostra hoje: `package.json` fixa o Bun (`packageManager`), declara o
-  executável `anvilore` apontando para `src/cli.ts` e tem só dependências de desenvolvimento
-  (@types/bun e typescript); `tsconfig.json` liga o modo estrito; `bunfig.toml` define o
+  executável `anvilore` apontando para `src/cli.ts`, inclui o SDK oficial do MCP como
+  dependência de produção e deixa os tipos de Bun e o TypeScript como dependências de desenvolvimento;
+  `tsconfig.json` liga o modo estrito; `bunfig.toml` define o
   limite de cobertura.
 - O frontmatter é lido com o YAML que o próprio Bun traz (`Bun.YAML.parse`, em
   `src/lib/frontmatter.ts`), sem biblioteca de terceiros.
@@ -59,8 +60,8 @@ Para a linhagem do método e a argumentação completa das posições de design,
 
 ## Sem RAG; índice local opcional
 
-- A wiki continua sendo Markdown. O índice FTS5 local é opcional, derivado e descartável, fica em
-  no diretório local ignorado pelo Git e pode ser reconstruído a partir de `wiki/`.
+- A wiki continua sendo Markdown. O índice FTS5 local é opcional, derivado e descartável, fica no
+  diretório oculto local ignorado pelo Git, e pode ser reconstruído a partir de `wiki/`.
 - O servidor MCP roda sob demanda. Não há RAG, banco vetorial ou serviço residente.
 
 ## SDK oficial do protocolo MCP

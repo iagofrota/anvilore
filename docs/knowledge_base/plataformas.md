@@ -30,8 +30,6 @@ do que ainda é só hipótese.
 - O `.gitattributes` fixa `eol=lf` para texto, Markdown e TypeScript, para o checkout no Windows
   não trazer CRLF.
 
-## Busca da wiki: dependência e prova por shell
-
 ## MCP de consulta: configuração por agente
 
 O servidor usa stdio e o campo de protocolo `instructions` no `initialize`. O teste do SDK verifica
@@ -41,7 +39,7 @@ CLI e Copilot CLI recebem o campo no protocolo, mas o efeito no comportamento de
 validado nesta entrega.
 
 O registro pelo CLI usa escopo de usuário: Claude `claude mcp add -s user anvilore -- ...`, Gemini
-`gemini mcp add -s user anvilore ...`, Copilot `copilot mcp add anvilore -- ...` (configuração de
+`gemini mcp add -s user anvilore -- ...`, Copilot `copilot mcp add anvilore -- ...` (configuração de
 usuário por padrão) e Codex `codex mcp add anvilore -- ...` (em ~/.codex/config.toml). Fontes
 oficiais: [Claude Code MCP](https://code.claude.com/docs/en/mcp), [Codex MCP](https://developers.openai.com/codex/mcp),
 [Gemini CLI MCP](https://google-gemini.github.io/gemini-cli/docs/tools/mcp-server.html) e
@@ -49,7 +47,10 @@ oficiais: [Claude Code MCP](https://code.claude.com/docs/en/mcp), [Codex MCP](ht
 
 O teste de FTS5/SDK e o [CI do PR #17, run 40564322309](https://github.com/iagofrota/anvilore/actions/runs/40564322309)
 passaram em Linux, macOS e Windows para o commit 981bc9e. Esse run confirmou também a reconstrução
-do índice SQLite corrompido no Windows sem deixar arquivo bloqueado.
+do índice SQLite corrompido no Windows sem deixar arquivo bloqueado. As páginas desta base de
+conhecimento descrevem a implementação e aguardam revisão do Iago.
+
+## Busca da wiki: dependência e prova por shell
 
 A skill `query` (`skills/query/SKILL.md`) depende do **ripgrep**, executável `rg`, no PATH.
 `instalar` e `doctor` consultam o PATH e avisam quando falta; o aviso não muda o código de saída
