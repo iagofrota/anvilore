@@ -22,7 +22,7 @@ function erro(codigo: CodigoErro, mensagem: string): { erro: ErroDeBusca } { ret
 function falhaDeIndice(causa: unknown): { codigo: CodigoErro; mensagem: string } {
   if (causa instanceof ErroDeEncoding) return { codigo: "utf8_invalido", mensagem: "Uma página não contém UTF-8 válido." };
   const codigoOriginal = typeof causa === "object" && causa !== null && "code" in causa ? String((causa as { code: unknown }).code) : "";
-  if (["EACCES", "EPERM", "EBUSY", "SQLITE_BUSY", "SQLITE_LOCKED"].includes(codigoOriginal)) return { codigo: "indice_indisponivel", mensagem: "O índice está ocupado ou sem permissão de acesso." };
+  if (["EACCES", "EPERM", "EBUSY", "EEXIST", "ENOTDIR", "EROFS", "EMFILE", "SQLITE_BUSY", "SQLITE_LOCKED", "SQLITE_CANTOPEN", "SQLITE_PERM", "SQLITE_READONLY"].some((codigo) => codigoOriginal.includes(codigo))) return { codigo: "indice_indisponivel", mensagem: "O índice está ocupado ou sem permissão de acesso." };
   return { codigo: "indice_corrompido", mensagem: "Não foi possível consultar o índice local." };
 }
 function erroDeIndice(erroOriginal: unknown): boolean {

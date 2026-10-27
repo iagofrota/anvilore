@@ -121,7 +121,25 @@ test("Dado diretório de dados indisponível, Quando inicia o MCP, Então conect
     await client.connect(transport);
     const resposta = await client.callTool({ name: "buscar", arguments: { consulta: "miosótis" } });
     expect(resposta.isError).toBe(true);
-    expect(textoDa(resposta)).toContain("indice_corrompido");
+    expect(textoDa(resposta)).toContain("indice_indisponivel");
+  } finally { await client.close(); rmSync(raiz, { recursive: true, force: true }); }
+});
+
+test("Dado índice indisponível na inicialização, Quando os dados voltam e buscar é chamado de novo, Então tenta indexar novamente", async () => {
+  const raiz = mkdtempSync(join(tmpdir(), "anvilore-mcp-retry-"));
+  const bloqueio = join(raiz, "arquivo"); writeFileSync(bloqueio, "não é diretório");
+  const wikiPath = wiki(raiz);
+  const transport = new StdioClientTransport({ command: "bun", args: ["src/cli.ts", "mcp", "--wiki", wikiPath], cwd: process.cwd(), env: { ...process.env, ANVILORE_DIR: bloqueio } });
+  const client = new Client({ name: "teste-mcp-retry", version: "1" });
+  try {
+    await client.connect(transport);
+    const inicial = await client.callTool({ name: "buscar", arguments: { consulta: "miosótis" } });
+    expect(inicial.isError).toBe(true);
+    expect(textoDa(inicial)).toContain("indice_indisponivel");
+    rmSync(bloqueio); mkdirSync(bloqueio);
+    const recuperada = await client.callTool({ name: "buscar", arguments: { consulta: "miosótis" } });
+    expect(recuperada.isError).not.toBe(true);
+    expect(textoDa(recuperada)).toContain("miosótis");
   } finally { await client.close(); rmSync(raiz, { recursive: true, force: true }); }
 });
 

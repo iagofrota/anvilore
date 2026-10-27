@@ -54,9 +54,8 @@ export async function criarServidor(cfg: ConfiguracaoServidor): Promise<McpServe
   const wiki = resolve(cfg.wiki);
   const diretorioDados = process.env.ANVILORE_DIR ? resolve(process.env.ANVILORE_DIR) : join(raiz, ".anvilore");
   let metricas: ReturnType<typeof abrirMetricas> | undefined;
-  let inicializacaoComFalha = false;
   try { metricas = abrirMetricas(join(diretorioDados, "metricas.db")); }
-  catch { inicializacaoComFalha = true; }
+  catch { /* métricas são opcionais e podem ser tentadas novamente pela próxima chamada que registrar */ }
   const conexao = randomUUID();
   let cliente: Cliente | undefined;
   let posicaoLida: number | null = null;
@@ -72,7 +71,7 @@ export async function criarServidor(cfg: ConfiguracaoServidor): Promise<McpServe
     try {
       await nucleo.indexar();
       resumo = await nucleo.resumoDaWiki();
-    } catch { inicializacaoComFalha = true; }
+    } catch { /* buscar sincroniza novamente; uma falha inicial não envenena a sessão */ }
   }
   let versao = "0.0.0";
   try { versao = (JSON.parse(await Bun.file(join(raiz, "package.json")).text()) as { version?: string }).version ?? versao; } catch { /* clone sem metadados de pacote */ }
@@ -93,7 +92,6 @@ export async function criarServidor(cfg: ConfiguracaoServidor): Promise<McpServe
       explicar: z.boolean().optional(),
     },
   }, async ({ consulta, limite, tipo, area, incluir, explicar }) => {
-    if (inicializacaoComFalha) return respostaMcp({ erro: { codigo: "indice_corrompido", mensagem: "Não foi possível preparar o índice local." } }, true);
     buscaIdAtual = randomUUID();
     const opcoes = {
       ...(limite === undefined ? {} : { limite }),
