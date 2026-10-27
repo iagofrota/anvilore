@@ -53,7 +53,7 @@ function captura(dir: string): unknown {
     return [nome, info.mtimeMs, info.isSymbolicLink() ? readlinkSync(caminho) : info.isDirectory() ? captura(caminho) : readFileSync(caminho, "utf8")];
   });
 }
-function rodar(alvos: Alvo[] = ["claude"], simular = false) { return instalar({ alvos, destino, simular }); }
+function rodar(alvos: Alvo[] = ["claude"], simular = false, opcoes: { autoCommit?: boolean; githubBackup?: boolean } = {}) { return instalar({ alvos, destino, simular, ...opcoes }); }
 
 test("Dado rg ausente Quando instalo Então avisa sobre query sem falhar nem instalar rg", async () => {
   const rg = join(process.env.PATH!, process.platform === "win32" ? "rg.cmd" : "rg");
@@ -76,6 +76,11 @@ test("Dado destino com espaço Quando instalo quatro agentes e repito Então INA
   expect(readFileSync(join(destino, ".codex/config.toml"), "utf8")).toContain('matcher = "apply_patch|Edit|Write|Bash"');
   expect(JSON.parse(readFileSync(join(destino, ".gemini/settings.json"), "utf8")).context.fileName).toEqual(["AGENTS.md", "GEMINI.md"]);
   expect(JSON.parse(readFileSync(join(destino, ".github/copilot/settings.json"), "utf8")).hooks.preToolUse[0]).toEqual({ type: "command", bash: comandoRelativo, powershell: comandoPowershell });
+  const copilotWikiHooks = JSON.parse(readFileSync(join(destino, ".github/hooks/anvilore.json"), "utf8"));
+  expect(copilotWikiHooks.version).toBe(1);
+  expect(copilotWikiHooks.hooks.postToolUse).toHaveLength(1);
+  expect(copilotWikiHooks.hooks.agentStop).toBeUndefined();
+  expect(copilotWikiHooks.hooks.sessionEnd).toHaveLength(1);
   const antes = captura(destino);
   expect((await rodar(["claude", "codex", "gemini", "copilot"])).veredito).toBe("INALTERADO");
   expect(captura(destino)).toEqual(antes); expect(readdirSync(lar)).toEqual([]);
@@ -534,11 +539,20 @@ test("Dado configuração antiga com entradas pessoais Quando reinstalo Então s
   gravarConfig(antigas.claude, { pessoal: "meu", ...antiga, hooks: { ...antiga.hooks, PostToolUse: [{ matcher: "Edit" }] } });
   expect((await rodar(["claude"])).codigo).toBe(0);
   const config = lerConfig(antigas.claude);
-  expect(config.pessoal).toBe("meu"); expect(config.hooks.PostToolUse).toEqual([{ matcher: "Edit" }]);
+  expect(config.pessoal).toBe("meu"); expect(config.hooks.PostToolUse[0]).toEqual({ matcher: "Edit" });
+  expect(config.hooks.PostToolUse[1].description).toContain("commit opcional");
   expect(config.hooks.PreToolUse).toContainEqual({ matcher: "Bash", hooks: [{ type: "command", command: "meu-linter.sh" }] });
   expect(config.hooks.PreToolUse).toContainEqual({ matcher: "Write", hooks: [{ type: "command", command: "meu-hook.sh" }] });
   expect(JSON.stringify(config)).not.toContain("hooks/proteger-raw.sh");
   expect(config.hooks.PreToolUse).toHaveLength(3);
+});
+
+test("Dado instalação com opções de Git solicitadas Quando instala Então registra ambas no anvilore.toml", async () => {
+  writeFileSync(join(destino, "anvilore.toml"), 'areas = ["pessoal"]\n');
+  const r = await rodar(["claude"], false, { autoCommit: true, githubBackup: true });
+  expect(r.codigo).toBe(0);
+  expect(Bun.TOML.parse(readFileSync(join(destino, "anvilore.toml"), "utf8"))).toEqual({ areas: ["pessoal"], hooks: { auto_commit: true, github_backup: true } });
+  expect(lerConfig(".claude/settings.json").hooks.SessionEnd[0].hooks[0].timeout).toBe(15);
 });
 
 test("Dado bloco antigo do Codex Quando reinstalo Então o bloco é trocado inteiro", async () => {

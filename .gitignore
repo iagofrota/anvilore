@@ -21,6 +21,7 @@ raw/*
 .gemini/
 .github/agents/
 .github/copilot/
+.github/hooks/anvilore.json
 
 logs/
 .DS_Store

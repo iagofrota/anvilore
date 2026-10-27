@@ -111,6 +111,34 @@ test("Dado o PATH escrito como Path Quando diagnostico Então ainda acha os pré
   expect((await diagnosticar(clone, { OUTRA: "x" })).prerequisitos.every(p => !p.presente)).toBe(true);
 });
 
+test("Dado opções Git ausentes Quando rodo doctor Então mostra ambas desligadas como opcionais", async () => {
+  const d = await diagnosticar(clone);
+  expect(d.travas.find(t => t.nome === "Commit automático das páginas de wiki")).toMatchObject({ ligada: false, opcional: true, comoLigar: expect.stringContaining("--auto-commit") });
+  expect(d.travas.find(t => t.nome === "Backup da branch no GitHub")).toMatchObject({ ligada: false, opcional: true, comoLigar: expect.stringContaining("--github-backup") });
+});
+
+test("Dado agente sem eventos de arquivo/compactação Quando doctor diagnostica Então explicita a indisponibilidade", async () => {
+  mkdirSync(join(clone, ".gemini")); mkdirSync(join(clone, ".github/copilot"), { recursive: true }); mkdirSync(join(clone, ".codex"));
+  const avisos = (await diagnosticar(clone)).avisos.join("\n");
+  expect(avisos).toContain("Gemini: não há evento FileChanged"); expect(avisos).toContain("W12/W13 não estão disponíveis");
+  expect(avisos).toContain("Copilot: não há evento FileChanged");
+  expect(avisos).toContain("W14 não está disponível");
+  expect(avisos).toContain("Codex: não há evento FileChanged");
+});
+
+test("Dado backup opt-in em branch sem upstream Quando doctor diagnostica Então avisa que o backup não pode enviar", async () => {
+  const path = ambiente.PATH ?? ambiente.Path ?? "";
+  const git = Bun.which("git", { PATH: path });
+  if (!git) throw new Error("git real necessário para preparar o cenário");
+  const run = (args: string[]) => Bun.spawnSync([git, "-C", clone, ...args], { stdout: "pipe", stderr: "pipe" });
+  expect(Bun.spawnSync([git, "init", "--initial-branch=main", clone], { stdout: "pipe", stderr: "pipe" }).exitCode).toBe(0);
+  expect(run(["config", "user.name", "Teste"]).exitCode).toBe(0);
+  expect(run(["config", "user.email", "teste@example.test"]).exitCode).toBe(0);
+  writeFileSync(join(clone, "anvilore.toml"), "[hooks]\ngithub_backup = true\n");
+  const d = await diagnosticar(clone, { PATH: path });
+  expect(d.avisos.join("\n")).toMatch(/backup.*upstream/i);
+});
+
 test("Dado hook antigo apontando para o script removido Quando diagnostico Então está desligada e manda reinstalar", async () => {
   gravar(".claude/settings.json", JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Write|Edit|NotebookEdit", hooks: [{ type: "command", command: '"$CLAUDE_PROJECT_DIR"/hooks/proteger-raw.sh' }] }] } }));
   gravar(".github/copilot/settings.json", JSON.stringify({ hooks: { preToolUse: [{ type: "command", bash: "./hooks/proteger-raw.sh" }] } }));

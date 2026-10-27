@@ -9,7 +9,7 @@ import { avisoRg } from "../lib/rg";
 const fonte = resolve(import.meta.dir, "../..");
 export const alvosConhecidos = ["claude", "codex", "gemini", "copilot"] as const;
 export type Alvo = typeof alvosConhecidos[number];
-type OpcoesInstalacao = { alvos: Alvo[]; destino: string; simular: boolean };
+type OpcoesInstalacao = { alvos: Alvo[]; destino: string; simular: boolean; autoCommit?: boolean; githubBackup?: boolean };
 type EstadoLink = "criado" | "ja-correto" | "falhou";
 type Fragmento = { json?: unknown; bloco?: string };
 
@@ -118,6 +118,8 @@ function chamadaAbsoluta(destino: string): string {
 const comandoSemOperador = (destino: string) => `${chamadaAbsoluta(destino)}; exit $LASTEXITCODE`;
 // Codex tem `commandWindows` (https://learn.chatgpt.com/docs/hooks): no Windows vale a forma PowerShell, que também fecha sem o bun.
 const comandoPowershellAbsoluto = (destino: string) => `${chamadaAbsoluta(destino)}; if ($LASTEXITCODE -ne 0) { exit 2 }`;
+const comandoEvento = (destino: string, evento: string) => `bun "${join(destino, "src", "cli.ts")}" hooks-wiki ${evento} "${destino}"`;
+const comandoEventoRelativo = (evento: string) => `bun ./src/cli.ts hooks-wiki ${evento}`;
 
 export async function configuracaoDoHook(alvo: Alvo, destino: string): Promise<Fragmento & { arquivo: string }> {
   switch (alvo) {
@@ -134,7 +136,39 @@ matcher = "apply_patch|Edit|Write|Bash"
 [[hooks.PreToolUse.hooks]]
 type = "command"
 command = ${JSON.stringify(comandoSemOperador(destino))}
-command_windows = ${JSON.stringify(comandoPowershellAbsoluto(destino))}`,
+command_windows = ${JSON.stringify(comandoPowershellAbsoluto(destino))}
+
+# Eventos de ferramenta e sessão disponíveis no Codex. As opções de Git leem anvilore.toml.
+[[hooks.PostToolUse]]
+matcher = "Write|Edit|apply_patch"
+
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = ${JSON.stringify(`${comandoEvento(destino, "autocommit")}; exit $LASTEXITCODE`)}
+command_windows = ${JSON.stringify(`${comandoEvento(destino, "autocommit")}; exit $LASTEXITCODE`)}
+
+[[hooks.SessionStart]]
+matcher = "compact"
+
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = ${JSON.stringify(`${comandoEvento(destino, "contexto")}; exit $LASTEXITCODE`)}
+command_windows = ${JSON.stringify(`${comandoEvento(destino, "contexto")}; exit $LASTEXITCODE`)}
+
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = ${JSON.stringify(`${comandoEvento(destino, "sugerir-lint")}; exit $LASTEXITCODE`)}
+command_windows = ${JSON.stringify(`${comandoEvento(destino, "sugerir-lint")}; exit $LASTEXITCODE`)}
+
+[[hooks.SessionEnd]]
+
+[[hooks.SessionEnd.hooks]]
+type = "command"
+command = ${JSON.stringify(`${comandoEvento(destino, "backup")}; exit $LASTEXITCODE`)}
+command_windows = ${JSON.stringify(`${comandoEvento(destino, "backup")}; exit $LASTEXITCODE`)}
+timeout = 3`,
       };
     case "gemini":
       return {
@@ -146,6 +180,12 @@ command_windows = ${JSON.stringify(comandoPowershellAbsoluto(destino))}`,
               matcher: "write_file|replace|run_shell_command",
               hooks: [{ name: "proteger-raw", type: "command", command: comandoSemOperador(destino) }],
             }],
+            AfterTool: [{
+              matcher: "write_file|replace",
+              hooks: [{ name: "anvilore-autocommit", type: "command", command: comandoEventoRelativo("autocommit") }],
+            }],
+            AfterAgent: [{ hooks: [{ name: "anvilore-sugerir-lint", type: "command", command: comandoEventoRelativo("sugerir-lint") }] }],
+            SessionEnd: [{ hooks: [{ name: "anvilore-backup", type: "command", command: comandoEventoRelativo("backup") }] }],
           },
         },
       };
@@ -365,6 +405,27 @@ export async function instalar(opcoes: OpcoesInstalacao): Promise<RelatorioInsta
     return relatorio;
   }
   const contexto: Contexto = { destino, simular: opcoes.simular, relatorio };
+  if (opcoes.autoCommit || opcoes.githubBackup) {
+    try {
+      const caminho = join(destino, "anvilore.toml");
+      let texto = "";
+      try { texto = await readFile(caminho, "utf8"); } catch (erro) { if ((erro as NodeJS.ErrnoException).code !== "ENOENT") throw erro; }
+      const gravar = (chave: string) => {
+        const secao = /^\[hooks\]\s*$/m.exec(texto);
+        if (!secao) { texto = `${texto.trimEnd()}${texto.trim() ? "\n\n" : ""}[hooks]\n${chave}\n`; return; }
+        const inicio = secao.index + secao[0].length;
+        const proxima = texto.indexOf("\n[", inicio);
+        const fim = proxima < 0 ? texto.length : inicio + proxima + 1;
+        const bloco = texto.slice(inicio, fim);
+        const nome = chave.split(" = ")[0]!;
+        const nova = new RegExp(`^${nome}\\s*=.*$`, "m");
+        texto = nova.test(bloco) ? texto.slice(0, inicio) + bloco.replace(nova, chave) + texto.slice(fim) : texto.slice(0, fim) + `${chave}\n` + texto.slice(fim);
+      };
+      if (opcoes.autoCommit) gravar("auto_commit = true");
+      if (opcoes.githubBackup) gravar("github_backup = true");
+      if (opcoes.autoCommit || opcoes.githubBackup) await escrever(contexto, "anvilore.toml", texto);
+    } catch (erro) { registrarErro(contexto, `anvilore.toml: ${motivo(erro)}`); }
+  }
   const alvos = [...new Set(opcoes.alvos)];
   relatorio.mensagens.push("anvilore — instalação", `destino: ${destino}`, `alvos: ${alvos.join(", ")}`);
   if (opcoes.simular) relatorio.mensagens.push("SIMULAÇÃO (nada será escrito)");
@@ -385,6 +446,12 @@ export async function instalar(opcoes: OpcoesInstalacao): Promise<RelatorioInsta
     try {
       const config = await configuracaoDoHook(alvo, destino);
       await configurar(contexto, config.arquivo, config);
+      if (alvo === "copilot") {
+        await configurar(contexto, ".github/hooks/anvilore.json", { json: { version: 1, hooks: {
+          postToolUse: [{ type: "command", bash: comandoEventoRelativo("autocommit"), powershell: comandoEventoRelativo("autocommit"), cwd: "." }],
+          sessionEnd: [{ type: "command", bash: comandoEventoRelativo("backup"), powershell: comandoEventoRelativo("backup"), cwd: "." }],
+        } } });
+      }
       await instalarSkills(contexto, alvo, await listarSkills());
       if (relatorio.erros === errosAntes) relatorio.instalados.push(alvo);
     } catch (erro) {
@@ -395,10 +462,11 @@ export async function instalar(opcoes: OpcoesInstalacao): Promise<RelatorioInsta
 }
 
 function ajuda(): string {
-  return `Uso: anvilore instalar [--alvo ${alvosConhecidos.join(",")}|todos] [--destino dir] [--simular]
+    return `Uso: anvilore instalar [--alvo ${alvosConhecidos.join(",")}|todos] [--destino dir] [--simular] [--auto-commit] [--github-backup]
 Configura um clone do anvilore; CLI ausente é relatada e pulada.
 Padrão: todos os alvos; destino = ANVILORE_DESTINO ou diretório do kit.
 --simular calcula as mudanças sem escrever em disco.
+--auto-commit e --github-backup ligam os recursos opcionais em anvilore.toml; ambos vêm desligados.
 
 Agente   Skills/comandos                      Configuração do hook
 claude   .claude/skills/<nome>                 .claude/settings.json
@@ -419,7 +487,7 @@ export async function comandoInstalar(args: string[]): Promise<number> {
     const { values } = parseArgs({
       args,
       options: {
-        alvo: { type: "string" }, destino: { type: "string" }, simular: { type: "boolean" }, help: { type: "boolean", short: "h" },
+        alvo: { type: "string" }, destino: { type: "string" }, simular: { type: "boolean" }, "auto-commit": { type: "boolean" }, "github-backup": { type: "boolean" }, help: { type: "boolean", short: "h" },
       },
       allowPositionals: false,
       strict: true,
@@ -437,6 +505,8 @@ export async function comandoInstalar(args: string[]): Promise<number> {
       alvos: alvos as Alvo[],
       destino: values.destino ?? process.env.ANVILORE_DESTINO ?? fonte,
       simular: values.simular ?? false,
+      autoCommit: values["auto-commit"] ?? false,
+      githubBackup: values["github-backup"] ?? false,
     });
     for (const mensagem of relatorio.mensagens) console.log(mensagem);
     return relatorio.codigo;
