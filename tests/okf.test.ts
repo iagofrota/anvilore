@@ -125,12 +125,15 @@ const completo = {
 };
 
 describe("validarProveniencia: formato", () => {
+  test("aprovadaPorHumano é null sem generated mapping", () => {
+    expect(validarProveniencia({}, "pagina.md", raiz).aprovadaPorHumano).toBeNull();
+  });
   test("Dado o perfil completo bem formado, Quando valido, Então não há erro nem métrica", () => {
-    expect(avaliar(completo)).toEqual({ erros: [], vencida: false, geradaAposVerificacao: false });
+    expect(avaliar(completo)).toEqual({ erros: [], vencida: false, geradaAposVerificacao: false, aprovadaPorHumano: true });
   });
 
   test("Dado nenhum campo de proveniência, Quando valido, Então a ausência nunca reprova", () => {
-    expect(avaliar({ title: "T" })).toEqual({ erros: [], vencida: false, geradaAposVerificacao: false });
+    expect(avaliar({ title: "T" })).toEqual({ erros: [], vencida: false, geradaAposVerificacao: false, aprovadaPorHumano: null });
   });
 
   test("Dado campos de proveniência nulos, Quando valido, Então contam como ausentes", () => {
@@ -214,7 +217,7 @@ describe("validarProveniencia: formato", () => {
   });
 
   test("Dado generated como data escalar legada, Quando valido, Então é ignorado", () => {
-    expect(avaliar({ generated: "2026-10-24" })).toEqual({ erros: [], vencida: false, geradaAposVerificacao: false });
+    expect(avaliar({ generated: "2026-10-24" })).toEqual({ erros: [], vencida: false, geradaAposVerificacao: false, aprovadaPorHumano: null });
   });
 
   test("Dado verified sem by, Quando valido, Então reprova citando verified", () => {
@@ -453,6 +456,6 @@ describe("validarProveniencia: comparação exata da fração", () => {
       ],
       stale_after: "2026-10-24T12:00:00.00000000001Z",
     });
-    expect(resultado).toEqual({ erros: [], vencida: false, geradaAposVerificacao: false });
+    expect(resultado).toEqual({ erros: [], vencida: false, geradaAposVerificacao: false, aprovadaPorHumano: true });
   });
 });

@@ -43,6 +43,7 @@ __pycache__/
 
 node_modules/
 coverage/
+.anvilore/
 
 # Desenhos e planos de trabalho ficam só na máquina de quem os escreve: nunca
 # versionados nem enviados (pedido do Iago, 2026-10-24).

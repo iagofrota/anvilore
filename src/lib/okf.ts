@@ -7,6 +7,7 @@ export type Proveniencia = {
   erros: string[];
   vencida: boolean;
   geradaAposVerificacao: boolean;
+  aprovadaPorHumano: boolean | null;
 };
 
 type Mapa = Record<string, unknown>;
@@ -194,11 +195,11 @@ export function validarProveniencia(frontmatter: Mapa, arquivo: string, raiz: st
     else vencida = compararInstantes({ segundos: Math.floor(agora.getTime() / 1000), fracao: String(agora.getUTCMilliseconds()).padStart(3, "0") }, lido.data) >= 0;
   }
 
-  if (portaoHumano && geradaEmMapa) {
-    const aprovada = verificacoes.humanas.some((quando) => geradoEm === null || (quando !== null && compararInstantes(quando, geradoEm) >= 0));
-    if (!aprovada) erros.push(`página gerada sem aprovação humana: ${arquivo}`);
-  }
+  const aprovadaPorHumano = geradaEmMapa
+    ? verificacoes.humanas.some((quando) => geradoEm === null || (quando !== null && compararInstantes(quando, geradoEm) >= 0))
+    : null;
+  if (portaoHumano && aprovadaPorHumano === false) erros.push(`página gerada sem aprovação humana: ${arquivo}`);
 
   const geradaAposVerificacao = geradoEm !== null && verificacoes.ultima !== null && compararInstantes(geradoEm, verificacoes.ultima) > 0;
-  return { erros, vencida, geradaAposVerificacao };
+  return { erros, vencida, geradaAposVerificacao, aprovadaPorHumano };
 }

@@ -11,6 +11,15 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Added
 
+- Índice de busca FTS5 local e MCP opcional para consulta confinada à wiki, com `buscar`, `ler`,
+  métricas locais agregadas e registro de usuário para Claude Code, Codex, Gemini CLI e Copilot CLI.
+- Comandos `anvilore mcp ligar|desligar|estado` e `anvilore indexar [--completo]`.
+- Timeout de cinco segundos por agente ao consultar registros MCP no `doctor` e em `mcp estado`.
+- `anvilore metricas` usa o diretório local da raiz do clone, respeitando `ANVILORE_DIR`.
+- MCP tenta sincronizar o índice novamente a cada chamada de busca após falha de inicialização.
+- A abertura concorrente de um índice SQLite novo repete operações bloqueadas antes de falhar.
+- Registros MCP com símbolos/ANSI são reconhecidos; remoção falha por agente e continua para os seguintes.
+- Symlinks internos são indexados uma vez pelo caminho canônico; consultas livres preservam termos como `caminho` e `title`.
 - Hooks nos quatro agentes para commit opcional de páginas em `wiki/`, backup opcional no GitHub ao fim da sessão e
   sugestão de lint após cinco ingestões. Claude Code observa `raw/` com SessionStart `watchPaths` + FileChanged e
   restaura o contexto após compactação; Codex restaura o contexto após compactação. O doctor informa eventos

@@ -1,6 +1,5 @@
 ---
-generated: 2026-10-24
-verified: 2026-10-25
+generated: 2026-10-27
 ---
 
 # Decisões
@@ -16,8 +15,9 @@ Para a linhagem do método e a argumentação completa das posições de design,
 - **Decisão do dono do projeto em 2026-10-23.** Rust foi descartado. TypeScript rodando no Bun foi
   escolhido pela integração futura com SDKs de agentes.
 - O que o repositório mostra hoje: `package.json` fixa o Bun (`packageManager`), declara o
-  executável `anvilore` apontando para `src/cli.ts` e tem só dependências de desenvolvimento
-  (@types/bun e typescript); `tsconfig.json` liga o modo estrito; `bunfig.toml` define o
+  executável `anvilore` apontando para `src/cli.ts`, inclui o SDK oficial do MCP como
+  dependência de produção e deixa os tipos de Bun e o TypeScript como dependências de desenvolvimento;
+  `tsconfig.json` liga o modo estrito; `bunfig.toml` define o
   limite de cobertura.
 - O frontmatter é lido com o YAML que o próprio Bun traz (`Bun.YAML.parse`, em
   `src/lib/frontmatter.ts`), sem biblioteca de terceiros.
@@ -33,17 +33,11 @@ Para a linhagem do método e a argumentação completa das posições de design,
   declara suporte a Linux, Windows e macOS. O CI roda nos três sistemas (`.github/workflows/ci.yml`) e passou nos PRs das Ondas 1 (#13, run 40150863576) e 2 (#11, run 40191764239). Os detalhes e os riscos
   estão em [plataformas.md](plataformas.md).
 
-## Não fundir buscas (sentido a confirmar pelo dono)
+## Não fundir buscas
 
-- A busca da wiki é o índice (`wiki/index.md`) mais `rg`, sem índice de busca dedicado
-  (`skills/query/SKILL.md`, "Sem um indexador dedicado
-  neste nível"). O índice de busca fica de fora do kit de propósito (`README.md`, nível 04, e
-  `FILOSOFIA.md`, seção 3).
-- Nenhum arquivo do repositório registra a regra "não fundir buscas" com essas palavras, nem diz
-  quem a decidiu e quando. Esta página descreve o comportamento que o repositório mostra e não
-  afirma data nem autoria da decisão.
-- **Pendência:** o dono do projeto precisa confirmar o que "não fundir buscas" significa e quando
-  foi decidido, antes de esta página receber `verified`.
+- **Decisão do Iago em 2026-10-26.** O MCP consulta apenas a wiki; cada outra fonte fica nos MCPs
+  próprios, sem ranking fundido.
+- O caminho sem MCP continua usando `rg --no-ignore` (`skills/query/SKILL.md`).
 
 ## Curadoria humana não é opcional
 
@@ -64,12 +58,22 @@ Para a linhagem do método e a argumentação completa das posições de design,
   limites de [governanca.md](governanca.md). Ele falha fechado quando não consegue isolar o caminho. O alcance exato está em
   [governanca.md](governanca.md).
 
-## Sem RAG e sem infraestrutura
+## Sem RAG; índice local opcional
 
-- A wiki é um diretório de Markdown, sem servidor, índice binário ou banco vetorial
-  (`FILOSOFIA.md`, seção 4; `README.md`, seção "Os quatro níveis").
-- Consequência prática: o produto não tem dependência de produção. `package.json` só lista
-  dependências de desenvolvimento.
+- A wiki continua sendo Markdown. O índice FTS5 local é opcional, derivado e descartável, fica no
+  diretório oculto local ignorado pelo Git, e pode ser reconstruído a partir de `wiki/`.
+- Os comandos de métricas e o MCP usam o diretório local de dados na raiz do clone; `ANVILORE_DIR`
+  substitui esse diretório para ambientes isolados.
+- O servidor MCP roda sob demanda. Não há RAG, banco vetorial ou serviço residente.
+- Uma falha temporária ao abrir o índice não desativa a sessão MCP: cada `buscar` tenta sincronizar
+  de novo, e falhas de acesso/ocupação são relatadas como `indice_indisponivel`.
+- Um symlink de Markdown cujo alvo real continua dentro de `wiki/` entra no índice só pelo caminho
+  canônico do alvo, mantendo o endereço de busca consistente com `ler`.
+
+## SDK oficial do protocolo MCP
+
+- **Decisão do Iago em 2026-10-26.** @modelcontextprotocol/sdk é a primeira dependência de
+  produção do kit, para manter a porta MCP conforme o protocolo oficial.
 
 ## Neutralidade de provedor de agente
 

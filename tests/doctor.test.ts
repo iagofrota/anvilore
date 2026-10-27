@@ -57,7 +57,14 @@ test("Dado rg ausente mas travas completas Quando rodo doctor Então avisa sobre
   rmSync(join(bin, process.platform === "win32" ? "rg.cmd" : "rg"));
   expect(await comandoDoctor([clone])).toBe(0);
   expect(consoleCapturado.saida.join("\n")).toMatch(/AVISO:.*query.*rg/);
+  expect(consoleCapturado.saida.join("\n")).toContain("MCP de consulta à wiki: opcional");
   expect(readdirSync(bin).some(nome => /^rg(?:\.cmd|\.exe)?$/.test(nome))).toBe(false);
+});
+
+test("Dado servidor MCP registrado no agente, Quando roda doctor, Então mostra estado real", async () => {
+  const ambienteMcp = { home: tmp, existe: async (nome: string) => nome === "claude", executar: async () => ({ codigo: 0, saida: `anvilore: bun "${join(clone, "src", "cli.ts")}" mcp` }) };
+  await comandoDoctor([clone], { ambienteMcp });
+  expect(consoleCapturado.saida.join("\n")).toContain("MCP de consulta à wiki: opcional — ligado em claude");
 });
 
 test("Dado fechamento TypeScript atual Quando diagnostico Então a validação no fechamento está ligada", async () => {
@@ -238,7 +245,33 @@ test("Dado nenhum argumento Quando rodo o doctor Então usa ANVILORE_DESTINO ou 
   delete process.env.ANVILORE_DESTINO;
   const antes = process.cwd(); process.chdir(clone);
   try { expect(await comandoDoctor([])).toBe(0); } finally { process.chdir(antes); }
-});
+}, 15_000);
+
+test.skipIf(process.platform === "win32")("Dado o Claude que dorme e deixa um filho segurando stdout, Quando roda doctor, Então termina em menos de 10 segundos", async () => {
+  const claude = join(bin, "claude");
+  writeFileSync(claude, "#!/bin/sh\n/bin/sleep 12\n", { mode: 0o755 });
+  const processo = Bun.spawn([process.execPath, join(raizKit, "src/cli.ts"), "doctor", clone], {
+    env: { ...process.env, PATH: bin, HOME: join(tmp, "lar"), USERPROFILE: join(tmp, "lar") },
+    stdout: "pipe", stderr: "pipe",
+  });
+  const inicio = Date.now();
+  const concluiu = await Promise.race([
+    processo.exited.then(() => true),
+    new Promise<false>(resolve => setTimeout(() => resolve(false), 9_000)),
+  ]);
+  if (!concluiu) processo.kill();
+  expect(concluiu).toBe(true);
+  expect(Date.now() - inicio).toBeLessThan(10_000);
+}, 15_000);
+
+test.skipIf(process.platform === "win32")("Dado --version do Claude que não responde e deixa stdout aberto, Quando diagnostico, Então aplica timeout sem esperar o pipe", async () => {
+  writeFileSync(join(bin, "claude"), "#!/bin/sh\n/bin/sleep 12\n", { mode: 0o755 });
+  const inicio = Date.now();
+  const d = await diagnosticar(clone, { PATH: bin });
+  const versao = d.travas.find(trava => trava.nome === VERSAO);
+  expect(versao?.detalhe).toBe("consulta excedeu 3500 ms");
+  expect(Date.now() - inicio).toBeLessThan(5_000);
+}, 7_000);
 
 test("Dado o CLI Quando executo doctor Então o subcomando está registrado", async () => {
   await instalarTudo(); completar();

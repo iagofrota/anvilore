@@ -1,5 +1,5 @@
 ---
-generated: 2026-10-26
+generated: 2026-10-27
 ---
 
 # Plataformas
@@ -29,6 +29,33 @@ do que ainda é só hipótese.
   passo `bun scripts/medir-ligacoes.ts` do job windows imprimiu `junção: criado (win32)` e `link de arquivo: criado (win32)`.
 - O `.gitattributes` fixa `eol=lf` para texto, Markdown e TypeScript, para o checkout no Windows
   não trazer CRLF.
+
+## MCP de consulta: configuração por agente
+
+O servidor usa stdio e o campo de protocolo `instructions` no `initialize`. O teste do SDK verifica
+que esse campo chega ao cliente MCP de teste. A documentação oficial consultada não garante como
+cada agente incorpora essas instruções ao contexto do modelo; portanto, Claude Code, Codex, Gemini
+CLI e Copilot CLI recebem o campo no protocolo, mas o efeito no comportamento de cada agente não foi
+validado nesta entrega.
+
+O registro pelo CLI usa escopo de usuário: Claude `claude mcp add -s user anvilore -- ...`, Gemini
+`gemini mcp add -s user anvilore -- ...`, Copilot `copilot mcp add anvilore -- ...` (configuração de
+usuário por padrão) e Codex `codex mcp add anvilore -- ...` (em ~/.codex/config.toml). Fontes
+oficiais: [Claude Code MCP](https://code.claude.com/docs/en/mcp), [Codex MCP](https://developers.openai.com/codex/mcp),
+[Gemini CLI MCP](https://google-gemini.github.io/gemini-cli/docs/tools/mcp-server.html) e
+[GitHub Copilot CLI MCP](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers).
+
+`doctor` e `mcp estado` limitam a cinco segundos a consulta `mcp list` de cada agente. O processo
+é encerrado se exceder o prazo, um aviso identifica o agente e as consultas seguintes continuam.
+Na abertura concorrente do índice FTS5, operações SQLite bloqueadas são repetidas com espera
+progressiva antes de retornar falha.
+O Gemini CLI documenta linhas de `mcp list` prefixadas por `✓`/`✗`; o leitor remove ANSI e aceita o
+prefixo do status antes do nome do servidor.
+
+O teste de FTS5/SDK e o [CI do PR #17, run 40576697228](https://github.com/iagofrota/anvilore/actions/runs/40576697228)
+passaram em Linux, macOS e Windows para o commit 7bae5b2. Esse run confirmou também a reconstrução
+do índice SQLite corrompido no Windows sem deixar arquivo bloqueado. As páginas desta base de
+conhecimento descrevem a implementação e aguardam revisão do Iago.
 
 ## Busca da wiki: dependência e prova por shell
 

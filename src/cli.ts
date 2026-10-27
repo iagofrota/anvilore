@@ -16,6 +16,8 @@ import { comandoHook } from "./comandos/hook-proteger-raw";
 import { comandoInit } from "./comandos/init";
 import { comandoFechar } from "./comandos/fechar";
 import { comandoBaseline } from "./comandos/baseline";
+import { comandoMetricas } from "./comandos/metricas";
+import { comandoIndexar, comandoMcp } from "./comandos/mcp";
 import { comandoHooksWiki } from "./comandos/hooks-wiki";
 import { comandoAprovar } from "./comandos/aprovar";
 
@@ -40,6 +42,9 @@ export const subcomandos: TabelaDeSubcomandos = {
   init: comandoInit,
   fechar: comandoFechar,
   baseline: comandoBaseline,
+  metricas: comandoMetricas,
+  indexar: comandoIndexar,
+  mcp: comandoMcp,
   "hooks-wiki": comandoHooksWiki,
   aprovar: comandoAprovar,
 };

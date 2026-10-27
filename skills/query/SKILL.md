@@ -24,7 +24,15 @@ Não responda ainda. Não abra páginas da wiki ainda. Apenas pense em voz alta,
 
 ## Passo 2 — Encontrar páginas relevantes
 
-Sem um indexador dedicado neste nível, a busca aqui é direta: primeiro `wiki/index.md`, depois `rg` para confirmar onde o termo aparece.
+Se o MCP de consulta do Anvilore estiver ligado (`anvilore mcp estado`), comece pela ferramenta
+`buscar`; abra os resultados citados com `ler`, passando o caminho e as linhas retornadas. O MCP
+consulta exclusivamente `wiki/`, informa o estado de revisão e os avisos de lacuna ou contradição.
+Use as mesmas regras de citação dos passos seguintes. Para slugs, IDs, URLs ou outra ocorrência
+literal, `rg --no-ignore` continua sendo a ferramenta indicada.
+
+Se o MCP não estiver ligado, siga a busca direta abaixo.
+
+Sem o MCP, a busca aqui é direta: primeiro `wiki/index.md`, depois `rg` para confirmar onde o termo aparece.
 
 ```bash
 rg --no-ignore -in "<termo-chave>" wiki/

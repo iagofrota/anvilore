@@ -78,25 +78,26 @@ sentir, não uma que precisa antecipar. Adiantar o nível também custa o que
 não se vê: uma convenção adotada cedo demais é adotada sem informação, e
 convenção errada é mais cara de desfazer do que de nunca ter tido.
 
-É o mesmo motivo pelo qual o nível 04 não está empacotado aqui. Uma resposta
-genérica para busca, backup e automação entregaria complexidade que ninguém
-ainda conquistou, e as escolhas certas nesse ponto dependem de volume de
-dados e de agente — coisas que não existem antes de a wiki existir.
+O nível 04 oferece um índice FTS5 e um servidor MCP de consulta opcionais.
+Ambos são derivados e descartáveis: podem ser reconstruídos a partir de
+`wiki/`, ficam em `.anvilore/` e não escrevem na wiki. O processo MCP só roda
+quando um cliente o inicia. A busca fica restrita à wiki; outras fontes usam
+seus próprios MCPs, sem combinar rankings. Backup e automação seguem
+dependentes do volume de dados e do uso.
 
 ## 4. Sem RAG, sem banco vetorial, sem infraestrutura
 
-A wiki é um diretório de markdown. O validador (`anvilore validar`) é
-TypeScript que roda no Bun, sem biblioteca de terceiros: ele lê o YAML do
-frontmatter sozinho e, sem o Bun, falha em vez de fingir que passou. A
-manutenção e o ritual de fechamento também rodam em TypeScript no Bun. Não há
-servidor, índice binário nem processo rodando por trás.
+A wiki é um diretório de Markdown. O validador (`anvilore validar`) roda no
+Bun e não depende do servidor de consulta. O índice FTS5 é um artefato local
+opcional, reconstruível e fora do versionamento; o servidor MCP é iniciado sob
+demanda pelo cliente e não fica rodando em segundo plano.
 
 **Por quê:** na escala de uma wiki pessoal, um agente que lê `wiki/index.md`
 e abre as páginas relevantes é suficiente — e o que se ganha em recuperação
 com um índice vetorial se perde em tudo o mais. Infra é uma coisa a mais para
-manter viva: um índice que precisa ser reconstruído, uma dependência que
-quebra numa atualização, um serviço que estava no ar no dia em que você
-escreveu e não está no dia em que você consulta. Um kit cujo pré-requisito é
+manter viva; por isso o índice é opcional, local e descartável. Um serviço
+que estava no ar no dia em que você escreveu e não está no dia em que consulta
+não afeta o markdown. Um kit cujo pré-requisito é
 subir um banco de dados não sobrevive ao primeiro fim de semana em que a
 pessoa só queria anotar uma coisa.
 
