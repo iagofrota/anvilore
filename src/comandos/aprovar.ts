@@ -4,13 +4,14 @@ import { caminhoWiki } from "../lib/wiki-repo";
 
 export type ResultadoAprovacao = { codigo: number; mensagens: string[] };
 
-function identidadeSugerida(raiz: string, wiki: string): string {
-  const git = Bun.spawnSync(["git", "-C", wiki, "config", "user.name"], { stdout: "pipe", stderr: "ignore" });
+function identidadeSugerida(raiz: string, wiki: string, ambiente: Record<string, string | undefined>): string {
+  const opcoes = { stdout: "pipe" as const, stderr: "ignore" as const, env: ambiente };
+  const git = Bun.spawnSync(["git", "-C", wiki, "config", "user.name"], opcoes);
   const usuario = git.exitCode === 0 && git.stdout.toString().trim()
     ? git.stdout.toString().trim()
-    : Bun.spawnSync(["git", "-C", raiz, "config", "user.name"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim();
+    : Bun.spawnSync(["git", "-C", raiz, "config", "user.name"], opcoes).stdout.toString().trim();
   const slug = usuario.normalize("NFKD").replace(/\p{Diacritic}/gu, "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
-  return slug ? `human:${slug}` : "";
+  return slug ? `human:${slug}` : "human:local";
 }
 
 function provenienciaAprovada(texto: string, identidade: string): string {
@@ -25,7 +26,7 @@ function provenienciaAprovada(texto: string, identidade: string): string {
   return linhas.join("\n");
 }
 
-export async function aprovarPaginas(raiz: string, arquivos: string[], ambiente: Record<string, string | undefined> = process.env, identidadeConfirmada?: string): Promise<ResultadoAprovacao> {
+export async function aprovarPaginas(raiz: string, arquivos: string[], ambiente: Record<string, string | undefined> = process.env): Promise<ResultadoAprovacao> {
   if (arquivos.length === 0) return { codigo: 2, mensagens: ["Uso: anvilore aprovar <página.md> [página.md ...]"] };
   const wiki = caminhoWiki(raiz, ambiente);
   const preparados: Array<{ caminho: string; texto: string }> = [];
@@ -41,13 +42,7 @@ export async function aprovarPaginas(raiz: string, arquivos: string[], ambiente:
     let identidade: string | undefined;
     try { identidade = (await readFile(identidadeArquivo, "utf8")).trim(); }
     catch (erro) { if ((erro as NodeJS.ErrnoException).code !== "ENOENT") throw erro; }
-    if (identidade) {
-      if (identidadeConfirmada && identidadeConfirmada !== identidade) throw new Error("a identidade local já foi confirmada e não pode ser trocada por este comando");
-    } else {
-      identidade = identidadeSugerida(raiz, wiki);
-      if (!/^human:[a-z0-9_-]+$/.test(identidade)) throw new Error("configure git user.name antes da primeira aprovação");
-      if (identidadeConfirmada !== identidade) throw new Error(`confirme a identidade sugerida com --identidade ${identidade}`);
-    }
+    if (!identidade) identidade = identidadeSugerida(raiz, wiki, ambiente);
     if (!/^human:[a-z0-9_-]+$/.test(identidade)) throw new Error("identidade local inválida em .anvilore/identidade");
     const alteradas = preparados.map(item => ({ ...item, texto: provenienciaAprovada(item.texto, identidade) }));
     await mkdir(resolve(raiz, ".anvilore"), { recursive: true });
@@ -61,14 +56,7 @@ export async function aprovarPaginas(raiz: string, arquivos: string[], ambiente:
 
 export async function comandoAprovar(args: string[]): Promise<number> {
   const raiz = process.env.ANVILORE_DESTINO ?? process.cwd();
-  const arquivos = [...args];
-  let identidade: string | undefined;
-  const indice = arquivos.indexOf("--identidade");
-  if (indice >= 0) {
-    identidade = arquivos[indice + 1];
-    arquivos.splice(indice, 2);
-  }
-  const resultado = await aprovarPaginas(raiz, arquivos, process.env, identidade);
+  const resultado = await aprovarPaginas(raiz, args, process.env);
   for (const mensagem of resultado.mensagens) console.log(mensagem);
   return resultado.codigo;
 }
