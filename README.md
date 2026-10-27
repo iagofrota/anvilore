@@ -73,6 +73,11 @@ clone que não o deste kit, use `--destino <dir>`: o instalador escreve
 exclusivamente dentro desse diretório. `bun src/cli.ts instalar --help` descreve
 o que cada agente recebe e os limites quando fonte e destino são clones diferentes.
 
+Para que cada alteração da wiki ganhe um commit próprio e habilitar backup,
+instale com `--auto-commit --github-backup`. Isso cria `wiki/` como repositório
+Git próprio e commita o esqueleto existente. O backup usa o upstream já
+configurado para esse repositório; sem upstream, nada é enviado.
+
 O hook que protege `raw/` só vale em sessões do agente abertas **depois** da
 instalação: se o agente já estava aberto, feche e reabra. Para conferir a
 decisão sem agente nenhum (deve imprimir `2`, que é "bloqueado"):
@@ -114,41 +119,14 @@ Com o clone configurado:
 4. Depois de ingerido, peça para ele seguir `skills/query/SKILL.md` e
    responder alguma pergunta sobre o conteúdo ingerido, citando as páginas
    que criou.
-5. Revise e aprove o que o agente escreveu, e valide a estrutura. Toda página
-   que o agente escreve nasce marcada como **rascunho** (bloco `generated` no
-   frontmatter), e o validador reprova rascunho que nenhuma pessoa aprovou. Logo
-   depois do ingest, então, o esperado é:
+5. Revise o resumo e as páginas que o agente criou. O agente pergunta se você
+   aprova; no Claude Code, confirme o comando de aprovação com um clique na
+   janela de permissão. O agente grava o campo `verified` e fecha a wiki. As
+   páginas continuam rascunhos até essa confirmação.
 
-   ```bash
-   bun src/cli.ts validar
-   ```
-
-   ```text
-   ERRO: página gerada sem aprovação humana: pessoal/sources/llm-wiki.md
-   ...
-   VALIDACAO: FAIL
-   ```
-
-   Isso é o portão funcionando, não um defeito. Leia cada página e, se
-   concordar, acrescente ao frontmatter dela a sua aprovação (o `at` tem de ser
-   igual ou posterior ao `generated.at`, com o fuso):
-
-   ```yaml
-   verified:
-     - by: human:seu-id
-       at: 2026-10-24T11:00:00-03:00
-   ```
-
-   Rode `bun src/cli.ts validar` de novo: agora sim `VALIDACAO: PASS`, com uma
-   linha de dívida de conhecimento (gaps e contradições sinalizados, se
-   houver — zero também é uma resposta válida). O agente nunca escreve
-   `verified`: quem aprova é você. Para fechar a sessão, `bun src/cli.ts fechar wiki`
-   sincroniza os índices, regenera `wiki/log.md` a partir de `wiki/log/` e
-   valida (o agente roda isso ao fim do ingest).
-
-   Dois arquivos da wiki são rastreados pelo git e mudam a cada uso:
-   `wiki/index.md` e `wiki/log.md`. Um `git pull` futuro pode conflitar com eles;
-   o resto do conteúdo (suas páginas) fica fora do git.
+   Quando commit automático está ativo, a wiki tem seu próprio repositório Git:
+   páginas, índices de área e logs diários são commitados juntos. O repositório
+   do kit continua versionando somente o esqueleto.
 
    > O validador roda no [Bun](https://bun.sh) e não tem outra dependência: ele
    > lê o YAML do frontmatter sozinho, então o

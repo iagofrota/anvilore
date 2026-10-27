@@ -101,7 +101,7 @@ Veja como a wiki está organizada (`ls wiki`):
 - **Várias áreas**: pergunte à pessoa em qual delas ingerir (ou use a que ela já indicou).
 - **Nenhuma área**: layout plano, em `wiki/sources/`, `wiki/entities/` e `wiki/concepts/`, sem o campo `area`.
 
-Com área, a página vai para `wiki/<área>/sources/<slug>.md` e leva `area: <área>` no frontmatter. Se a pessoa pedir uma área que não existe, diga que `bun src/cli.ts init --areas <área>` a cria (e que um `anvilore.toml` com `areas` pode recusá-la).
+Com área, a página vai para `wiki/<área>/sources/<slug>.md` e leva `area: <área>` no frontmatter. Se a área pedida ainda não existir, execute `init --areas <área>` e explique se o perfil `anvilore.toml` impedir a criação.
 
 `<slug>` é uma versão em minúsculas e com hífens do título da fonte.
 
@@ -283,40 +283,13 @@ Contradições sinalizadas: 1 (ver sources/slug)
 
 ---
 
-## Passo 7 — Fechar o ciclo
+## Passo 7 — Aprovar e fechar
 
-### 7.a — Rodar o fechamento
+Mostre um resumo curto (poucas linhas) com a fonte, quantidade de páginas novas/atualizadas e contradições sinalizadas. Não mostre YAML nem peça para a pessoa editar frontmatter ou executar comandos. Pergunte: **"Aprovar estas N páginas?"** com os caminhos das páginas geradas.
 
-```bash
-bun src/cli.ts fechar wiki
-```
+Se a pessoa aprovar, execute `aprovar` com os caminhos das páginas. O hook Claude apresenta a permissão para um clique; se o comando for negado por modo automático, peça para sair desse modo e solicite a aprovação de novo. Nunca escreva `verified` por conta própria. Depois execute `fechar wiki` você mesmo. Se a pessoa não aprovar, mantenha as páginas como rascunho e não declare o ingest concluído.
 
-Ele sincroniza a contagem dos índices, regenera `wiki/log.md` a partir do log do dia, valida a wiki e cobra a entrada do dia no log. Ele para no primeiro passo que falha. **Não diga que o ingest está concluído se o fechamento reprovou por outro motivo que não seja a aprovação humana:** leia a mensagem, corrija (wikilink quebrado, página fora do índice, log do dia ausente...) e rode de novo.
-
-**A aprovação humana pendente é o único FAIL esperado.** Como toda página que você escreveu leva `generated`, o `validar` (e, com ele, o fechamento) reprova com `ERRO: página gerada sem aprovação humana: <página>` até a pessoa revisar. Isso não é erro seu: é o portão funcionando. Confira que **todos** os erros listados são desse tipo; se houver qualquer outro, corrija-o. Como o fechamento para nessa etapa, o gate do log do dia só roda depois da aprovação: por isso o Passo 6 tem de estar completo antes de você falar com a pessoa.
-
-### 7.b — Dizer à pessoa o que foi feito, e o que falta
-
-Em linguagem simples, sem listar todo arquivo, e **sempre** com o passo da aprovação:
-
-```
-Pronto. Ingerida a fonte "Attention Is All You Need" (2017).
-
-Criadas: sources/attention-is-all-you-need, concepts/cross-attention
-Atualizadas: concepts/self-attention, entities/vaswani-ashish
-Sinalizada: 1 contradição com concepts/positional-encoding
-
-Falta a sua aprovação. Estas páginas foram escritas por mim e estão marcadas como
-rascunho (`generated`): `bun src/cli.ts validar` vai reprovar com "página gerada sem
-aprovação humana" até você ler cada uma e, se concordar, acrescentar no frontmatter
-
-verified:
-  - by: human:<seu-id>
-    at: <hora atual com offset, depois de generated.at>
-
-Depois disso, rode `bun src/cli.ts fechar wiki` de novo para fechar o ciclo.
-Tem algo que você quer que eu revise antes?
-```
+O fechamento atualiza índices e log, valida a wiki e verifica a entrada do dia. Se falhar por outro motivo, corrija e execute novamente antes de encerrar o fluxo.
 
 ---
 

@@ -5,6 +5,7 @@ import { lerFrontmatter } from "../lib/frontmatter";
 import { fundirJson } from "../lib/fundir-json";
 import { fundirBloco } from "../lib/fundir-bloco";
 import { avisoRg } from "../lib/rg";
+import { inicializarRepositorioWiki } from "../lib/wiki-repo";
 
 const fonte = resolve(import.meta.dir, "../..");
 export const alvosConhecidos = ["claude", "codex", "gemini", "copilot"] as const;
@@ -319,11 +320,21 @@ async function instalarLink(contexto: Contexto, rel: string, origem: string, dir
 }
 
 async function instalarEsqueleto(contexto: Contexto): Promise<void> {
-  const fronteira = await pecaDoEsqueleto("wiki/.gitignore");
-  const reincluidos = fronteira.split(/\r?\n/)
-    .filter(linha => linha.startsWith("!") && !linha.endsWith("/") && linha !== "!.gitignore")
-    .map(linha => `wiki/${linha.slice(1)}`);
-  for (const rel of ["wiki/.gitignore", ...reincluidos]) {
+  let processo: ReturnType<typeof Bun.spawnSync> | undefined;
+  try { processo = Bun.spawnSync(["git", "-C", fonte, "ls-files", "-z", "--", "wiki"], { stdout: "pipe", stderr: "pipe" }); }
+  catch (erro) { if (!/Executable not found/i.test((erro as Error).message)) throw erro; }
+  if (processo && processo.exitCode !== 0 && !/not a git repository/i.test(processo.stderr?.toString() ?? "")) {
+    throw new Error(`não foi possível listar o esqueleto da wiki: ${processo.stderr?.toString() ?? "git ausente"}`);
+  }
+  // Fontes empacotadas e cópias de teste podem não conter .git; nesse caso,
+  // instale somente a allowlist do esqueleto, nunca páginas pessoais.
+  const arquivos = processo?.exitCode === 0 ? (processo.stdout?.toString() ?? "").split("\0").filter(Boolean) : [];
+  if (arquivos.length === 0) arquivos.push(
+    "wiki/.gitignore", "wiki/_meta/.gitkeep", "wiki/exemplo/concepts/.gitkeep",
+    "wiki/exemplo/concepts/area-tematica.md", "wiki/exemplo/entities/.gitkeep",
+    "wiki/exemplo/sources/.gitkeep", "wiki/index.md", "wiki/log.md", "wiki/log/.gitkeep",
+  );
+  for (const rel of arquivos) {
     if (await informacao(join(contexto.destino, rel))) contexto.relatorio.mensagens.push(`inalterado: ${rel}`);
     else await escrever(contexto, rel, await pecaDoEsqueleto(rel));
   }
@@ -405,6 +416,9 @@ export async function instalar(opcoes: OpcoesInstalacao): Promise<RelatorioInsta
     return relatorio;
   }
   const contexto: Contexto = { destino, simular: opcoes.simular, relatorio };
+  const alvos = [...new Set(opcoes.alvos)];
+  relatorio.mensagens.push("anvilore — instalação", `destino: ${destino}`, `alvos: ${alvos.join(", ")}`);
+  if (opcoes.simular) relatorio.mensagens.push("SIMULAÇÃO (nada será escrito)");
   if (opcoes.autoCommit || opcoes.githubBackup) {
     try {
       const caminho = join(destino, "anvilore.toml");
@@ -426,13 +440,14 @@ export async function instalar(opcoes: OpcoesInstalacao): Promise<RelatorioInsta
       if (opcoes.autoCommit || opcoes.githubBackup) await escrever(contexto, "anvilore.toml", texto);
     } catch (erro) { registrarErro(contexto, `anvilore.toml: ${motivo(erro)}`); }
   }
-  const alvos = [...new Set(opcoes.alvos)];
-  relatorio.mensagens.push("anvilore — instalação", `destino: ${destino}`, `alvos: ${alvos.join(", ")}`);
-  if (opcoes.simular) relatorio.mensagens.push("SIMULAÇÃO (nada será escrito)");
   const aviso = avisoRg(valorDoPath());
   if (aviso) registrarAviso(contexto, aviso);
   try {
     await instalarEsqueleto(contexto);
+    if (!opcoes.simular && (opcoes.autoCommit || opcoes.githubBackup)) {
+      const repo = await inicializarRepositorioWiki(destino);
+      if (repo.criado) registrarMudanca(contexto, `inicializa repositório Git próprio da wiki: ${repo.caminho}`);
+    }
   } catch (erro) {
     registrarErro(contexto, motivo(erro));
   }

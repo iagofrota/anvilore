@@ -1,5 +1,6 @@
-import { basename, relative, resolve, sep } from "node:path";
+import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { access, readFile, readdir } from "node:fs/promises";
+import { caminhoWiki, repositorioDaWiki } from "../lib/wiki-repo";
 
 type Json = Record<string, unknown>;
 const dataLocal = (data = new Date()) => `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, "0")}-${String(data.getDate()).padStart(2, "0")}`;
@@ -11,42 +12,44 @@ async function git(raiz: string, args: string[], timeout = 30_000): Promise<{ co
 }
 
 export async function autoCommitWiki(raiz: string, arquivo: string): Promise<boolean> {
-  const abs = resolve(raiz, arquivo);
-  const rel = relative(resolve(raiz), abs).split(sep).join("/");
-  if (!rel.startsWith("wiki/") || rel === "wiki/index.md" || rel === "wiki/log.md" || /^wiki\/[^/]+\/index\.md$/.test(rel) || /^wiki\/log\/log-\d{4}-\d{2}-\d{2}\.md$/.test(rel) || rel.includes("../")) return false;
-  if ((await git(raiz, ["rev-parse", "--git-dir"])).codigo !== 0) return false;
-  const areaIndex = /^wiki\/[^/]+\//.test(rel) ? rel.replace(/\/[^/]+\/[^/]+\.md$/, "/index.md") : undefined;
+  const wiki = caminhoWiki(raiz);
+  const abs = isAbsolute(arquivo) ? resolve(arquivo) : resolve(raiz, arquivo);
+  const rel = relative(wiki, abs).split(sep).join("/");
+  if (!rel || rel.startsWith("../") || rel === ".." || rel === "index.md" || rel === "log.md" || /^[^/]+\/index\.md$/.test(rel) || /^log\/log-\d{4}-\d{2}-\d{2}\.md$/.test(rel)) return false;
+  if (!(await repositorioDaWiki(wiki))) return false;
+  const areaIndex = /^[^/]+\//.test(rel) ? rel.replace(/\/[^/]+\/[^/]+\.md$/, "/index.md") : undefined;
   const dia = dataLocal();
-  const logDiario = `wiki/log/log-${dia}.md`;
-  const permitidos = new Set([rel, "wiki/index.md", "wiki/log.md", logDiario, ...(areaIndex ? [areaIndex] : [])]);
-  const stagedAntes = await git(raiz, ["diff", "--cached", "--name-only", "-z"]);
+  const logDiario = `log/log-${dia}.md`;
+  const permitidos = new Set([rel, "index.md", "log.md", logDiario, ...(areaIndex ? [areaIndex] : [])]);
+  const stagedAntes = await git(wiki, ["diff", "--cached", "--name-only", "-z"]);
   if (stagedAntes.codigo !== 0 || stagedAntes.saida.split("\0").filter(Boolean).some(arquivo => !permitidos.has(arquivo))) return false;
-  if ((await git(raiz, ["add", "--", rel])).codigo !== 0) return false;
+  if ((await git(wiki, ["add", "--", rel])).codigo !== 0) return false;
   // Índices e o log do dia seguem no mesmo commit da página da wiki.
-  const associados = ["wiki/index.md", "wiki/log.md", ...(areaIndex ? [areaIndex] : []), logDiario];
+  const associados = ["index.md", "log.md", ...(areaIndex ? [areaIndex] : []), logDiario];
   const existentes: string[] = [];
   for (const caminho of associados) {
-    try { await access(resolve(raiz, caminho)); existentes.push(caminho); }
+    try { await access(resolve(wiki, caminho)); existentes.push(caminho); }
     catch (erro) { if ((erro as NodeJS.ErrnoException).code !== "ENOENT") throw erro; }
   }
-  if (existentes.length) await git(raiz, ["add", "--", ...existentes]);
-  const stagedDepois = await git(raiz, ["diff", "--cached", "--name-only", "-z"]);
+  if (existentes.length) await git(wiki, ["add", "--", ...existentes]);
+  const stagedDepois = await git(wiki, ["diff", "--cached", "--name-only", "-z"]);
   if (stagedDepois.codigo !== 0 || stagedDepois.saida.split("\0").filter(Boolean).some(arquivo => !permitidos.has(arquivo))) return false;
-  if ((await git(raiz, ["diff", "--cached", "--quiet"])).codigo === 0) return false;
-  const tipo = rel.includes("/sources/") ? "ingest" : rel.includes("/concepts/") ? "concept" : rel.includes("/entities/") ? "entity" : "update";
+  if ((await git(wiki, ["diff", "--cached", "--quiet"])).codigo === 0) return false;
+  const tipo = rel.includes("sources/") ? "ingest" : rel.includes("concepts/") ? "concept" : rel.includes("entities/") ? "entity" : "update";
   const slug = basename(rel).replace(/\.md$/i, "");
-  return (await git(raiz, ["commit", "-m", `wiki(${tipo}): ${slug}`])).codigo === 0;
+  return (await git(wiki, ["commit", "-m", `wiki(${tipo}): ${slug}`])).codigo === 0;
 }
 
 export async function backupGitHub(raiz: string): Promise<{ sincronizado: boolean; motivo?: string }> {
-  if ((await git(raiz, ["rev-parse", "--git-dir"])).codigo !== 0) return { sincronizado: false, motivo: "não é um repositório Git" };
-  const branch = await git(raiz, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  const wiki = caminhoWiki(raiz);
+  if (!(await repositorioDaWiki(wiki))) return { sincronizado: false, motivo: "wiki não é um repositório Git" };
+  const branch = await git(wiki, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
   if (branch.codigo !== 0 || !branch.saida) return { sincronizado: false, motivo: "HEAD destacado; backup não executado" };
-  const upstream = await git(raiz, ["rev-parse", "--verify", "--quiet", "@{u}"]);
+  const upstream = await git(wiki, ["rev-parse", "--verify", "--quiet", "@{u}"]);
   if (upstream.codigo !== 0) return { sincronizado: false, motivo: "branch sem upstream configurado; backup não executado" };
-  const contagem = await git(raiz, ["rev-list", "--count", "@{u}..HEAD"]);
+  const contagem = await git(wiki, ["rev-list", "--count", "@{u}..HEAD"]);
   if (contagem.codigo !== 0 || Number(contagem.saida) <= 0) return { sincronizado: false, motivo: "não há commits locais para enviar" };
-  const envio = await git(raiz, ["push"]);
+  const envio = await git(wiki, ["push"]);
   return envio.codigo === 0 ? { sincronizado: true } : { sincronizado: false, motivo: envio.saida || "falha no push para origin" };
 }
 
@@ -105,6 +108,44 @@ async function config(raiz: string): Promise<{ autoCommit: boolean; backup: bool
   } catch { return { autoCommit: false, backup: false }; }
 }
 
+function negarPermissao(evento: "PreToolUse", mensagem: string): void {
+  console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: evento, permissionDecision: "deny", permissionDecisionReason: mensagem } }));
+}
+
+function dentro(base: string, alvo: string): boolean {
+  const rel = relative(resolve(base), resolve(alvo));
+  return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+async function protegerAprovacao(raiz: string, entrada: string): Promise<void> {
+  let payload: Json;
+  try { payload = JSON.parse(entrada) as Json; }
+  catch { negarPermissao("PreToolUse", "Não foi possível conferir o modo da sessão; aprovação recusada."); return; }
+  const ferramenta = (payload.tool_input ?? payload.toolInput ?? {}) as Json;
+  const comando = ferramenta.command;
+  if (typeof comando !== "string" || !/(?:^|[\s;&|])(?:bun\s+[^\n;&|]*\s+|anvilore\s+)aprovar(?:\s|$)/i.test(comando)) return;
+  if (payload.permission_mode !== "default") negarPermissao("PreToolUse", "Para aprovar, saia do modo automático (Shift+Tab) e peça de novo");
+}
+
+async function protegerVerified(raiz: string, entrada: string): Promise<void> {
+  let payload: Json;
+  try { payload = JSON.parse(entrada) as Json; } catch { return; }
+  const ferramenta = (payload.tool_input ?? payload.toolInput ?? {}) as Json;
+  const caminho = ferramenta.file_path ?? ferramenta.filePath ?? ferramenta.path;
+  if (typeof caminho !== "string") return;
+  const base = caminhoWiki(raiz);
+  const abs = isAbsolute(caminho) ? resolve(caminho) : resolve(typeof payload.cwd === "string" ? payload.cwd : raiz, caminho);
+  if (!dentro(base, abs)) return;
+  const textos: string[] = [];
+  const visitar = (valor: unknown) => {
+    if (typeof valor === "string") textos.push(valor);
+    else if (Array.isArray(valor)) valor.forEach(visitar);
+    else if (valor && typeof valor === "object") Object.values(valor).forEach(visitar);
+  };
+  visitar(ferramenta);
+  if (textos.some(texto => /(?:^|\r?\n)\s*verified\s*:/i.test(texto))) negarPermissao("PreToolUse", "Só o comando de aprovação pode gravar verified em wiki/.");
+}
+
 export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise<string> = () => Bun.stdin.text()): Promise<number> {
   const [acao, raizArg] = args;
   const raiz = resolve(raizArg ?? process.cwd());
@@ -120,9 +161,13 @@ export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise
       const arquivo = dadosFerramenta?.file_path ?? dadosFerramenta?.filePath ?? dadosFerramenta?.path;
       if (typeof arquivo !== "string") return 0;
       const opcoes = await config(raiz);
-      if (opcoes.autoCommit) await autoCommitWiki(raiz, arquivo);
+      if (opcoes.autoCommit && !(await autoCommitWiki(raiz, arquivo))) {
+        notificar("Commit automático não realizado; confira o repositório Git da wiki com `anvilore doctor`.");
+      }
       return 0;
     }
+    if (acao === "proteger-aprovacao") { await protegerAprovacao(raiz, await lerEntrada()); return 0; }
+    if (acao === "proteger-verified") { await protegerVerified(raiz, await lerEntrada()); return 0; }
     if (acao === "backup") {
       if (!(await config(raiz)).backup) return 0;
       const resultado = await backupGitHub(raiz);
@@ -139,7 +184,7 @@ export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise
       if (payload.event === "add" && typeof arquivo === "string" && /(?:^|[\\/])raw(?:[\\/]|$)/i.test(arquivo)) notificar(`Novo arquivo em raw/: ${arquivo}. Diga "ingest" para processá-lo.`);
       return 0;
     }
-    console.error("Uso: anvilore hooks-wiki <autocommit|backup|arquivo-raw|contexto|sugerir-lint|watch-paths> [raiz]");
+    console.error("Uso: anvilore hooks-wiki <autocommit|backup|arquivo-raw|contexto|sugerir-lint|watch-paths|proteger-aprovacao|proteger-verified> [raiz]");
     return 2;
   } catch (erro) { console.error(`hooks-wiki: ${(erro as Error).message}`); return 0; }
 }

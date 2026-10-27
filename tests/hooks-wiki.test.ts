@@ -11,7 +11,9 @@ beforeEach(() => { raiz = mkdtempSync(join(tmpdir(), "anvilore-hooks-")); });
 afterEach(() => { rmSync(raiz, { recursive: true, force: true }); rmSync(`${raiz}-remote.git`, { recursive: true, force: true }); });
 
 async function git(...args: string[]) {
-  const p = Bun.spawn(["git", "-C", raiz, ...args], { stdout: "pipe", stderr: "pipe" });
+  const wiki = join(raiz, "wiki");
+  if (args[0] === "init") mkdirSync(wiki, { recursive: true });
+  const p = Bun.spawn(["git", "-C", wiki, ...args], { stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
   return { out, err, code };
 }
@@ -41,10 +43,13 @@ describe("hooks da wiki", () => {
     const copilot = (await configuracaoDoHook("copilot", raiz)).json as { hooks: Record<string, unknown[]> };
     expect(copilot.hooks.preToolUse).toHaveLength(1); expect(copilot.hooks.sessionEnd).toBeUndefined();
     expect(copilot.hooks.fileChanged).toBeUndefined(); expect(copilot.hooks.sessionStart).toBeUndefined();
-    const camposClaude = (await configuracaoDoHook("claude", raiz)).json as { hooks: Record<string, any[]> };
+    const camposClaude = (await configuracaoDoHook("claude", raiz)).json as { permissions: { ask: string[] }; hooks: Record<string, any[]> };
     for (const grupo of Object.values(camposClaude.hooks).flat()) for (const hook of grupo.hooks ?? []) {
       if (hook.command.includes("hooks-wiki")) expect(hook.shell).toBe("bash");
     }
+    expect(camposClaude.permissions.ask).toContain("Bash(bun src/cli.ts aprovar *)");
+    expect(camposClaude.hooks.PreToolUse!.some(grupo => grupo.matcher === "Bash")).toBe(true);
+    expect(camposClaude.hooks.PreToolUse!.some(grupo => grupo.matcher === "Write|Edit|MultiEdit")).toBe(true);
   });
 
   test("Dado edição em wiki e git limpo Quando autoCommitWiki roda Então cria commit da página sem incluir raw", async () => {
@@ -52,8 +57,19 @@ describe("hooks da wiki", () => {
     mkdirSync(join(raiz, "wiki", "concepts"), { recursive: true }); mkdirSync(join(raiz, "raw"));
     writeFileSync(join(raiz, "wiki/concepts/ideia.md"), "nova"); writeFileSync(join(raiz, "raw/fonte.md"), "não tocar");
     expect(await autoCommitWiki(raiz, "wiki/concepts/ideia.md")).toBe(true);
-    expect((await git("status", "--porcelain")).out).toContain("?? raw/");
+    expect((await git("ls-files")).out).not.toContain("raw/");
     expect((await git("log", "-1", "--pretty=%s")).out.trim()).toBe("wiki(concept): ideia");
+  });
+
+  test("Dado wiki como repositório Git próprio Quando autoCommitWiki roda Então commita a página dentro desse repositório", async () => {
+    mkdirSync(join(raiz, "wiki/concepts"), { recursive: true });
+    await Bun.spawnSync(["git", "init", "-q", join(raiz, "wiki")]);
+    await Bun.spawnSync(["git", "-C", join(raiz, "wiki"), "config", "user.name", "Teste"]);
+    await Bun.spawnSync(["git", "-C", join(raiz, "wiki"), "config", "user.email", "teste@example.test"]);
+    writeFileSync(join(raiz, "wiki/concepts/propria.md"), "conteúdo");
+    expect(await autoCommitWiki(raiz, "wiki/concepts/propria.md")).toBe(true);
+    const log = Bun.spawnSync(["git", "-C", join(raiz, "wiki"), "log", "-1", "--pretty=%s"], { stdout: "pipe" });
+    expect(log.stdout.toString().trim()).toBe("wiki(concept): propria");
   });
 
   test("Dado caminho fora de wiki ou arquivo de navegação Quando autoCommitWiki roda Então não cria commit", async () => {
@@ -67,9 +83,9 @@ describe("hooks da wiki", () => {
 
   test("Dado alteração já staged fora de wiki Quando autoCommitWiki roda Então não a inclui no commit automático", async () => {
     await git("init", "-q"); await git("config", "user.name", "Teste"); await git("config", "user.email", "teste@example.test");
-    writeFileSync(join(raiz, "base.md"), "base"); await git("add", "base.md"); await git("commit", "-m", "base");
-    mkdirSync(join(raiz, "wiki"), { recursive: true }); writeFileSync(join(raiz, "wiki/pagina.md"), "wiki");
-    writeFileSync(join(raiz, "fora.md"), "mudança staged"); await git("add", "fora.md");
+    writeFileSync(join(raiz, "wiki/base.md"), "base"); await git("add", "base.md"); await git("commit", "-m", "base");
+    writeFileSync(join(raiz, "wiki/pagina.md"), "wiki");
+    writeFileSync(join(raiz, "wiki/fora.md"), "mudança staged"); await git("add", "fora.md");
     expect(await autoCommitWiki(raiz, "wiki/pagina.md")).toBe(false);
     expect((await git("log", "-1", "--pretty=%s")).out.trim()).toBe("base");
     expect((await git("status", "--porcelain")).out).toContain("A  fora.md");
@@ -77,7 +93,7 @@ describe("hooks da wiki", () => {
 
   test("Dado vault sem remoto Quando backupGitHub roda Então não faz push nem reescreve histórico", async () => {
     await git("init", "-q"); await git("config", "user.name", "Teste"); await git("config", "user.email", "teste@example.test");
-    writeFileSync(join(raiz, "nota.md"), "conteúdo");
+    mkdirSync(join(raiz, "wiki"), { recursive: true }); writeFileSync(join(raiz, "wiki/nota.md"), "conteúdo");
     expect(await backupGitHub(raiz)).toMatchObject({ sincronizado: false });
     expect((await git("status", "--porcelain")).out).toContain("nota.md");
   });
@@ -128,6 +144,38 @@ describe("hooks da wiki", () => {
     expect((await comando("desconhecido")).codigo).toBe(2);
   });
 
+  test("Dado comando de aprovação Quando o modo não garante confirmação humana Então o hook o nega", async () => {
+    for (const permission_mode of ["auto", "bypassPermissions", "acceptEdits", "dontAsk", "plan", undefined, "novo-modo"]) {
+      const c = capturarConsole();
+      try {
+        await comandoHooksWiki(["proteger-aprovacao", raiz], async () => JSON.stringify({ permission_mode, tool_input: { command: "bun src/cli.ts aprovar wiki/pessoal/a.md" } }));
+        expect(JSON.parse(c.saida.join("\n"))).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny", permissionDecisionReason: "Para aprovar, saia do modo automático (Shift+Tab) e peça de novo" } });
+      } finally { c.restaurar(); }
+    }
+  });
+
+  test("Dado aprovação em modo manual Quando o hook avalia Então deixa permissions.ask pedir confirmação", async () => {
+    const c = capturarConsole();
+    try {
+      await comandoHooksWiki(["proteger-aprovacao", raiz], async () => JSON.stringify({ permission_mode: "default", tool_input: { command: "bun src/cli.ts aprovar wiki/a.md" } }));
+      expect(c.saida.join("\n")).toBe("");
+    } finally { c.restaurar(); }
+  });
+
+  test("Dado tentativa de gravar verified em wiki Quando Write, Edit ou MultiEdit chama o hook Então nega", async () => {
+    for (const tool_input of [
+      { file_path: join(raiz, "wiki/a.md"), content: "---\nverified:\n  - by: human:x\n---" },
+      { file_path: join(raiz, "wiki/a.md"), new_string: "verified: human:x" },
+      { file_path: join(raiz, "wiki/a.md"), edits: [{ new_string: "verified: human:x" }] },
+    ]) {
+      const c = capturarConsole();
+      try {
+        await comandoHooksWiki(["proteger-verified", raiz], async () => JSON.stringify({ cwd: raiz, tool_input }));
+        expect(JSON.parse(c.saida.join("\n"))).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+      } finally { c.restaurar(); }
+    }
+  });
+
   test("Dado anvilore.toml malformado Quando eventos Git rodam Então falham em modo desligado", async () => {
     writeFileSync(join(raiz, "anvilore.toml"), "[hooks\n");
     expect(await comandoHooksWiki(["autocommit", raiz], async () => JSON.stringify({ tool_input: { file_path: "wiki/a.md" } }))).toBe(0);
@@ -147,8 +195,8 @@ describe("hooks da wiki", () => {
     const remoto = `${raiz}-remote.git`;
     await git("init", "--initial-branch=main", "-q"); await git("config", "user.name", "Teste"); await git("config", "user.email", "teste@example.test");
     const init = Bun.spawnSync(["git", "init", "--bare", remoto], { stdout: "pipe", stderr: "pipe" }); expect(init.exitCode).toBe(0);
-    writeFileSync(join(raiz, "nota.md"), "ok"); await git("add", "nota.md"); await git("commit", "-m", "nota"); await git("remote", "add", "origin", remoto); await git("push", "-u", "origin", "main");
-    writeFileSync(join(raiz, "nota.md"), "nova versão"); await git("add", "nota.md"); await git("commit", "-m", "atualização");
+    writeFileSync(join(raiz, "wiki/nota.md"), "ok"); await git("add", "nota.md"); await git("commit", "-m", "nota"); await git("remote", "add", "origin", remoto); await git("push", "-u", "origin", "main");
+    writeFileSync(join(raiz, "wiki/nota.md"), "nova versão"); await git("add", "nota.md"); await git("commit", "-m", "atualização");
     writeFileSync(join(raiz, "anvilore.toml"), "[hooks]\ngithub_backup = true\n");
     const c = capturarConsole();
     try {
@@ -162,7 +210,7 @@ describe("hooks da wiki", () => {
     const remoto = `${raiz}-remote.git`;
     await git("init", "--initial-branch=main", "-q"); await git("config", "user.name", "Teste"); await git("config", "user.email", "teste@example.test");
     const init = Bun.spawnSync(["git", "init", "--bare", remoto], { stdout: "pipe", stderr: "pipe" }); expect(init.exitCode).toBe(0);
-    writeFileSync(join(raiz, "nota.md"), "ok"); await git("add", "nota.md"); await git("commit", "-m", "nota"); await git("remote", "add", "origin", remoto);
+    writeFileSync(join(raiz, "wiki/nota.md"), "ok"); await git("add", "nota.md"); await git("commit", "-m", "nota"); await git("remote", "add", "origin", remoto);
     writeFileSync(join(raiz, "anvilore.toml"), "[hooks]\ngithub_backup = true\n");
     expect(await backupGitHub(raiz)).toMatchObject({ sincronizado: false, motivo: expect.stringContaining("upstream") });
     expect((await Bun.spawnSync(["git", "--git-dir", remoto, "branch", "--list"], { stdout: "pipe" })).stdout.toString()).toBe("");
@@ -182,7 +230,7 @@ describe("hooks da wiki", () => {
     writeFileSync(join(raiz, `wiki/log/log-${dia}.md`), "ingest de hoje");
     expect(await autoCommitWiki(raiz, "wiki/pessoal/concepts/ideia.md")).toBe(true);
     expect((await git("show", "--pretty=", "--name-only", "HEAD")).out.split(/\r?\n/).filter(Boolean).sort()).toEqual([
-      `wiki/log/log-${dia}.md`, "wiki/pessoal/concepts/ideia.md", "wiki/pessoal/index.md",
+      `log/log-${dia}.md`, "pessoal/concepts/ideia.md", "pessoal/index.md",
     ]);
   });
 

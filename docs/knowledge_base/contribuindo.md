@@ -43,14 +43,18 @@ passaram nos três. Uma mudança que passa só no seu sistema não está pronta.
 
 Os hooks da wiki ficam em `src/comandos/hooks-wiki.ts` e são exercitados por
 `tests/hooks-wiki.test.ts`. Commit e backup são opt-in: `anvilore instalar --auto-commit` e
-`anvilore instalar --github-backup`; `anvilore doctor` mostra o estado. A matriz configurada é:
+`anvilore instalar --github-backup`; `anvilore doctor` valida o repositório da wiki, o ignore de páginas
+novas e o upstream. A instalação inicializa `wiki/` como repositório Git próprio quando necessário.
+A matriz configurada é:
 Claude Code: W11/W12/W13/W14/W17; Codex: W11/W13/W14/W17; Gemini: W11/W14/W17; Copilot CLI:
 W11/W17. W12 usa FileChanged com `SessionStart.watchPaths` só no Claude; W13 usa SessionStart=compact
 no Claude e Codex; W14 não está disponível no Copilot porque `agentStop` não fornece uma mensagem
 visível sem bloquear a próxima rodada. W17 usa SessionEnd nos quatro. Claude Code define timeout de
 15 segundos para o hook. No Codex, cujo limite é 3 segundos, e no Gemini, onde SessionEnd é
-best-effort e não aguarda o comando terminar, o backup é melhor esforço e pode não completar. Os
-testes verificam lógica e configurações geradas, não executam ciclos de vida reais dos agentes.
+best-effort e não aguarda o comando terminar, o backup é melhor esforço e pode não completar. Claude
+Code usa `permissions.ask` e um hook que só permite aprovar em modo `default`; os outros agentes ainda
+não têm mecanismo de aprovação com um clique. Os testes verificam lógica e configurações geradas, não
+executam ciclos de vida reais dos agentes.
 
 ## Testes primeiro, com cenários em gherkin
 

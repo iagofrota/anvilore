@@ -197,15 +197,15 @@ só por causa do checkout. Páginas ignoradas pelo Git e symlinks continuam pelo
   aviso para novo arquivo em `raw/`, restauração do índice e dos últimos logs diários após compactação e
   sugestão de lint após cinco ingestões desde o último lint (`src/comandos/hooks-wiki.ts`). Os logs diários ficam em
   `wiki/log/`, com nomes log-AAAA-MM-DD.md; o índice gerado `wiki/log.md` nunca é editado por essa lógica.
-  O commit agrupa a página, o índice da área correspondente e o log do dia.
+  O commit opera no repositório Git próprio da wiki e agrupa a página, o índice da área correspondente e o log do dia.
 - W11 (autocommit) usa `PostToolUse` no Claude/Codex, `AfterTool` no Gemini e `postToolUse` no Copilot CLI.
   W13 (restaurar contexto na compactação) usa `SessionStart` com `compact` no Claude e no Codex.
   W14 (sugerir lint) usa `Stop` no Claude/Codex e `AfterAgent` no Gemini; Copilot não tem saída de mensagem
   de terminal em `agentStop`, então o doctor informa W14 indisponível ali.
 - W12 usa `SessionStart` para retornar `hookSpecificOutput.watchPaths` com o caminho absoluto de `raw/` e um
   grupo `FileChanged` sem matcher. Conforme a documentação do Claude Code, arquivo novo observado gera
-  `event: "add"`; isso não foi observado em execução. A confirmação manual está pendente; não houve autenticação
-  nem chamada ao modelo nesta revisão. Os testes verificam a forma e o tratamento do payload, não a emissão real.
+  `event: "add"`. Iago observou esse evento no Claude Code 2.1.311 em 2026-10-27. Os testes verificam a forma
+  e o tratamento do payload, não executam o ciclo de vida real do agente.
 - W17 roda no fim da sessão (`SessionEnd`) no Claude Code, Codex, Gemini CLI e Copilot CLI. O Codex limita
   esse hook a 3 segundos; no Gemini, SessionEnd é best-effort e não aguarda o comando terminar. Em ambos,
   o backup é melhor esforço e pode não completar. O Claude Code configura timeout de 15 segundos no hook.
@@ -220,8 +220,9 @@ só por causa do checkout. Páginas ignoradas pelo Git e symlinks continuam pelo
   os ciclos de vida reais dos agentes.
 - Commit automático e backup no GitHub exigem opt-in explícito na configuração anvilore.toml, feito por
   `anvilore instalar --auto-commit` e `anvilore instalar --github-backup`. Sem esses campos, os dois ficam desligados.
-  O commit adiciona somente a página em `wiki/`, índices de navegação relacionados e o log do dia; não adiciona
-  `raw/`. O backup envia commits existentes da branch atual, somente quando há upstream e commits locais, sem
+  Ao habilitar, a instalação inicializa `wiki/` como repositório próprio e commita o esqueleto existente. O commit
+  automático adiciona somente a página, índices relacionados e o log do dia nesse repositório; não adiciona `raw/`.
+  O backup envia commits existentes da branch da wiki, somente quando há upstream e commits locais, sem
   criar commits nem reescrever histórico.
 
 ## O que o Anvilore não resolve: vazamento

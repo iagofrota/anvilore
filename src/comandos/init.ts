@@ -7,6 +7,7 @@ import { parseArgs } from "node:util";
 import { chaveDeNome } from "../lib/caminhos";
 import { NOME_DO_PERFIL, areaPermitida, carregarPerfil } from "../lib/perfil";
 import { diretorioDeTipo, nomeReservado } from "../lib/reservados";
+import { caminhoWiki, inicializarRepositorioWiki } from "../lib/wiki-repo";
 
 export const AREAS_PADRAO = ["pessoal", "profissional", "projetos-paralelos", "saude"] as const;
 const TIPOS = ["sources", "entities", "concepts"] as const;
@@ -157,7 +158,7 @@ async function conferirPerfil(raiz: string, nomes: string[]): Promise<string[]> 
     throw new Error(`área fora do ${NOME_DO_PERFIL}: ${fora.join(", ")}. Áreas permitidas: ${permitidas.join(", ")}. Ajuste a lista em ${NOME_DO_PERFIL} ou escolha outra área.`);
   }
   // O esqueleto `wiki/exemplo/` que vem no clone não está na lista: o `validar` o reprovaria.
-  const exemplo = permitidas.every((permitida) => chaveDeNome(permitida) !== "exemplo") && existsSync(join(raiz, "wiki", "exemplo"));
+  const exemplo = permitidas.every((permitida) => chaveDeNome(permitida) !== "exemplo") && existsSync(join(caminhoWiki(raiz), "exemplo"));
   return exemplo ? [`wiki/exemplo/ não está em 'areas' do ${NOME_DO_PERFIL} e o validar vai reprová-lo: apague wiki/exemplo/ (é só o esqueleto de demonstração) ou acrescente 'exemplo' à lista`] : [];
 }
 
@@ -167,7 +168,7 @@ export async function inicializar({ raiz, areas }: OpcoesInit): Promise<Resultad
   const nomes = unicas(areas);
   await conferirRaiz(raiz);
   const avisosDoPerfil = await conferirPerfil(raiz, nomes);
-  const wiki = join(raiz, "wiki");
+  const wiki = caminhoWiki(raiz);
   await conferirWiki(wiki);
   await conferirConflitosNoDisco(wiki, nomes);
 
@@ -182,6 +183,8 @@ export async function inicializar({ raiz, areas }: OpcoesInit): Promise<Resultad
     for (const tipo of TIPOS) criou = (await criarTipo(area, tipo, join(caminho, tipo))) || criou;
     (criou ? resultado.criadas : resultado.jaExistiam).push(area);
   }
+  const perfil = await carregarPerfil(raiz);
+  if (perfil.hooks?.autoCommit || perfil.hooks?.githubBackup) await inicializarRepositorioWiki(raiz);
   return resultado;
 }
 
