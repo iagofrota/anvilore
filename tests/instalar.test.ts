@@ -28,7 +28,7 @@ beforeEach(() => {
   mkdirSync(join(destino, "skills")); mkdirSync(join(destino, "src"));
   writeFileSync(join(destino, "src/cli.ts"), "cli");
   const bin = join(tmp, "bin"); mkdirSync(bin);
-  for (const alvo of ["claude", "codex", "gemini", "copilot"]) {
+  for (const alvo of ["claude", "codex", "gemini", "copilot", "rg"]) {
     writeFileSync(join(bin, process.platform === "win32" ? `${alvo}.cmd` : alvo), "echo teste\n", { mode: 0o755 });
   }
   process.env.PATH = bin; process.env.HOME = lar; process.env.USERPROFILE = lar;
@@ -54,6 +54,20 @@ function captura(dir: string): unknown {
   });
 }
 function rodar(alvos: Alvo[] = ["claude"], simular = false) { return instalar({ alvos, destino, simular }); }
+
+test("Dado rg ausente Quando instalo Então avisa sobre query sem falhar nem instalar rg", async () => {
+  const rg = join(process.env.PATH!, process.platform === "win32" ? "rg.cmd" : "rg");
+  rmSync(rg);
+  const r = await rodar();
+  expect(r.codigo).toBe(0);
+  expect(r.erros).toBe(0);
+  expect(r.instalados).toContain("claude");
+  expect(r.mensagens.join("\n")).toMatch(/AVISO:.*query.*rg/);
+  const comoObter = process.platform === "win32" ? "winget install BurntSushi.ripgrep.MSVC"
+    : process.platform === "darwin" ? "brew install ripgrep" : "gerenciador de pacotes da sua distribuição";
+  expect(r.mensagens.join("\n")).toContain(comoObter);
+  expect(existsSync(rg)).toBe(false);
+});
 
 test("Dado destino com espaço Quando instalo quatro agentes e repito Então INALTERADO sem mudar arquivo ou HOME", async () => {
   const r = await rodar(["claude", "codex", "gemini", "copilot"]);

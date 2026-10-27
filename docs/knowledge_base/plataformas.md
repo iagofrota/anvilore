@@ -1,6 +1,5 @@
 ---
-generated: 2026-10-24
-verified: 2026-10-25
+generated: 2026-10-26
 ---
 
 # Plataformas
@@ -30,6 +29,89 @@ do que ainda é só hipótese.
   passo `bun scripts/medir-ligacoes.ts` do job windows imprimiu `junção: criado (win32)` e `link de arquivo: criado (win32)`.
 - O `.gitattributes` fixa `eol=lf` para texto, Markdown e TypeScript, para o checkout no Windows
   não trazer CRLF.
+
+## Busca da wiki: dependência e prova por shell
+
+A skill `query` (`skills/query/SKILL.md`) depende do **ripgrep**, executável `rg`, no PATH.
+`instalar` e `doctor` consultam o PATH e avisam quando falta; o aviso não muda o código de saída
+nem instala a ferramenta (`src/lib/rg.ts`, `src/comandos/instalar.ts`, `src/comandos/doctor.ts`;
+testes em `tests/instalar.test.ts` e `tests/doctor.test.ts`). As travas continuam sendo avaliadas.
+
+Comandos conferidos nas fontes oficiais em 2026-10-26:
+
+| Sistema | Como obter |
+|---|---|
+| Windows | `winget install BurntSushi.ripgrep.MSVC` ([manifesto do Winget](https://github.com/microsoft/winget-pkgs/tree/master/manifests/b/BurntSushi/ripgrep/MSVC)); alternativas `scoop install ripgrep` e `choco install ripgrep` no [README oficial](https://github.com/BurntSushi/ripgrep#installation) |
+| macOS | `brew install ripgrep` ([catálogo Homebrew](https://formulae.brew.sh/formula/ripgrep)) |
+| Linux | pacote ripgrep pelo gerenciador da distribuição ([instruções por distribuição](https://github.com/BurntSushi/ripgrep#installation)) |
+
+O [run inicial 40408757058](https://github.com/iagofrota/anvilore/actions/runs/40408757058)
+provou `rg` ausente no PATH original dos três runners. O ensaio registra esse baseline antes
+de preparar uma versão oficial 15.1.0 em diretório temporário, com SHA-256 fixo e remoção ao final
+(`scripts/rg-temporario-prova.ts`, `scripts/pacote-rg-prova.ts`). Isso prepara só o teste do CI.
+
+As duas candidatas de callouts foram medidas no
+[run 40411367465](https://github.com/iagofrota/anvilore/actions/runs/40411367465), em 2026-10-26,
+com ripgrep 15.1.0. Cada célula abaixo é código de saída / ocorrências (esperado **0/4**).
+A forma **b** foi adotada pela skill:
+
+```text
+a: rg --no-ignore -n "\[!gap\]|\[!contradiction\]" wiki/
+b: rg --no-ignore -n "\[\x21(gap|contradiction)\]" wiki/
+```
+
+| Sistema | Shell | a | b | a / b em bash interativo com set -H |
+|---|---|---|---|---|
+| Windows | Git Bash | 0/4 | 0/4 | 0/4 / 0/4 |
+| Windows | pwsh 7.6.7 | 0/4 | 0/4 | não se aplica |
+| Windows | PowerShell 5.1 | 0/4 | 0/4 | não se aplica |
+| Windows | cmd | 0/4 | 0/4 | não se aplica |
+| Ubuntu | bash | 0/4 | 0/4 | 0/4 / 0/4 |
+| Ubuntu | pwsh 7.6.6 | 0/4 | 0/4 | não se aplica |
+| macOS | bash | 0/4 | 0/4 | 0/4 / 0/4 |
+| macOS | pwsh 7.6.6 | 0/4 | 0/4 | não se aplica |
+
+O bash roda com `-i`, recebe `set -H` antes da linha testada e tem histórico temporário.
+O log registra `HISTEXPAND=on` e um controle negativo do expansor nativo (`history -p`), que
+rejeita um evento inexistente (`HISTORY_CONTROL=1`). Nos shells medidos, a candidata a também
+passou com histórico ligado; não se observou a falha nesse padrão específico com `[!`.
+A forma b usa `\x21` para `!` e evita o caractere literal. A antiga forma com aspas simples
+falhava só no cmd, saída 255, conforme o
+[run da Fase 1](https://github.com/iagofrota/anvilore/actions/runs/40409439067).
+
+### Acentos, codepage e caminhos
+
+No mesmo run de medição, os três casos adicionais do Windows encontraram a página NFC com
+a consulta governança NFC (esperado **0/1**), preservaram stdout UTF-8 e reabriram a citação:
+
+| Ambiente | Obtido | Saída |
+|---|---|---|
+| cmd após chcp 850 | 0/1 | UTF-8 válido, caminho e conteúdo conferidos |
+| PowerShell 5.1, OutputEncoding padrão us-ascii, console 65001 | 0/1 | idem |
+| PowerShell 5.1 após chcp 850, OutputEncoding padrão us-ascii | 0/1 | idem |
+
+A codepage anterior é restaurada após o ensaio. A prova captura a saída nativa por pipe;
+não garante a renderização de todo terminal pt-BR, nem outros pipelines, redirecionamentos
+ou editores. Esses casos de codepage são informativos, não bloqueiam o CI.
+
+Em todos os oito pares shell/sistema, a consulta NFC encontrou só o conteúdo NFC e a NFD só
+o conteúdo NFD: **não há equivalência canônica** nesta busca. Nenhum conteúdo é normalizado.
+Os radicais sem acento `tribut` e `govern` encontraram as duas páginas e são a dica da skill.
+
+No Windows, o resultado pode misturar separadores, por exemplo wiki/exemplo\concepts\pagina.md.
+O arquivo abre com o caminho como veio: o ensaio reabre cada citação no sistema de origem
+e confere o número da linha (`scripts/provar-busca.ts`). Separe `:linha:texto` do caminho.
+Linux e macOS retornaram barras normais. Não se invocou um agente real para essa leitura.
+
+A etapa de prova no CI (`.github/workflows/ci.yml`) lê os comandos da skill e reprova se faltar
+`rg` na etapa preparada, se o termo de controle não der 0/2, se os callouts adotados não derem
+0/4 (inclusive no bash com histórico) ou se a consulta sem `--no-ignore` não der 1/0 com stdout
+vazio. Radicais e abertura das citações também são conferidos. Unicode cruzado e codepage 850
+ficam como INFO. As páginas temporárias usam o `.gitignore` real, dentro de um repositório Git;
+`--no-ignore` é necessário para encontrar o conteúdo pessoal ignorado.
+
+A **decisão do dono sobre o shell real de Codex e Gemini no Windows** permanece aberta na
+tabela de hooks abaixo: medir os shells não prova qual deles cada agente utiliza.
 
 ## Riscos: hipóteses até o CI provar
 

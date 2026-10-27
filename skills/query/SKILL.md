@@ -44,10 +44,21 @@ Trate o resultado do `rg` como **os lugares onde vale olhar**, não como a respo
 - **A pergunta é sobre lacunas, pendências ou "o que falta confirmar"?** Não é busca por texto — procure diretamente pelos callouts:
 
   ```bash
-  rg --no-ignore -n '\[!gap\]|\[!contradiction\]' wiki/
+  rg --no-ignore -n "\[\x21(gap|contradiction)\]" wiki/
   ```
 
 - **Precisa de um termo literal exato** (slug, ID, URL)? `rg --no-ignore` continua sendo a ferramenta certa.
+
+A expressão de callouts usa `\x21` para representar `!`. Ela foi provada em bash (inclusive
+com `set -H`), PowerShell e cmd; mantenha as aspas e as barras como estão.
+
+A busca depende do ripgrep (`rg`) no PATH. Se faltar, avise: o `anvilore instalar` e o
+`anvilore doctor` orientam como obtê-lo, sem instalá-lo automaticamente.
+
+Termos acentuados em NFC e NFD não se equivalem nesta busca. Se necessário, procure pelo
+radical sem acento, como `tribut` ou `govern`, e leia as páginas encontradas para conferir.
+No Windows, um resultado como `wiki/exemplo\concepts\pagina.md` abre com o caminho como veio,
+mesmo misturando barras. Separe o caminho do sufixo `:linha:texto` antes de abrir.
 
 Identifique toda página provavelmente relevante para a pergunta. Liste antes de abrir qualquer uma:
 
