@@ -857,3 +857,24 @@ test("Dado raw/ que é link para outro disco Quando escrevo no disco pelo caminh
   expect(decidir(arquivo(join(base, "raw/a.md"))).acao).toBe("bloquear");
   expect(decidir(arquivo(join(base, "wiki/a.md"))).acao).toBe("liberar");
 });
+
+test("Dado raw/ que é link para pasta de outro nome Quando a wiki aponta para ela Então bloqueia pelo raw/ real do projeto", () => {
+  const base = projeto();
+  const evidencias = join(temporario, "evidencias");
+  mkdirSync(evidencias);
+  rmSync(join(base, "raw"), { recursive: true });
+  symlinkSync(evidencias, join(base, "raw"), linkDeDiretorio);
+  symlinkSync(evidencias, join(base, "wiki/pessoal"), linkDeDiretorio);
+  expect(decidir(arquivo(join(base, "wiki/pessoal/a.md"))).acao).toBe("bloquear");
+  expect(decidir(JSON.stringify({ tool_name: "Write", cwd: base, tool_input: { file_path: join(evidencias, "b.md") } })).acao).toBe("bloquear");
+  expect(decidir(arquivo(join(base, "wiki/a.md"))).acao).toBe("liberar");
+});
+
+test("Dado área da wiki que é link para raw/ Quando o terminal redireciona para ela Então bloqueia pelo caminho real", () => {
+  const base = projeto();
+  symlinkSync(join(base, "raw"), join(base, "wiki/pessoal"), linkDeDiretorio);
+  const comando = (texto: string) => JSON.stringify({ tool_name: "Bash", cwd: base, tool_input: { command: texto } });
+  expect(decidir(comando("echo x > wiki/pessoal/a.md")).acao).toBe("bloquear");
+  expect(decidir(comando("cp notas.md wiki/pessoal/a.md")).acao).toBe("bloquear");
+  expect(decidir(comando("echo x > wiki/a.md")).acao).toBe("liberar");
+});

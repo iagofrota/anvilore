@@ -155,3 +155,14 @@ test("Dado dois caminhos Quando pergunto se um está dentro do outro Então o pr
   expect(dentroDe(`${pai}-velho`, pai)).toBe(false);
   expect(dentroDe(join(tmpdir(), "p", "wiki"), pai)).toBe(false);
 });
+
+test.skipIf(process.platform === "win32")("Dado link relativo dentro de pasta que é link Quando resolvo Então o alvo parte do diretório real do link, como no disco", () => {
+  const base = cenario(b => {
+    mkdirSync(join(b, "x/y/z"), { recursive: true });
+    symlinkSync(join(b, "x/y/z"), join(b, "wiki/a"), "dir");
+    symlinkSync("../../../raw/f.md", join(b, "x/y/z/l"));
+  });
+  try {
+    expect(caminhoReal(join(base, "wiki/a/l"))).toBe(join(base, "raw/f.md"));
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});

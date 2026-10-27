@@ -23,8 +23,13 @@ export function estaEmRaw(alvo: string): boolean {
 // Caminho real de `alvo`, exista ele ou não: a fronteira de raw/ vale pelo disco, não pelo texto. Para o que ainda não existe,
 // vale o caminho real do diretório pai existente mais próximo; um link pendente é seguido até o arquivo que a escrita criaria.
 // Links em ciclo (ou mais de 40 saltos) lançam erro: quem decide falha fechado.
-export function caminhoReal(alvo: string, saltos = 0): string {
-  if (saltos > 40) throw new Error(`links demais ao resolver ${alvo}`);
+export function caminhoReal(alvo: string): string {
+  return resolverReal(alvo, { saltos: 0 });
+}
+
+// Um contador só para a resolução inteira: links no pai e no alvo somam no mesmo limite.
+function resolverReal(alvo: string, conta: { saltos: number }): string {
+  if (conta.saltos > 40) throw new Error(`links demais ao resolver ${alvo}`);
   const absoluto = resolve(alvo);
   try {
     return realpathSync.native(absoluto);
@@ -34,13 +39,15 @@ export function caminhoReal(alvo: string, saltos = 0): string {
   }
   let info: ReturnType<typeof lstatSync> | undefined;
   try { info = lstatSync(absoluto); } catch { /* não existe: sobe para o pai */ }
-  if (info?.isSymbolicLink()) {
-    const destino = readlinkSync(absoluto);
-    return caminhoReal(isAbsolute(destino) ? destino : join(dirname(absoluto), destino), saltos + 1);
-  }
   const pai = dirname(absoluto);
+  if (info?.isSymbolicLink()) {
+    // Como o disco: alvo relativo parte do diretório real onde o link mora, não do caminho escrito.
+    const destino = readlinkSync(absoluto);
+    conta.saltos++;
+    return resolverReal(isAbsolute(destino) ? destino : join(resolverReal(pai, conta), destino), conta);
+  }
   if (pai === absoluto) return absoluto;
-  return join(caminhoReal(pai, saltos), basename(absoluto));
+  return join(resolverReal(pai, conta), basename(absoluto));
 }
 
 // `filho` é `pai` ou mora dentro dele (comparação por segmento: raw-velho não está em raw).

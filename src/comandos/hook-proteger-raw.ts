@@ -1,6 +1,7 @@
+import { existsSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
-import { posix, resolve } from "node:path";
-import { caminhoReal, estaEmRaw } from "../lib/caminhos";
+import { dirname, join, posix, resolve } from "node:path";
+import { caminhoReal, dentroDe, estaEmRaw } from "../lib/caminhos";
 
 export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
 type Mapa = Record<string, unknown>;
@@ -87,9 +88,37 @@ function citaRaw(texto: string): boolean {
   return texto.split(/[\s"'`=<>;|&()[\]{}]+/).some(estaEmRaw);
 }
 
-// Caminho que cai em raw/: o próprio caminho, ou um relativo com o diretório de trabalho já dentro de raw/.
-function escreveEmRaw(caminho: string, cwd: string): boolean {
+// O raw/ real do projeto: o do ancestral mais próximo de `inicio` que tem um raw/. Pega o raw/ que é link para uma pasta
+// com outro nome, que a comparação por nome não vê.
+function rawDoProjeto(inicio: string): string | undefined {
+  for (let dir = inicio; ; dir = dirname(dir)) {
+    if (existsSync(join(dir, "raw"))) return caminhoReal(join(dir, "raw"));
+    if (dirname(dir) === dir) return undefined;
+  }
+}
+
+// B1: o texto pode dizer wiki/ e o disco, por link, levar a raw/. Devolve o caminho real quando ele cai num raw/ (pelo nome
+// ou dentro do raw/ real do projeto do alvo ou do cwd). Relativo resolve contra o cwd; sem cwd, contra o do processo.
+function caiEmRawPeloDisco(caminho: string, cwd: string): string | undefined {
+  const base = resolve(cwd || process.cwd());
+  const absoluto = resolve(base, caminho);
+  const real = caminhoReal(absoluto);
+  if (estaEmRaw(real)) return real;
+  for (const inicio of [dirname(absoluto), base]) {
+    const raw = rawDoProjeto(inicio);
+    if (raw !== undefined && dentroDe(real, raw)) return real;
+  }
+  return undefined;
+}
+
+// Pelo texto: o próprio caminho, ou um relativo com o diretório de trabalho já dentro de raw/.
+function escreveEmRawPeloTexto(caminho: string, cwd: string): boolean {
   return estaEmRaw(caminho) || (estaEmRaw(cwd) && !/^(?:[a-z]:|[\\/])/i.test(caminho));
+}
+
+// Caminho que cai em raw/, pelo texto ou pelo disco.
+function escreveEmRaw(caminho: string, cwd: string): boolean {
+  return escreveEmRawPeloTexto(caminho, cwd) || caiEmRawPeloDisco(caminho, cwd) !== undefined;
 }
 
 function caminhosDe(valor: unknown): string[] {
@@ -554,12 +583,11 @@ export function decidir(payload: string): Decisao {
     // Os caminhos vêm dos argumentos já decodificados (toolArgs do Copilot é texto) e do payload; o caminho em raw/ bloqueia
     // mesmo que a ferramenta também tenha um comando.
     const caminhos = [...new Set(caminhosDe([dados, entrada]))];
-    const alvo = caminhos.find(caminho => escreveEmRaw(caminho, cwd));
+    const alvo = caminhos.find(caminho => escreveEmRawPeloTexto(caminho, cwd));
     if (alvo !== undefined) return { acao: "bloquear", motivo: `caminho dentro de raw/: ${alvo}` };
-    // B1: o texto pode dizer wiki/ e o disco, por link, levar a raw/. Julga também o caminho real (relativo resolve contra o cwd).
     for (const caminho of caminhos) {
-      const real = caminhoReal(resolve(cwd || process.cwd(), caminho));
-      if (estaEmRaw(real)) return { acao: "bloquear", motivo: `caminho dentro de raw/ pelo caminho real: ${caminho} -> ${real}` };
+      const real = caiEmRawPeloDisco(caminho, cwd);
+      if (real !== undefined) return { acao: "bloquear", motivo: `caminho dentro de raw/ pelo caminho real: ${caminho} -> ${real}` };
     }
     if (TERMINAIS.has(nome) || "command" in entrada || "cmd" in entrada) return decidirTerminal(entrada.command ?? entrada.cmd, cwd, nome === "powershell" || nome === "pwsh");
     if (caminhos.length) return { acao: "liberar", motivo: caminhos.join(" ") };
