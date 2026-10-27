@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { criarRegistrador, type Ambiente } from "../src/mcp/registro";
+import { criarRegistrador, registradores, type Ambiente } from "../src/mcp/registro";
 
 function fixture(presente = true) {
   const comandos: string[][] = []; let configurado = false;
@@ -84,6 +84,18 @@ test("Dado list de agente que nunca responde, Quando consulta status, Então fal
   const inicio = Date.now();
   await expect(Promise.race([criarRegistrador("claude", 20).ligado(amb), new Promise((_, reject) => setTimeout(() => reject(new Error("teste excedeu timeout")), 500))])).rejects.toThrow("timeout");
   expect(Date.now() - inicio).toBeLessThan(500);
+});
+
+test("Dado os registradores exportados, Quando consultam estado, Então todos usam o timeout padrão de 5000 ms", async () => {
+  const timeouts: Array<number | undefined> = [];
+  const amb: Ambiente = {
+    home: "/home/teste",
+    existe: async () => true,
+    executar: async (_cmd, timeoutMs) => { timeouts.push(timeoutMs); return { codigo: 0, saida: "" }; },
+  };
+  for (const registrador of registradores) await registrador.ligado(amb);
+  expect(registradores.map(registrador => registrador.agente)).toEqual(["claude", "codex", "gemini", "copilot"]);
+  expect(timeouts).toEqual([5_000, 5_000, 5_000, 5_000]);
 });
 
 test("Dado list com símbolo e ANSI antes do servidor, Quando consulta status, Então reconhece anvilore", async () => {

@@ -76,4 +76,4 @@ export function criarRegistrador(agente: Agente, timeoutMs = 5_000): Registrador
   };
 }
 
-export const registradores: Registrador[] = (["claude", "codex", "gemini", "copilot"] as const).map(criarRegistrador);
+export const registradores: Registrador[] = (["claude", "codex", "gemini", "copilot"] as const).map(agente => criarRegistrador(agente));
