@@ -1,6 +1,7 @@
 import type { Aviso } from "./secoes";
 import type { Estado } from "./estado";
 import type { RelatorioIndexacao } from "./indice";
+import type { RelatorioMetricas, RegistroDeMetricas } from "./metricas";
 
 export type { Aviso, Estado };
 export type Endereco = { caminho: string; linhaInicio: number; linhaFim: number };
@@ -22,4 +23,5 @@ export interface NucleoDeBusca {
   ler(endereco: Partial<Endereco> & { caminho: string }): Promise<ResultadoOuErro<Trecho>>;
   indexar(opcoes?: { completo?: boolean }): Promise<RelatorioIndexacao>;
   resumoDaWiki(): Promise<ResumoDaWiki>;
+  metricas(): Promise<RelatorioMetricas>;
 }

@@ -1,15 +1,17 @@
 import { Database } from "bun:sqlite";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, realpathSync, rmSync, statSync } from "node:fs";
-import { isAbsolute, relative, resolve, sep, win32 } from "node:path";
+import { isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 import { montarConsulta } from "./consulta";
 import { abrirIndice, sincronizar, type RelatorioIndexacao } from "./indice";
 import { linhasDe } from "../lib/frontmatter";
 import { estaEmRaw } from "../lib/caminhos";
 import { paginasMarkdown } from "../lib/paginas";
 import { lerUtf8Estrito } from "../lib/utf8";
+import { abrirMetricas, type Chamada, type RelatorioMetricas, type RegistroDeMetricas } from "./metricas";
 import type { Aviso, CodigoErro, Endereco, ErroDeBusca, NucleoDeBusca, OpcoesBusca, RespostaBusca, ResumoDaWiki, Resultado, ResultadoOuErro, Trecho } from "./tipos";
 
-type Config = { raiz: string; wiki: string; arquivoDb: string; agora?: () => Date };
+type Config = { raiz: string; wiki: string; arquivoDb: string; agora?: () => Date; metricas?: RegistroDeMetricas };
 type LinhaResultado = {
   id: number; caminho: string; slug: string; pagina_titulo: string; secao: string; linha_inicio: number; linha_fim: number; corpo: string;
   avisos: string; estado: string; vencida: number; tipo: string | null; area: string | null; bm25: number; trecho: string | null;
@@ -104,13 +106,30 @@ export function criarNucleo(cfg: Config): NucleoDeBusca {
   const wiki = resolve(cfg.wiki);
   const arquivoDb = resolve(cfg.arquivoDb);
   const agora = cfg.agora ?? (() => new Date());
+  const conexao = randomUUID();
 
+  function registrar(chamada: Chamada): void {
+    try { cfg.metricas?.registrar(chamada, agora()); } catch { /* telemetria local nunca interrompe a consulta */ }
+  }
+  function resumoDaChamada(resultados: Resultado[] = []): Chamada["porEstado"] {
+    const porEstado: Chamada["porEstado"] = { manual: 0, verificada: 0, rascunho: 0 };
+    for (const resultado of resultados) porEstado[resultado.estado]++;
+    return porEstado;
+  }
   async function indexar(opcoes: { completo?: boolean } = {}): Promise<RelatorioIndexacao> {
-    return comIndice(arquivoDb, (db) => sincronizar(db, wiki, raiz, { ...opcoes, agora: agora() }));
+    const inicio = Date.now();
+    const relatorio = await comIndice(arquivoDb, (db) => sincronizar(db, wiki, raiz, { ...opcoes, agora: agora() }));
+    registrar({ tool: "indexar", ms: Date.now() - inicio, bytes: Buffer.byteLength(JSON.stringify(relatorio)), resultados: 0, vazia: relatorio.paginas === 0, palavras: 0, explicita: false, filtros: [], porEstado: { manual: 0, verificada: 0, rascunho: 0 }, comAviso: 0, reindexadas: relatorio.reindexadas, msReindexacao: relatorio.ms, conexao });
+    return relatorio;
   }
 
   async function buscar(consulta: string, opcoes: OpcoesBusca = {}): Promise<ResultadoOuErro<RespostaBusca>> {
-    if (!raizWikiExiste(wiki)) return erro("wiki_ausente", "A wiki não foi encontrada.");
+    const inicio = Date.now();
+    if (!raizWikiExiste(wiki)) {
+      const resposta = erro("wiki_ausente", "A wiki não foi encontrada.");
+      registrar({ tool: "buscar", ms: Date.now() - inicio, bytes: Buffer.byteLength(JSON.stringify(resposta)), resultados: 0, vazia: true, palavras: consulta.trim().split(/\s+/u).filter(Boolean).length, explicita: false, filtros: [], porEstado: { manual: 0, verificada: 0, rascunho: 0 }, comAviso: 0, reindexadas: 0, msReindexacao: 0, erro: "wiki_ausente", conexao });
+      return resposta;
+    }
     try {
       return await comIndice(arquivoDb, async (db) => {
         const indexacao = await sincronizar(db, wiki, raiz, { agora: agora() });
@@ -119,7 +138,11 @@ export function criarNucleo(cfg: Config): NucleoDeBusca {
           catch { return false; }
         });
         const limite = Math.max(1, Math.min(20, Math.trunc(opcoes.limite ?? 5)));
-        if (montar.match === null) return { consulta: consulta.normalize("NFC"), resultados: [], vazia: true, indice: { paginas: indexacao.paginas, secoes: indexacao.secoes, reindexadas: indexacao.reindexadas } };
+        if (montar.match === null) {
+          const resposta: RespostaBusca = { consulta: consulta.normalize("NFC"), resultados: [], vazia: true, indice: { paginas: indexacao.paginas, secoes: indexacao.secoes, reindexadas: indexacao.reindexadas } };
+          registrar({ tool: "buscar", ms: Date.now() - inicio, bytes: Buffer.byteLength(JSON.stringify(resposta)), resultados: 0, vazia: true, palavras: montar.palavras, explicita: montar.explicita, filtros: [], porEstado: { manual: 0, verificada: 0, rascunho: 0 }, comAviso: 0, reindexadas: indexacao.reindexadas, msReindexacao: indexacao.ms, conexao });
+          return resposta;
+        }
         const condicoes = [opcoes.incluir?.includes("log") ? "p.categoria IN ('conteudo', 'log')" : "p.categoria = 'conteudo'"];
         const parametros: string[] = [montar.match];
         if (opcoes.tipo?.length) { condicoes.push(`p.tipo IN (${opcoes.tipo.map(() => "?").join(",")})`); parametros.push(...opcoes.tipo); }
@@ -146,17 +169,31 @@ export function criarNucleo(cfg: Config): NucleoDeBusca {
           return resultado;
         });
         resultados.sort((a, b) => b.score - a.score || (a.caminho < b.caminho ? -1 : a.caminho > b.caminho ? 1 : 0) || a.linhaInicio - b.linhaInicio);
-        return { consulta: consulta.normalize("NFC"), resultados: resultados.slice(0, limite), vazia: resultados.length === 0, indice: { paginas: indexacao.paginas, secoes: indexacao.secoes, reindexadas: indexacao.reindexadas } };
+        const resposta: RespostaBusca = { consulta: consulta.normalize("NFC"), resultados: resultados.slice(0, limite), vazia: resultados.length === 0, indice: { paginas: indexacao.paginas, secoes: indexacao.secoes, reindexadas: indexacao.reindexadas } };
+        const filtros = [opcoes.tipo?.length ? "tipo" : "", opcoes.area?.length ? "area" : "", opcoes.incluir?.length ? "incluir" : ""].filter(Boolean);
+        registrar({ tool: "buscar", ms: Date.now() - inicio, bytes: Buffer.byteLength(JSON.stringify(resposta)), resultados: resposta.resultados.length, vazia: resposta.vazia, palavras: montar.palavras, explicita: montar.explicita, filtros, porEstado: resumoDaChamada(resposta.resultados), comAviso: resposta.resultados.filter((r) => r.avisos.length > 0).length, reindexadas: indexacao.reindexadas, msReindexacao: indexacao.ms, conexao });
+        return resposta;
       });
     } catch (causa) {
-      return erro("indice_corrompido", `Não foi possível consultar o índice: ${causa instanceof Error ? causa.message : String(causa)}`);
+      const resposta = erro("indice_corrompido", `Não foi possível consultar o índice: ${causa instanceof Error ? causa.message : String(causa)}`);
+      registrar({ tool: "buscar", ms: Date.now() - inicio, bytes: Buffer.byteLength(JSON.stringify(resposta)), resultados: 0, vazia: true, palavras: consulta.trim().split(/\s+/u).filter(Boolean).length, explicita: false, filtros: [], porEstado: { manual: 0, verificada: 0, rascunho: 0 }, comAviso: 0, reindexadas: 0, msReindexacao: 0, erro: "indice_corrompido", conexao });
+      return resposta;
     }
   }
 
   async function ler(endereco: Partial<Endereco> & { caminho: string }): Promise<ResultadoOuErro<Trecho>> {
-    if (!raizWikiExiste(wiki)) return erro("wiki_ausente", "A wiki não foi encontrada.");
+    const inicio = Date.now();
+    if (!raizWikiExiste(wiki)) {
+      const resposta = erro("wiki_ausente", "A wiki não foi encontrada.");
+      registrar({ tool: "ler", ms: Date.now() - inicio, bytes: Buffer.byteLength(JSON.stringify(resposta)), resultados: 0, vazia: false, palavras: 0, explicita: false, filtros: [], porEstado: { manual: 0, verificada: 0, rascunho: 0 }, comAviso: 0, reindexadas: 0, msReindexacao: 0, erro: "wiki_ausente", conexao, posicaoLida: null });
+      return resposta;
+    }
     const resolvido = await resolverArquivo(wiki, endereco.caminho);
-    if ("erro" in resolvido) return resolvido.erro;
+    if ("erro" in resolvido) {
+      const resposta = resolvido.erro;
+      registrar({ tool: "ler", ms: Date.now() - inicio, bytes: Buffer.byteLength(JSON.stringify(resposta)), resultados: 0, vazia: false, palavras: 0, explicita: false, filtros: [], porEstado: { manual: 0, verificada: 0, rascunho: 0 }, comAviso: 0, reindexadas: 0, msReindexacao: 0, erro: resposta.erro.codigo, conexao, posicaoLida: null });
+      return resposta;
+    }
     try {
       return await comIndice(arquivoDb, async (db) => {
         await sincronizar(db, wiki, raiz, { agora: agora() });
@@ -195,13 +232,17 @@ export function criarNucleo(cfg: Config): NucleoDeBusca {
         const pagina = db.query("SELECT estado FROM paginas WHERE caminho = ?").get(resolvido.relativo) as { estado: string } | null;
         const secoes = db.query("SELECT avisos FROM secoes WHERE caminho = ? AND linha_inicio <= ? AND linha_fim >= ?").all(resolvido.relativo, fimLinha, inicioLinha) as { avisos: string }[];
         const avisos = [...new Set(secoes.flatMap((secao) => lerAvisos(secao.avisos)))];
-        return {
+        const resultado: Trecho = {
           caminho: resolvido.relativo, linhaInicio: inicioLinha, linhaFim: inicioLinha + Math.max(0, linhasSaida - 1),
           conteudo: conteudoSaida, totalLinhas, truncado, estado: estado(pagina?.estado ?? "rascunho"), avisos,
         };
+        registrar({ tool: "ler", ms: Date.now() - inicio, bytes: Buffer.byteLength(JSON.stringify(resultado)), resultados: 0, vazia: false, palavras: 0, explicita: false, filtros: [], porEstado: { manual: Number(resultado.estado === "manual"), verificada: Number(resultado.estado === "verificada"), rascunho: Number(resultado.estado === "rascunho") }, comAviso: Number(resultado.avisos.length > 0), reindexadas: 0, msReindexacao: 0, conexao, posicaoLida: null });
+        return resultado;
       });
     } catch (causa) {
-      return erro("indice_corrompido", `Não foi possível ler a página: ${causa instanceof Error ? causa.message : String(causa)}`);
+      const resposta = erro("indice_corrompido", `Não foi possível ler a página: ${causa instanceof Error ? causa.message : String(causa)}`);
+      registrar({ tool: "ler", ms: Date.now() - inicio, bytes: Buffer.byteLength(JSON.stringify(resposta)), resultados: 0, vazia: false, palavras: 0, explicita: false, filtros: [], porEstado: { manual: 0, verificada: 0, rascunho: 0 }, comAviso: 0, reindexadas: 0, msReindexacao: 0, erro: "indice_corrompido", conexao, posicaoLida: null });
+      return resposta;
     }
   }
 
@@ -221,5 +262,21 @@ export function criarNucleo(cfg: Config): NucleoDeBusca {
     } catch { return resumoVazio(); }
   }
 
-  return { buscar, ler, indexar, resumoDaWiki };
+  async function metricas(): Promise<RelatorioMetricas> {
+    const registro = cfg.metricas;
+    const relatorio = registro?.resumo() ?? abrirMetricas(arquivoDb.replace(/indice\.db$/, "metricas.db"), false).resumo();
+    let versaoAnvilore = "";
+    try { versaoAnvilore = (JSON.parse(await Bun.file(join(raiz, "package.json")).text()) as { version?: string }).version ?? ""; } catch { /* clone temporário sem package.json */ }
+    const resumo = await resumoDaWiki();
+    return { ...relatorio, contexto: { wiki: {
+      paginas: resumo.paginas, secoes: resumo.secoes, porEstado: resumo.porEstado,
+      percentualPorEstado: {
+        manual: resumo.paginas ? Math.round(resumo.porEstado.manual / resumo.paginas * 1000) / 10 : 0,
+        verificada: resumo.paginas ? Math.round(resumo.porEstado.verificada / resumo.paginas * 1000) / 10 : 0,
+        rascunho: resumo.paginas ? Math.round(resumo.porEstado.rascunho / resumo.paginas * 1000) / 10 : 0,
+      },
+    }, versaoAnvilore, plataforma: process.platform, bun: Bun.version } };
+  }
+
+  return { buscar, ler, indexar, resumoDaWiki, metricas };
 }
