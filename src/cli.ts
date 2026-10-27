@@ -17,6 +17,7 @@ import { comandoInit } from "./comandos/init";
 import { comandoFechar } from "./comandos/fechar";
 import { comandoBaseline } from "./comandos/baseline";
 import { comandoMetricas } from "./comandos/metricas";
+import { comandoIndexar, comandoMcp } from "./comandos/mcp";
 
 export type Subcomando = (args: string[]) => Promise<number>;
 export type TabelaDeSubcomandos = Record<string, Subcomando>;
@@ -40,7 +41,8 @@ export const subcomandos: TabelaDeSubcomandos = {
   fechar: comandoFechar,
   baseline: comandoBaseline,
   metricas: comandoMetricas,
-  mcp: async (args) => (await import("./comandos/mcp-servidor")).comandoMcpServidor(args),
+  indexar: comandoIndexar,
+  mcp: comandoMcp,
 };
 
 function listar(tabela: TabelaDeSubcomandos): string {

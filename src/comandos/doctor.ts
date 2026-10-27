@@ -217,6 +217,7 @@ export async function comandoDoctor(args: string[]): Promise<number> {
   console.log("Travas (o que impede o agente de atravessar a fronteira):");
   for (const trava of travas) for (const texto of linhas(trava)) console.log(texto);
   console.log("Pré-requisitos:");
+  console.log(`  MCP de consulta à wiki: opcional — para ligar: bun src/cli.ts mcp ligar`);
   for (const item of prerequisitos) console.log(`  ${item.nome}: ${item.presente ? "presente" : `ausente — instale em ${ONDE_INSTALAR[item.nome]}`}`);
   for (const aviso of avisos) console.log(`AVISO: ${aviso}`);
   if (!faltam && !ausentes) {
