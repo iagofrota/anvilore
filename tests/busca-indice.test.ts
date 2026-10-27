@@ -1,6 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync, renameSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync, renameSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { abrirIndice, sincronizar } from "../src/busca/indice";
@@ -29,6 +29,19 @@ test("Dado wiki com seções, Quando sincroniza pela primeira vez, Então indexa
     expect(await sincronizar(db, f.wiki, f.raiz)).toMatchObject({ paginas: 1, secoes: 3, reindexadas: 1, removidas: 0, puladas: 0 });
     expect(db.query("SELECT count(*) AS n FROM secoes_fts WHERE secoes_fts MATCH 'exclusivo'").get()).toEqual({ n: 1 });
   } finally { db.close(); }
+});
+
+test("Dado symlink .md para fora da wiki, Quando indexa, Então ignora o alvo e avisa", async () => {
+  if (process.platform === "win32") return;
+  const f = fixture(); const fora = join(f.raiz, "segredo.md"); pagina(fora, "## Chave privada\nsegredo ssh");
+  try { symlinkSync(fora, join(f.wiki, "segredo.md")); } catch { return; }
+  const avisos = spyOn(console, "error").mockImplementation(() => {});
+  const db = abrirIndice(f.db);
+  try {
+    await sincronizar(db, f.wiki, f.raiz);
+    expect(db.query("SELECT count(*) AS n FROM secoes_fts WHERE secoes_fts MATCH 'ssh'").get()).toEqual({ n: 0 });
+    expect(avisos).toHaveBeenCalledWith(expect.stringContaining("symlink fora da wiki"));
+  } finally { avisos.mockRestore(); db.close(); }
 });
 
 test("Dado índice atualizado, Quando não há mudanças, Então não reindexa", async () => {

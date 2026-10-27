@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
-import { mkdirSync, statSync } from "node:fs";
-import { basename, relative, resolve, sep } from "node:path";
+import { mkdirSync, realpathSync, statSync } from "node:fs";
+import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { estadoDaPagina } from "./estado";
 import { secoesDe } from "./secoes";
 import { lerUtf8Estrito, lerUtf8EstritoSync } from "../lib/utf8";
@@ -69,6 +69,17 @@ function caminhoFts(caminho: string): string {
   return caminho.replace(/[\/_-]|\.md/gi, " ").normalize("NFC");
 }
 
+function dentroDaWiki(realWiki: string, arquivo: string): boolean {
+  try {
+    const realArquivo = realpathSync(arquivo);
+    const relativo = relative(realWiki, realArquivo);
+    return !isAbsolute(relativo) && relativo !== ".." && !relativo.startsWith(`..${sep}`);
+  } catch {
+    console.error("AVISO: symlink quebrado ignorado durante a indexação.");
+    return false;
+  }
+}
+
 export async function sincronizar(
   db: Database,
   wiki: string,
@@ -84,7 +95,18 @@ export async function sincronizar(
     if ((erro as NodeJS.ErrnoException).code === "ENOENT") return { paginas: 0, secoes: 0, reindexadas: 0, removidas: 0, puladas: 0, ms: Date.now() - inicio };
     throw erro;
   }
-  const entradas = listar(absolutoWiki, arquivos);
+  let realWiki: string;
+  try { realWiki = realpathSync(absolutoWiki); }
+  catch { return { paginas: 0, secoes: 0, reindexadas: 0, removidas: 0, puladas: 0, ms: Date.now() - inicio }; }
+  const confinados = arquivos.filter((arquivo) => {
+    let realArquivo: string;
+    try { realArquivo = realpathSync(arquivo); }
+    catch { console.error("AVISO: symlink quebrado ignorado durante a indexação."); return false; }
+    if (dentroDaWiki(realWiki, realArquivo)) return true;
+    console.error("AVISO: symlink fora da wiki ignorado durante a indexação.");
+    return false;
+  });
+  const entradas = listar(absolutoWiki, confinados);
   const prepararAgora = new Map<string, { mtime: number; tamanho: number; conteudo?: string; erro?: true }>();
   const metadadosAtuais = new Map((db.query("SELECT caminho, mtime, tamanho FROM paginas").all() as { caminho: string; mtime: number; tamanho: number }[]).map((linha) => [linha.caminho, linha]));
   await Promise.all(entradas.map(async (entrada) => {
