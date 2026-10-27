@@ -10,6 +10,7 @@ const compilacao = await Bun.build({
   outdir: resolve(saida, "assets"),
   target: "browser",
   minify: true,
+  define: { "process.env.NODE_ENV": '"production"' },
   naming: { entry: "[name].[ext]", asset: "[name].[ext]" },
 });
 if (!compilacao.success) throw new AggregateError(compilacao.logs, "Não foi possível compilar a interface web.");

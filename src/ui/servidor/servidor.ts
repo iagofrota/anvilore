@@ -2,7 +2,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { aprovarPaginas } from "../../comandos/aprovar";
-import { caminhoDaCopia, listarFilaRascunhos } from "../../lib/ui-fila";
+import { indexarCopias, listarFilaRascunhos } from "../../lib/ui-fila";
 import { caminhoWiki } from "../../lib/wiki-repo";
 
 type Servidor = ReturnType<typeof Bun.serve>;
@@ -16,7 +16,14 @@ function localHost(request: Request): boolean {
 }
 
 function json(dados: unknown, status = 200): Response {
-  return Response.json(dados, { status, headers: { "cache-control": "no-store" } });
+  return respostaSegura(JSON.stringify(dados), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
+}
+
+function respostaSegura(body?: BodyInit | null, init: ResponseInit = {}): Response {
+  const headers = new Headers(init.headers);
+  headers.set("referrer-policy", "no-referrer");
+  headers.set("x-content-type-options", "nosniff");
+  return new Response(body, { ...init, headers });
 }
 
 function tokenValido(url: URL, token: string): boolean {
@@ -58,14 +65,17 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
         hostname: "127.0.0.1",
         port: porta,
         fetch: async (request) => {
-          if (!localHost(request)) return new Response("Acesso recusado", { status: 403 });
+          if (!localHost(request)) return respostaSegura("Acesso recusado", { status: 403 });
           const url = new URL(request.url);
-          if (url.pathname === "/favicon.ico" && request.method === "GET") return new Response(null, { status: 204 });
-          if (!tokenValido(url, token)) return new Response("Acesso recusado", { status: 403 });
+          if (url.pathname === "/favicon.ico" && request.method === "GET") return respostaSegura(null, { status: 204 });
+          if (!tokenValido(url, token)) return respostaSegura("Acesso recusado", { status: 403 });
+          const origem = request.headers.get("origin");
+          if (request.method === "POST" && (!origem || origem !== url.origin)) return json({ erro: "Origem recusada." }, 403);
           if (url.pathname === "/api/rascunhos" && request.method === "GET") {
             const fila = await listarFilaRascunhos(raiz);
+            const copias = await indexarCopias(raiz);
             return json(await Promise.all(fila.map(async item => {
-              const copia = caminhoDaCopia(raiz, item.caminho);
+              const copia = copias.get(item.caminho);
               let anterior: string | undefined;
               if (copia) { try { anterior = await readFile(copia, "utf8"); } catch { /* cópia removida durante a leitura */ } }
               return { ...item, anterior };
@@ -86,15 +96,19 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
             const raizPublica = resolve(import.meta.dir, "../public");
             const caminho = url.pathname === "/" ? join(raizPublica, "index.html") : resolve(raizPublica, `.${url.pathname}`);
             const caminhoRelativo = relative(raizPublica, caminho);
-            if (caminhoRelativo === ".." || caminhoRelativo.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(caminhoRelativo)) return new Response("Não encontrado", { status: 404 });
+            if (caminhoRelativo === ".." || caminhoRelativo.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(caminhoRelativo)) return respostaSegura("Não encontrado", { status: 404 });
             try {
               const arquivo = await readFile(caminho);
               const tipo = caminho.endsWith(".html") ? "text/html; charset=utf-8" : caminho.endsWith(".css") ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8";
               const conteudo = tipo.startsWith("text/html") ? arquivo.toString().replaceAll("__ANVILORE_TOKEN__", token) : arquivo;
-              return new Response(conteudo, { headers: { "content-type": tipo, "cache-control": "no-store", "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'" } });
-            } catch { return new Response("Interface ainda não compilada. Execute bun run build:ui.", { status: 503 }); }
+              return respostaSegura(conteudo, { headers: { "content-type": tipo, "cache-control": "no-store", "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'" } });
+            } catch (erro) {
+              const codigo = (erro as NodeJS.ErrnoException).code;
+              if (codigo === "ENOENT" || codigo === "EISDIR") return respostaSegura("Não encontrado", { status: 404 });
+              return respostaSegura("Interface indisponível.", { status: 503 });
+            }
           }
-          return new Response("Não encontrado", { status: 404 });
+          return respostaSegura("Não encontrado", { status: 404 });
         },
       });
       break;

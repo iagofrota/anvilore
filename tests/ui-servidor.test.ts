@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { iniciarServidorUi } from "../src/ui/servidor/servidor";
@@ -13,6 +13,14 @@ async function servidor(porta = 0) {
   const app = await iniciarServidorUi(raiz, { portaInicial: porta, token: "token-teste", abrirNavegador: false });
   servidores.push(app.servidor);
   return app;
+}
+
+function postAprovar(app: Awaited<ReturnType<typeof iniciarServidorUi>>, caminho: string, headers: Record<string, string> = {}) {
+  return fetch(`http://127.0.0.1:${app.porta}/api/aprovar?token=token-teste`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: `http://127.0.0.1:${app.porta}`, ...headers },
+    body: JSON.stringify({ caminho }),
+  });
 }
 
 test("Dado interface local ativa Quando acesso sem token Então recebe 403", async () => {
@@ -41,7 +49,7 @@ test("Dado aprovação autorizada Quando envio a ação Então o servidor usa o 
   writeFileSync(join(raiz, ".anvilore/identidade"), "human:local\n");
   writeFileSync(arquivo, "---\ntype: concept\nslug: aprovar\ntitle: Aprovar\ngenerated:\n  by: agente/teste\n  at: 2026-10-27T10:00:00Z\n---\nCorpo.\n");
   const app = await servidor();
-  const resposta = await fetch(`http://127.0.0.1:${app.porta}/api/aprovar?token=token-teste`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ caminho: "concepts/aprovar.md" }) });
+  const resposta = await postAprovar(app, "concepts/aprovar.md");
   expect(resposta.status).toBe(200);
   expect(await resposta.json()).toMatchObject({ codigo: 0 });
   expect(readFileSync(arquivo, "utf8")).toContain("by: human:local");
@@ -58,7 +66,7 @@ for (const caso of [
     writeFileSync(join(raiz, ".anvilore/identidade"), "human:local\n");
     writeFileSync(arquivo, `---\ntype: concept\nslug: consistente\ntitle: Consistente\ngenerated:\n  by: agente/teste\n  at: ${caso.generated ?? "2026-10-27T10:00:00Z"}\n${caso.verified}---\nCorpo.\n`);
     const app = await servidor();
-    const resposta = await fetch(`http://127.0.0.1:${app.porta}/api/aprovar?token=token-teste`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ caminho: "concepts/consistente.md" }) });
+    const resposta = await postAprovar(app, "concepts/consistente.md");
     expect(resposta.status).toBe(200);
     expect(readFileSync(arquivo, "utf8")).toContain("by: human:local");
   });
@@ -67,17 +75,27 @@ for (const caso of [
 test("Dado wiki válida Quando peço Tudo revisado Então roda validar e devolve saída e código reais", async () => {
   writeFileSync(join(raiz, "wiki/index.md"), "# Wiki\n");
   const app = await servidor();
-  const resposta = await fetch(`http://127.0.0.1:${app.porta}/api/validar?token=token-teste`, { method: "POST" });
+  const resposta = await fetch(`http://127.0.0.1:${app.porta}/api/validar?token=token-teste`, { method: "POST", headers: { origin: `http://127.0.0.1:${app.porta}` } });
   expect(resposta.status).toBe(200);
   expect(await resposta.json()).toMatchObject({ codigo: 0, saida: expect.stringContaining("VALIDACAO: PASS") });
 });
 
-test("Dado porta inicial ocupada Quando inicio a interface Então escolhe a próxima porta", async () => {
-  const ocupada = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ocupada") });
-  servidores.push(ocupada);
-  const portaOcupada = ocupada.port!;
-  const app = await servidor(portaOcupada);
-  expect(app.porta).toBe(portaOcupada + 1);
+test("Dado porta inicial e seguinte ocupadas Quando inicio Então escuta em qualquer porta livre", async () => {
+  let ocupada: ReturnType<typeof Bun.serve> | undefined;
+  let vizinha: ReturnType<typeof Bun.serve> | undefined;
+  for (let tentativa = 0; tentativa < 20 && !vizinha; tentativa++) {
+    const candidata = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ocupada") });
+    try {
+      const proxima = Bun.serve({ hostname: "127.0.0.1", port: candidata.port! + 1, fetch: () => new Response("também ocupada") });
+      ocupada = candidata; vizinha = proxima;
+    } catch { candidata.stop(true); }
+  }
+  expect(ocupada).toBeDefined();
+  expect(vizinha).toBeDefined();
+  servidores.push(ocupada!, vizinha!);
+  const app = await servidor(ocupada!.port!);
+  expect([ocupada!.port, vizinha!.port]).not.toContain(app.porta);
+  expect((await fetch(`http://127.0.0.1:${app.porta}`)).status).toBe(403);
 });
 
 test("Dado inicialização padrão Quando o servidor sobe Então abre URL de loopback com token", async () => {
@@ -101,6 +119,71 @@ test("Dado interface autorizada Quando carrego a página e os assets Então o to
 test("Dado requisição do favicon local Quando o navegador pede o ícone Então responde sem erro", async () => {
   const app = await servidor();
   expect((await fetch(`http://127.0.0.1:${app.porta}/favicon.ico`)).status).toBe(204);
+});
+
+test("Dado página válida Quando faço POST sem token ou com Host externo Então recebo 403 sem gravar aprovação", async () => {
+  const arquivo = join(raiz, "wiki/concepts/sem-autorizacao.md");
+  const original = "---\ntype: concept\nslug: sem-autorizacao\ntitle: Sem autorização\ngenerated:\n  by: agente/teste\n  at: 2026-10-27T10:00:00Z\n---\nCorpo.\n";
+  writeFileSync(arquivo, original);
+  const app = await servidor();
+  const url = `http://127.0.0.1:${app.porta}/api/aprovar`;
+  const semToken = await fetch(url, { method: "POST", headers: { "content-type": "application/json", origin: `http://127.0.0.1:${app.porta}` }, body: JSON.stringify({ caminho: "concepts/sem-autorizacao.md" }) });
+  expect(semToken.status).toBe(403);
+  const hostErrado = await fetch(`${url}?token=token-teste`, { method: "POST", headers: { "content-type": "application/json", origin: `http://127.0.0.1:${app.porta}`, host: "evil.test" }, body: JSON.stringify({ caminho: "concepts/sem-autorizacao.md" }) });
+  expect(hostErrado.status).toBe(403);
+  expect(readFileSync(arquivo, "utf8")).toBe(original);
+});
+
+test("Dado caminhos fora da fila Quando tento aprovar ../, raw e symlink Então recusa sem alterar os arquivos", async () => {
+  const raw = join(raiz, "raw/segredo.md");
+  const fora = join(raiz, "fora.md");
+  const alvo = join(raiz, "fora/concepts/symlink.md");
+  const rawOriginal = "raw intocado\n";
+  const foraOriginal = "fora intocado\n";
+  mkdirSync(join(raiz, "raw"), { recursive: true });
+  mkdirSync(join(raiz, "fora/concepts"), { recursive: true });
+  mkdirSync(join(raiz, "wiki/atalho"), { recursive: true });
+  writeFileSync(raw, rawOriginal); writeFileSync(fora, foraOriginal); writeFileSync(alvo, foraOriginal);
+  symlinkSync(join(raiz, "fora/concepts"), join(raiz, "wiki/atalho/concepts"), "junction");
+  const app = await servidor();
+  for (const caminho of ["../raw/segredo.md", "raw/segredo.md", "atalho/concepts/symlink.md", fora]) {
+    expect((await postAprovar(app, caminho)).status).toBe(409);
+  }
+  expect(readFileSync(raw, "utf8")).toBe(rawOriginal);
+  expect(readFileSync(fora, "utf8")).toBe(foraOriginal);
+  expect(readFileSync(alvo, "utf8")).toBe(foraOriginal);
+});
+
+test("Dado Origin externo Quando envio POST de aprovação Então recusa e não altera a página", async () => {
+  const arquivo = join(raiz, "wiki/concepts/csrf.md");
+  const original = "---\ntype: concept\nslug: csrf\ntitle: CSRF\ngenerated:\n  by: agente/teste\n  at: 2026-10-27T10:00:00Z\n---\nCorpo.\n";
+  writeFileSync(arquivo, original);
+  const app = await servidor();
+  expect((await postAprovar(app, "concepts/csrf.md", { origin: "http://evil.test" })).status).toBe(403);
+  expect(readFileSync(arquivo, "utf8")).toBe(original);
+});
+
+test("Dado asset ausente Quando acesso a interface Então recebo 404 sem instrução de desenvolvimento", async () => {
+  const app = await servidor();
+  const resposta = await fetch(`http://127.0.0.1:${app.porta}/assets/inexistente.js?token=token-teste`);
+  expect(resposta.status).toBe(404);
+  expect(await resposta.text()).not.toContain("bun run");
+});
+
+test("Dado qualquer resposta local Quando o navegador recebe cabeçalhos Então a política não vaza Referer", async () => {
+  const app = await servidor();
+  const resposta = await fetch(app.url);
+  expect(resposta.headers.get("referrer-policy")).toBe("no-referrer");
+});
+
+test("Dado página com cópia anterior real Quando listo rascunhos Então a API devolve seu conteúdo", async () => {
+  writeFileSync(join(raiz, "wiki/concepts/com-copia.md"), "---\ntype: concept\nslug: com-copia\ntitle: Com cópia\ngenerated:\n  by: agente/teste\n  at: 2026-10-27T10:00:00Z\n---\nDepois.\n");
+  const copia = join(raiz, ".anvilore/ui/copias/sessao-1/concepts/com-copia.md");
+  mkdirSync(join(copia, ".."), { recursive: true });
+  writeFileSync(copia, "Antes.\n");
+  const app = await servidor();
+  const resposta = await fetch(`http://127.0.0.1:${app.porta}/api/rascunhos?token=token-teste`);
+  expect(await resposta.json()).toMatchObject([{ caminho: "concepts/com-copia.md", anterior: "Antes.\n" }]);
 });
 
 test("Dado servidor encerrado Quando inicio outra escuta na mesma porta Então a porta está livre", async () => {

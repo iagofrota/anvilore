@@ -1,5 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
-import { readdirSync, statSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import { basename, join, relative, resolve, sep } from "node:path";
 import { lerFrontmatter } from "./frontmatter";
 import { caminhoWiki } from "./wiki-repo";
@@ -17,6 +17,7 @@ export type Rascunho = {
   aprovavel: boolean;
   aprovacaoAnterior?: "deixa de valer";
   erros?: string[];
+  avisos?: string[];
   conteudo: string;
 };
 
@@ -41,6 +42,10 @@ function erroDoValidador(erros: string[], caminho: string): string[] {
   return erros.filter(erro => erro.endsWith(`: ${caminho}`) || erro.includes(`: ${caminho} (`));
 }
 
+function erroGlobal(erro: string): boolean {
+  return erro.startsWith("página fora do índice:") || erro.startsWith("wikilink quebrado");
+}
+
 export async function listarFilaRascunhos(raiz: string, ambiente: Record<string, string | undefined> = process.env): Promise<Rascunho[]> {
   const wiki = caminhoWiki(raiz, ambiente);
   const arquivos = await listarMarkdown(wiki);
@@ -59,7 +64,9 @@ export async function listarFilaRascunhos(raiz: string, ambiente: Record<string,
     const generated = frontmatter.generated;
     const geradaEm = ehMapa(generated) && instanteValido(generated.at);
     const estadoAprovacao = estadoAprovacaoHumana(frontmatter);
-    const erros = erroDoValidador(validacao.erros, caminho).filter(erro => !erro.startsWith(`página gerada sem aprovação humana: ${caminho}`));
+    const diagnosticos = erroDoValidador(validacao.erros, caminho).filter(erro => !erro.startsWith(`página gerada sem aprovação humana: ${caminho}`));
+    const erros = diagnosticos.filter(erro => !erroGlobal(erro));
+    const avisos = diagnosticos.filter(erroGlobal);
     if (!geradaEm || estadoAprovacao === "invalida") {
       fila.push({ caminho, titulo: String(frontmatter.title ?? basename(caminho, ".md")), tipo: String(frontmatter.type ?? ""), status: "erro", aprovavel: false, erros, conteudo });
       continue;
@@ -80,6 +87,7 @@ export async function listarFilaRascunhos(raiz: string, ambiente: Record<string,
       aprovavel: erros.length === 0,
       ...(atualizada ? { aprovacaoAnterior: "deixa de valer" as const } : {}),
       ...(erros.length ? { erros } : {}),
+      ...(avisos.length ? { avisos } : {}),
       conteudo,
     });
   }
@@ -91,23 +99,34 @@ function instanteValido(valor: unknown): boolean {
   return Number.isFinite(Date.parse(String(valor)));
 }
 
-export function caminhoDaCopia(raiz: string, caminhoWikiRelativo: string): string | undefined {
+export async function indexarCopias(raiz: string): Promise<Map<string, string>> {
   const pasta = resolve(raiz, ".anvilore/ui/copias");
-  const caminhos: Array<{ caminho: string; data: number }> = [];
-  const visitar = (dir: string) => {
+  const arquivos: string[] = [];
+  const visitar = async (dir: string): Promise<void> => {
     let entradas;
-    try { entradas = readdirSync(dir, { withFileTypes: true }); }
-    catch { return; }
-    for (const entrada of entradas) {
+    try { entradas = await readdir(dir, { withFileTypes: true }); }
+    catch (erro) { if ((erro as NodeJS.ErrnoException).code === "ENOENT") return; throw erro; }
+    await Promise.all(entradas.map(async entrada => {
       const absoluto = join(dir, entrada.name);
-      if (entrada.isDirectory()) visitar(absoluto);
-      else if (entrada.isFile()) {
-        const relativo = relative(pasta, absoluto).split(sep).join("/");
-        if (relativo !== caminhoWikiRelativo && !relativo.endsWith(`/${caminhoWikiRelativo}`)) continue;
-        try { caminhos.push({ caminho: absoluto, data: statSync(absoluto).mtimeMs }); } catch { /* arquivo removido durante a leitura */ }
-      }
-    }
+      if (entrada.isDirectory()) await visitar(absoluto);
+      else if (entrada.isFile() && entrada.name.endsWith(".md")) arquivos.push(absoluto);
+    }));
   };
-  visitar(pasta);
-  return caminhos.sort((a, b) => b.data - a.data)[0]?.caminho;
+  await visitar(pasta);
+  const candidatos = new Map<string, { caminho: string; data: number }>();
+  await Promise.all(arquivos.map(async caminho => {
+    const relativo = relative(pasta, caminho).split(sep).join("/");
+    const separador = relativo.indexOf("/");
+    if (separador < 1) return;
+    const pagina = relativo.slice(separador + 1);
+    try {
+      const data = (await stat(caminho)).mtimeMs;
+      if (!candidatos.has(pagina) || candidatos.get(pagina)!.data < data) candidatos.set(pagina, { caminho, data });
+    } catch { /* cópia removida durante a indexação */ }
+  }));
+  return new Map([...candidatos].map(([pagina, item]) => [pagina, item.caminho]));
+}
+
+export async function caminhoDaCopia(raiz: string, caminhoWikiRelativo: string): Promise<string | undefined> {
+  return (await indexarCopias(raiz)).get(caminhoWikiRelativo);
 }

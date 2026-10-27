@@ -140,6 +140,7 @@ function Aplicacao() {
                 {item.aprovacaoAnterior && <><dt>Aprovação</dt><dd className="expired">Aprovação anterior: {item.aprovacaoAnterior}</dd></>}
               </dl>
               {item.erros?.map(mensagem => <div className="alert validation-error" key={mensagem}>{mensagem}</div>)}
+              {item.avisos?.map(mensagem => <div className="review-warning" role="note" key={mensagem}>{mensagem}</div>)}
               <div className="tabs" role="tablist" aria-label="Visualização da página">
                 <button role="tab" aria-selected={aba === "visual"} onClick={() => setAba("visual")}>{item.anterior !== undefined ? "Mudanças" : "Página nova"}</button>
                 <button role="tab" aria-selected={aba === "markdown"} onClick={() => setAba("markdown")}>Markdown</button>

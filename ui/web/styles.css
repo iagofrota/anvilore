@@ -15,6 +15,7 @@
   --draft: #a8410f;
   --draft-soft: #fbf1e1;
   --updated: #7a4fd6;
+  --updated-soft: #f1edfb;
   --danger: #b23a28;
   --danger-soft: #fbe9e6;
   --hover: #f4f4f2;
@@ -45,6 +46,7 @@
   --draft: #f59a68;
   --draft-soft: #2b1b12;
   --updated: #ae92fa;
+  --updated-soft: #211b30;
   --danger: #f27c70;
   --danger-soft: #2c1614;
   --hover: #232329;
@@ -110,6 +112,7 @@ kbd { display: inline-grid; min-width: 17px; height: 17px; place-items: center; 
 .metadata code { font-size: 10.5px; }
 .metadata .expired { color: var(--draft); }
 .validation-error { margin: 0; }
+.review-warning { margin: 12px 18px 0; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--updated) 28%, var(--line)); border-radius: 7px; background: var(--updated-soft); color: var(--fg); font-size: 12px; }
 .tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--line); }
 .tabs button { height: 32px; margin-bottom: -1px; padding: 0; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--fg-3); font-size: 12px; cursor: pointer; }
 .tabs button[aria-selected="true"] { border-bottom-color: var(--fg); color: var(--fg); font-weight: 550; }

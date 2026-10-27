@@ -50,6 +50,15 @@ test("Dado generated inválido Quando abro Revisão Então mostro a reprovação
   expect(fila[0]?.aprovavel).toBe(false);
 });
 
+test("Dado página fora do índice Quando abro Revisão Então mostro aviso sem bloquear Aprovar", async () => {
+  writeFileSync(join(raiz, "wiki/index.md"), "# Wiki\n\n[[outra-pagina]]\n");
+  pagina("fora-do-indice", "2026-10-27T10:00:00Z");
+  const fila = await listarFilaRascunhos(raiz);
+  expect(fila[0]?.aprovavel).toBe(true);
+  expect(fila[0]?.status).toBe("nova");
+  expect(fila[0]?.avisos?.join(" ")).toContain("fora do índice");
+});
+
 test("Dado wiki configurada fora do projeto Quando listo a fila Então uso caminhoWiki", async () => {
   const externa = mkdtempSync(join(tmpdir(), "anvilore-wiki-externa-"));
   try {
@@ -59,19 +68,19 @@ test("Dado wiki configurada fora do projeto Quando listo a fila Então uso camin
   } finally { rmSync(externa, { recursive: true, force: true }); }
 });
 
-test("Dado cópias da página em sessões diferentes Quando procuro a cópia Então uso a mais recente", () => {
+test("Dado cópias da página em sessões diferentes Quando procuro a cópia Então uso a mais recente", async () => {
   const antiga = join(raiz, ".anvilore/ui/copias/2026-10-26/pessoal/concepts/alvo.md");
   const recente = join(raiz, ".anvilore/ui/copias/2026-10-27/pessoal/concepts/alvo.md");
   mkdirSync(join(antiga, ".."), { recursive: true }); mkdirSync(join(recente, ".."), { recursive: true });
   writeFileSync(antiga, "antes\n"); writeFileSync(recente, "depois\n");
   utimesSync(antiga, new Date("2026-10-26T12:00:00Z"), new Date("2026-10-26T12:00:00Z"));
   utimesSync(recente, new Date("2026-10-27T12:00:00Z"), new Date("2026-10-27T12:00:00Z"));
-  expect(caminhoDaCopia(raiz, "pessoal/concepts/alvo.md")).toBe(recente);
+  expect(await caminhoDaCopia(raiz, "pessoal/concepts/alvo.md")).toBe(recente);
 });
 
-test("Dado caminho de cópia com sufixo semelhante Quando procuro Então ignoro a pasta que não é a página", () => {
-  const falso = join(raiz, ".anvilore/ui/copias/seed/xpessoal/concepts/alvo.md");
+test("Dado caminho de cópia com sufixo semelhante Quando procuro Então ignoro a pasta que não é a página", async () => {
+  const falso = join(raiz, ".anvilore/ui/copias/seed/pessoal/concepts/alvo.md");
   mkdirSync(join(falso, ".."), { recursive: true });
   writeFileSync(falso, "cópia de outra página");
-  expect(caminhoDaCopia(raiz, "pessoal/concepts/alvo.md")).toBeUndefined();
+  expect(await caminhoDaCopia(raiz, "concepts/alvo.md")).toBeUndefined();
 });
