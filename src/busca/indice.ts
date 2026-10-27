@@ -31,14 +31,19 @@ function criarEsquema(db: Database): void {
 export function abrirIndice(arquivoDb: string): Database {
   mkdirSync(resolve(arquivoDb, ".."), { recursive: true });
   const db = new Database(arquivoDb, { create: true });
-  db.exec("PRAGMA busy_timeout = 5000");
-  db.exec("PRAGMA journal_mode = WAL");
-  const versao = (db.query("PRAGMA user_version").get() as { user_version: number }).user_version;
-  if (versao !== VERSAO_ESQUEMA) {
-    db.exec("DROP TRIGGER IF EXISTS secoes_ai; DROP TRIGGER IF EXISTS secoes_ad; DROP TRIGGER IF EXISTS secoes_au; DROP TRIGGER IF EXISTS paginas_ad; DROP TABLE IF EXISTS secoes_fts; DROP TABLE IF EXISTS secoes; DROP TABLE IF EXISTS paginas;");
-    criarEsquema(db);
+  try {
+    db.exec("PRAGMA busy_timeout = 5000");
+    db.exec("PRAGMA journal_mode = WAL");
+    const versao = (db.query("PRAGMA user_version").get() as { user_version: number }).user_version;
+    if (versao !== VERSAO_ESQUEMA) {
+      db.exec("DROP TRIGGER IF EXISTS secoes_ai; DROP TRIGGER IF EXISTS secoes_ad; DROP TRIGGER IF EXISTS secoes_au; DROP TRIGGER IF EXISTS paginas_ad; DROP TABLE IF EXISTS secoes_fts; DROP TABLE IF EXISTS secoes; DROP TABLE IF EXISTS paginas;");
+      criarEsquema(db);
+    }
+    return db;
+  } catch (erro) {
+    try { db.close(); } catch { /* preserve the schema/open error */ }
+    throw erro;
   }
-  return db;
 }
 
 type ArquivoLista = { arquivo: string; caminho: string };

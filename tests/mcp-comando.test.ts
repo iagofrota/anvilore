@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
+import { resolve } from "node:path";
 import { comandoMcpServidor } from "../src/comandos/mcp-servidor";
 
 test("Dado argumentos válidos, Quando inicia MCP, Então resolve a wiki e aguarda o fim do transporte", async () => {
@@ -8,7 +9,7 @@ test("Dado argumentos válidos, Quando inicia MCP, Então resolve a wiki e aguar
   const resultado = comandoMcpServidor(["--wiki", "pessoal"], { raiz: "/tmp/anvilore", entrada, iniciar: async (cfg) => { configuracao = cfg; } });
   setTimeout(() => entrada.end(), 0);
   expect(await resultado).toBe(0);
-  expect(configuracao).toEqual({ raiz: "/tmp/anvilore", wiki: `${process.cwd()}/pessoal` });
+  expect(configuracao).toEqual({ raiz: "/tmp/anvilore", wiki: resolve("pessoal") });
 });
 
 test("Dado flag sem caminho, Quando inicia MCP, Então devolve erro", async () => {

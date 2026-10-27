@@ -118,6 +118,7 @@ test("Dado arquivo SQLite corrompido, Quando busca, Então reconstrói uma vez e
   const resposta = await nucleo(raiz).buscar("termo");
   if ("erro" in resposta) throw new Error(resposta.erro.mensagem);
   expect(resposta.resultados).toHaveLength(1);
+  expect(() => rmSync(join(raiz, ".anvilore", "indice.db"))).not.toThrow();
 });
 
 test("Dado seção endereçada, Quando lê sem linhaFim, Então devolve a seção inteira", async () => {
