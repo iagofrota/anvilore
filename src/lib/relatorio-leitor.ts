@@ -1,11 +1,19 @@
-import esquema from "../../skills/ingest/relatorio-leitor.schema.json";
+import { resolve } from "node:path";
 import { chaveDeNome, estaEmRaw, normalizarFimDeLinha } from "./caminhos";
 import { nomeReservado } from "./reservados";
+import { lerUtf8EstritoSync } from "./utf8";
 
 // O esquema mora em skills/ingest/ e é o mesmo para a skill no terminal e para a
 // interface (`claude -p --json-schema`). Este módulo só o interpreta: não há uma
-// segunda definição dos campos em código.
-export const ESQUEMA_RELATORIO_LEITOR = esquema;
+// segunda definição dos campos em código. É lido no primeiro uso, não no import,
+// para a CLI subir mesmo numa cópia só de src/.
+export const CAMINHO_ESQUEMA_RELATORIO_LEITOR = resolve(import.meta.dir, "../../skills/ingest/relatorio-leitor.schema.json");
+let esquemaCarregado: Record<string, any> | undefined;
+
+export function esquemaRelatorioLeitor(): Record<string, any> {
+  esquemaCarregado ??= JSON.parse(lerUtf8EstritoSync(CAMINHO_ESQUEMA_RELATORIO_LEITOR)) as Record<string, any>;
+  return esquemaCarregado;
+}
 
 export type Certeza = "comprovado" | "provavel" | "inferencia";
 export type TipoDePagina = "source" | "entity" | "concept";
@@ -140,7 +148,7 @@ function regrasExtras(relatorio: RelatorioLeitor): string[] {
 }
 
 export function validarRelatorioLeitor(valor: unknown): Conferencia {
-  const doEsquema = validarContraEsquema(ESQUEMA_RELATORIO_LEITOR as Esquema, valor);
+  const doEsquema = validarContraEsquema(esquemaRelatorioLeitor(), valor);
   // Regra extra sobre dado fora do esquema só gera ruído (ou exceção): para no esquema.
   const erros = doEsquema.length ? doEsquema : regrasExtras(valor as RelatorioLeitor);
   return { ok: erros.length === 0, erros };

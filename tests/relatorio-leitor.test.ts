@@ -5,7 +5,8 @@ import {
   conferirCitacoes,
   conferirLeitura,
   conferirPaginas,
-  ESQUEMA_RELATORIO_LEITOR,
+  CAMINHO_ESQUEMA_RELATORIO_LEITOR,
+  esquemaRelatorioLeitor,
   extrairJson,
   validarContraEsquema,
   validarRelatorioLeitor,
@@ -36,13 +37,14 @@ const fonte = "# Ideia central\n\nA wiki acumula conhecimento.\n\n## Papéis\n\n
 describe("relatório do leitor: o arquivo de esquema é a fonte única", () => {
   test("Dado o esquema versionado Quando o carrego Então é o mesmo arquivo de skills/ingest/", () => {
     const arquivo = JSON.parse(readFileSync(join(raiz, "skills/ingest/relatorio-leitor.schema.json"), "utf8"));
-    expect(ESQUEMA_RELATORIO_LEITOR).toEqual(arquivo);
+    expect(CAMINHO_ESQUEMA_RELATORIO_LEITOR).toBe(join(raiz, "skills/ingest/relatorio-leitor.schema.json"));
+    expect(esquemaRelatorioLeitor()).toEqual(arquivo);
   });
 
   test("Dado o esquema Quando declara os campos Então exige versão, fonte, takeaways, páginas, lacunas e contradições", () => {
-    expect(ESQUEMA_RELATORIO_LEITOR.required).toEqual(["versao", "fonte", "takeaways", "paginas", "lacunas", "contradicoes"]);
-    expect(ESQUEMA_RELATORIO_LEITOR.properties.takeaways.minItems).toBe(3);
-    expect(ESQUEMA_RELATORIO_LEITOR.properties.takeaways.maxItems).toBe(5);
+    expect(esquemaRelatorioLeitor().required).toEqual(["versao", "fonte", "takeaways", "paginas", "lacunas", "contradicoes"]);
+    expect(esquemaRelatorioLeitor().properties.takeaways.minItems).toBe(3);
+    expect(esquemaRelatorioLeitor().properties.takeaways.maxItems).toBe(5);
   });
 
   test("Dado um esquema com palavra-chave que o validador não conhece Quando valido Então recusa em vez de ignorar", () => {
