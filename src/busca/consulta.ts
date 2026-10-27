@@ -30,7 +30,7 @@ export function montarConsulta(texto: string, valida: (match: string) => boolean
   const palavras = normalizado.match(PALAVRA) ?? [];
   const explicita = normalizado.includes('"') || OPERADOR.test(normalizado);
   const semStopwords = palavras.filter((termo) => !STOPWORDS_PT.has(termo.toLocaleLowerCase("pt-BR")));
-  const termos = (semStopwords.length > 0 ? semStopwords : palavras).filter((termo, i, todos) => todos.indexOf(termo) === i);
+  const termos = (semStopwords.length > 0 ? semStopwords : palavras).filter((termo, i, todos) => todos.indexOf(termo) === i && !/^(?:AND|OR|NOT|NEAR)$/i.test(termo));
   if (termos.length === 0) return { match: null, termos: [], explicita, palavras: palavras.length };
 
   const candidata = explicita ? normalizado.trim() : candidataLivre(termos);
@@ -41,7 +41,7 @@ export function montarConsulta(texto: string, valida: (match: string) => boolean
   }
   const fallback = sacoDePalavras(termos);
   try {
-    return { match: valida(fallback) ? fallback : fallback, termos, explicita, palavras: palavras.length };
+    return { match: fallback, termos, explicita, palavras: palavras.length };
   } catch {
     return { match: fallback, termos, explicita, palavras: palavras.length };
   }

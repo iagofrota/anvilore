@@ -7,24 +7,37 @@ import { abrirIndice, sincronizar, type RelatorioIndexacao } from "./indice";
 import { linhasDe } from "../lib/frontmatter";
 import { estaEmRaw } from "../lib/caminhos";
 import { paginasMarkdown } from "../lib/paginas";
-import { lerUtf8Estrito } from "../lib/utf8";
+import { ErroDeEncoding, lerUtf8Estrito } from "../lib/utf8";
 import { abrirMetricas, type Chamada, type RelatorioMetricas, type RegistroDeMetricas } from "./metricas";
 import type { Aviso, CodigoErro, Endereco, ErroDeBusca, NucleoDeBusca, OpcoesBusca, RespostaBusca, ResumoDaWiki, Resultado, ResultadoOuErro, Trecho } from "./tipos";
 
-type ContextoMetricas = { cliente?: { nome: string; versao: string }; conexao?: string; posicaoLida?: number | null };
+type ContextoMetricas = { cliente?: { nome: string; versao: string }; conexao?: string; posicaoLida?: number | null; buscaId?: string };
 type Config = { raiz: string; wiki: string; arquivoDb: string; agora?: () => Date; metricas?: RegistroDeMetricas; contextoMetricas?: () => ContextoMetricas };
 type LinhaResultado = {
   id: number; caminho: string; slug: string; pagina_titulo: string; secao: string; linha_inicio: number; linha_fim: number; corpo: string;
-  avisos: string; estado: string; vencida: number; tipo: string | null; area: string | null; bm25: number; trecho: string | null;
+  avisos: string; estado: string; vencida: number; stale_after: string | null; tipo: string | null; area: string | null; bm25: number; trecho: string | null;
 };
 
 function erro(codigo: CodigoErro, mensagem: string): { erro: ErroDeBusca } { return { erro: { codigo, mensagem } }; }
+function falhaDeIndice(causa: unknown): { codigo: CodigoErro; mensagem: string } {
+  if (causa instanceof ErroDeEncoding) return { codigo: "utf8_invalido", mensagem: "Uma página não contém UTF-8 válido." };
+  const codigoOriginal = typeof causa === "object" && causa !== null && "code" in causa ? String((causa as { code: unknown }).code) : "";
+  if (["EACCES", "EPERM", "EBUSY", "SQLITE_BUSY", "SQLITE_LOCKED"].includes(codigoOriginal)) return { codigo: "indice_indisponivel", mensagem: "O índice está ocupado ou sem permissão de acesso." };
+  return { codigo: "indice_corrompido", mensagem: "Não foi possível consultar o índice local." };
+}
 function erroDeIndice(erroOriginal: unknown): boolean {
   const texto = erroOriginal instanceof Error ? erroOriginal.message.toLowerCase() : String(erroOriginal).toLowerCase();
   return texto.includes("not a database") || texto.includes("malformed") || texto.includes("sqlite_corrupt") || texto.includes("database disk image");
 }
-function apagarDb(arquivo: string): void {
-  for (const sufixo of ["", "-wal", "-shm"]) rmSync(`${arquivo}${sufixo}`, { force: true });
+function apagarDb(arquivo: string): boolean {
+  try {
+    for (const sufixo of ["", "-wal", "-shm"]) rmSync(`${arquivo}${sufixo}`, { force: true });
+    return true;
+  } catch (causa) {
+    const codigo = typeof causa === "object" && causa !== null && "code" in causa ? String((causa as { code: unknown }).code) : "";
+    if (codigo === "EBUSY" || codigo === "EPERM" || codigo === "EACCES") return false;
+    throw causa;
+  }
 }
 async function comIndice<T>(arquivoDb: string, executar: (db: Database) => Promise<T> | T): Promise<T> {
   let tentativa = 0;
@@ -38,7 +51,7 @@ async function comIndice<T>(arquivoDb: string, executar: (db: Database) => Promi
       return resultado;
     } catch (causa) {
       try { db?.close(); } catch { /* o banco pode ter falhado durante open */ }
-      if (tentativa === 0 && erroDeIndice(causa)) { tentativa++; apagarDb(arquivoDb); continue; }
+      if (tentativa === 0 && erroDeIndice(causa) && apagarDb(arquivoDb)) { tentativa++; continue; }
       throw causa;
     }
   }
@@ -50,9 +63,28 @@ function estado(valor: string): "manual" | "verificada" | "rascunho" {
 function lerAvisos(valor: string): Aviso[] {
   return valor.split(",").filter((item): item is Aviso => item === "lacuna" || item === "contradicao");
 }
-function limiteDeCaracteres(texto: string, limite: number): string {
+function trechoComJanela(texto: string, limite = 200): string {
   const caracteres = Array.from(texto);
-  return caracteres.length > limite ? caracteres.slice(0, limite).join("") : texto;
+  const inicioMarca = caracteres.indexOf("\x1e");
+  if (inicioMarca < 0) return caracteres.length > limite ? `${caracteres.slice(0, limite).join("")}…` : texto;
+  const fimMarca = caracteres.indexOf("\x1f", inicioMarca + 1);
+  let inicio = Math.max(0, inicioMarca - Math.floor(limite * 0.4));
+  let fim = Math.min(caracteres.length, Math.max(inicio + limite, (fimMarca < 0 ? inicioMarca : fimMarca) + 1));
+  if (fim - inicio > limite) inicio = fim - limite;
+  return `${inicio > 0 ? "…" : ""}${caracteres.slice(inicio, fim).join("")}${fim < caracteres.length ? "…" : ""}`;
+}
+function caberNoOrcamento(resultado: Resultado, limite = 450): Resultado | null {
+  while (Buffer.byteLength(JSON.stringify(resultado), "utf8") > limite && Array.from(resultado.trecho).length > 8) {
+    const tamanho = Array.from(resultado.trecho).length;
+    resultado.trecho = trechoComJanela(resultado.trecho, tamanho - 8);
+  }
+  const campos: Array<"titulo" | "secao" | "pagina" | "area"> = ["titulo", "secao", "pagina", "area"];
+  while (Buffer.byteLength(JSON.stringify(resultado), "utf8") > limite) {
+    const campo = campos.filter((nome) => resultado[nome] !== undefined).sort((a, b) => Array.from(resultado[b] ?? "").length - Array.from(resultado[a] ?? "").length)[0];
+    if (!campo || Array.from(resultado[campo] ?? "").length < 9) return null;
+    resultado[campo] = `${Array.from(resultado[campo]!).slice(0, -9).join("")}…`;
+  }
+  return resultado;
 }
 function autoridade(linha: LinhaResultado): number {
   let fator = linha.estado === "rascunho" ? 0.9 : 1.1;
@@ -116,6 +148,7 @@ export function criarNucleo(cfg: Config): NucleoDeBusca {
         ...chamada,
         conexao: contexto?.conexao ?? chamada.conexao,
         ...(contexto?.cliente ? { cliente: contexto.cliente } : {}),
+        ...((chamada.tool === "buscar" || chamada.tool === "ler") && contexto?.buscaId ? { buscaId: contexto.buscaId } : {}),
         ...(chamada.tool === "ler" ? { posicaoLida: contexto?.posicaoLida ?? null } : {}),
       }, agora());
     } catch { /* telemetria local nunca interrompe a consulta */ }
@@ -156,16 +189,19 @@ export function criarNucleo(cfg: Config): NucleoDeBusca {
         const parametros: string[] = [montar.match];
         if (opcoes.tipo?.length) { condicoes.push(`p.tipo IN (${opcoes.tipo.map(() => "?").join(",")})`); parametros.push(...opcoes.tipo); }
         if (opcoes.area?.length) { condicoes.push(`p.area IN (${opcoes.area.map(() => "?").join(",")})`); parametros.push(...opcoes.area.map((area) => area.normalize("NFC"))); }
-        const linhas = db.query(`SELECT s.id, s.caminho, p.slug, p.titulo AS pagina_titulo, s.secao, s.linha_inicio, s.linha_fim, s.corpo, s.avisos, p.estado, p.vencida, p.tipo, p.area, bm25(secoes_fts, 5.0, 1.0, 3.0) AS bm25, snippet(secoes_fts, 1, char(30), char(31), '…', 50) AS trecho
+        const linhas = db.query(`SELECT s.id, s.caminho, p.slug, p.titulo AS pagina_titulo, s.secao, s.linha_inicio, s.linha_fim, s.corpo, s.avisos, p.estado, p.vencida, p.stale_after, p.tipo, p.area, bm25(secoes_fts, 5.0, 1.0, 3.0) AS bm25, snippet(secoes_fts, 1, char(30), char(31), '…', 50) AS trecho
           FROM secoes_fts JOIN secoes s ON s.id = secoes_fts.rowid JOIN paginas p ON p.caminho = s.caminho
           WHERE secoes_fts MATCH ? AND ${condicoes.join(" AND ")} ORDER BY bm25 ASC, s.caminho COLLATE BINARY, s.linha_inicio`).all(...parametros) as LinhaResultado[];
-        const resultados = linhas.map((linha) => {
+        const agoraMs = agora().getTime();
+        for (const linha of linhas) linha.vencida = linha.stale_after !== null && Number.isFinite(Date.parse(linha.stale_after)) && agoraMs >= Date.parse(linha.stale_after) ? 1 : 0;
+        const selecionadas = linhas.sort((a, b) => (-b.bm25 * autoridade(b)) - (-a.bm25 * autoridade(a)) || (a.caminho < b.caminho ? -1 : a.caminho > b.caminho ? 1 : 0) || a.linha_inicio - b.linha_inicio).slice(0, limite);
+        const resultados = selecionadas.map((linha) => {
           const fator = autoridade(linha);
-          const corpoCasa = correspondeColuna(db, linha.id, "corpo", montar.match!);
+          const corpoCasa = (linha.trecho ?? "").includes("\x1e");
           const resultado: Resultado = {
             caminho: linha.caminho.normalize("NFC").replaceAll("\\", "/"), linhaInicio: linha.linha_inicio, linhaFim: linha.linha_fim,
             pagina: linha.slug.normalize("NFC"), titulo: linha.pagina_titulo.normalize("NFC"), secao: linha.secao.normalize("NFC"),
-            trecho: limiteDeCaracteres(corpoCasa ? (linha.trecho ?? linha.corpo) : linha.corpo, 120), estado: estado(linha.estado), vencida: Boolean(linha.vencida),
+            trecho: trechoComJanela(corpoCasa ? linha.trecho! : linha.corpo), estado: estado(linha.estado), vencida: Boolean(linha.vencida),
             avisos: lerAvisos(linha.avisos), score: -linha.bm25 * fator,
           };
           if (linha.tipo === "source" || linha.tipo === "concept" || linha.tipo === "entity") resultado.tipo = linha.tipo;
@@ -175,17 +211,16 @@ export function criarNucleo(cfg: Config): NucleoDeBusca {
             colunas: (["titulo", "corpo", "caminho"] as const).filter((coluna) => correspondeColuna(db, linha.id, coluna, montar.match!)),
             termos: montar.termos,
           };
-          return resultado;
-        });
-        resultados.sort((a, b) => b.score - a.score || (a.caminho < b.caminho ? -1 : a.caminho > b.caminho ? 1 : 0) || a.linhaInicio - b.linhaInicio);
-        const resposta: RespostaBusca = { consulta: consulta.normalize("NFC"), resultados: resultados.slice(0, limite), vazia: resultados.length === 0, indice: { paginas: indexacao.paginas, secoes: indexacao.secoes, reindexadas: indexacao.reindexadas } };
+          return caberNoOrcamento(resultado);
+        }).filter((resultado): resultado is Resultado => resultado !== null);
+        const resposta: RespostaBusca = { consulta: consulta.normalize("NFC"), resultados, vazia: resultados.length === 0, indice: { paginas: indexacao.paginas, secoes: indexacao.secoes, reindexadas: indexacao.reindexadas } };
         const filtros = [opcoes.tipo?.length ? "tipo" : "", opcoes.area?.length ? "area" : "", opcoes.incluir?.length ? "incluir" : ""].filter(Boolean);
-        registrar({ tool: "buscar", ms: Date.now() - inicio, bytes: Buffer.byteLength(JSON.stringify(resposta)), resultados: resposta.resultados.length, vazia: resposta.vazia, palavras: montar.palavras, explicita: montar.explicita, filtros, porEstado: resumoDaChamada(resposta.resultados), comAviso: resposta.resultados.filter((r) => r.avisos.length > 0).length, reindexadas: indexacao.reindexadas, msReindexacao: indexacao.ms, conexao });
+        registrar({ tool: "buscar", ms: Date.now() - inicio, bytes: Buffer.byteLength(JSON.stringify(resposta)), resultados: resposta.resultados.length, vazia: resposta.vazia, palavras: montar.palavras, explicita: montar.explicita, filtros, porEstado: resumoDaChamada(resposta.resultados), comAviso: resposta.resultados.filter((r) => r.avisos.length > 0).length, vencidas: resposta.resultados.filter((r) => r.vencida).length, lacunas: resposta.resultados.filter((r) => r.avisos.includes("lacuna")).length, contradicoes: resposta.resultados.filter((r) => r.avisos.includes("contradicao")).length, reindexadas: indexacao.reindexadas, msReindexacao: indexacao.ms, conexao });
         return resposta;
       });
     } catch (causa) {
-      const resposta = erro("indice_corrompido", `Não foi possível consultar o índice: ${causa instanceof Error ? causa.message : String(causa)}`);
-      registrar({ tool: "buscar", ms: Date.now() - inicio, bytes: Buffer.byteLength(JSON.stringify(resposta)), resultados: 0, vazia: true, palavras: consulta.trim().split(/\s+/u).filter(Boolean).length, explicita: false, filtros: [], porEstado: { manual: 0, verificada: 0, rascunho: 0 }, comAviso: 0, reindexadas: 0, msReindexacao: 0, erro: "indice_corrompido", conexao });
+      const falha = falhaDeIndice(causa); const resposta = erro(falha.codigo, falha.mensagem);
+      registrar({ tool: "buscar", ms: Date.now() - inicio, bytes: Buffer.byteLength(JSON.stringify(resposta)), resultados: 0, vazia: true, palavras: consulta.trim().split(/\s+/u).filter(Boolean).length, explicita: false, filtros: [], porEstado: { manual: 0, verificada: 0, rascunho: 0 }, comAviso: 0, reindexadas: 0, msReindexacao: 0, erro: falha.codigo, conexao });
       return resposta;
     }
   }
@@ -206,7 +241,9 @@ export function criarNucleo(cfg: Config): NucleoDeBusca {
     try {
       return await comIndice(arquivoDb, async (db) => {
         await sincronizar(db, wiki, raiz, { agora: agora() });
-        const conteudo = await lerUtf8Estrito(resolvido.arquivo);
+        const wikiReal = realpathSync(wiki); const arquivoReal = realpathSync(resolvido.arquivo); const dentro = relative(wikiReal, arquivoReal);
+        if (isAbsolute(dentro) || dentro === ".." || dentro.startsWith(`..${sep}`) || estaEmRaw(dentro)) return erro("fora_da_wiki", "O caminho solicitado fica fora da wiki.");
+        const conteudo = await lerUtf8Estrito(arquivoReal);
         const linhas = linhasDe(conteudo);
         if (linhas.at(-1) === "") linhas.pop();
         const inicioLinha = endereco.linhaInicio ?? 1;
@@ -249,8 +286,8 @@ export function criarNucleo(cfg: Config): NucleoDeBusca {
         return resultado;
       });
     } catch (causa) {
-      const resposta = erro("indice_corrompido", `Não foi possível ler a página: ${causa instanceof Error ? causa.message : String(causa)}`);
-      registrar({ tool: "ler", ms: Date.now() - inicio, bytes: Buffer.byteLength(JSON.stringify(resposta)), resultados: 0, vazia: false, palavras: 0, explicita: false, filtros: [], porEstado: { manual: 0, verificada: 0, rascunho: 0 }, comAviso: 0, reindexadas: 0, msReindexacao: 0, erro: "indice_corrompido", conexao, posicaoLida: null });
+      const falha = falhaDeIndice(causa); const resposta = erro(falha.codigo, falha.mensagem);
+      registrar({ tool: "ler", ms: Date.now() - inicio, bytes: Buffer.byteLength(JSON.stringify(resposta)), resultados: 0, vazia: false, palavras: 0, explicita: false, filtros: [], porEstado: { manual: 0, verificada: 0, rascunho: 0 }, comAviso: 0, reindexadas: 0, msReindexacao: 0, erro: falha.codigo, conexao, posicaoLida: null });
       return resposta;
     }
   }

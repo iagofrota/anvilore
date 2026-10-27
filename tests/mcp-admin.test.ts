@@ -31,7 +31,7 @@ test("Dado agente disponível, Quando liga MCP, Então indexa e registra comando
     const comandos: string[][] = []; const log = capturarConsole();
     try {
       expect(await comandoMcp(["ligar", "claude"], { home: raiz, existe: async bin => bin === "claude", executar: async cmd => { comandos.push(cmd); return { codigo: 0, saida: "ok" }; } })).toBe(0);
-      expect(comandos[0]).toEqual(["claude", "mcp", "add", "-s", "user", "anvilore", "--", "bun", join(process.cwd(), "src/cli.ts"), "mcp"]);
+      expect(comandos[1]).toEqual(["claude", "mcp", "add", "-s", "user", "anvilore", "--", "bun", join(process.cwd(), "src/cli.ts"), "mcp"]);
       expect(log.saida.join("\n")).toContain("Índice atualizado");
     } finally { log.restaurar(); }
   });
@@ -44,7 +44,31 @@ test("Dado registro ausente, Quando remove e consulta estado, Então não toca n
       expect(await comandoMcp(["desligar", "claude"], { home: "/tmp", existe: async () => false, executar: async () => ({ codigo: 0, saida: "" }) })).toBe(0);
       expect(await comandoMcp(["estado"], { home: "/tmp", existe: async () => false, executar: async () => ({ codigo: 0, saida: "" }) })).toBe(0);
       expect(log.saida.join("\n")).toContain("Páginas: 1");
+      expect(log.saida.join("\n")).toContain("Índice:");
+      expect(log.saida.join("\n")).toContain("Última reindexação:");
       expect(log.saida.join("\n")).toContain("nenhum");
+    } finally { log.restaurar(); }
+  });
+});
+
+test("Dado nenhum agente instalado, Quando liga MCP, Então informa falha sem abortar", async () => {
+  await comWiki(async () => ({ codigo: 2, saida: "indisponível" }), async () => {
+    const log = capturarConsole();
+    try { expect(await comandoMcp(["ligar", "--agente", "todos"], { home: "/tmp", existe: async () => false, executar: async () => ({ codigo: 1, saida: "" }) })).toBe(1); }
+    finally { log.restaurar(); }
+  });
+});
+
+test("Dado list de um agente que falha, Quando liga todos, Então segue para os outros agentes", async () => {
+  await comWiki(async () => ({ codigo: 0, saida: "" }), async () => {
+    const comandos: string[][] = []; const log = capturarConsole();
+    try {
+      const resultado = await comandoMcp(["ligar", "--agente", "todos"], {
+        home: "/tmp", existe: async () => true,
+        executar: async cmd => { comandos.push(cmd); return cmd[0] === "claude" && cmd.includes("list") ? { codigo: 1, saida: "erro" } : { codigo: 0, saida: cmd.includes("list") ? "outro: /tmp/servidor" : "ok" }; },
+      });
+      expect(resultado).toBe(0);
+      expect(comandos.some((cmd) => cmd[0] === "codex" && cmd.includes("add"))).toBe(true);
     } finally { log.restaurar(); }
   });
 });

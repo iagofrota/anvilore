@@ -111,7 +111,7 @@ test("Dado nome de arquivo NFD, Quando indexa, Então armazena o caminho em NFC"
 test("Dado versão de esquema diferente, Quando abre o índice, Então reconstrói o esquema", () => {
   const f = fixture(); mkdirSync(join(f.raiz, ".anvilore")); const db = new Database(f.db); db.exec("PRAGMA user_version = 999"); db.close();
   const reconstruido = abrirIndice(f.db);
-  try { expect(reconstruido.query("PRAGMA user_version").get()).toEqual({ user_version: 1 }); expect(reconstruido.query("SELECT count(*) AS n FROM paginas").get()).toEqual({ n: 0 }); }
+  try { expect(reconstruido.query("PRAGMA user_version").get()).toEqual({ user_version: 2 }); expect(reconstruido.query("SELECT count(*) AS n FROM paginas").get()).toEqual({ n: 0 }); }
   finally { reconstruido.close(); }
 });
 

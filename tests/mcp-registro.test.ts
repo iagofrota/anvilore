@@ -1,11 +1,11 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { criarRegistrador, type Ambiente } from "../src/mcp/registro";
 
 function fixture(presente = true) {
   const comandos: string[][] = []; let configurado = false;
   const amb: Ambiente = { home: "/home/teste", existe: async () => presente, executar: async cmd => {
     comandos.push(cmd);
-    if (cmd.includes("list")) return { codigo: 0, saida: configurado ? "anvilore" : "other" };
+    if (cmd.includes("list")) return { codigo: 0, saida: configurado ? "anvilore: bun /repo/src/cli.ts mcp" : "other: /repo/anvilore" };
     if (cmd.includes("add")) configurado = true;
     if (cmd.includes("remove")) configurado = false;
     return { codigo: 0, saida: "ok" };
@@ -16,7 +16,7 @@ function fixture(presente = true) {
 test("Dado Claude instalado, Quando liga, Então usa escopo de usuário e executável absoluto", async () => {
   const f = fixture(); const comando = ["bun", "/repo/src/cli.ts", "mcp"];
   expect(await criarRegistrador("claude").ligar(comando, f.amb)).toBe("ligado");
-  expect(f.comandos[0]).toEqual(["claude", "mcp", "add", "-s", "user", "anvilore", "--", ...comando]);
+  expect(f.comandos[1]).toEqual(["claude", "mcp", "add", "-s", "user", "anvilore", "--", ...comando]);
 });
 
 test("Dado agente ausente, Quando liga, Então pula sem executar comando", async () => {
@@ -50,4 +50,31 @@ test("Dado nenhum agente instalado, Quando liga, Então todos pulam", async () =
 
 test("Dado agente sem registro, Quando desliga, Então relata ausente", async () => {
   expect(await criarRegistrador("codex").desligar(fixture().amb)).toBe("ausente");
+});
+
+test("Dado list com nome anvilore em caminho alheio, Quando desliga ou consulta, Então não considera nosso servidor", async () => {
+  const amb: Ambiente = { home: "/home/teste", existe: async () => true, executar: async cmd => ({ codigo: 0, saida: cmd.includes("list") ? "wiki-wonka: /tmp/anvilore/mcp" : "ok" }) };
+  const r = criarRegistrador("claude");
+  expect(await r.ligado(amb)).toBe(false);
+  expect(await r.desligar(amb)).toBe("ausente");
+});
+
+test("Dado entrada chamada anvilore com comando estrangeiro, Quando liga, Então avisa e preserva", async () => {
+  const comandos: string[][] = [];
+  const amb: Ambiente = { home: "/home/teste", existe: async () => true, executar: async cmd => { comandos.push(cmd); return { codigo: 0, saida: cmd.includes("list") ? "anvilore: node /tmp/wiki-wonka/server.js" : "ok" }; } };
+  const avisos = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    expect(await criarRegistrador("claude").ligar(["bun", "/repo/src/cli.ts", "mcp"], amb)).toBe("pulado");
+    expect(comandos.some((cmd) => cmd.includes("add"))).toBe(false);
+    expect(avisos).toHaveBeenCalled();
+  } finally { avisos.mockRestore(); }
+});
+
+test("Dado comando de agente que falha, Quando liga, Então avisa e pula sem abortar", async () => {
+  const avisos = spyOn(console, "warn").mockImplementation(() => {});
+  const amb: Ambiente = { home: "/home/teste", existe: async () => true, executar: async () => ({ codigo: 2, saida: "falhou" }) };
+  try {
+    expect(await criarRegistrador("claude").ligar(["bun", "/repo/src/cli.ts", "mcp"], amb)).toBe("pulado");
+    expect(avisos).toHaveBeenCalled();
+  } finally { avisos.mockRestore(); }
 });

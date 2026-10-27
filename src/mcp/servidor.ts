@@ -12,7 +12,7 @@ import { montarInstrucoes } from "./instrucoes";
 
 export type ConfiguracaoServidor = { raiz: string; wiki: string; entrada?: Readable; saida?: Writable };
 type Cliente = { nome: string; versao: string };
-type BuscaAnterior = { caminho: string; linhaInicio: number; posicao: number; instante: number };
+type BuscaAnterior = { caminho: string; linhaInicio: number; posicao: number; instante: number; buscaId: string };
 
 function mapaResultado(resultado: Resultado): Record<string, unknown> {
   return {
@@ -24,6 +24,7 @@ function mapaResultado(resultado: Resultado): Record<string, unknown> {
     estado: resultado.estado,
     ...(resultado.avisos.length ? { avisos: resultado.avisos } : {}),
     ...(resultado.vencida ? { vencida: true } : {}),
+    ...(resultado.explicacao ? { explicacao: resultado.explicacao } : {}),
     score: resultado.score,
   };
 }
@@ -52,22 +53,30 @@ export async function criarServidor(cfg: ConfiguracaoServidor): Promise<McpServe
   const raiz = resolve(cfg.raiz);
   const wiki = resolve(cfg.wiki);
   const diretorioDados = process.env.ANVILORE_DIR ? resolve(process.env.ANVILORE_DIR) : join(raiz, ".anvilore");
-  const metricas = abrirMetricas(join(diretorioDados, "metricas.db"));
+  let metricas: ReturnType<typeof abrirMetricas> | undefined;
+  let inicializacaoComFalha = false;
+  try { metricas = abrirMetricas(join(diretorioDados, "metricas.db")); }
+  catch { inicializacaoComFalha = true; }
   const conexao = randomUUID();
   let cliente: Cliente | undefined;
   let posicaoLida: number | null = null;
+  let buscaIdAtual: string | undefined;
   let ultimaBusca: BuscaAnterior[] = [];
   const nucleo = criarNucleo({
     raiz, wiki, arquivoDb: join(diretorioDados, "indice.db"), metricas,
-    contextoMetricas: () => ({ cliente, conexao, posicaoLida }),
+    contextoMetricas: () => ({ cliente, conexao, posicaoLida, buscaId: buscaIdAtual }),
   });
 
   let resumo: ResumoDaWiki | null = null;
   if (existeDiretorio(wiki)) {
-    await nucleo.indexar();
-    resumo = await nucleo.resumoDaWiki();
+    try {
+      await nucleo.indexar();
+      resumo = await nucleo.resumoDaWiki();
+    } catch { inicializacaoComFalha = true; }
   }
-  const servidor = new McpServer({ name: "anvilore", version: "0.2.0" }, { instructions: montarInstrucoes(resumo) });
+  let versao = "0.0.0";
+  try { versao = (JSON.parse(await Bun.file(join(raiz, "package.json")).text()) as { version?: string }).version ?? versao; } catch { /* clone sem metadados de pacote */ }
+  const servidor = new McpServer({ name: "anvilore", version: versao }, { instructions: montarInstrucoes(resumo) });
   servidor.server.oninitialized = () => {
     const info = servidor.server.getClientVersion();
     if (info) cliente = { nome: info.name, versao: info.version };
@@ -76,7 +85,7 @@ export async function criarServidor(cfg: ConfiguracaoServidor): Promise<McpServe
   servidor.registerTool("buscar", {
     description: "Busca na wiki quando a pergunta tocar um assunto que ela pode cobrir. Devolve páginas, linhas e trechos; depois use ler.",
     inputSchema: {
-      consulta: z.string().describe("Pergunta ou termos de busca."),
+      consulta: z.string().max(512).describe("Pergunta ou termos de busca (até 512 caracteres)."),
       limite: z.number().int().min(1).max(20).optional(),
       tipo: z.array(z.enum(["source", "concept", "entity"])).optional(),
       area: z.array(z.string()).optional(),
@@ -84,6 +93,8 @@ export async function criarServidor(cfg: ConfiguracaoServidor): Promise<McpServe
       explicar: z.boolean().optional(),
     },
   }, async ({ consulta, limite, tipo, area, incluir, explicar }) => {
+    if (inicializacaoComFalha) return respostaMcp({ erro: { codigo: "indice_corrompido", mensagem: "Não foi possível preparar o índice local." } }, true);
+    buscaIdAtual = randomUUID();
     const opcoes = {
       ...(limite === undefined ? {} : { limite }),
       ...(tipo === undefined ? {} : { tipo }),
@@ -93,7 +104,7 @@ export async function criarServidor(cfg: ConfiguracaoServidor): Promise<McpServe
     };
     const resultado = await nucleo.buscar(consulta, opcoes);
     if ("erro" in resultado) return respostaMcp(resultado, true);
-    ultimaBusca = resultado.resultados.map((item, i) => ({ caminho: item.caminho.normalize("NFC"), linhaInicio: item.linhaInicio, posicao: i + 1, instante: Date.now() }));
+    ultimaBusca = resultado.resultados.map((item, i) => ({ caminho: item.caminho.normalize("NFC"), linhaInicio: item.linhaInicio, posicao: i + 1, instante: Date.now(), buscaId: buscaIdAtual! }));
     const resposta = resultado as RespostaBusca;
     return respostaMcp({ consulta: resposta.consulta, resultados: resposta.resultados.map(mapaResultado), vazia: resposta.vazia, indice: resposta.indice });
   });
@@ -111,6 +122,7 @@ export async function criarServidor(cfg: ConfiguracaoServidor): Promise<McpServe
     const caminhoNfc = caminho.replaceAll("\\", "/").normalize("NFC");
     const origem = ultimaBusca.find((item) => item.caminho === caminhoNfc && (linha_inicio === undefined || item.linhaInicio === linha_inicio));
     posicaoLida = origem?.posicao ?? null;
+    buscaIdAtual = origem?.buscaId;
     const resultado = await nucleo.ler({ caminho, ...(linha_inicio === undefined ? {} : { linhaInicio: linha_inicio }), ...(linha_fim === undefined ? {} : { linhaFim: linha_fim }) });
     if ("erro" in resultado) return respostaMcp(resultado, true);
     return respostaMcp(mapaLeitura(resultado));

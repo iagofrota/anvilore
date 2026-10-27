@@ -6,12 +6,12 @@ import { secoesDe } from "./secoes";
 import { lerUtf8Estrito, lerUtf8EstritoSync } from "../lib/utf8";
 import { paginasMarkdown } from "../lib/paginas";
 
-export const VERSAO_ESQUEMA = 1;
+export const VERSAO_ESQUEMA = 2;
 export type RelatorioIndexacao = { paginas: number; secoes: number; reindexadas: number; removidas: number; puladas: number; ms: number };
 
 function criarEsquema(db: Database): void {
   db.exec("PRAGMA foreign_keys = ON");
-  db.exec("CREATE TABLE paginas (caminho TEXT PRIMARY KEY, mtime REAL NOT NULL, tamanho INTEGER NOT NULL, slug TEXT, titulo TEXT, tipo TEXT, area TEXT, estado TEXT NOT NULL, vencida INTEGER NOT NULL, categoria TEXT NOT NULL)");
+  db.exec("CREATE TABLE paginas (caminho TEXT PRIMARY KEY, mtime REAL NOT NULL, tamanho INTEGER NOT NULL, slug TEXT, titulo TEXT, tipo TEXT, area TEXT, estado TEXT NOT NULL, vencida INTEGER NOT NULL, stale_after TEXT, categoria TEXT NOT NULL)");
   db.exec("CREATE TABLE secoes (id INTEGER PRIMARY KEY, caminho TEXT NOT NULL REFERENCES paginas(caminho) ON DELETE CASCADE, secao TEXT NOT NULL, linha_inicio INTEGER NOT NULL, linha_fim INTEGER NOT NULL, avisos TEXT NOT NULL, titulo TEXT NOT NULL, corpo TEXT NOT NULL, caminho_fts TEXT NOT NULL)");
   db.exec('CREATE VIRTUAL TABLE secoes_fts USING fts5(titulo, corpo, caminho, content="secoes", content_rowid="id", tokenize="unicode61 remove_diacritics 2")');
   db.exec(`CREATE TRIGGER secoes_ai AFTER INSERT ON secoes BEGIN
@@ -34,10 +34,17 @@ export function abrirIndice(arquivoDb: string): Database {
   try {
     db.exec("PRAGMA busy_timeout = 5000");
     db.exec("PRAGMA journal_mode = WAL");
-    const versao = (db.query("PRAGMA user_version").get() as { user_version: number }).user_version;
-    if (versao !== VERSAO_ESQUEMA) {
-      db.exec("DROP TRIGGER IF EXISTS secoes_ai; DROP TRIGGER IF EXISTS secoes_ad; DROP TRIGGER IF EXISTS secoes_au; DROP TRIGGER IF EXISTS paginas_ad; DROP TABLE IF EXISTS secoes_fts; DROP TABLE IF EXISTS secoes; DROP TABLE IF EXISTS paginas;");
-      criarEsquema(db);
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const versao = (db.query("PRAGMA user_version").get() as { user_version: number }).user_version;
+      if (versao !== VERSAO_ESQUEMA) {
+        db.exec("DROP TRIGGER IF EXISTS secoes_ai; DROP TRIGGER IF EXISTS secoes_ad; DROP TRIGGER IF EXISTS secoes_au; DROP TRIGGER IF EXISTS paginas_ad; DROP TABLE IF EXISTS secoes_fts; DROP TABLE IF EXISTS secoes; DROP TABLE IF EXISTS paginas;");
+        criarEsquema(db);
+      }
+      db.exec("COMMIT");
+    } catch (erro) {
+      db.exec("ROLLBACK");
+      throw erro;
     }
     return db;
   } catch (erro) {
@@ -135,7 +142,7 @@ export async function sincronizar(
     }
 
     const porCaminho = db.query("SELECT mtime, tamanho FROM paginas WHERE caminho = ?");
-    const atualizarPagina = db.query("INSERT INTO paginas(caminho, mtime, tamanho, slug, titulo, tipo, area, estado, vencida, categoria) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(caminho) DO UPDATE SET mtime=excluded.mtime, tamanho=excluded.tamanho, slug=excluded.slug, titulo=excluded.titulo, tipo=excluded.tipo, area=excluded.area, estado=excluded.estado, vencida=excluded.vencida, categoria=excluded.categoria");
+    const atualizarPagina = db.query("INSERT INTO paginas(caminho, mtime, tamanho, slug, titulo, tipo, area, estado, vencida, stale_after, categoria) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(caminho) DO UPDATE SET mtime=excluded.mtime, tamanho=excluded.tamanho, slug=excluded.slug, titulo=excluded.titulo, tipo=excluded.tipo, area=excluded.area, estado=excluded.estado, vencida=excluded.vencida, stale_after=excluded.stale_after, categoria=excluded.categoria");
     const inserirSecao = db.query("INSERT INTO secoes(caminho, secao, linha_inicio, linha_fim, avisos, titulo, corpo, caminho_fts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
 
     for (const entrada of entradas) {
@@ -166,7 +173,7 @@ export async function sincronizar(
       const fm = infoPagina.frontmatter ?? {};
       const slug = comoTexto(fm.slug) ?? basename(entrada.caminho, ".md");
       const titulo = comoTexto(fm.title) ?? slug;
-      atualizarPagina.run(entrada.caminho, mtime, tamanho, slug, titulo, comoTexto(fm.type), comoTexto(fm.area), infoPagina.estado, Number(infoPagina.vencida), categoria(entrada.caminho));
+      atualizarPagina.run(entrada.caminho, mtime, tamanho, slug, titulo, comoTexto(fm.type), comoTexto(fm.area), infoPagina.estado, Number(infoPagina.vencida), comoTexto(fm.stale_after), categoria(entrada.caminho));
       db.query("DELETE FROM secoes WHERE caminho = ?").run(entrada.caminho);
       for (const secao of secoesDe(conteudo, titulo)) {
         const tituloSecao = `${titulo} ${secao.secao}`.normalize("NFC");

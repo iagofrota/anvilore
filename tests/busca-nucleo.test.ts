@@ -42,6 +42,30 @@ test("Dado seção com contradição, Quando aparece na busca, Então traz aviso
   expect(resposta.resultados[0]?.avisos).toEqual(["contradicao"]);
 });
 
+test("Dado termo no token 41 da seção, Quando busca, Então trecho mantém a ocorrência e marcadores", async () => {
+  const raiz = raizTemporaria();
+  const corpo = [...Array.from({ length: 40 }, (_, i) => `palavra${i}`), "miosótis", ...Array.from({ length: 25 }, (_, i) => `final${i}`)].join(" ");
+  escrever(raiz, "a.md", `${frontmatter()}## X\n${corpo}`);
+  const resposta = await nucleo(raiz).buscar("miosótis");
+  if ("erro" in resposta) throw new Error(resposta.erro.mensagem);
+  expect(resposta.resultados[0]?.trecho).toContain("miosótis");
+  expect(resposta.resultados[0]?.trecho?.match(/\x1e/g)).toHaveLength(1);
+  expect(resposta.resultados[0]?.trecho?.match(/\x1f/g)).toHaveLength(1);
+});
+
+test("Dado stale_after que vence após indexar, Quando avança o relógio, Então busca marca a página vencida", async () => {
+  const raiz = raizTemporaria(); let agora = new Date("2026-01-01T00:00:00Z");
+  escrever(raiz, "a.md", `---\ntitle: Regra\nslug: regra\ntype: concept\narea: tributos\nstale_after: '2026-02-01T00:00:00Z'\n---\n## Regra\ntermo pesquisável`);
+  const n = criarNucleo({ raiz, wiki: join(raiz, "wiki"), arquivoDb: join(raiz, ".anvilore", "indice.db"), agora: () => agora });
+  const antes = await n.buscar("pesquisável");
+  if ("erro" in antes) throw new Error(antes.erro.mensagem);
+  expect(antes.resultados[0]?.vencida).toBe(false);
+  agora = new Date("2026-03-01T00:00:00Z");
+  const depois = await n.buscar("pesquisável");
+  if ("erro" in depois) throw new Error(depois.erro.mensagem);
+  expect(depois.resultados[0]?.vencida).toBe(true);
+});
+
 test("Dado termo sem correspondência, Quando busca, Então devolve vazia verdadeira", async () => {
   const raiz = raizTemporaria(); escrever(raiz, "a.md", `${frontmatter()}## Regra\ncontribuição`);
   const resposta = await nucleo(raiz).buscar("imposto extraordinário");
@@ -54,6 +78,14 @@ test("Dado consulta vazia, Quando busca, Então devolve vazia sem erro", async (
   const resposta = await nucleo(raiz).buscar("?!");
   expect("erro" in resposta).toBe(false);
   if (!("erro" in resposta)) expect(resposta.vazia).toBe(true);
+});
+
+test("Dado metadados muito longos, Quando busca, Então aplica o teto de bytes por resultado", async () => {
+  const raiz = raizTemporaria(); const nome = "título".repeat(90);
+  escrever(raiz, "a.md", `---\ntitle: ${nome}\nslug: ${nome}\ntype: concept\n---\n## ${nome}\ntermo orçamento`);
+  const resposta = await nucleo(raiz).buscar("orçamento");
+  if ("erro" in resposta) throw new Error(resposta.erro.mensagem);
+  expect(Buffer.byteLength(JSON.stringify(resposta.resultados[0]), "utf8")).toBeLessThanOrEqual(450);
 });
 
 test("Dado índice existente, Quando indexa completo, Então força reindexação", async () => {
@@ -95,6 +127,16 @@ test("Dado explicação opcional, Quando ativa, Então traz bm25, autoridade e t
 test("Dado wiki inexistente, Quando busca, Então retorna wiki_ausente", async () => {
   const raiz = raizTemporaria(); const resposta = await nucleo(raiz).buscar("termo");
   expect(resposta).toMatchObject({ erro: { codigo: "wiki_ausente" } });
+});
+
+test("Dado wiki inexistente, Quando lê, Então retorna wiki_ausente", async () => {
+  const raiz = raizTemporaria();
+  expect(await nucleo(raiz).ler({ caminho: "a.md" })).toMatchObject({ erro: { codigo: "wiki_ausente" } });
+});
+
+test("Dado traversal com segmento pai interno, Quando lê, Então recusa antes de resolver", async () => {
+  const raiz = raizTemporaria(); escrever(raiz, "a.md", `${frontmatter()}## X\ntexto`);
+  expect(await nucleo(raiz).ler({ caminho: "sub/../a.md" })).toMatchObject({ erro: { codigo: "fora_da_wiki" } });
 });
 
 test("Dado wiki inexistente, Quando resume, Então devolve resumo vazio", async () => {
@@ -154,7 +196,7 @@ test("Dado caminho de página inexistente e linha além do arquivo, Quando lê, 
 
 test("Dado página com UTF-8 inválido, Quando tenta ler, Então não devolve texto substituto", async () => {
   const raiz = raizTemporaria(); mkdirSync(join(raiz, "wiki")); writeFileSync(join(raiz, "wiki", "ruim.md"), new Uint8Array([0xC3, 0x28]));
-  expect(await nucleo(raiz).ler({ caminho: "ruim.md" })).toMatchObject({ erro: { codigo: "indice_corrompido" } });
+  expect(await nucleo(raiz).ler({ caminho: "ruim.md" })).toMatchObject({ erro: { codigo: "utf8_invalido" } });
 });
 
 test("Dado caminho em NFD, Quando lê arquivo NFC, Então resolve nome normalizado", async () => {

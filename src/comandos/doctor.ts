@@ -6,6 +6,7 @@ import { fundirJson } from "../lib/fundir-json";
 import { NOME_DO_PERFIL, carregarPerfil } from "../lib/perfil";
 import { alvosConhecidos, configuracaoDoHook, tirarHookAntigo, valorDoPath, type Alvo } from "./instalar";
 import { avisoRg } from "../lib/rg";
+import { registradores, type Ambiente } from "../mcp/registro";
 
 export type Trava = { nome: string; ligada: boolean; comoLigar?: string; detalhe?: string; opcional?: boolean; naoInstalado?: boolean; semTrava?: boolean };
 export type Prerequisito = { nome: string; presente: boolean };
@@ -198,7 +199,7 @@ function linhas(trava: Trava): string[] {
 const AJUDA = "Uso: anvilore doctor [pasta]  (padrão: ANVILORE_DESTINO ou o diretório atual)";
 const ONDE_INSTALAR: Record<string, string> = { bun: "https://bun.sh", git: "https://git-scm.com" };
 
-export async function comandoDoctor(args: string[]): Promise<number> {
+export async function comandoDoctor(args: string[], deps: { ambienteMcp?: Ambiente } = {}): Promise<number> {
   if (args.length > 1 || args[0]?.startsWith("-")) {
     console.error(AJUDA);
     return 2;
@@ -217,7 +218,20 @@ export async function comandoDoctor(args: string[]): Promise<number> {
   console.log("Travas (o que impede o agente de atravessar a fronteira):");
   for (const trava of travas) for (const texto of linhas(trava)) console.log(texto);
   console.log("Pré-requisitos:");
-  console.log(`  MCP de consulta à wiki: opcional — para ligar: bun src/cli.ts mcp ligar`);
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  const mcpAmbiente: Ambiente = deps.ambienteMcp ?? {
+    home,
+    existe: async (bin: string) => Bun.which(bin) !== null,
+    executar: async (cmd: string[]) => {
+      const resultado = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe" });
+      return { codigo: resultado.exitCode, saida: resultado.stdout.toString() + resultado.stderr.toString() };
+    },
+  };
+  const ligados: string[] = [];
+  for (const registrador of registradores) {
+    try { if (await registrador.ligado(mcpAmbiente)) ligados.push(registrador.agente); } catch { /* diagnóstico informativo */ }
+  }
+  console.log(`  MCP de consulta à wiki: opcional — ${ligados.length ? `ligado em ${ligados.join(", ")}` : "nenhum agente configurado"}; para ligar: bun src/cli.ts mcp ligar`);
   for (const item of prerequisitos) console.log(`  ${item.nome}: ${item.presente ? "presente" : `ausente — instale em ${ONDE_INSTALAR[item.nome]}`}`);
   for (const aviso of avisos) console.log(`AVISO: ${aviso}`);
   if (!faltam && !ausentes) {

@@ -67,6 +67,15 @@ test("Dado buscas, leituras e posições, Quando resume, Então calcula taxas, d
   expect(r.custo.ler).toMatchObject({ p95Bytes: 400 });
 });
 
+test("Dado resultados vencidos e avisos separados, Quando resume, Então distingue confiança e dias ativos por semana", () => {
+  const m = abrirMetricas(arquivo()); const d1 = new Date("2026-10-26T12:00:00Z"); const d2 = new Date("2026-10-27T12:00:00Z");
+  m.registrar(chamada({ conexao: "c1", vencidas: 1, lacunas: 1 }), d1);
+  m.registrar(chamada({ conexao: "c2", vencidas: 0, contradicoes: 1 }), d2);
+  const r = m.resumo();
+  expect(r.confianca).toMatchObject({ vencidas: 1, percentualVencidas: 50, lacunas: 1, contradicoes: 1 });
+  expect(r.uso.diasComUsoPorSemana).toEqual([{ semana: "2026-10-26", dias: 2 }]);
+});
+
 test("Dado métricas com dados, Quando limpa, Então o resumo fica zerado", () => {
   const m = abrirMetricas(arquivo()); m.registrar(chamada()); m.limpar(); expect(m.resumo().totalChamadas).toBe(0);
 });
@@ -75,4 +84,11 @@ test("Dado registro incompleto, Quando falha uma escrita, Então desfaz a transa
   const m = abrirMetricas(arquivo());
   expect(() => m.registrar(chamada({ porEstado: null as unknown as Chamada["porEstado"] }))).toThrow();
   expect(m.resumo().totalChamadas).toBe(0);
+});
+
+test("Dado métricas locais, Quando usa saída padrão, Então imprime resumo legível e JSON", async () => {
+  const saidas: string[] = [];
+  expect(await executarMetricas([], { arquivoDb: arquivo(), ligado: true, stdout: (texto) => saidas.push(texto) })).toBe(0);
+  expect(saidas[0]).toContain("Uso:");
+  expect(saidas[0]).toContain("JSON:");
 });

@@ -27,7 +27,16 @@ export async function executarMetricas(
   const relatorio = registro.resumo(desde);
   const saida = opcoes.stdout ?? console.log;
   if (json) saida(JSON.stringify(relatorio, null, 2));
-  else saida(`Métricas locais: ${relatorio.totalChamadas} chamadas\n\n${JSON.stringify(relatorio, null, 2)}`);
+  else saida([
+    `Métricas locais: ${relatorio.totalChamadas} chamadas`,
+    `Uso: ${relatorio.uso.buscas} buscas, ${relatorio.uso.leituras} leituras, ${relatorio.uso.indexacoes} indexações`,
+    `Acerto: ${relatorio.acerto.percentualSeguidasDeLer}% das buscas seguidas de leitura`,
+    `Lacuna: ${relatorio.lacuna.percentualBuscasVazias}% de buscas vazias`,
+    `Confiança: ${relatorio.confianca.percentualPorEstado.verificada}% verificadas, ${relatorio.confianca.percentualPorEstado.manual}% manuais, ${relatorio.confianca.percentualPorEstado.rascunho}% rascunhos, ${relatorio.confianca.percentualVencidas}% vencidas`,
+    `Avisos: ${relatorio.confianca.lacunas} lacunas, ${relatorio.confianca.contradicoes} contradições`,
+    `Custo de busca: ${relatorio.custo.buscar.bytesMedios} bytes médios, p95 ${relatorio.custo.buscar.p95Ms} ms`,
+    "\nJSON:", JSON.stringify(relatorio, null, 2),
+  ].join("\n"));
   return 0;
 }
 

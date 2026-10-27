@@ -14,7 +14,7 @@ export type OpcoesBusca = { limite?: number; tipo?: Array<"source" | "concept" |
 export type RespostaBusca = { consulta: string; resultados: Resultado[]; vazia: boolean; indice: { paginas: number; secoes: number; reindexadas: number } };
 export type Trecho = Endereco & { conteudo: string; totalLinhas: number; truncado: boolean; estado: Estado; avisos: Aviso[] };
 export type ResumoDaWiki = { paginas: number; secoes: number; porEstado: Record<Estado, number>; areas: Array<{ area: string; paginas: number }>; titulos: string[] };
-export type CodigoErro = "wiki_ausente" | "indice_corrompido" | "fora_da_wiki" | "arquivo_inexistente" | "linha_fora_do_arquivo";
+export type CodigoErro = "wiki_ausente" | "indice_corrompido" | "indice_indisponivel" | "utf8_invalido" | "fora_da_wiki" | "arquivo_inexistente" | "linha_fora_do_arquivo";
 export type ErroDeBusca = { codigo: CodigoErro; mensagem: string };
 export type ResultadoOuErro<T> = T | { erro: ErroDeBusca };
 

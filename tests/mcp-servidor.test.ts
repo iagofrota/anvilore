@@ -79,11 +79,12 @@ test("Dado busca que retorna endereço, Quando lê esse endereço, Então devolv
   const raiz = mkdtempSync(join(tmpdir(), "anvilore-mcp-roundtrip-")); const wikiPath = wiki(raiz); const { client, transport } = conectar(raiz, wikiPath);
   try {
     await client.connect(transport);
-    const busca = await client.callTool({ name: "buscar", arguments: { consulta: "miosótis" } });
-    const jsonBusca = JSON.parse(textoDa(busca)) as { resultados: Array<{ caminho: string; linhas: string; trecho: string }> };
+    const busca = await client.callTool({ name: "buscar", arguments: { consulta: "miosótis", explicar: true } });
+    const jsonBusca = JSON.parse(textoDa(busca)) as { resultados: Array<{ caminho: string; linhas: string; trecho: string; explicacao?: { colunas: string[] } }> };
     const resultado = jsonBusca.resultados[0]!;
     expect(resultado.trecho).not.toContain("\x1e");
     expect(resultado.trecho).toContain("miosótis");
+    expect(resultado.explicacao?.colunas).toContain("corpo");
     const linhas = resultado.linhas.split("-").map(Number);
     const leitura = await client.callTool({ name: "ler", arguments: { caminho: resultado.caminho, linha_inicio: linhas[0], linha_fim: linhas[1] } });
     expect(textoDa(leitura)).toContain("miosótis");
@@ -107,6 +108,20 @@ test("Dado wiki ausente, Quando inicia o servidor, Então instruções avisam e 
     expect(client.getInstructions()).toContain("wiki não foi encontrada");
     const resposta = await client.callTool({ name: "buscar", arguments: { consulta: "tributo" } });
     expect(textoDa(resposta)).toContain("wiki_ausente");
+  } finally { await client.close(); rmSync(raiz, { recursive: true, force: true }); }
+});
+
+test("Dado diretório de dados indisponível, Quando inicia o MCP, Então conecta e buscar devolve erro", async () => {
+  const raiz = mkdtempSync(join(tmpdir(), "anvilore-mcp-sem-dados-"));
+  const bloqueio = join(raiz, "arquivo"); writeFileSync(bloqueio, "não é diretório");
+  const wikiPath = wiki(raiz);
+  const transport = new StdioClientTransport({ command: "bun", args: ["src/cli.ts", "mcp", "--wiki", wikiPath], cwd: process.cwd(), env: { ...process.env, ANVILORE_DIR: bloqueio } });
+  const client = new Client({ name: "teste-mcp-indisponivel", version: "1" });
+  try {
+    await client.connect(transport);
+    const resposta = await client.callTool({ name: "buscar", arguments: { consulta: "miosótis" } });
+    expect(resposta.isError).toBe(true);
+    expect(textoDa(resposta)).toContain("indice_corrompido");
   } finally { await client.close(); rmSync(raiz, { recursive: true, force: true }); }
 });
 
