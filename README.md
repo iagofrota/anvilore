@@ -185,9 +185,9 @@ próximo quando sentir a dor que ele resolve.
 | 01 | princípio | `raw/`, `wiki/`, `AGENTS.md` | o agente organiza a wiki de qualquer jeito, sem convenção nenhuma |
 | 02 | disciplina | `SCHEMA.md`, `skills/ingest`, `skills/query` | erros estruturais (frontmatter incompleto, slug divergente, tipo inválido) acumulam em silêncio |
 | 03 | governança | `skills/lint`, `hooks/`, testes | a wiki cresce além do que cabe no contexto de uma sessão só |
-| 04 | escala | índice de busca, backup, automação | (fora deste kit — ver abaixo) |
+| 04 | escala | índice de busca opcional e automação | backup e manutenção variam por uso |
 
-**Este repositório entrega os níveis 01, 02 e 03.** O esqueleto de `wiki/`
+**Este repositório entrega os níveis 01, 02 e 03, e oferece o índice do nível 04 como opção.** O esqueleto de `wiki/`
 que você acabou de clonar já traz a *forma* das áreas: uma área de exemplo
 neutra (`wiki/exemplo/{sources,entities,concepts}`), os diretórios
 reservados `wiki/_meta/` e `wiki/log/`, e o campo opcional `area`
@@ -201,12 +201,12 @@ separa o que dá para corrigir sem julgamento do que precisa de quem cura;
 de edição e por comando de terminal), na forma de configuração de cada agente; e `tests/` prova os scripts, o hook e o
 instalador.
 
-O nível 04 (índice de busca dedicado, backup, automação de manutenção) não
-está empacotado aqui de propósito: ele só faz sentido depois que uma wiki
-real ultrapassa o que um índice markdown e um agente conseguem varrer numa
-sessão. Nesse ponto as escolhas certas dependem tanto do seu volume de dados
-e do seu agente que uma resposta genérica entregaria complexidade que você
-ainda não conquistou.
+O índice FTS5 e o servidor MCP de consulta são opcionais e derivados: `anvilore
+mcp ligar` prepara o índice local em `.anvilore/`, e `mcp desligar` remove a
+configuração do agente sem tocar nos dados. O processo só roda quando o cliente
+MCP o inicia. A busca consulta apenas `wiki/`; não combina resultados com outros
+MCPs. Sem o MCP, a skill `query` continua usando `rg --no-ignore`. Backup e
+automação de manutenção seguem dependentes do uso de cada pessoa.
 
 ## Licença
 

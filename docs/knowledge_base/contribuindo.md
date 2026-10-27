@@ -1,6 +1,5 @@
 ---
-generated: 2026-10-24
-verified: 2026-10-25
+generated: 2026-10-27
 ---
 
 # Contribuindo
@@ -15,8 +14,9 @@ bun install
 bun run checar
 ```
 
-- `bun install` instala só dependências de desenvolvimento (`package.json`). O `bun.lock` é
-  versionado, e o CI usa `bun install --frozen-lockfile`.
+- `bun install` instala dependências de desenvolvimento e a dependência de produção do servidor
+  MCP (@modelcontextprotocol/sdk, declarado em package.json). O `bun.lock` é versionado, e o CI usa
+  `bun install --frozen-lockfile`.
 - `bun run checar` roda `tsc --noEmit` e `bun test --coverage` (script `checar` em
   `package.json`). A cobertura mínima é 80% no geral (`bunfig.toml`). A meta de 95% em validação e
   proteção de `raw/`, declarada pelo dono do projeto, ainda não tem trava por arquivo (veja

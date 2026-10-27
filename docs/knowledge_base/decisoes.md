@@ -1,6 +1,5 @@
 ---
-generated: 2026-10-24
-verified: 2026-10-25
+generated: 2026-10-27
 ---
 
 # Decisões
@@ -33,17 +32,11 @@ Para a linhagem do método e a argumentação completa das posições de design,
   declara suporte a Linux, Windows e macOS. O CI roda nos três sistemas (`.github/workflows/ci.yml`) e passou nos PRs das Ondas 1 (#13, run 40150863576) e 2 (#11, run 40191764239). Os detalhes e os riscos
   estão em [plataformas.md](plataformas.md).
 
-## Não fundir buscas (sentido a confirmar pelo dono)
+## Não fundir buscas
 
-- A busca da wiki é o índice (`wiki/index.md`) mais `rg`, sem índice de busca dedicado
-  (`skills/query/SKILL.md`, "Sem um indexador dedicado
-  neste nível"). O índice de busca fica de fora do kit de propósito (`README.md`, nível 04, e
-  `FILOSOFIA.md`, seção 3).
-- Nenhum arquivo do repositório registra a regra "não fundir buscas" com essas palavras, nem diz
-  quem a decidiu e quando. Esta página descreve o comportamento que o repositório mostra e não
-  afirma data nem autoria da decisão.
-- **Pendência:** o dono do projeto precisa confirmar o que "não fundir buscas" significa e quando
-  foi decidido, antes de esta página receber `verified`.
+- **Decisão do Iago em 2026-10-26.** O MCP consulta apenas a wiki; cada outra fonte fica nos MCPs
+  próprios, sem ranking fundido.
+- O caminho sem MCP continua usando `rg --no-ignore` (`skills/query/SKILL.md`).
 
 ## Curadoria humana não é opcional
 
@@ -64,12 +57,16 @@ Para a linhagem do método e a argumentação completa das posições de design,
   limites de [governanca.md](governanca.md). Ele falha fechado quando não consegue isolar o caminho. O alcance exato está em
   [governanca.md](governanca.md).
 
-## Sem RAG e sem infraestrutura
+## Sem RAG; índice local opcional
 
-- A wiki é um diretório de Markdown, sem servidor, índice binário ou banco vetorial
-  (`FILOSOFIA.md`, seção 4; `README.md`, seção "Os quatro níveis").
-- Consequência prática: o produto não tem dependência de produção. `package.json` só lista
-  dependências de desenvolvimento.
+- A wiki continua sendo Markdown. O índice FTS5 local é opcional, derivado e descartável, fica em
+  no diretório local ignorado pelo Git e pode ser reconstruído a partir de `wiki/`.
+- O servidor MCP roda sob demanda. Não há RAG, banco vetorial ou serviço residente.
+
+## SDK oficial do protocolo MCP
+
+- **Decisão do Iago em 2026-10-26.** @modelcontextprotocol/sdk é a primeira dependência de
+  produção do kit, para manter a porta MCP conforme o protocolo oficial.
 
 ## Neutralidade de provedor de agente
 

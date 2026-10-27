@@ -1,6 +1,5 @@
 ---
-generated: 2026-10-24
-verified: 2026-10-25
+generated: 2026-10-27
 ---
 
 # Governança: padrões, guardrails e o que ainda não é imposto
@@ -18,6 +17,7 @@ fica para depois (veja a última seção).
 | Trava | O que faz | Onde |
 |---|---|---|
 | Hook `proteger-raw` | Bloqueia (saída 2) a escrita em `raw/` feita pelas ferramentas de edição de arquivo e por comando de terminal (limites na seção abaixo). Sem caminho isolável no payload, bloqueia se o texto citar `raw/`; JSON ilegível bloqueia sempre. | `src/comandos/hook-proteger-raw.ts`, funções `decidir` e `executarProtecao`; `hooks/hooks.json`, linha 6 |
+| MCP de consulta | A ferramenta `ler` confina caminhos à `wiki/`; `buscar` e `ler` devolvem estado de revisão, validade e avisos de lacuna/contradição. A porta MCP não oferece ferramentas de escrita. | `src/mcp/servidor.ts`, `src/busca/nucleo.ts`, testes em `tests/mcp-servidor.test.ts` |
 | Validador da wiki (`anvilore validar`) | Reprova página sem frontmatter ou com frontmatter que não lê (YAML inválido nunca é pulado), com `type` inválido, com `slug` diferente do nome do arquivo (comparado em Unicode NFC), com `area` em conflito com o diretório, dois arquivos da mesma pasta que só diferem na caixa, wikilink que não resolve, página fora do index.md aplicável e campo de proveniência malformado. Reprova wiki inexistente e diretório sem nenhum arquivo `.md`; uma wiki só com index.md e log.md passa. Sem o Bun o comando não roda, e nunca imprime PASS. | `src/comandos/validar.ts`, linhas 100 a 244 |
 | Portão humano, depois da escrita | Reprova a página com `generated` em mapping e sem uma entrada `verified` com `by: human:<id>` e `at` igual ou posterior a `generated.at`. Compara o instante com offset e todos os dígitos da fração de segundo. A mensagem é "página gerada sem aprovação humana". | `src/lib/okf.ts`, funções `validarProveniencia` e `compararInstantes` |
 | Perfil da empresa | Um anvilore.toml na raiz do projeto restringe áreas, tipos de página e campos obrigatórios; reprova nomeando arquivo e valor. Arquivo ilegível, chave desconhecida ou valor que não é lista de textos também reprova. | `src/lib/perfil.ts`, linhas 28 a 54; `src/comandos/validar.ts`, linhas 189 a 191 e 204 a 212 |
@@ -39,6 +39,11 @@ erro que nomeia o arquivo.
 
 Cada item abaixo foi conferido no código. Onde a conferência foi uma busca que não achou nada, isso
 está dito.
+
+O MCP classifica páginas pelo frontmatter existente; não valida a verdade do conteúdo nem transforma
+uma página gerada em aprovada. O cliente decide se usa as instruções de contexto recebidas e se
+mostra os avisos ao modelo. A configuração do MCP é opcional e não substitui o hook de proteção do
+`raw/` nem o validador.
 
 ### 1. O hook cobre o terminal só pelo texto do comando
 

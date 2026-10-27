@@ -1,5 +1,5 @@
 ---
-generated: 2026-10-26
+generated: 2026-10-27
 ---
 
 # Plataformas
@@ -31,6 +31,24 @@ do que ainda é só hipótese.
   não trazer CRLF.
 
 ## Busca da wiki: dependência e prova por shell
+
+## MCP de consulta: configuração por agente
+
+O servidor usa stdio e o campo de protocolo `instructions` no `initialize`. O teste do SDK verifica
+que esse campo chega ao cliente MCP de teste. A documentação oficial consultada não garante como
+cada agente incorpora essas instruções ao contexto do modelo; portanto, Claude Code, Codex, Gemini
+CLI e Copilot CLI recebem o campo no protocolo, mas o efeito no comportamento de cada agente não foi
+validado nesta entrega.
+
+O registro pelo CLI usa escopo de usuário: Claude `claude mcp add -s user anvilore -- ...`, Gemini
+`gemini mcp add -s user anvilore ...`, Copilot `copilot mcp add anvilore -- ...` (configuração de
+usuário por padrão) e Codex `codex mcp add anvilore -- ...` (em ~/.codex/config.toml). Fontes
+oficiais: [Claude Code MCP](https://code.claude.com/docs/en/mcp), [Codex MCP](https://developers.openai.com/codex/mcp),
+[Gemini CLI MCP](https://google-gemini.github.io/gemini-cli/docs/tools/mcp-server.html) e
+[GitHub Copilot CLI MCP](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers).
+
+O teste de FTS5/SDK e o CI do PR #17 verificaram o build em Linux, macOS e Windows; o run final ainda
+deve ser registrado após o push desta revisão.
 
 A skill `query` (`skills/query/SKILL.md`) depende do **ripgrep**, executável `rg`, no PATH.
 `instalar` e `doctor` consultam o PATH e avisam quando falta; o aviso não muda o código de saída
