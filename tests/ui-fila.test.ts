@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { caminhoDaCopia, listarFilaRascunhos } from "../src/lib/ui-fila";
@@ -64,6 +64,8 @@ test("Dado cópias da página em sessões diferentes Quando procuro a cópia Ent
   const recente = join(raiz, ".anvilore/ui/copias/2026-10-27/pessoal/concepts/alvo.md");
   mkdirSync(join(antiga, ".."), { recursive: true }); mkdirSync(join(recente, ".."), { recursive: true });
   writeFileSync(antiga, "antes\n"); writeFileSync(recente, "depois\n");
+  utimesSync(antiga, new Date("2026-10-26T12:00:00Z"), new Date("2026-10-26T12:00:00Z"));
+  utimesSync(recente, new Date("2026-10-27T12:00:00Z"), new Date("2026-10-27T12:00:00Z"));
   expect(caminhoDaCopia(raiz, "pessoal/concepts/alvo.md")).toBe(recente);
 });
 
