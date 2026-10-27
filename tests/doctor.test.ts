@@ -127,14 +127,15 @@ test("Dado agente sem eventos de arquivo/compactação Quando doctor diagnostica
 });
 
 test("Dado backup opt-in em branch sem upstream Quando doctor diagnostica Então avisa que o backup não pode enviar", async () => {
-  const git = Bun.which("git", { PATH: ambiente.PATH ?? "" });
+  const path = ambiente.PATH ?? ambiente.Path ?? "";
+  const git = Bun.which("git", { PATH: path });
   if (!git) throw new Error("git real necessário para preparar o cenário");
   const run = (args: string[]) => Bun.spawnSync([git, "-C", clone, ...args], { stdout: "pipe", stderr: "pipe" });
   expect(Bun.spawnSync([git, "init", "--initial-branch=main", clone], { stdout: "pipe", stderr: "pipe" }).exitCode).toBe(0);
   expect(run(["config", "user.name", "Teste"]).exitCode).toBe(0);
   expect(run(["config", "user.email", "teste@example.test"]).exitCode).toBe(0);
   writeFileSync(join(clone, "anvilore.toml"), "[hooks]\ngithub_backup = true\n");
-  const d = await diagnosticar(clone, { PATH: ambiente.PATH });
+  const d = await diagnosticar(clone, { PATH: path });
   expect(d.avisos.join("\n")).toMatch(/backup.*upstream/i);
 });
 
