@@ -5,301 +5,176 @@ description: "Adiciona novas fontes à wiki, criando ou atualizando páginas con
 
 # Skill: Ingest
 
-Você foi invocado pelo orquestrador porque o usuário quer adicionar uma nova fonte à wiki. Siga todos os passos em ordem. Não pule passos. Não avance para o próximo sem terminar o atual.
+Você foi invocado porque a pessoa quer adicionar uma fonte à wiki. Siga os passos em ordem, sem pular
+nenhum.
 
-**Esta skill conversa com a pessoa.** Ela aprova os takeaways (Passo 2) e a lista de páginas (Passo 4) antes de você escrever, e depois revisa o que você escreveu (Passo 7): as páginas nascem com `generated` e só valem depois que ela as aprova. Sem uma pessoa para responder, pare no Passo 2 e entregue os takeaways: não escreva em `wiki/`.
+**A ingestão tem dois papéis e uma parada só.** Um **leitor** lê a fonte e a wiki e devolve um relatório;
+a pessoa lê e aprova, numa única parada, os takeaways e a lista de páginas; só então um **escritor**
+escreve. Depois a pessoa revisa o que foi escrito: as páginas nascem com `generated` e só valem quando ela
+as aprova. Sem uma pessoa para responder, pare no Passo 2 e entregue o relatório: não escreva em `wiki/`.
 
----
-
-## Passo 0 — Fonte grande? Despache subagentes (só na sessão de conversa)
-
-**Antes de tudo, confira o tamanho da fonte** (`wc -c`). Os subagentes só valem para fonte grande, **acima de 400.000 bytes**. Fonte pequena ou média você lê na própria sessão: **pule o Passo 0 inteiro e vá ao Passo 1**. Despachar subagentes para um texto de 12 KB é custo sem ganho.
-
-**Pule este passo também se você já é o subagente** — ou seja, se seu prompt veio de uma chamada `Agent`, ou já diz explicitamente que você é "um agente de ingest deste projeto". Nesse caso vá direto ao Passo 1. Um subagente nunca despacha outro: isso é recursão.
-
-Para fonte grande, se você é a sessão de conversa com o usuário, **não leia a fonte nem execute o pipeline aqui**. Despache **dois** subagentes, em série, com a discussão do Passo 2 entre eles.
-
-Por quê: o pipeline lê a fonte inteira (fontes grandes em `raw/` passam de dezenas de milhares de tokens), o `SCHEMA.md`, as páginas-alvo, e edita `wiki/index.md`. Rodar isso na sessão de conversa queima o contexto onde vocês estão falando e força leitura fatiada. Num subagente, a fonte inteira entra de uma vez e o contexto é descartado ao final. O modelo citado abaixo (`sonnet[1m]`) é **exemplo, não requisito**: use um modelo com janela de contexto grande que o seu agente tenha, e avise a pessoa de que o ingest provavelmente vai custar mais.
-
-**Por que dois e não um:** o Passo 2 (discutir 3–5 takeaways antes de escrever) é do usuário, não de um agente — o contrato deste projeto declara a curadoria humana como não-opcional. Um subagente único escreveria a wiki sem essa passagem. Então o primeiro subagente **lê e não escreve**, e o segundo só existe depois do aval dele.
-
-### 0.a — Subagente leitor (`model: "sonnet[1m]"`)
-
-Lê a fonte inteira e devolve, sem tocar em `wiki/`:
-
-- 3–5 takeaways candidatos, cada um com a citação que o sustenta
-- páginas-alvo que já existem (caminho) e as que precisariam ser criadas
-- contradições e lacunas que viu
-
-Passe no prompt: o caminho exato da fonte, "leia a fonte inteira de uma vez", e "você é read-only: não escreva nada em `wiki/`".
-
-### 0.b — Discussão com o usuário
-
-Apresente os takeaways **na sessão de conversa** e feche com ele o que entra. O contexto gasto aqui é só o relatório, não a fonte inteira. Se algo ficou ambíguo, é aqui que se pergunta.
-
-### 0.c — Subagente escritor (`model: "sonnet[1m]"`)
-
-Só depois do aval. O prompt **já deve conter** (senão ele relê tudo e desperdiça o ganho):
-
-- o caminho exato da fonte em `raw/`
-- os takeaways **como o usuário os aprovou** — incluindo o que ele cortou e por quê
-- as páginas-alvo com caminho, separadas em "atualizar" e "criar"
-- "leia a fonte inteira de uma vez"
-- "não releia `SKILL.md`/`SCHEMA.md` se já resumido aqui"
-- "execute os Passos 3 a 7; o Passo 2 já foi feito pelo humano"
-
-### Depois do escritor
-
-Quando o escritor voltar, **confira você mesmo** o que ele afirma ter feito: `bun src/cli.ts validar wiki` e `git status`. Relatório de subagente não é prova.
+**Quem roda os comandos é você, nunca a pessoa.** `rota-ingestao`, `conferir-leitura`, `aprovar` e
+`fechar` são seus; a pessoa só lê, comenta e aprova. Não mostre comando para ela copiar.
 
 ---
 
-## Passo 1 — Ler a fonte
+## Os dois papéis
 
-Localize o arquivo que o usuário indicou em `raw/`. Leia-o por inteiro antes de fazer qualquer outra coisa.
+Os prompts ficam nesta pasta da skill e são a **fonte única** dos papéis: a interface do Anvilore usa os
+mesmos arquivos.
 
-- Se o arquivo for um PDF ou uma imagem, extraia todo o texto legível primeiro.
-- Se o arquivo tiver imagens com conteúdo relevante (gráficos, diagramas, capturas de tela), anote-as explicitamente — você vai referenciá-las na página de resumo.
-- Se o arquivo não existir em `raw/`, avise o usuário e pare. Nunca ingira a partir de fora de `raw/`.
+| Papel | Prompt | Ferramentas | Entrega |
+|---|---|---|---|
+| Leitor | `skills/ingest/leitor.md` | só leitura: `Read`, `Grep`, `Glob` | relatório JSON no esquema `skills/ingest/relatorio-leitor.schema.json` |
+| Escritor | `skills/ingest/escritor.md` | `Read`, `Grep`, `Glob`, `Edit`, `Write`, só na wiki; sem comandos; nunca `raw/` | páginas com `generated`, `index.md` e log do dia |
+
+Como cada agente cumpre os papéis:
+
+- **Claude Code:** despache os subagentes `anvilore-leitor` e `anvilore-escritor` (ou os `-grande`, pela
+  rota do Passo 0). A instalação os gera a partir dos prompts, já com as ferramentas restritas. Se o
+  subagente não existir na sessão, diga isso à pessoa e siga como nos outros agentes.
+- **Codex, Gemini, Copilot e outros sem subagente com ferramentas restritas:** faça os dois papéis em
+  sequência, nesta sessão. Leia `skills/ingest/leitor.md` e cumpra o papel de leitor; enquanto for leitor,
+  não edite nada. Depois da parada, leia `skills/ingest/escritor.md` e cumpra o de escritor.
+
+**Se você já é o leitor ou o escritor** (seu prompt veio de um despacho ou diz qual é o seu papel), siga só
+o arquivo do seu papel e nunca despache outro agente.
+
+---
+
+## Passo 0 — A fonte, a rota e a área
+
+**A fonte tem de estar em `raw/`.** Localize o arquivo que a pessoa indicou. Se não existir, avise e pare.
+Nunca ingira a partir de fora de `raw/`. Se a pessoa colou o conteúdo no chat, peça que ela o salve em
+`raw/` primeiro.
 
 ### Fonte que é uma URL
 
-Você **não** escreve em `raw/`: o contrato proíbe e o hook recusa. Se o usuário passou um link, peça a ele que salve o **texto integral** (a página inteira, ou a transcrição do vídeo) em `raw/<subpasta>/<slug>.md` e avise quando estiver pronto; só então ingira a partir desse arquivo.
+Você **não** escreve em `raw/`: o contrato proíbe e o hook recusa. Se a pessoa passou um link, peça que ela
+salve o **texto integral** (a página inteira, ou a transcrição do vídeo) em `raw/<subpasta>/<slug>.md` e
+avise quando estiver pronto; só então ingira a partir desse arquivo.
 
-Nunca ingira a partir de um resumo: uma ferramenta que resume roda um modelo menor que condensa o conteúdo e contaminaria as páginas curadas (viola o princípio de "nada inventado"). Se o arquivo em `raw/` parecer resumido, truncado ou incompleto, PARE e diga isso à pessoa.
+Nunca ingira a partir de um resumo: uma ferramenta que resume roda um modelo menor que condensa o conteúdo
+e contaminaria as páginas curadas (viola o princípio de "nada inventado"). Se o arquivo em `raw/` parecer
+resumido, truncado ou incompleto, PARE e diga isso à pessoa.
+
+### A rota
+
+Execute `rota-ingestao <fonte>`. Ela mede a fonte e diz:
+
+- `padrao`: use `anvilore-leitor` e `anvilore-escritor`.
+- `grande` (acima de 400.000 bytes): use `anvilore-leitor-grande` e `anvilore-escritor-grande`, de janela
+  de contexto grande, e avise a pessoa de que a ingestão vai custar mais. Fora do Claude Code, a sessão
+  precisa de um modelo de janela grande; se não tiver, diga isso à pessoa e pare.
+- `dividir` (sai com 3): a fonte não cabe nem na janela grande. Pare e combine com a pessoa como dividir.
+
+O modelo de janela grande que a instalação grava nos agentes `-grande` é **exemplo, não requisito**: o que
+importa é a janela.
+
+### A área
+
+Veja como a wiki está organizada (a pasta `wiki/`, ou a de `ANVILORE_WIKI` se ela estiver definida):
+
+- **Uma só área** (um diretório `wiki/<área>/` com `sources`, `entities` e `concepts`, sem contar
+  `exemplo/`, `_meta/` e `log/`): use-a, sem perguntar.
+- **Várias áreas**: use a que a pessoa já indicou; se ela não indicou, o leitor sugere uma e ela confirma na
+  parada do Passo 2 (não pergunte antes).
+- **Nenhuma área**: layout plano, em `wiki/sources/`, `wiki/entities/` e `wiki/concepts/`, sem o campo
+  `area`.
+
+Com área, a página da fonte vai para `wiki/<área>/sources/<slug>.md` e leva `area: <área>`. Se a área
+pedida ainda não existir, execute `init --areas <área>` e explique se o perfil `anvilore.toml` impedir a
+criação.
 
 ---
 
-## Passo 2 — Discutir antes de escrever
+## Passo 1 — O leitor
 
-> **Subagente: o que fazer com este passo.** Você não conversa com o usuário, então siga o que seu prompt de despacho declarar — e ele tem de declarar um dos dois:
->
-> | O prompt diz | Você faz |
-> |---|---|
-> | "Passo 2 já feito pelo humano" (despacho 0.c) | Pula para o Passo 3 e escreve **exatamente** os takeaways aprovados que vieram no prompt — não renegocie nem acrescente outros |
-> | nada sobre o Passo 2 | **Pare.** Devolva os takeaways ao orquestrador e não escreva em `wiki/` — escrever sem aval é o erro que este passo existe para evitar |
+Despache o leitor (ou cumpra o papel nesta sessão). A mensagem leva:
 
-Antes de tocar em qualquer arquivo da wiki, apresente os takeaways principais ao usuário. Seja conciso: no máximo 3–5 bullets. Depois pergunte:
+- o caminho exato da fonte em `raw/` e o caminho da wiki;
+- a área decidida, ou as áreas existentes;
+- o caminho de `skills/ingest/relatorio-leitor.schema.json`;
+- "leia a fonte inteira de uma vez" e "você é só leitura: não escreva nada".
+
+**Confira o relatório antes de mostrá-lo.** Grave a resposta do leitor, como veio, em
+`.anvilore/ingest/leitura.json` e execute `conferir-leitura .anvilore/ingest/leitura.json`. Ela confere o
+esquema, que cada trecho citado existe na fonte e que cada página a criar ainda não existe (e cada uma a
+atualizar, sim). Com `FAIL`, devolva os erros ao leitor e peça o relatório corrigido; depois da segunda
+falha, mostre o problema à pessoa em vez de seguir. Relatório de subagente não é prova.
+
+---
+
+## Passo 2 — A parada: takeaways e páginas juntos
+
+Esta é a **única** parada antes da escrita. Mostre, numa só mensagem e sem JSON:
+
+- os 3–5 takeaways, cada um com o trecho que o sustenta e a seção; diga a certeza quando não for
+  `comprovado`;
+- as páginas, separadas em "criar" e "atualizar", com o caminho;
+- as lacunas e as contradições (registradas, não resolvidas);
+- a área sugerida, se a wiki tem várias e a pessoa ainda não escolheu.
+
+Depois pergunte:
 
 - Tem algo aqui que você quer que eu enfatize ou ignore?
-- Isso contradiz ou reforça algo que já está na wiki?
-- Existem entidades ou conceitos aqui que já têm página?
+- As páginas estão certas? Alguma entidade ou conceito já tem página com outro nome?
+- Como tratar as contradições?
 
-Espere a resposta do usuário. Ajuste seu entendimento antes de prosseguir. Se o usuário disser "pode seguir" sem mudanças, prossiga com seu próprio julgamento.
+Espere a resposta. Ajuste o relatório ao que a pessoa disse: o que ela cortou sai, e o porquê vai junto
+para o escritor. Se ela disser "pode seguir" sem mudanças, siga com o relatório como está. Se a lista
+passar de ~20 páginas, pergunte se ela quer reduzir o escopo.
 
 Este passo existe porque a pessoa cura e o agente executa. Não pule mesmo que a fonte pareça simples.
 
 ---
 
-## Passo 3 — Criar a página de resumo da fonte
+## Passo 3 — O escritor
 
-### Onde gravar: a área
+Despache o escritor (ou cumpra o papel nesta sessão). A mensagem **já deve conter** tudo, senão ele relê e
+desperdiça o ganho:
 
-Veja como a wiki está organizada (`ls wiki`):
+- o caminho exato da fonte em `raw/` e o caminho da wiki;
+- o relatório **como a pessoa o aprovou**: takeaways (com o que ela cortou e por quê), páginas separadas em
+  "criar" e "atualizar", lacunas e contradições, e o comentário dela;
+- o `by` (`<agente>/<versão>`, por exemplo `claude-opus/2026-09`; nunca `human:`) e o `at`: a hora atual
+  **com offset**, que você lê agora (`date -Iseconds` no Linux e no macOS; `Get-Date -Format o` no
+  PowerShell). O escritor não roda comando e não tem relógio;
+- "leia a fonte inteira de uma vez" e "o Passo 2 já foi feito pela pessoa".
 
-- **Uma só área** (um diretório `wiki/<área>/` com `sources`, `entities` e `concepts`, sem contar `exemplo/`, `_meta/` e `log/`): use-a, sem perguntar.
-- **Várias áreas**: pergunte à pessoa em qual delas ingerir (ou use a que ela já indicou).
-- **Nenhuma área**: layout plano, em `wiki/sources/`, `wiki/entities/` e `wiki/concepts/`, sem o campo `area`.
+Os modelos de frontmatter, a estrutura das páginas, o índice e o log do dia estão em
+`skills/ingest/escritor.md`. Toda página escrita leva `generated`; ninguém além da pessoa escreve
+`verified`.
 
-Com área, a página vai para `wiki/<área>/sources/<slug>.md` e leva `area: <área>` no frontmatter. Se a área pedida ainda não existir, execute `init --areas <área>` e explique se o perfil `anvilore.toml` impedir a criação.
-
-`<slug>` é uma versão em minúsculas e com hífens do título da fonte.
-
-### O frontmatter: toda página que você escreve leva `generated`
-
-Página escrita por agente nasce **marcada como rascunho**: o bloco `generated` diz quem a escreveu e quando, e o validador reprova a página até uma pessoa aprová-la (portão humano, ver `SCHEMA.md`). Use `<agente>/<versão>` em `by` (por exemplo `claude-opus/2026-09`; nunca `human:`) e a hora atual **com offset** em `at` (`date -Iseconds` no Linux e no macOS; `Get-Date -Format o` no PowerShell).
-
-Use exatamente este frontmatter:
-
-```yaml
----
-title: "Título completo da fonte"
-slug: slug-da-fonte
-type: source
-area: pessoal                      # só no layout por área
-tags: []
-original_file: raw/nome-do-arquivo.ext
-date_ingested: AAAA-MM-DD
-authors: []
-generated:
-  by: claude-opus/2026-09
-  at: 2026-10-24T10:30:00-03:00
----
-```
-
-**Você nunca escreve `verified`.** Quem aprova é a pessoa (veja o Passo 7).
-
-Estrutura da página:
-
-```markdown
-## Resumo
-
-2–4 parágrafos. Do que trata esta fonte? Qual é seu argumento ou contribuição principal?
-Escreva como se estivesse explicando para alguém que nunca vai ler o original.
-
-## Afirmações-chave
-
-- Afirmação 1 — seja específico, inclua dados ou citações quando relevante.
-- Afirmação 2
-- ...
-
-## Conexões com a wiki existente
-
-O que esta fonte confirma, contesta ou nuança? Referencie páginas existentes usando [[wikilinks]].
-Se ela contradiz uma página existente, sinalize explicitamente:
-
-> [!contradiction] Esta fonte contesta [[pagina-existente]] sobre X.
-
-## Perguntas em aberto
-
-O que esta fonte deixa sem resposta? O que valeria a pena investigar a seguir?
-
-## Citações notáveis
-
-> "Citação direta, se relevante." (p. N ou timestamp)
-```
+Quando o escritor voltar, **confira você mesmo** o que ele diz ter feito: o `git status` da wiki e as
+páginas listadas. Relatório de subagente não é prova.
 
 ---
 
-## Passo 4 — Identificar páginas a atualizar
+## Passo 4 — Aprovar e fechar
 
-Antes de escrever qualquer coisa, percorra `wiki/index.md` e liste toda página que esta fonte toca. Pense em duas categorias:
+Mostre um resumo curto (poucas linhas) com a fonte, quantidade de páginas novas/atualizadas e contradições
+sinalizadas. Não mostre YAML nem peça para a pessoa editar frontmatter ou executar comandos. Pergunte:
+**"Aprovar estas N páginas?"** com os caminhos das páginas geradas.
 
-**Entities** — pessoas, organizações, produtos, datasets, modelos citados na fonte. Verifique se já existe página. Se sim, atualize. Se não, crie.
+Se a pessoa aprovar, execute `aprovar` com os caminhos das páginas. O hook Claude apresenta a permissão
+para um clique; se o comando for negado por modo automático, peça para sair desse modo e solicite a
+aprovação de novo. Nunca escreva `verified` por conta própria. Depois execute `fechar wiki` você mesmo. Se
+a pessoa não aprovar, mantenha as páginas como rascunho e não declare o ingest concluído.
 
-> **Apelido/sigla ≠ entidade existente.** Uma sigla ou apelido que só aparece numa fonte (por exemplo "JS", "Cia") **não** deve ser fundido com uma entidade existente sem uma fonte que traga o **nome por extenso**. Iniciais que "combinam" com alguém que você conhece são sinal de alerta, não confirmação. Sem uma fonte com o nome completo: crie uma entidade nova provisória ou marque `[!gap]`. Esse tipo de fusão precipitada já aconteceu e propagou o nome errado por várias páginas antes da correção — desfazer custa sempre mais do que esperar uma fonte melhor.
-
-**Concepts** — temas, técnicas, teorias, argumentos com que a fonte dialoga. Mesma regra: atualize se existir, crie se não.
-
-Escreva essa lista antes de prosseguir:
-
-```
-Páginas a atualizar (caminhos sob wiki/<área>/, ou direto sob wiki/ no layout plano):
-- entities/nome-do-autor (existe)
-- concepts/self-attention (existe)
-- concepts/cross-attention (nova)
-```
-
-Pergunte ao usuário se a lista parece certa. Ajuste se necessário.
-
----
-
-## Passo 5 — Atualizar ou criar cada página
-
-Percorra a lista do Passo 4 uma página por vez.
-
-### Atualizando uma página existente
-
-Leia a página atual por inteiro. Depois:
-
-- Adicione a informação nova na seção apropriada.
-- Não apague conteúdo existente a menos que esteja factualmente errado. Se for o caso, substitua o trecho e explique por quê na mesma edição — este nível do schema só define os callouts `[!gap]` e `[!contradiction]`, então não invente outro para marcar a mudança.
-- Se a fonte contradiz algo na página, adicione um callout `> [!contradiction]` com link para a página da fonte.
-- Adicione `[[slug]]` ao campo `related_sources` do frontmatter da página.
-- Grave (ou atualize) `generated` com `by` e a hora atual em `at`. Se a página já tinha `verified`, **mantenha a lista como está**: a aprovação anterior fica com data anterior à nova geração e deixa de valer até a pessoa revisar de novo. Nunca acrescente `verified` você mesmo.
-- Adicione uma subseção `## A partir de [[slug]]` se a fonte acrescenta conteúdo novo substancial.
-
-### Criando uma página de entidade nova
-
-Frontmatter (com `area` e `generated`, como no Passo 3):
-
-```yaml
----
-title: "Nome da entidade"
-slug: slug-da-entidade
-type: entity
-area: pessoal                      # só no layout por área
-tags: []
-related_sources: [slug]
-related_concepts: []
-generated:
-  by: claude-opus/2026-09
-  at: 2026-10-24T10:30:00-03:00
----
-```
-
-Escreva um resumo factual de quem ou o que é essa entidade, baseado só no que as fontes dizem. Não acrescente conhecimento externo que não esteja na wiki.
-
-### Criando uma página de conceito nova
-
-Frontmatter (com `area` e `generated`, como no Passo 3):
-
-```yaml
----
-title: "Nome do conceito"
-slug: slug-do-conceito
-type: concept
-area: pessoal                      # só no layout por área
-tags: []
-related_sources: [slug]
-related_concepts: []
-generated:
-  by: claude-opus/2026-09
-  at: 2026-10-24T10:30:00-03:00
----
-```
-
-Estrutura da página:
-
-```markdown
-## Definição
-
-O que é este conceito? Um parágrafo claro.
-
-## Como funciona
-
-Mecanismo, processo ou explicação.
-
-## Evidências e afirmações
-
-O que as fontes ingeridas dizem sobre isso? Cite com [[wikilinks]].
-
-## Conexões
-
-Links para conceitos e entidades relacionados.
-
-## Perguntas em aberto
-```
-
----
-
-## Passo 6 — Atualizar o índice e o log
-
-Depois que todas as páginas estiverem escritas, atualize dois arquivos de navegação.
-
-**`wiki/index.md`** — adicione as páginas novas na categoria correta, no formato do esqueleto: no layout por área, sob a seção da área (`## Área: <nome>`, com `### Fontes`, `### Conceitos` e `### Entidades`; crie a seção se ela ainda não existe); no layout plano, sob `## Fontes`, `## Conceitos` e `## Entidades`. Cada linha é `- [[slug]] — descrição curta`. Para páginas só atualizadas, não duplique a entrada.
-
-**O log do dia** — escreva em **`wiki/log/log-AAAA-MM-DD.md`** (a data de hoje). Se o arquivo não existe, crie-o com o título `# Log — AAAA-MM-DD`; se existe, acrescente ao fim. A entrada:
-
-```markdown
-## [AAAA-MM-DD] ingest | Título da fonte
-
-Páginas tocadas: sources/slug, entities/x, concepts/y (N no total)
-Páginas novas: concepts/cross-attention
-Contradições sinalizadas: 1 (ver sources/slug)
-```
-
-**Não edite `wiki/log.md`.** Ele é um índice gerado a partir de `wiki/log/log-*.md` pelo fechamento, e o que você escrevesse nele seria sobrescrito.
-
----
-
-## Passo 7 — Aprovar e fechar
-
-Mostre um resumo curto (poucas linhas) com a fonte, quantidade de páginas novas/atualizadas e contradições sinalizadas. Não mostre YAML nem peça para a pessoa editar frontmatter ou executar comandos. Pergunte: **"Aprovar estas N páginas?"** com os caminhos das páginas geradas.
-
-Se a pessoa aprovar, execute `aprovar` com os caminhos das páginas. O hook Claude apresenta a permissão para um clique; se o comando for negado por modo automático, peça para sair desse modo e solicite a aprovação de novo. Nunca escreva `verified` por conta própria. Depois execute `fechar wiki` você mesmo. Se a pessoa não aprovar, mantenha as páginas como rascunho e não declare o ingest concluído.
-
-O fechamento atualiza índices e log, valida a wiki e verifica a entrada do dia. Se falhar por outro motivo, corrija e execute novamente antes de encerrar o fluxo.
+O fechamento atualiza índices e log, valida a wiki e verifica a entrada do dia. Se falhar por outro
+motivo, corrija e execute novamente antes de encerrar o fluxo.
 
 ---
 
 ## Regras
 
-- Nunca ingira um arquivo que não esteja em `raw/`. Se o usuário colar conteúdo direto no chat, peça para ele salvar em `raw/` primeiro e então ingerir a partir de lá. Isso mantém a camada de fonte limpa.
+- Nunca ingira um arquivo que não esteja em `raw/`.
 - Nunca sobrescreva conteúdo existente da wiki sem ler primeiro.
 - Nunca escreva `verified`, nem edite `wiki/log.md` (é gerado), nem escreva em `raw/`.
-- Nunca responda perguntas durante o ingest. Se o usuário perguntar algo no meio do fluxo, anote e diga que vai responder depois que o ingest terminar.
-- Se um passo produzir mais de ~20 mudanças de arquivo, pare e pergunte ao usuário se ele quer continuar ou reduzir o escopo.
+- Nunca resolva uma contradição entre fontes: registre e pergunte.
+- Nunca responda perguntas durante o ingest. Se a pessoa perguntar algo no meio do fluxo, anote e diga que
+  vai responder depois que o ingest terminar.
 - Prefira atualizar páginas existentes a criar novas. Fragmentação é inimiga de uma wiki útil.
 
 ---

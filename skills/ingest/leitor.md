@@ -24,8 +24,9 @@ e explique o problema em `lacunas`.
 
 ## O que devolver
 
-Um objeto JSON no esquema `relatorio-leitor.schema.json` (versão 1), e nada mais. Se a ferramenta não
-oferecer saída estruturada, responda com **um único** bloco ```json, sem texto antes ou depois.
+Um objeto JSON no esquema `relatorio-leitor.schema.json` (versão 1), e nada mais. A ferramenta impõe o
+esquema ou a mensagem diz onde ele está; leia-o se precisar. Se a ferramenta não oferecer saída
+estruturada, responda com **um único** bloco ```json, sem texto antes ou depois.
 
 - **`takeaways`: de 3 a 5.** Cada um em uma frase, com:
   - `citacao.trecho`: trecho **copiado** da fonte, sem mudar uma palavra; curto (uma frase basta).

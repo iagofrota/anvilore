@@ -55,6 +55,14 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   Registra primeiro o PATH original; se faltar `rg`, usa uma versão fixa conferida por SHA-256
   apenas no diretório temporário do ensaio e a remove ao terminar.
 
+### Changed
+
+- A skill `ingest` separa sempre os papéis: o leitor lê e devolve o relatório, a pessoa aprova takeaways e
+  páginas numa parada só, e só então o escritor escreve. Antes, os subagentes só entravam acima de
+  400 000 bytes. No Claude Code a skill despacha os agentes gerados; nos outros agentes a própria sessão faz
+  os dois papéis, guiada pelos mesmos arquivos. A pessoa nunca roda comando: quem confere, aprova e fecha é
+  a ferramenta.
+
 ## [0.2.0] - 2026-10-25
 
 Tudo o que entrou na `main` depois da 0.1.0: validação, manutenção da wiki, instalador e hook em TypeScript no Bun,
