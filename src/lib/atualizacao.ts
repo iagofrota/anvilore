@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { existsSync, statSync } from "node:fs";
 import { copyFile, lstat, mkdir, readFile, readlink, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { diagnosticar, type Diagnostico } from "../comandos/doctor";
@@ -239,9 +240,12 @@ async function lerMigracoes(raiz: string, tag: string, exec: Exec): Promise<stri
 }
 export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = execPadrao): string | undefined {
   const allow = join(raiz, "seguranca/assinantes");
-  try { if (!Bun.file(allow).size) return "seguranca/assinantes ausente ou vazio; tag candidata recusada até haver chave pública ancorada localmente"; } catch { return "seguranca/assinantes ausente; tag candidata recusada até haver chave pública ancorada localmente"; }
+  if (!existsSync(allow)) {
+    return `seguranca/assinantes ausente; tag candidata recusada. Configure no kit instalado (antes da atualização) uma linha OpenSSH allowed_signers com principal igual ao e-mail de assinatura Git, opção namespaces="git" e chave pública SSH aprovada; veja docs/knowledge_base/decisoes.md.`;
+  }
+  try { if (statSync(allow).size === 0) return `seguranca/assinantes vazio; tag candidata recusada. Configure no kit instalado (antes da atualização) uma linha OpenSSH allowed_signers com principal igual ao e-mail de assinatura Git, opção namespaces="git" e chave pública SSH aprovada; veja docs/knowledge_base/decisoes.md.`; } catch { return "seguranca/assinantes ilegível; tag candidata recusada. Confira permissões e formato OpenSSH allowed_signers; veja docs/knowledge_base/decisoes.md."; }
   const r = exec(["-c", "gpg.format=ssh", "-c", `gpg.ssh.allowedSignersFile=${allow}`, "verify-tag", tag], raiz);
-  return r.codigo === 0 ? undefined : `assinatura inválida: ${r.saida}`;
+  return r.codigo === 0 ? undefined : `git verify-tag recusou a tag ${tag}: assinatura inválida ou signatário desconhecido. Confira o formato de seguranca/assinantes, o principal (e-mail de assinatura Git) e a chave pública ancorada no kit instalado antes da atualização; a chave da candidata não é confiável. ${r.saida}`;
 }
 function oficial(raiz: string, exec: Exec) {
   const rem = exec(["remote", "get-url", "origin"], raiz).saida.trim();

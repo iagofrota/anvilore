@@ -182,6 +182,15 @@ Para a linhagem do método e a argumentação completa das posições de design,
 - A tag candidata é buscada sem tags implícitas e verificada por `git verify-tag` com SSH e o arquivo
   de assinantes do kit instalado. Sem o arquivo de assinantes seguranca/assinantes local, a atualização recusa a candidata;
   não há chave pública real versionada nesta entrega. A chave privada não é usada pelo atualizador.
+- `seguranca/assinantes` usa o formato OpenSSH `allowed_signers`, uma entrada por linha:
+  `<principal> [opções] <tipo-da-chave> <chave-pública-base64> [comentário]`. Para as tags Git, a entrada
+  deve incluir `namespaces="git"` nas opções e o principal deve corresponder ao e-mail de assinatura Git
+  (`git config user.email`) usado nas tags. A chave pública aprovada precisa estar no kit já instalado,
+  antes de verificar a candidata. Nunca copie a chave só do checkout/tag candidata, nem use chave privada
+  ou chave local escolhida automaticamente como âncora. Esta entrega não inclui arquivo vazio ou chave
+  fictícia que possa ser confundida com confiança. Se o arquivo faltar, estiver vazio ou `git verify-tag`
+  recusar, `anvilore atualizar` apresenta o caminho e orienta a conferir principal, opção de namespace e
+  chave pública previamente provisionada; a operação é recusada até isso ser configurado.
 - Antes do checkout, o atualizador guarda arquivos rastreados modificados, caminhos declarados por
   atualizacao/migracoes.json, configurações dos agentes e hashes de `raw/` e `wiki/` em
   `.anvilore/atualizacao/<id>/`. Usa `migrarRastreio` e `devolverTudo` de `src/lib/migracao.ts` para

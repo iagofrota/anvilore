@@ -169,32 +169,89 @@ test("Dado doctor que ganha um pré-requisito ausente, Quando a atualização te
   } finally { await rm(raiz, { recursive: true, force: true }); }
 });
 
-test("Dado tag SSH assinada por chave descartável, Quando verify-tag usa confiança local, Então aceita a chave ancorada e recusa outra", async () => {
-  if (!Bun.which("ssh-keygen") || !Bun.which("git")) return;
-  const raiz = await mkdtemp(join(tmpdir(), "anvilore-tag-ssh-"));
-  const pasta = join(raiz, "seguranca");
-  await mkdir(pasta, { recursive: true });
-  const chave = join(raiz, "chave-temporaria");
-  const gerada = Bun.spawnSync(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "atualizador-teste", "-f", chave], { stdout: "pipe", stderr: "pipe" });
-  expect(gerada.exitCode).toBe(0);
-  const publico = (await readFile(`${chave}.pub`, "utf8")).trim().split(/\s+/).slice(0, 2).join(" ");
-  await writeFile(join(pasta, "assinantes"), `teste@localhost ${publico} namespaces="git"\n`);
+test("Dado allow_signers ausente, vazio ou inválido, Quando verifica uma tag, Então recusa e orienta a configuração", async () => {
+  if (!Bun.which("git")) return;
+  const raiz = await mkdtemp(join(tmpdir(), "anvilore-signers-invalidos-"));
   const git = (args: string[]) => {
     const p = Bun.spawnSync(["git", "-C", raiz, ...args], { stdout: "pipe", stderr: "pipe" });
     return { codigo: p.exitCode, saida: `${p.stdout.toString()}${p.stderr.toString()}`.trim() };
   };
   try {
     expect(git(["init", "-q"]).codigo).toBe(0);
+    const { verificarAssinaturaTag } = await import("../src/lib/atualizacao");
+    expect(verificarAssinaturaTag(raiz, "v0.3.1", git)).toContain("seguranca/assinantes ausente");
+    await mkdir(join(raiz, "seguranca"), { recursive: true });
+    await writeFile(join(raiz, "seguranca/assinantes"), "");
+    expect(verificarAssinaturaTag(raiz, "v0.3.1", git)).toContain("seguranca/assinantes vazio");
+    await writeFile(join(raiz, "seguranca/assinantes"), "linha inválida sem chave SSH\n");
+    expect(verificarAssinaturaTag(raiz, "v0.3.1", git)).toContain("git verify-tag recusou");
+    expect(verificarAssinaturaTag(raiz, "v0.3.1", git)).toContain("principal");
+  } finally { await rm(raiz, { recursive: true, force: true }); }
+});
+
+test("Dado tags SSH descartáveis, Quando a confiança vem do commit anterior, Então ignora assinante da candidata e detecta assinatura adulterada", async () => {
+  if (!Bun.which("ssh-keygen") || !Bun.which("git")) return;
+  const raiz = await mkdtemp(join(tmpdir(), "anvilore-tag-ssh-"));
+  const pasta = join(raiz, "seguranca");
+  await mkdir(pasta, { recursive: true });
+  const chaveAnterior = join(raiz, "chave-anterior-descartavel");
+  const chaveCandidata = join(raiz, "chave-candidata-descartavel");
+  for (const chave of [chaveAnterior, chaveCandidata]) {
+    const gerada = Bun.spawnSync(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "fixture-descartavel", "-f", chave], { stdout: "pipe", stderr: "pipe" });
+    expect(gerada.exitCode).toBe(0);
+  }
+  const chavePublica = async (chave: string) => (await readFile(`${chave}.pub`, "utf8")).trim().split(/\s+/).slice(0, 2).join(" ");
+  const allowAnterior = `teste@localhost namespaces="git" ${await chavePublica(chaveAnterior)}\n`;
+  const allowCandidata = `teste@localhost namespaces="git" ${await chavePublica(chaveCandidata)}\n`;
+  await writeFile(join(pasta, "assinantes"), allowAnterior);
+  const git = (args: string[]) => {
+    const p = Bun.spawnSync(["git", "-C", raiz, ...args], { stdout: "pipe", stderr: "pipe" });
+    return { codigo: p.exitCode, saida: `${p.stdout.toString()}${p.stderr.toString()}`.trim() };
+  };
+  const assinarTag = (nome: string, chave: string) => git(["-c", "gpg.format=ssh", "-c", `user.signingkey=${chave}`, "tag", "-s", nome, "-m", nome]);
+  const { verificarAssinaturaTag } = await import("../src/lib/atualizacao");
+  try {
+    expect(git(["init", "-q"]).codigo).toBe(0);
     expect(git(["config", "user.name", "Teste Anvilore"]).codigo).toBe(0);
     expect(git(["config", "user.email", "teste@localhost"]).codigo).toBe(0);
+    expect(git(["config", "commit.gpgsign", "false"]).codigo).toBe(0);
     await writeFile(join(raiz, "arquivo.txt"), "fixture\n");
+    await writeFile(join(raiz, "seguranca/assinantes"), allowAnterior);
     expect(git(["add", "arquivo.txt"]).codigo).toBe(0);
+    expect(git(["add", "seguranca/assinantes"]).codigo).toBe(0);
     expect(git(["commit", "-qm", "fixture"]).codigo).toBe(0);
-    const tag = git(["-c", "gpg.format=ssh", "-c", `user.signingkey=${chave}`, "tag", "-s", "v0.3.1", "-m", "v0.3.1"]);
-    expect(tag.codigo).toBe(0);
-    expect((await import("../src/lib/atualizacao")).verificarAssinaturaTag(raiz, "v0.3.1", git)).toBeUndefined();
-    await writeFile(join(pasta, "assinantes"), `teste@localhost ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyForTestOnly namespaces="git"\n`);
-    expect((await import("../src/lib/atualizacao")).verificarAssinaturaTag(raiz, "v0.3.1", git)).toContain("assinatura inválida");
+    const anterior = git(["rev-parse", "HEAD"]).saida;
+    expect(assinarTag("v0.3.0", chaveAnterior).codigo).toBe(0);
+    expect(verificarAssinaturaTag(raiz, "v0.3.0", git)).toBeUndefined();
+
+    await writeFile(join(raiz, "arquivo.txt"), "candidata\n");
+    await writeFile(join(pasta, "assinantes"), allowCandidata);
+    expect(git(["add", "arquivo.txt", "seguranca/assinantes"]).codigo).toBe(0);
+    expect(git(["commit", "-qm", "candidata troca assinante"]).codigo).toBe(0);
+    expect(assinarTag("v0.3.1", chaveCandidata).codigo).toBe(0);
+    expect(git(["checkout", "--detach", anterior]).codigo).toBe(0);
+    expect(await readFile(join(pasta, "assinantes"), "utf8")).toBe(allowAnterior);
+
+    // A tag é válida quando se fornece a chave que veio apenas no commit candidato.
+    await writeFile(join(raiz, "seguranca/assinantes"), allowCandidata);
+    expect(git(["-c", "gpg.format=ssh", "-c", `gpg.ssh.allowedSignersFile=${join(pasta, "assinantes")}`, "verify-tag", "v0.3.1"]).codigo).toBe(0);
+    // O verificador do atualizador usa apenas o arquivo confiável ainda presente no checkout anterior.
+    await writeFile(join(pasta, "assinantes"), allowAnterior);
+    expect(verificarAssinaturaTag(raiz, "v0.3.1", git)).toContain("assinatura inválida");
+
+    // Alterar a assinatura do objeto tag, mantendo o assinante anterior confiável, deve falhar.
+    const tagRaw = git(["cat-file", "tag", "v0.3.0"]).saida;
+    const adulterada = tagRaw.replace(/(-----BEGIN SSH SIGNATURE-----\n)([^\n]+)/, (_m, inicio: string, assinatura: string) => {
+      const troca = assinatura[0] === "A" ? "B" : "A";
+      return `${inicio}${troca}${assinatura.slice(1)}`;
+    });
+    expect(adulterada).not.toBe(tagRaw);
+    const arquivoTag = join(raiz, "tag-adulterada");
+    await writeFile(arquivoTag, adulterada);
+    const objeto = git(["hash-object", "-w", "-t", "tag", arquivoTag]);
+    expect(objeto.codigo).toBe(0);
+    expect(git(["update-ref", "refs/tags/v0.3.0", objeto.saida]).codigo).toBe(0);
+    expect(verificarAssinaturaTag(raiz, "v0.3.0", git)).toContain("assinatura inválida");
   } finally { await rm(raiz, { recursive: true, force: true }); }
 });
 
