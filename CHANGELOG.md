@@ -59,6 +59,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Changed
 
+- O README avisa que, no Windows, só o CI testa o kit por enquanto: ainda não houve teste numa máquina Windows de
+  verdade.
 - A skill `ingest` separa sempre os papéis: o leitor lê e devolve o relatório, a pessoa aprova takeaways e
   páginas numa parada só, e só então o escritor escreve. Antes, os subagentes só entravam acima de
   400 000 bytes. No Claude Code a skill despacha os agentes gerados; nos outros agentes a própria sessão faz
