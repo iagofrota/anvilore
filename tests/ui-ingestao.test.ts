@@ -369,6 +369,59 @@ test("Dado uma ingestão rodando Quando peço outra fase Então recuso com 409",
   expect(await ingestao.obter(a.id)).toMatchObject({ situacao: "cancelada" });
 });
 
+test("Dado duas leituras concorrentes Quando ambas disputam a fase Então só uma inicia um agente", async () => {
+  let liberarDisponibilidade!: () => void;
+  const disponibilidadeLiberada = new Promise<void>(resolver => { liberarDisponibilidade = resolver; });
+  let liberarDuasConsultas!: () => void;
+  const duasConsultas = new Promise<void>(resolver => { liberarDuasConsultas = resolver; });
+  let consultas = 0;
+  const conclusoes: Array<(fim: FimDaFase) => void> = [];
+  const ponte: PonteDeAgente = {
+    nome: "Agente de teste",
+    async disponibilidade() {
+      if (++consultas === 2) liberarDuasConsultas();
+      await disponibilidadeLiberada;
+      return { ok: true };
+    },
+    executar() {
+      let concluir!: (fim: FimDaFase) => void;
+      const fim = new Promise<FimDaFase>(resolver => { concluir = resolver; });
+      conclusoes.push(concluir);
+      return { cancelar() {}, fim };
+    },
+  };
+  const ingestao = servico(ponte);
+  const a = await comFonte(ingestao, FONTE, "a.md");
+  const b = await comFonte(ingestao, FONTE, "b.md");
+  const primeira = ingestao.ler(a.id);
+  const segunda = ingestao.ler(b.id);
+  const segundaTerminou = new Promise<void>(resolver => { void segunda.then(() => resolver(), () => resolver()); });
+  await Promise.race([duasConsultas, segundaTerminou]);
+  liberarDisponibilidade();
+
+  const resultados = await Promise.allSettled([primeira, segunda]);
+  expect(resultados.filter(resultado => resultado.status === "fulfilled")).toHaveLength(1);
+  expect(resultados.filter(resultado => resultado.status === "rejected").map(resultado => (resultado as PromiseRejectedResult).reason.status)).toEqual([409]);
+  expect(conclusoes).toHaveLength(1);
+  for (const concluir of conclusoes) concluir({ situacao: "falhou", erro: "fim do teste", recusas: [] });
+  await Promise.all([ingestao.esperar(a.id), ingestao.esperar(b.id)]);
+});
+
+test("Dado agente ativo Quando encerro a ingestão Então cancelo e aguardo a gravação do estado final", async () => {
+  const ponte = new PonteFalsa({ leitor: async (_pedido, _aoEvento, cancelamento) => {
+    await cancelamento;
+    return { situacao: "cancelada", recusas: [] };
+  } });
+  const ingestao = servico(ponte);
+  const conversa = await comFonte(ingestao);
+  await ingestao.ler(conversa.id);
+
+  await ingestao.encerrar();
+
+  expect(ponte.cancelamentos).toBe(1);
+  expect(await ingestao.obter(conversa.id)).toMatchObject({ situacao: "cancelada" });
+});
+
 test("Dado uma escolha inválida na parada Quando aperto Pode seguir Então recuso sem chamar o escritor", async () => {
   const ponte = new PonteFalsa({ leitor: leitorValido() });
   const { ingestao, conversa } = await naParada(ponte);

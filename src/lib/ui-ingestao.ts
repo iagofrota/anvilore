@@ -174,6 +174,10 @@ export class IngestaoNaInterface {
   private readonly gravacoes = new Map<string, Promise<void>>();
   private readonly fases = new Map<string, Promise<void>>();
   private ativa: { id: string; execucao: ExecucaoDeFase } | undefined;
+  private reservada = false;
+  private encerrando = false;
+  private preparacao: Promise<void> | undefined;
+  private liberarPreparacao: (() => void) | undefined;
   private readonly ponte: PonteDeAgente;
   private readonly agora: () => Date;
   private readonly fechar: (raiz: string, wiki: string) => Promise<{ codigo: number; saida: string }>;
@@ -230,54 +234,95 @@ export class IngestaoNaInterface {
   }
 
   async ler(id: string): Promise<Conversa> {
-    const conversa = await this.exigir(id);
-    if (this.ativa) throw new ErroDeIngestao(EM_ANDAMENTO, 409);
-    const podeLer = conversa.passo === "fonte" || (conversa.passo === "leitura" && conversa.situacao !== "rodando");
-    if (!podeLer) throw new ErroDeIngestao("Esta ingestão já passou da leitura.", 409);
-    let bytes: number;
-    try { bytes = (await stat(join(this.raiz, conversa.fonte))).size; }
-    catch { throw new ErroDeIngestao(`A fonte ${conversa.fonte} não está mais em raw/.`, 409); }
-    const rota = rotaDaIngestao(bytes);
-    if (rota === "dividir") throw new ErroDeIngestao(`A fonte tem ${bytes} bytes e não cabe nem na janela grande. Divida o arquivo em partes menores.`, 422);
-    await this.exigirAgente();
-    if (this.ativa) throw new ErroDeIngestao(EM_ANDAMENTO, 409);
-    for (const campo of ["erro", "mensagens", "relatorio", "sessao"] as const) delete conversa[campo];
-    Object.assign(conversa, { passo: "leitura", situacao: "rodando", rota, atividade: [], avisos: [], recusas: [], agora: "Lendo a fonte" });
-    await this.salvar(conversa);
-    const wiki = this.wiki();
-    this.iniciar(conversa, { papel: "leitor", mensagem: mensagemDoLeitor(conversa, wiki), raiz: this.raiz, wiki, rota }, new Set(), fim => this.terminarLeitura(conversa, fim));
-    return structuredClone(conversa);
+    this.reservar();
+    try {
+      const conversa = await this.exigir(id);
+      if (this.encerrando) throw new ErroDeIngestao("A interface está encerrando.", 409);
+      const podeLer = conversa.passo === "fonte" || (conversa.passo === "leitura" && conversa.situacao !== "rodando");
+      if (!podeLer) throw new ErroDeIngestao("Esta ingestão já passou da leitura.", 409);
+      let bytes: number;
+      try { bytes = (await stat(join(this.raiz, conversa.fonte))).size; }
+      catch { throw new ErroDeIngestao(`A fonte ${conversa.fonte} não está mais em raw/.`, 409); }
+      const rota = rotaDaIngestao(bytes);
+      if (rota === "dividir") throw new ErroDeIngestao(`A fonte tem ${bytes} bytes e não cabe nem na janela grande. Divida o arquivo em partes menores.`, 422);
+      await this.exigirAgente();
+      if (this.encerrando) throw new ErroDeIngestao("A interface está encerrando.", 409);
+      for (const campo of ["erro", "mensagens", "relatorio", "sessao"] as const) delete conversa[campo];
+      Object.assign(conversa, { passo: "leitura", situacao: "rodando", rota, atividade: [], avisos: [], recusas: [], agora: "Lendo a fonte" });
+      await this.salvar(conversa);
+      if (this.encerrando) {
+        Object.assign(conversa, { situacao: "cancelada", erro: "A interface foi encerrada antes do início desta etapa." });
+        delete conversa.agora;
+        await this.salvar(conversa);
+        throw new ErroDeIngestao("A interface está encerrando.", 409);
+      }
+      const wiki = this.wiki();
+      this.iniciar(conversa, { papel: "leitor", mensagem: mensagemDoLeitor(conversa, wiki), raiz: this.raiz, wiki, rota }, new Set(), fim => this.terminarLeitura(conversa, fim));
+      return structuredClone(conversa);
+    } finally { this.liberarReserva(); }
   }
 
   async seguir(id: string, escolhaBruta: unknown): Promise<Conversa> {
-    const conversa = await this.exigir(id);
-    if (this.ativa) throw new ErroDeIngestao(EM_ANDAMENTO, 409);
-    if (conversa.passo !== "parada" || conversa.situacao !== "esperando" || !conversa.relatorio) throw new ErroDeIngestao("A ingestão não está esperando a sua decisão.", 409);
-    const escolha = validarEscolha(escolhaBruta, conversa.relatorio);
-    await this.exigirAgente();
-    if (this.ativa) throw new ErroDeIngestao(EM_ANDAMENTO, 409);
-    const wiki = this.wiki();
-    // A linha de base da aba Mudanças: a cópia de cada página a atualizar, fora do git, antes da escrita.
-    for (const i of escolha.paginas) {
-      const pagina = conversa.relatorio.paginas[i]!;
-      if (pagina.acao !== "atualizar") continue;
-      let texto: string;
-      try { texto = await readFile(join(wiki, pagina.caminho), "utf8"); } catch { continue; }
-      const copia = join(this.raiz, ".anvilore/ui/copias", conversa.id, pagina.caminho);
-      await mkdir(dirname(copia), { recursive: true });
-      await writeFile(copia, texto);
-    }
-    const existentes = new Set<string>();
-    if (existsSync(wiki)) for await (const arquivo of new Bun.Glob("**/*").scan({ cwd: wiki, onlyFiles: true })) existentes.add(porBarra(arquivo));
-    Object.assign(conversa, {
-      escolha,
-      geracao: { by: conversa.autor ?? "claude-code/desconhecida", at: isoComOffset(this.agora()) },
-      passo: "escrita", situacao: "rodando", agora: "Começando a escrita",
-    });
-    await this.salvar(conversa);
-    const pedido: PedidoDeFase = { papel: "escritor", mensagem: mensagemDoEscritor(conversa, wiki), raiz: this.raiz, wiki, ...(conversa.sessao ? { sessao: conversa.sessao } : {}), rota: conversa.rota ?? "padrao" };
-    this.iniciar(conversa, pedido, existentes, fim => this.terminarEscrita(conversa, fim));
-    return structuredClone(conversa);
+    this.reservar();
+    try {
+      const conversa = await this.exigir(id);
+      if (this.encerrando) throw new ErroDeIngestao("A interface está encerrando.", 409);
+      if (conversa.passo !== "parada" || conversa.situacao !== "esperando" || !conversa.relatorio) throw new ErroDeIngestao("A ingestão não está esperando a sua decisão.", 409);
+      const escolha = validarEscolha(escolhaBruta, conversa.relatorio);
+      await this.exigirAgente();
+      if (this.encerrando) throw new ErroDeIngestao("A interface está encerrando.", 409);
+      const wiki = this.wiki();
+      // A linha de base da aba Mudanças: a cópia de cada página a atualizar, fora do git, antes da escrita.
+      for (const i of escolha.paginas) {
+        const pagina = conversa.relatorio.paginas[i]!;
+        if (pagina.acao !== "atualizar") continue;
+        let texto: string;
+        try { texto = await readFile(join(wiki, pagina.caminho), "utf8"); } catch { continue; }
+        const copia = join(this.raiz, ".anvilore/ui/copias", conversa.id, pagina.caminho);
+        await mkdir(dirname(copia), { recursive: true });
+        await writeFile(copia, texto);
+      }
+      const existentes = new Set<string>();
+      if (existsSync(wiki)) for await (const arquivo of new Bun.Glob("**/*").scan({ cwd: wiki, onlyFiles: true })) existentes.add(porBarra(arquivo));
+      Object.assign(conversa, {
+        escolha,
+        geracao: { by: conversa.autor ?? "claude-code/desconhecida", at: isoComOffset(this.agora()) },
+        passo: "escrita", situacao: "rodando", agora: "Começando a escrita",
+      });
+      await this.salvar(conversa);
+      if (this.encerrando) {
+        Object.assign(conversa, { situacao: "cancelada", erro: "A interface foi encerrada antes do início desta etapa." });
+        delete conversa.agora;
+        await this.salvar(conversa);
+        throw new ErroDeIngestao("A interface está encerrando.", 409);
+      }
+      const pedido: PedidoDeFase = { papel: "escritor", mensagem: mensagemDoEscritor(conversa, wiki), raiz: this.raiz, wiki, ...(conversa.sessao ? { sessao: conversa.sessao } : {}), rota: conversa.rota ?? "padrao" };
+      this.iniciar(conversa, pedido, existentes, fim => this.terminarEscrita(conversa, fim));
+      return structuredClone(conversa);
+    } finally { this.liberarReserva(); }
+  }
+
+  async encerrar(): Promise<void> {
+    this.encerrando = true;
+    await this.preparacao;
+    const ativa = this.ativa;
+    if (!ativa) return;
+    ativa.execucao.cancelar();
+    await this.fases.get(ativa.id);
+  }
+
+  private reservar(): void {
+    if (this.encerrando) throw new ErroDeIngestao("A interface está encerrando.", 409);
+    if (this.ativa || this.reservada) throw new ErroDeIngestao(EM_ANDAMENTO, 409);
+    this.reservada = true;
+    this.preparacao = new Promise<void>(resolver => { this.liberarPreparacao = resolver; });
+  }
+
+  private liberarReserva(): void {
+    this.reservada = false;
+    this.liberarPreparacao?.();
+    this.liberarPreparacao = undefined;
+    this.preparacao = undefined;
   }
 
   async cancelar(id: string): Promise<Conversa> {

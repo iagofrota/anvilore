@@ -189,5 +189,5 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
 
   const url = `http://127.0.0.1:${servidor.port}/?token=${encodeURIComponent(token)}`;
   if (opcoes.abrirNavegador !== false) (opcoes.abrir ?? abrirNavegador)(url);
-  return { servidor, porta: servidor.port, token, url };
+  return { servidor, porta: servidor.port, token, url, encerrar: () => ingestao.encerrar() };
 }
