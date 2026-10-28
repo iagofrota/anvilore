@@ -105,6 +105,13 @@ export function regrasDeLeitura(raiz: string, wiki: string): string[] {
   return [regraDeCaminho("Read", raiz), ...(dentro ? [] : [regraDeCaminho("Read", wiki)])];
 }
 
+// O `--json-schema` do claude recusa o esquema que declara `"$schema"` draft 2020-12 ("not a valid JSON Schema",
+// prova com o claude real em 2026-10-28). `$schema` e `$id` são só metadados: o arquivo do kit continua com eles.
+function esquemaParaOClaude(): Record<string, unknown> {
+  const { $schema: _versao, $id: _id, ...regras } = esquemaRelatorioLeitor();
+  return regras;
+}
+
 export function argumentosDoPapel(pedido: PedidoDeFase): string[] {
   const { papel } = pedido;
   if (papel === "escritor" && !pedido.sessao) throw new Error("o escritor precisa da sessão do leitor");
@@ -122,7 +129,7 @@ export function argumentosDoPapel(pedido: PedidoDeFase): string[] {
     "--tools", FERRAMENTAS[papel].join(","),
     "--allowedTools", ...permitidas,
     ...(papel === "escritor" ? ["--disallowedTools", regraDeEdicao(join(pedido.raiz, "raw")), "Bash"] : []),
-    ...(papel === "leitor" ? ["--json-schema", JSON.stringify(esquemaRelatorioLeitor())] : []),
+    ...(papel === "leitor" ? ["--json-schema", JSON.stringify(esquemaParaOClaude())] : []),
     ...(pedido.rota === "grande" ? ["--model", MODELO_GRANDE] : []),
     ...(pedido.sessao ? ["--resume", pedido.sessao] : []),
   ];

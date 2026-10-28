@@ -115,7 +115,14 @@ test("Dado o papel leitor Quando monto os argumentos Então isola as configuraç
   expect(valor("--permission-mode")).toBe("dontAsk");
   expect(valor("--system-prompt-snapshot")).toBe("off");
   expect(valor("--append-system-prompt-file")).toBe(join(KIT, "skills/ingest/leitor.md"));
-  expect(JSON.parse(valor("--json-schema")!)).toEqual(esquemaRelatorioLeitor());
+  // O claude recusa o esquema com "$schema" draft 2020-12 (prova com o claude real, 28/10): vai sem $schema e $id.
+  const { $schema, $id, ...semMetadados } = esquemaRelatorioLeitor();
+  expect($schema).toBe("https://json-schema.org/draft/2020-12/schema");
+  expect($id).toBe("anvilore/relatorio-leitor/v1");
+  const enviado = JSON.parse(valor("--json-schema")!);
+  expect(enviado).toEqual(semMetadados);
+  expect(enviado).not.toHaveProperty("$schema");
+  expect(enviado).not.toHaveProperty("$id");
   expect(args).not.toContain("--resume");
   expect(args.join(" ")).not.toMatch(/Edit|Write|Bash/);
 });

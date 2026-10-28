@@ -38,6 +38,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   saída real, com "N rascunhos esperam você" e o atalho para a Revisão. Um painel mostra os 7 passos, o
   Cancelar interrompe o agente, e a conversa fica gravada em `.anvilore/ui/conversas/`: fechar o navegador
   na parada e voltar continua do mesmo ponto.
+- O envio de fonte pela interface recusa `raw/` ou `raw/<área>` que, por link simbólico, apontem para fora do
+  vault ou de `raw/`, e o leitor manda ao Claude Code o esquema sem `$schema` e `$id`, que o `--json-schema` recusava.
 - `anvilore ui` abre uma Revisão local de rascunhos com aprovação pela lógica existente, navegação por teclado e validação real da wiki. A interface usa React+TypeScript e pode desligar o autocommit durante a escrita com `ANVILORE_SEM_AUTOCOMMIT=1`.
 - A Revisão alinha a aprovação à proveniência humana, preserva CRLF, mostra a URL com token, protege POST por Origin e Referrer-Policy, indexa cópias sem bloquear o event loop e deixa avisos globais sem bloquear a aprovação. O CI confere que os assets compilados estão versionados e atualizados.
 - Hooks nos quatro agentes para commit opcional de páginas em `wiki/`, backup opcional no GitHub ao fim da sessão e

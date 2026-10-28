@@ -1,5 +1,6 @@
 import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { extname, join } from "node:path";
+import { caminhoReal, dentroDe } from "./caminhos";
 import { diretorioDeTipo, nomeReservado } from "./reservados";
 import { caminhoWiki } from "./wiki-repo";
 
@@ -58,12 +59,22 @@ export async function salvarFonte(
   if (areas.length && !areas.includes(fonte.area)) throw new ErroDeFonte(`Escolha uma área da wiki: ${areas.join(", ")}.`);
   if (!areas.length && fonte.area !== "") throw new ErroDeFonte("A wiki não tem áreas: envie a fonte sem área.");
   const pasta = fonte.area ? join(raiz, "raw", fonte.area) : join(raiz, "raw");
+  // A fronteira vale pelo disco, não pelo texto (a mesma contenção do conferir-leitura): raw/ não sai do vault e
+  // raw/<área> não sai de raw/, nem por link pendente. Confere antes de criar a pasta e de novo depois.
+  const conferirPasta = () => {
+    const rawReal = caminhoReal(join(raiz, "raw"));
+    if (!dentroDe(rawReal, caminhoReal(raiz))) throw new ErroDeFonte(`raw/ aponta para fora do vault (${rawReal}). Nada foi gravado.`);
+    if (!dentroDe(caminhoReal(pasta), rawReal)) throw new ErroDeFonte(`raw/${fonte.area} aponta para fora de raw/. Nada foi gravado.`);
+  };
+  conferirPasta();
   await mkdir(pasta, { recursive: true });
+  conferirPasta();
   const nome = nomeSeguro(fonte.nome);
   for (let n = 1; ; n++) {
     const candidato = comSufixo(nome, n);
     try {
-      // `wx` cria só se não existir: duas gravações com o mesmo nome nunca se sobrescrevem.
+      // `wx` cria só se não existir: duas gravações com o mesmo nome nunca se sobrescrevem, e um link no lugar do
+      // arquivo (mesmo pendente) conta como existente, então não é seguido.
       await writeFile(join(pasta, candidato), fonte.conteudo, { flag: "wx" });
       return { fonte: ["raw", ...(fonte.area ? [fonte.area] : []), candidato].join("/"), bytes: fonte.conteudo.byteLength };
     } catch (erro) {

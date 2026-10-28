@@ -99,3 +99,52 @@ test("Dado uma área montada por link simbólico e um link quebrado Quando listo
   symlinkSync(join(raiz, "nao-existe"), join(raiz, "wiki/quebrado"), "junction");
   expect(await areasDaWiki(join(raiz, "wiki"))).toEqual(["estudos", "pessoal", "trabalho"]);
 });
+
+// B1 da revisão do #26: o envio não atravessa link simbólico para fora do vault.
+function conteudoDe(dir: string): string[] {
+  try { return readdirSync(dir, { recursive: true }).map(String).sort(); } catch { return []; }
+}
+
+test("Dado raw/ como link para um diretório irmão do vault Quando envio uma fonte Então recuso e nada é criado fora", async () => {
+  const irmao = mkdtempSync(join(tmpdir(), "anvilore-irmao-"));
+  try {
+    symlinkSync(irmao, join(raiz, "raw"), "junction");
+    await expect(salvarFonte(raiz, { area: "pessoal", nome: "evidence.md", conteudo: new Uint8Array([1]) })).rejects.toThrow("raw/ aponta para fora do vault");
+    expect(conteudoDe(irmao)).toEqual([]);
+  } finally { rmSync(irmao, { recursive: true, force: true }); }
+});
+
+test("Dado raw/<área> como link para fora de raw/ Quando envio uma fonte Então recuso e nada é criado fora", async () => {
+  const fora = mkdtempSync(join(tmpdir(), "anvilore-fora-"));
+  try {
+    mkdirSync(join(raiz, "raw"));
+    symlinkSync(fora, join(raiz, "raw/pessoal"), "junction");
+    await expect(salvarFonte(raiz, { area: "pessoal", nome: "evidence.md", conteudo: new Uint8Array([1]) })).rejects.toThrow("raw/pessoal aponta para fora de raw/");
+    expect(conteudoDe(fora)).toEqual([]);
+  } finally { rmSync(fora, { recursive: true, force: true }); }
+});
+
+test("Dado raw/<área> como link pendente para fora Quando envio uma fonte Então recuso sem criar o diretório de fora", async () => {
+  const base = mkdtempSync(join(tmpdir(), "anvilore-pendente-"));
+  try {
+    mkdirSync(join(raiz, "raw"));
+    symlinkSync(join(base, "ainda-nao-existe"), join(raiz, "raw/pessoal"), "junction");
+    await expect(salvarFonte(raiz, { area: "pessoal", nome: "evidence.md", conteudo: new Uint8Array([1]) })).rejects.toThrow("aponta para fora de raw/");
+    expect(conteudoDe(base)).toEqual([]);
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+// Link de arquivo no Windows exige modo desenvolvedor ou administrador; lá o caso não roda.
+test.skipIf(process.platform === "win32")("Dado o arquivo-alvo como link para fora Quando envio com o mesmo nome Então o link não é seguido e a fonte ganha sufixo", async () => {
+  const fora = mkdtempSync(join(tmpdir(), "anvilore-alvo-"));
+  try {
+    mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
+    writeFileSync(join(fora, "existente.md"), "de fora");
+    symlinkSync(join(fora, "existente.md"), join(raiz, "raw/pessoal/nota.md"));
+    symlinkSync(join(fora, "pendente.md"), join(raiz, "raw/pessoal/nota-2.md"));
+    const salvo = await salvarFonte(raiz, { area: "pessoal", nome: "nota.md", conteudo: new TextEncoder().encode("nova") });
+    expect(salvo.fonte).toBe("raw/pessoal/nota-3.md");
+    expect(readFileSync(join(fora, "existente.md"), "utf8")).toBe("de fora");
+    expect(conteudoDe(fora)).toEqual(["existente.md"]);
+  } finally { rmSync(fora, { recursive: true, force: true }); }
+});
