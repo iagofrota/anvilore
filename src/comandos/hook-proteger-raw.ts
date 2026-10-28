@@ -103,13 +103,21 @@ function rawsAcima(inicio: string): string[] {
 
 // B1: o texto pode dizer wiki/ e o disco, por link, levar a raw/. Devolve o caminho real quando ele cai num raw/: pelo nome,
 // no raw/ do clone ou em qualquer raw/ acima do alvo ou do cwd. Relativo resolve contra o cwd; sem cwd, contra o do processo.
+// Um segmento acima de 255 bytes não é nome que um sistema de arquivos comum crie: a escrita falharia, então não é destino.
+// Só isto pula o disco (mensagem longa de commit, por exemplo); o resto que não se resolve falha fechado.
+const naoPodeSerCaminho = (caminho: string) => caminho.split(/[\\/]/).some(segmento => Buffer.byteLength(segmento) > 255);
+
 function caiEmRawPeloDisco(caminho: string, cwd: string): string | undefined {
+  if (naoPodeSerCaminho(caminho)) return undefined;
   const base = caminhoReal(cwd || process.cwd());
-  const real = caminhoReal(caminho, base);
-  if (estaEmRaw(real)) return real;
-  // Candidatos acima do caminho escrito, do real e do cwd: só acrescentam bloqueio, nunca o tiram.
-  const raws = [join(RAIZ_DO_CLONE, "raw"), ...rawsAcima(dirname(resolve(base, caminho))), ...rawsAcima(dirname(real)), ...rawsAcima(base)];
-  return raws.some(raw => dentroDe(real, existsSync(raw) ? caminhoReal(raw) : raw)) ? real : undefined;
+  const escrito = resolve(base, caminho);
+  // As duas leituras: a física (o disco segue o link antes do `..`) e a lexical (a ferramenta que normaliza o texto antes de
+  // gravar). Vale a pior.
+  const reais = [...new Set([caminhoReal(caminho, base), caminhoReal(escrito)])];
+  // Candidatos acima do caminho escrito, dos reais e do cwd: só acrescentam bloqueio, nunca o tiram.
+  const raws = [join(RAIZ_DO_CLONE, "raw"), ...rawsAcima(dirname(escrito)), ...reais.flatMap(real => rawsAcima(dirname(real))), ...rawsAcima(base)]
+    .map(raw => existsSync(raw) ? caminhoReal(raw) : raw);
+  return reais.find(real => estaEmRaw(real) || raws.some(raw => dentroDe(real, raw)));
 }
 
 // Pelo texto: o próprio caminho, ou um relativo com o diretório de trabalho já dentro de raw/.

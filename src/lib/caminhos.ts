@@ -29,8 +29,9 @@ export function caminhoReal(alvo: string, base: string = process.cwd()): string 
   return resolverReal(alvo, base, { saltos: 0 });
 }
 
-// Erros que dizem "isto não existe como caminho": o caminho real continua pelo texto.
-const INEXISTENTE = new Set(["ENOENT", "ENOTDIR", "ENAMETOOLONG", "EINVAL"]);
+// Só "não existe" continua pelo texto. Qualquer outro erro (nome longo demais, inválido, sem permissão) sobe: quem decide
+// falha fechado.
+const INEXISTENTE = new Set(["ENOENT", "ENOTDIR"]);
 
 function inexistente(erro: unknown): boolean {
   return INEXISTENTE.has((erro as NodeJS.ErrnoException).code ?? "");

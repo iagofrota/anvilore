@@ -929,3 +929,13 @@ test.skipIf(process.platform !== "win32")("Dado Windows Quando o caminho tem lin
   expect(decidir(arquivo(`${base}\\wiki\\link\\..\\x.md`)).acao).toBe("liberar");
   expect(decidir(arquivo(`${base}\\wiki\\link\\x.md`)).acao).toBe("bloquear");
 });
+
+// Revisão de segurança 3: a ferramenta pode normalizar o `..` pelo texto antes de gravar; vale o pior das duas leituras.
+test.skipIf(process.platform === "win32")("Dado link/../x em que só a leitura lexical cai em raw/ Quando escrevo Então bloqueia", () => {
+  const base = projeto();
+  mkdirSync(join(base, "outro/dir"), { recursive: true });
+  symlinkSync(join(base, "outro/dir"), join(base, "wiki/link"), "dir");
+  symlinkSync(join(base, "raw/x.md"), join(base, "wiki/x.md"));
+  expect(decidir(arquivo(`${base}/wiki/link/../x.md`)).acao).toBe("bloquear");
+  expect(decidir(arquivo(`${base}/wiki/link/../y.md`)).acao).toBe("liberar");
+});

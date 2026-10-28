@@ -190,6 +190,12 @@ test("Dado caminho relativo e uma base Quando resolvo Então parte da base", () 
   const base = cenario(() => {});
   try {
     expect(caminhoReal("wiki/x.md", base)).toBe(join(base, "wiki/x.md"));
-    expect(caminhoReal("a".repeat(300), base)).toBe(join(base, "a".repeat(300)));
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+test.skipIf(process.platform === "win32")("Dado nome longo demais para o disco Quando resolvo Então lança em vez de tratar como inexistente", () => {
+  const base = cenario(() => {});
+  try {
+    expect(() => caminhoReal("a".repeat(300), base)).toThrow();
   } finally { rmSync(base, { recursive: true, force: true }); }
 });
