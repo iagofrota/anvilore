@@ -27,6 +27,7 @@ export async function montarOrigem(tmp: string): Promise<{ origem: string; dev: 
   const dev = join(tmp, "dev");
   gitOk(tmp, "init", "-q", "--bare", origem);
   gitOk(tmp, "clone", "-q", origem, dev);
+  gitOk(dev, "config", "core.autocrlf", "false");
   cpSync(join(raizDoKit, ".gitignore"), join(dev, ".gitignore"));
   writeFileSync(join(dev, "codigo.ts"), "export const versao = 'N';\n");
   for (const peca of await pecasDoModelo()) {
@@ -51,5 +52,8 @@ export function publicarN1(dev: string, rastreados: string[]): void {
 
 export function clonar(origem: string, destino: string): string {
   gitOk(dirname(destino), "clone", "-q", origem, destino);
+  // Clone de verdade tem configuração estável; aqui o runner Windows traz autocrlf=true e o pull do --puxar (que roda
+  // sem os -c da fixture) reescreveria fins de linha que o clone não converteu.
+  gitOk(destino, "config", "core.autocrlf", "false");
   return destino;
 }
