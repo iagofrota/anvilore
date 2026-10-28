@@ -126,7 +126,7 @@ test("Dado inicialização padrão Quando o servidor sobe Então abre URL de loo
   expect(aberta).toBe(`http://127.0.0.1:${app.porta}/?token=token-teste`);
 });
 
-test("Dado abertura padrão no Linux Quando inicio a interface Então usa xdg-open para a URL local", async () => {
+test("Dado abertura padrão Quando inicio a interface Então usa o comando nativo para a URL local", async () => {
   const bun = Bun as unknown as { spawn: (...args: unknown[]) => unknown };
   const original = bun.spawn;
   let comando: unknown;
@@ -134,7 +134,10 @@ test("Dado abertura padrão no Linux Quando inicio a interface Então usa xdg-op
   try {
     const app = await iniciarServidorUi(raiz, { portaInicial: 0, token: "token-teste" });
     servidores.push(app.servidor);
-    expect(comando).toEqual(["xdg-open", app.url]);
+    const esperado = process.platform === "win32" ? ["cmd", "/c", "start", "", app.url]
+      : process.platform === "darwin" ? ["open", app.url]
+        : ["xdg-open", app.url];
+    expect(comando).toEqual(esperado);
   } finally { bun.spawn = original; }
 });
 
