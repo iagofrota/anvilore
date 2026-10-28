@@ -107,6 +107,27 @@ Para a linhagem do método e a argumentação completa das posições de design,
   de `src/lib/okf.ts`, incluindo offsets só de horas.
 - O comportamento está em `src/ui/servidor/`, `src/comandos/hooks-wiki.ts` e `tests/hooks-wiki.test.ts`.
 
+## Ingestão pela interface: uma execução do agente por fase
+
+- **Decisão do dono do projeto em 2026-10-27.** O chat de ingestão chama o Claude Code pela linha de
+  comando (`claude -p` com saída em stream JSON), não pelo Agent SDK: o SDK exige chave de API, e a
+  interface usa a conta em que a pessoa já entrou. A ponte fica atrás de uma interface neutra
+  (`src/lib/ponte-agente.ts`), com o Claude Code como primeira implementação
+  (`src/lib/ponte-claude-code.ts`); Codex e Gemini entram depois pelo mesmo contrato.
+- Cada fase (leitor, escritor) é um processo; nenhum processo atravessa a parada humana, que é uma só
+  (takeaways e páginas juntos). O escritor continua a sessão do leitor com `--resume`. O estado fica em
+  .anvilore/ui/conversas, fora de `wiki/` e de `raw/` (`src/lib/ui-ingestao.ts`).
+- Isolamento provado num vault temporário em 2026-10-27 (Claude Code 2.1.311): `--setting-sources
+  project,local` impede que as permissões do settings.json da pessoa liberem escrita fora da wiki;
+  `--tools` por papel remove as ferramentas que o papel não usa; a leitura fica no vault e na wiki, e a
+  edição só na wiki, por regra de caminho absoluto. O filho sempre recebe `ANVILORE_WIKI`, para o hook
+  proteger também uma wiki fora da pasta. Cancelar manda SIGINT, que preserva o turno parcial; o fim
+  cancelado é lido em `terminal_reason`, não no código de saída.
+- O servidor não acredita no que o agente diz ter feito: o relatório do leitor passa pelo
+  `conferir-leitura` antes da parada, e o `fechar` é rodado pela interface, que mostra a saída real.
+- Ainda não provado com o Claude Code de verdade: `--system-prompt-snapshot off` no `--resume` do
+  escritor, a regra de leitura por caminho absoluto, Windows (forma do caminho e SIGINT) e macOS.
+
 ## Neutralidade de provedor de agente
 
 - Uma fonte só de skills e de hook, ligada a Claude Code, Codex, Gemini e Copilot por
