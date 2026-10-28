@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { sincronizarIndice, comandoSincronizarIndice } from "../src/comandos/sincronizar-indice";
+import { esqueletoEm } from "./apoio/esqueleto";
 
 let raiz: string;
 let wiki: string;
@@ -234,7 +235,8 @@ test("Dado áreas criadas fora da ordem alfabética, Quando sincronizo, Então a
 });
 
 test("Dado a wiki versionada do repositório, Quando checo, Então ela passa sem escrita", async () => {
-  const r = await capturar(() => comandoSincronizarIndice([join(import.meta.dir, "..", "wiki"), "--checar"]));
+  const { wiki: esqueleto } = await esqueletoEm(raiz);
+  const r = await capturar(() => comandoSincronizarIndice([esqueleto, "--checar"]));
   expect(r.valor).toBe(0);
 });
 

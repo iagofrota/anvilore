@@ -127,6 +127,14 @@ describe("checarDocs: referências", () => {
     expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
   });
 
+  test("Dado menções às camadas da pessoa, que saíram do rastreio, Quando checo, Então resolvem pelo original em modelos/", () => {
+    for (const rel of ["modelos/SCHEMA.md", "modelos/wiki/index.md", "modelos/wiki/gitignore", "modelos/wiki/log/.gitkeep", "modelos/fontes/exemplo/llm-wiki.md"]) gravar(rel, "");
+    kb("README.md", "Veja `SCHEMA.md`, `wiki/`, `wiki/index.md`, `wiki/.gitignore`, `wiki/log/`, `raw/` e `raw/exemplo/llm-wiki.md`.\n");
+    expect(checarDocs(raiz)).toEqual({ ok: true, problemas: [] });
+    kb("README.md", "Veja `wiki/nao-existe.md` e `raw/nada.md`.\n");
+    expect(checarDocs(raiz).problemas).toHaveLength(2);
+  });
+
   test("Dado uma menção entre crases, Quando checo, Então ela resolve a partir da raiz e não da página", () => {
     gravar("docs/knowledge_base/outra.md", "");
     kb("README.md", "Veja `outra.md` e `docs/knowledge_base/outra.md`.\n");

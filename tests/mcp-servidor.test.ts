@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { montarInstrucoes } from "../src/mcp/instrucoes";
 import { abrirMetricas } from "../src/busca/metricas";
 import { criarServidor } from "../src/mcp/servidor";
+import { esqueletoEm } from "./apoio/esqueleto";
 
 function wiki(raiz: string): string {
   const caminho = join(raiz, "wiki"); mkdirSync(caminho, { recursive: true });
@@ -39,10 +40,12 @@ test("Dado servidor MCP e wiki, Quando inicializa, Então instructions citam ass
 
 test("Dado comando MCP registrado, Quando o agente executa exatamente `bun <raiz>/src/cli.ts mcp`, Então conecta ao servidor", async () => {
   const dados = mkdtempSync(join(tmpdir(), "anvilore-dados-"));
+  // O clone não traz mais wiki/ (é da pessoa): a wiki vem do esqueleto de modelos/.
+  const { wiki: wikiDoEsqueleto } = await esqueletoEm(dados);
   const comandoRegistrado = [join(process.cwd(), "src/cli.ts"), "mcp"];
   const transport = new StdioClientTransport({
     command: "bun", args: comandoRegistrado, cwd: process.cwd(),
-    env: { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)), ANVILORE_DIR: dados },
+    env: { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)), ANVILORE_DIR: dados, ANVILORE_WIKI: wikiDoEsqueleto },
   });
   const client = new Client({ name: "teste-comando-registrado", version: "1.0.0" });
   try {
@@ -55,9 +58,10 @@ test("Dado comando MCP registrado, Quando o agente executa exatamente `bun <raiz
 test("Dado outro cwd, Quando inicia o comando registrado, Então usa wiki e dados da raiz do clone", async () => {
   const cwdAlheio = mkdtempSync(join(tmpdir(), "outro-projeto-"));
   const dados = mkdtempSync(join(tmpdir(), "anvilore-dados-"));
+  const { wiki: wikiDoEsqueleto } = await esqueletoEm(dados);
   const transport = new StdioClientTransport({
     command: "bun", args: [join(process.cwd(), "src/cli.ts"), "mcp"], cwd: cwdAlheio,
-    env: { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)), ANVILORE_DIR: dados },
+    env: { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)), ANVILORE_DIR: dados, ANVILORE_WIKI: wikiDoEsqueleto },
   });
   const client = new Client({ name: "teste-mcp-cwd", version: "1.0.0" });
   try {

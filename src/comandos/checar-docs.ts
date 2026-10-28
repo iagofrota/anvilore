@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { linhasDe } from "../lib/frontmatter";
 import { PASTA_DA_KB, listarPaginasDaKb } from "../lib/knowledge-base";
 import { acharCodigosEmLinha, acharLinks, linhasVisiveis } from "../lib/markdown";
+import { origemNoModelo } from "../lib/modelos";
 
 export type ResultadoDocs = { ok: boolean; problemas: string[] };
 
@@ -39,6 +40,12 @@ function foraDaRaiz(raiz: string, caminho: string): boolean {
   return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
 }
 
+// `raw/`, `wiki/` e `SCHEMA.md` são da pessoa e o kit não os rastreia: a menção vale se o original existe em `modelos/`.
+function existeNoModelo(raiz: string, alvo: string): boolean {
+  const origem = origemNoModelo(alvo.replace(/^\/+/, ""));
+  return origem !== undefined && existsSync(join(raiz, "modelos", origem));
+}
+
 function conferirPagina(raiz: string, pasta: string, pagina: string): string[] {
   const nome = `${PASTA_DA_KB}/${pagina}`;
   const dirDaPagina = dirname(join(pasta, pagina));
@@ -56,7 +63,7 @@ function conferirPagina(raiz: string, pasta: string, pagina: string): string[] {
     const caminho = resolve(raiz, alvo.replace(/^\/+/, ""));
     if (foraDaRaiz(raiz, caminho)) {
       problemas.add(`${nome}: menção a \`${alvo}\` aponta para fora da raiz do repositório`);
-    } else if (!existsSync(caminho)) {
+    } else if (!existsSync(caminho) && !existeNoModelo(raiz, alvo)) {
       problemas.add(`${nome}: menção a \`${alvo}\` que não existe`);
     }
   }

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { executar } from "../src/cli";
 import { comandoValidar, validarWiki } from "../src/comandos/validar";
+import { esqueletoEm } from "./apoio/esqueleto";
 
 let raiz: string;
 let wiki: string;
@@ -289,7 +290,8 @@ describe("validar: áreas e diretórios reservados", () => {
   }
 
   test("Dado a wiki versionada no próprio repositório, Quando valido, Então passa e informa a dívida", async () => {
-    const r = await capturar(() => comandoValidar([join(import.meta.dir, "..", "wiki")]));
+    const { wiki: esqueleto } = await esqueletoEm(raiz);
+    const r = await capturar(() => comandoValidar([esqueleto]));
     expect(r.saida).toContain("VALIDACAO: PASS");
     expect(r.saida).toContain("Divida:");
     expect(r.codigo).toBe(0);
