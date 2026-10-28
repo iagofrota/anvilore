@@ -6,6 +6,7 @@ import { fundirJson } from "../lib/fundir-json";
 import { fundirBloco } from "../lib/fundir-bloco";
 import { agentesDaIngestao, MARCA_DE_GERADO } from "../lib/papeis-ingestao";
 import { avisoRg } from "../lib/rg";
+import { escreverPeca, planejarModelos } from "../lib/modelos";
 import { inicializarRepositorioWiki } from "../lib/wiki-repo";
 
 const fonte = resolve(import.meta.dir, "../..");
@@ -204,24 +205,6 @@ export function valorDoPath(ambiente: Record<string, string | undefined> = proce
   return Object.entries(ambiente).find(([chave]) => chave.toUpperCase() === "PATH")?.[1];
 }
 
-export async function pecaDoEsqueleto(rel: string, raizFonte: string = fonte): Promise<string> {
-  try {
-    return await readFile(join(raizFonte, rel), "utf8");
-  } catch (erro) {
-    if ((erro as NodeJS.ErrnoException).code !== "ENOENT") throw erro;
-  }
-  const git = Bun.which("git", { PATH: valorDoPath() });
-  if (!git) throw new Error(`fonte sem ${rel} e git ausente do PATH — esqueleto não recuperado`);
-  const processo = Bun.spawn([git, "-C", raizFonte, "show", `HEAD:${rel}`], { stdout: "pipe", stderr: "pipe" });
-  const [texto, erro, codigo] = await Promise.all([
-    new Response(processo.stdout).text(),
-    new Response(processo.stderr).text(),
-    processo.exited,
-  ]);
-  if (codigo !== 0) throw new Error(`fonte sem '${rel}' na árvore e no último commit: ${erro.trim()}`);
-  return texto;
-}
-
 async function validarDestino(opcoes: OpcoesInstalacao): Promise<string> {
   const destino = await realpath(opcoes.destino);
   if (!(await stat(destino)).isDirectory()) throw new Error("destino não é diretório");
@@ -320,24 +303,14 @@ async function instalarLink(contexto: Contexto, rel: string, origem: string, dir
   else if (resultado.estado === "criado") registrarMudanca(contexto, `liga: ${rel}`);
 }
 
+// O esqueleto vem de `modelos/`, nunca do `git ls-files` da fonte: copia só o que falta e nunca sobrescreve. O exemplo
+// só nasce em instalação nova (sem `wiki/` ou sem `raw/`); o que a pessoa apagou continua apagado.
 async function instalarEsqueleto(contexto: Contexto): Promise<void> {
-  let processo: ReturnType<typeof Bun.spawnSync> | undefined;
-  try { processo = Bun.spawnSync(["git", "-C", fonte, "ls-files", "-z", "--", "wiki"], { stdout: "pipe", stderr: "pipe" }); }
-  catch (erro) { if (!/Executable not found/i.test((erro as Error).message)) throw erro; }
-  if (processo && processo.exitCode !== 0 && !/not a git repository/i.test(processo.stderr?.toString() ?? "")) {
-    throw new Error(`não foi possível listar o esqueleto da wiki: ${processo.stderr?.toString() ?? "git ausente"}`);
-  }
-  // Fontes empacotadas e cópias de teste podem não conter .git; nesse caso,
-  // instale somente a allowlist do esqueleto, nunca páginas pessoais.
-  const arquivos = processo?.exitCode === 0 ? (processo.stdout?.toString() ?? "").split("\0").filter(Boolean) : [];
-  if (arquivos.length === 0) arquivos.push(
-    "wiki/.gitignore", "wiki/_meta/.gitkeep", "wiki/exemplo/concepts/.gitkeep",
-    "wiki/exemplo/concepts/area-tematica.md", "wiki/exemplo/entities/.gitkeep",
-    "wiki/exemplo/sources/.gitkeep", "wiki/index.md", "wiki/log.md", "wiki/log/.gitkeep",
-  );
-  for (const rel of arquivos) {
-    if (await informacao(join(contexto.destino, rel))) contexto.relatorio.mensagens.push(`inalterado: ${rel}`);
-    else await escrever(contexto, rel, await pecaDoEsqueleto(rel));
+  const plano = await planejarModelos(contexto.destino, { exemplo: true });
+  for (const rel of plano.existentes) contexto.relatorio.mensagens.push(`inalterado: ${rel}`);
+  for (const peca of plano.copiar) {
+    registrarMudanca(contexto, `${contexto.simular ? "simula escrita" : "escreve"}: ${peca.destino}`);
+    if (!contexto.simular) await escreverPeca(contexto.destino, peca);
   }
 }
 

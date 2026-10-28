@@ -11,6 +11,18 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Added
 
+- `anvilore versao` mostra a versão do kit e, num clone, a tag e o commit.
+- `anvilore migrar-rastreio` prepara o clone para a próxima versão, que deixa de rastrear os arquivos da pessoa
+  (`SCHEMA.md`, índice e log da wiki, esqueleto e exemplo de `wiki/` e `raw/`): copia cada um com SHA-256 para
+  `.anvilore/migracao/`, cria o repositório próprio da wiki se faltar, tira do índice do kit sem apagar do disco e
+  confere. Se parar no meio, não apaga nada e retoma na próxima vez. Com `--puxar`, atualiza o clone com `git pull`
+  tirando os arquivos do caminho e devolvendo-os conferidos. O `doctor` avisa "clone a migrar" e reprova enquanto
+  uma migração estiver incompleta. Manifesto de migração ilegível, fora da forma ou ausente com arquivo estacionado
+  bloqueia o comando e o `doctor`, apontando a cópia, em vez de ser ignorado. Nenhum arquivo volta ao lugar sem
+  conferir o SHA-256: o que não confere fica guardado ao lado como `<nome>.divergente-<id>`, e sem cópia que confira
+  a migração para e aponta os caminhos.
+- Os originais desses arquivos ficam em `modelos/`; `instalar` e `init` copiam de lá só o que falta, sem sobrescrever
+  e sem depender do git, e o exemplo apagado pela pessoa não volta.
 - Esquema único do relatório do leitor da ingestão (`skills/ingest/relatorio-leitor.schema.json`): 3 a 5
   takeaways com trecho literal e seção, páginas a criar ou atualizar, lacunas e contradições. O código
   confere o esquema, que cada trecho existe na fonte e que a ação de cada página casa com a wiki.

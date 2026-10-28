@@ -5,6 +5,7 @@ import { comandoChecarRelease } from "./comandos/checar-release";
 import { comandoFatiarLog } from "./comandos/fatiar-log";
 import { comandoSincronizarIndice } from "./comandos/sincronizar-indice";
 import { comandoMigrarAreas } from "./comandos/migrar-areas";
+import { comandoMigrarRastreio } from "./comandos/migrar-rastreio";
 import { comandoIndexarLog } from "./comandos/indexar-log";
 import { comandoListarLacunas } from "./comandos/listar-lacunas";
 import { comandoRejuntarLinhas } from "./comandos/rejuntar-linhas";
@@ -23,6 +24,7 @@ import { comandoAprovar } from "./comandos/aprovar";
 import { comandoConferirLeitura } from "./comandos/conferir-leitura";
 import { comandoRotaIngestao } from "./comandos/rota-ingestao";
 import { comandoUi } from "./comandos/ui";
+import { comandoVersao } from "./comandos/versao";
 
 export type Subcomando = (args: string[]) => Promise<number>;
 export type TabelaDeSubcomandos = Record<string, Subcomando>;
@@ -34,6 +36,7 @@ export const subcomandos: TabelaDeSubcomandos = {
   "fatiar-log": comandoFatiarLog,
   "sincronizar-indice": comandoSincronizarIndice,
   "migrar-areas": comandoMigrarAreas,
+  "migrar-rastreio": comandoMigrarRastreio,
   "indexar-log": comandoIndexarLog,
   "listar-lacunas": comandoListarLacunas,
   "rejuntar-linhas": comandoRejuntarLinhas,
@@ -53,6 +56,7 @@ export const subcomandos: TabelaDeSubcomandos = {
   "conferir-leitura": comandoConferirLeitura,
   "rota-ingestao": comandoRotaIngestao,
   ui: comandoUi,
+  versao: comandoVersao,
 };
 
 function listar(tabela: TabelaDeSubcomandos): string {

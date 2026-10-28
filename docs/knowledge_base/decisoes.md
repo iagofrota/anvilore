@@ -107,6 +107,28 @@ Para a linhagem do método e a argumentação completa das posições de design,
   de `src/lib/okf.ts`, incluindo offsets só de horas.
 - O comportamento está em `src/ui/servidor/`, `src/comandos/hooks-wiki.ts` e `tests/hooks-wiki.test.ts`.
 
+## Os arquivos da pessoa saem do rastreio do kit
+
+- **Decisão do Iago em 2026-10-27, com detalhes acertados pelo líder da tarefa em 2026-10-28.** `SCHEMA.md`, o índice
+  e o log da wiki, o esqueleto e o exemplo de `wiki/` e `raw/` são da pessoa e deixam de ser rastreados pelo kit, em
+  duas versões: a primeira traz `anvilore migrar-rastreio` e o aviso "clone a migrar" no `doctor`; a seguinte tira os
+  arquivos do rastreio. Os originais ficam em `modelos/` (`src/lib/modelos.ts`).
+- `instalar` e `init` copiam de `modelos/` só o que falta e nunca sobrescrevem. O exemplo (`wiki/exemplo/`,
+  `raw/exemplo/`) só nasce em instalação nova, quando `wiki/` ou `raw/` ainda não existem: o que a pessoa apagou
+  continua apagado em toda reinstalação e atualização (`planejarModelos`).
+- O original de `raw/` mora em `modelos/fontes/`, porque o hook trata qualquer componente `raw` de um caminho como a
+  camada da pessoa (`estaEmRaw`, em `src/lib/caminhos.ts`); o `.gitignore` da wiki mora como `modelos/wiki/gitignore`
+  para não ignorar o exemplo dentro do próprio kit.
+- O estado da migração fica no manifesto `.anvilore/migracao/<id>/manifesto.json`, não no arquivo de estado do atualizador (atualizacao.json, na mesma pasta),
+  que ele usará para reconhecer uma instalação gerenciada (`src/lib/migracao.ts`).
+- Provado com git de verdade (`tests/migrar-rastreio.test.ts`): depois do `git rm --cached`, um `git pull` da versão
+  seguinte recusa, porque o git apagaria os arquivos que ficaram no disco. Por isso `migrar-rastreio --puxar`
+  estaciona os arquivos por `rename` na pasta .anvilore (que o kit ignora), puxa com `--ff-only` e os devolve conferindo
+  o SHA-256; se o processo morrer no meio, a execução seguinte devolve antes de qualquer outra coisa. Sem migrar, o
+  `git pull` recusa quando há arquivo editado e apaga o que não foi editado, que `instalar` e `init` recriam.
+- O mesmo teste prova que um `git checkout --force` de uma versão antiga sobrescreve em silêncio o `SCHEMA.md` da
+  pessoa, já ignorado: quem voltar de versão precisa restaurar a cópia depois do checkout.
+
 ## Neutralidade de provedor de agente
 
 - Uma fonte só de skills e de hook, ligada a Claude Code, Codex, Gemini e Copilot por
