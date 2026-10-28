@@ -23,12 +23,21 @@ const BINARIOS: Record<string, string> = {
 
 const MARCAS_ISO_BMFF = new Set(["heic", "heix", "hevc", "hevx", "heim", "heis", "hevm", "hevs", "mif1", "msf1", "avif", "avis"]);
 
-// A assinatura dos primeiros bytes: a extensão de texto não esconde PDF ou imagem. Cada uma exige o cabeçalho inteiro,
-// para texto que só começa parecido ("BMW", "RIFF") continuar texto.
-function assinatura(bytes: Uint8Array): "pdf" | "imagem" | undefined {
+// BOM UTF-8 e espaços (espaço, tab, CR, LF) antes da assinatura de imagem não a escondem.
+function semPreambulo(bytes: Uint8Array): Uint8Array {
+  let inicio = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? 3 : 0;
+  while ([0x20, 0x09, 0x0d, 0x0a].includes(bytes[inicio] ?? -1)) inicio++;
+  return bytes.subarray(inicio);
+}
+
+// A assinatura dos primeiros bytes: a extensão de texto não esconde PDF ou imagem. PDF segue a regra dos leitores de PDF:
+// `%PDF-` em qualquer ponto do primeiro KB. Imagem exige o cabeçalho inteiro, depois de BOM e espaços, para texto que só
+// começa parecido ("BMW", "RIFF") continuar texto.
+function assinatura(original: Uint8Array): "pdf" | "imagem" | undefined {
+  if (Buffer.from(original.subarray(0, 1024)).toString("latin1").includes("%PDF-")) return "pdf";
+  const bytes = semPreambulo(original);
   const ascii = (inicio: number, fim: number) => Buffer.from(bytes.subarray(inicio, fim)).toString("latin1");
   const prefixo = (...esperado: number[]) => esperado.every((byte, i) => bytes[i] === byte);
-  if (ascii(0, 5) === "%PDF-") return "pdf";
   if (prefixo(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "imagem";
   if (prefixo(0xff, 0xd8, 0xff)) return "imagem";
   if (ascii(0, 6) === "GIF87a" || ascii(0, 6) === "GIF89a") return "imagem";

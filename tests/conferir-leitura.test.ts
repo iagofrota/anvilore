@@ -283,3 +283,27 @@ test("Dado texto UTF-8 com BOM Quando a citação é o começo da fonte Então c
   gravar("leitura.json", JSON.stringify(relatorio()));
   expect(await conferirArquivoDeLeitura(raiz, "leitura.json")).toEqual({ codigo: 0, mensagens: [OK_PADRAO] });
 });
+
+// Revisão Codex 5b: como os leitores de PDF, `%PDF-` vale em qualquer ponto do primeiro KB; imagem ignora BOM e espaços iniciais.
+const CORPO_PDF = "%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n";
+for (const [caso, prefixo] of [["espaço", " "], ["BOM", "﻿"], ["uma linha", "lixo antes do cabeçalho\n"]] as const) {
+  test(`Dado PDF ASCII em .md com ${caso} antes de %PDF- e citação falsa Quando confiro Então aprova com aviso`, async () => {
+    writeFileSync(join(raiz, "raw/notas/fonte.md"), prefixo + CORPO_PDF);
+    gravar("leitura.json", JSON.stringify(relatorio("a wiki esquece")));
+    expect(await conferirArquivoDeLeitura(raiz, "leitura.json")).toEqual({ codigo: 0, mensagens: [aviso("pdf com extensão de texto"), OK_PADRAO] });
+  });
+}
+
+test("Dado %PDF- só depois do primeiro KB Quando confiro Então continua texto com conferência estrita", async () => {
+  writeFileSync(join(raiz, "raw/notas/fonte.md"), `${"x".repeat(1024)}\n${CORPO_PDF}A wiki acumula.\n`);
+  gravar("leitura.json", JSON.stringify(relatorio("a wiki esquece")));
+  expect((await conferirArquivoDeLeitura(raiz, "leitura.json")).codigo).toBe(1);
+});
+
+test("Dado imagem com BOM ou espaços antes da assinatura Quando confiro Então trata como imagem com extensão de texto", async () => {
+  for (const prefixo of [[0xef, 0xbb, 0xbf], [0x20, 0x0a, 0x09]]) {
+    writeFileSync(join(raiz, "raw/notas/quadro.txt"), Buffer.from([...prefixo, ...Buffer.from("GIF89a"), 0x01]));
+    gravar("leitura.json", JSON.stringify(comFonte("raw/notas/quadro.txt")));
+    expect((await conferirArquivoDeLeitura(raiz, "leitura.json")).mensagens[0]).toBe(aviso("imagem com extensão de texto"));
+  }
+});
