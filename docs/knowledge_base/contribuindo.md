@@ -67,6 +67,21 @@ Code usa `permissions.ask` e um hook que só permite aprovar em modo `default`; 
 não têm mecanismo de aprovação com um clique. Os testes verificam lógica e configurações geradas, não
 executam ciclos de vida reais dos agentes.
 
+## Testes de navegador
+
+O Playwright cobre os fluxos que precisam provar a interface React no Chromium junto com a API local e os arquivos de um vault temporário. O runner usa Node; Bun continua compilando a interface e executando o servidor e o Claude falso. Cada teste cria seu próprio vault, porta efêmera, token e processo falso. Nenhum teste chama um Claude Code real.
+
+```bash
+node node_modules/@playwright/test/cli.js install chromium
+bun run e2e
+bun run e2e:ui
+bun run e2e:types
+```
+
+`bun run e2e` compila a interface, confere os tipos em `e2e/` e roda os arquivos `*.e2e.ts`; eles não entram em `bun test` nem no `bun run checar`. A suíte usa Chromium, locale `pt-BR`, fuso de São Paulo, viewport padrão 1280×800 e zero retries. Para escolher o cache de navegador, defina `PLAYWRIGHT_BROWSERS_PATH`; no runner descartável `agentop run --rm`, use `e2e/.cache/ms-playwright` para manter o browser visível fora do HOME temporário.
+
+Relatórios, traces de falha, screenshots, logs e a guarda de hashes ficam em `e2e/resultados/`, ignorado pelo Git. Um vault com falha é preservado e seu caminho aparece na saída; `E2E_MANTER=1` preserva também os vaults aprovados. A guarda global compara os hashes de `raw/` e `wiki/` reais antes e depois da suíte. C08, C14, C25 e a barreira de `Host` do C02 continuam cobertos por `bun:test`; C19 verifica o argv do Claude falso e a exibição da recusa, não o comportamento de permissões de um Claude Code real. A inspeção visual feita pela automação se limita aos viewports exercitados nos testes.
+
 ## Testes primeiro, com cenários em gherkin
 
 - Escreva o teste antes do código e veja-o falhar.

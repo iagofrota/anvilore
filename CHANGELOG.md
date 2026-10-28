@@ -11,6 +11,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Added
 
+- Primeira automação E2E com Playwright e Chromium: um vault, um servidor e um Claude falso isolados por teste; o fluxo de ingestão, escrita, Revisão e aprovação humana confere também os arquivos gravados.
 - `anvilore versao` mostra a versão do kit e, num clone, a tag e o commit.
 - `anvilore migrar-rastreio` prepara o clone para a próxima versão, que deixa de rastrear os arquivos da pessoa
   (`SCHEMA.md`, índice e log da wiki, esqueleto e exemplo de `wiki/` e `raw/`): copia cada um com SHA-256 para

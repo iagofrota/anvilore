@@ -1,0 +1,8 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun", "node"],
+    "noEmit": true
+  },
+  "include": ["./**/*.ts", "../tests/apoio/claude-falso.ts", "../tests/apoio/eventos-claude.ts", "../tests/apoio/ingestao-exemplo.ts"]
+}

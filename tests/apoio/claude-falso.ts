@@ -4,13 +4,14 @@
 // `auth status` usa `auth`; com `--resume`, `escritor`; senão, `leitor`.
 // CLAUDE_FALSO_REGISTRO: arquivo onde cada execução acrescenta uma linha JSON com argv, cwd,
 // variáveis do Anvilore e o que chegou pelo stdin (a ponte deve deixá-lo vazio).
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, watch, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 export type PassoDoFalso =
   | { linha: unknown }
   | { escrever: { caminho: string; conteudo: string } }
   | { esperar: number }
+  | { esperarArquivo: { caminho: string; pronto: string; sessao: string } }
   | { esperarSinal: { sessao: string; ignorar?: boolean } }
   | { stderr: string }
   | { sair: number };
@@ -47,6 +48,33 @@ for (const passo of passos) {
     mkdirSync(dirname(alvo), { recursive: true });
     writeFileSync(alvo, passo.escrever.conteudo);
   } else if ("esperar" in passo) await Bun.sleep(passo.esperar);
+  else if ("esperarArquivo" in passo) {
+    const alvo = resolve(passo.esperarArquivo.caminho);
+    const pronto = resolve(passo.esperarArquivo.pronto);
+    mkdirSync(dirname(alvo), { recursive: true });
+    mkdirSync(dirname(pronto), { recursive: true });
+    writeFileSync(pronto, "pronto\n");
+    if (!existsSync(alvo)) await new Promise<void>(resolveEspera => {
+      const watcher = watch(dirname(alvo), (_evento, nome) => {
+        if ((!nome || nome.toString() === alvo.split(/[\\/]/).at(-1)) && existsSync(alvo)) {
+          process.off("SIGINT", interromper);
+          watcher.close();
+          resolveEspera();
+        }
+      });
+      const interromper = () => {
+        watcher.close();
+        process.stdout.write(JSON.stringify({ type: "result", subtype: "error_during_execution", is_error: true, terminal_reason: "aborted_streaming", result: null, session_id: passo.esperarArquivo.sessao }) + "\n");
+        process.exit(0);
+      };
+      process.once("SIGINT", interromper);
+      if (existsSync(alvo)) {
+        process.off("SIGINT", interromper);
+        watcher.close();
+        resolveEspera();
+      }
+    });
+  }
   else if ("stderr" in passo) process.stderr.write(passo.stderr);
   else if ("sair" in passo) process.exit(passo.sair);
   else if ("esperarSinal" in passo) {

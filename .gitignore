@@ -44,6 +44,10 @@ __pycache__/
 node_modules/
 coverage/
 .anvilore/
+e2e/resultados/
+e2e/.cache/ms-playwright/
+playwright-report/
+test-results/
 
 # Desenhos e planos de trabalho ficam só na máquina de quem os escreve: nunca
 # versionados nem enviados (pedido do Iago, 2026-10-24).
