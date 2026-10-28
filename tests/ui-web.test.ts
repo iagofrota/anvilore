@@ -1,5 +1,16 @@
 import { expect, test } from "bun:test";
-import { diffLinhas, indiceVizinho } from "../ui/web/revisao";
+import { diffLinhas, erroDaResposta, indiceVizinho } from "../ui/web/revisao";
+
+test("Dado resposta HTTP vazia Quando obtenho o erro Então uso a mensagem padrão", async () => {
+  const erro = await erroDaResposta(new Response(""));
+  expect(erro.message).toBe("Falha ao falar com o Anvilore.");
+});
+
+test("Dado conflito de versão Quando obtenho o erro HTTP Então preservo código 3 e mensagem", async () => {
+  const erro = await erroDaResposta(new Response(JSON.stringify({ codigo: 3, mensagens: ["Página atualizada."] }), { status: 409 }));
+  expect(erro.codigo).toBe(3);
+  expect(erro.message).toBe("Página atualizada.");
+});
 
 test("Dado conteúdo inalterado Quando comparo linhas Então marco todas como contexto", () => {
   expect(diffLinhas("a\nb", "a\nb")).toEqual([{ tipo: "igual", texto: "a" }, { tipo: "igual", texto: "b" }]);

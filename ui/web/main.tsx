@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { Rascunho } from "../../src/lib/ui-fila";
-import { diffLinhas, indiceVizinho } from "./revisao";
+import { diffLinhas, erroDaResposta, ErroApi, indiceVizinho } from "./revisao";
 import "./styles.css";
 
 type Item = Rascunho & { anterior?: string };
@@ -16,15 +16,7 @@ async function api<T>(rota: string, metodo = "GET", corpo?: unknown): Promise<T>
     method: metodo,
     ...(corpo === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(corpo) }),
   });
-  if (!resposta.ok) {
-    const texto = await resposta.text();
-    let mensagem: string | undefined;
-    try {
-      const erro = JSON.parse(texto) as { mensagens?: unknown };
-      if (Array.isArray(erro.mensagens) && typeof erro.mensagens[0] === "string") mensagem = erro.mensagens[0];
-    } catch { /* respostas não JSON mantêm o texto original */ }
-    throw new Error(mensagem ?? texto ?? "Falha ao falar com o Anvilore.");
-  }
+  if (!resposta.ok) throw await erroDaResposta(resposta);
   return await resposta.json() as T;
 }
 
@@ -83,7 +75,7 @@ function Aplicacao() {
       await carregar();
     } catch (motivo) {
       const mensagem = motivo instanceof Error ? motivo.message : "Não foi possível aprovar.";
-      if (mensagem === "A página mudou desde que você abriu. Recarregue para revisar a versão nova.") { await carregar(); setErro(mensagem); }
+      if (motivo instanceof ErroApi && motivo.codigo === 3) { await carregar(); setErro(mensagem); }
       else setErro(mensagem);
     }
     finally { setSalvando(false); }
