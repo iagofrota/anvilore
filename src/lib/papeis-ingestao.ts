@@ -25,7 +25,7 @@ export const LIMITE_DIVIDIR_BYTES = 1_150_000;
 
 // O modelo de janela grande que o agente gerado pede. É o que a wiki-wonka mediu aceito num
 // arquivo de agente; o parâmetro `model` do Agent tool recusou o mesmo valor.
-const MODELO_GRANDE = "sonnet[1m]";
+export const MODELO_GRANDE = "sonnet[1m]";
 
 export function rotaDaIngestao(bytes: number): Rota {
   if (bytes <= LIMITE_GRANDE_BYTES) return "padrao";
