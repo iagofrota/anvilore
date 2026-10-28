@@ -939,3 +939,14 @@ test.skipIf(process.platform === "win32")("Dado link/../x em que só a leitura l
   expect(decidir(arquivo(`${base}/wiki/link/../x.md`)).acao).toBe("bloquear");
   expect(decidir(arquivo(`${base}/wiki/link/../y.md`)).acao).toBe("liberar");
 });
+
+// Revisão de segurança 4: o atalho de 255 bytes não pode valer pelo texto cru; o `..` lexical apaga o segmento longo.
+test("Dado segmento longo seguido de .. e área que é link para raw/ Quando escrevo Então bloqueia pela leitura lexical", () => {
+  const base = projeto();
+  symlinkSync(join(base, "raw"), join(base, "wiki/link"), linkDeDiretorio);
+  const longo = "a".repeat(300);
+  expect(decidir(arquivo(`${base}/wiki/${longo}/../link/x.md`)).acao).toBe("bloquear");
+  const comando = JSON.stringify({ tool_name: "Bash", cwd: base, tool_input: { command: `echo x > wiki/${longo}/../link/x.md` } });
+  expect(decidir(comando).acao).toBe("bloquear");
+  expect(decidir(arquivo(`${base}/wiki/${longo}/../x.md`)).acao).toBe("liberar");
+});
