@@ -2,11 +2,28 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { aprovarPaginas } from "../../comandos/aprovar";
+import { isoComOffset } from "../../lib/hora";
+import type { PonteDeAgente } from "../../lib/ponte-agente";
+import { PonteClaudeCode } from "../../lib/ponte-claude-code";
 import { indexarCopias, listarFilaRascunhos } from "../../lib/ui-fila";
+import { areasDaWiki } from "../../lib/ui-fonte";
+import { ErroDeIngestao, IngestaoNaInterface } from "../../lib/ui-ingestao";
 import { caminhoWiki } from "../../lib/wiki-repo";
 
 type Servidor = ReturnType<typeof Bun.serve>;
-type OpcoesServidor = { portaInicial?: number; token?: string; abrirNavegador?: boolean; abrir?: (url: string) => void };
+type OpcoesServidor = {
+  portaInicial?: number;
+  token?: string;
+  abrirNavegador?: boolean;
+  abrir?: (url: string) => void;
+  ponte?: PonteDeAgente;
+  fechar?: (raiz: string, wiki: string) => Promise<{ codigo: number; saida: string }>;
+};
+
+// Teto de uma fonte enviada pela tela. Acima da janela grande (~1,15 MB) a ingestão já pede para dividir;
+// o teto só evita segurar na memória um envio por engano.
+const LIMITE_DO_ENVIO = 32 * 1024 * 1024;
+const ROTA_DA_CONVERSA = /^\/api\/conversas\/([a-z0-9-]+)(?:\/(ler|seguir|cancelar))?$/;
 
 function localHost(request: Request): boolean {
   const host = request.headers.get("host");
@@ -33,6 +50,47 @@ function tokenValido(url: URL, token: string): boolean {
   return esperado.length === recebido.length && timingSafeEqual(esperado, recebido);
 }
 
+function erroDaIngestao(erro: unknown): Response {
+  if (erro instanceof ErroDeIngestao) return json({ mensagens: [erro.message] }, erro.status);
+  throw erro;
+}
+
+async function receberFonte(request: Request, ingestao: IngestaoNaInterface, agora: Date): Promise<Response> {
+  if (Number(request.headers.get("content-length") ?? 0) > LIMITE_DO_ENVIO + 64 * 1024) return json({ mensagens: ["A fonte passa de 32 MB."] }, 413);
+  let dados: FormData;
+  try { dados = await request.formData(); } catch { return json({ mensagens: ["Envio inválido."] }, 400); }
+  const area = dados.get("area");
+  const arquivo = dados.get("arquivo");
+  const texto = dados.get("texto");
+  let fonte: { nome: string; conteudo: Uint8Array };
+  if (arquivo instanceof Blob) {
+    if (arquivo.size > LIMITE_DO_ENVIO) return json({ mensagens: ["A fonte passa de 32 MB."] }, 413);
+    fonte = { nome: arquivo instanceof File ? arquivo.name : "fonte", conteudo: new Uint8Array(await arquivo.arrayBuffer()) };
+  } else if (typeof texto === "string" && texto.trim()) {
+    const nome = dados.get("nome");
+    const carimbo = isoComOffset(agora).slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
+    const base = typeof nome === "string" && nome.trim() ? nome.trim() : `texto-colado-${carimbo}`;
+    fonte = { nome: /\.[a-z0-9]+$/i.test(base) ? base : `${base}.md`, conteudo: new TextEncoder().encode(texto) };
+  } else return json({ mensagens: ["Solte um arquivo ou cole um texto."] }, 400);
+  try { return json(await ingestao.criar({ area: typeof area === "string" ? area : "", ...fonte }), 201); }
+  catch (erro) { return erroDaIngestao(erro); }
+}
+
+async function rotaDaConversa(request: Request, id: string, acao: string | undefined, ingestao: IngestaoNaInterface): Promise<Response> {
+  try {
+    if (!acao && request.method === "GET") {
+      const conversa = await ingestao.obter(id);
+      return conversa ? json(conversa) : json({ mensagens: ["Ingestão não encontrada."] }, 404);
+    }
+    if (request.method !== "POST") return json({ mensagens: ["Não encontrado."] }, 404);
+    if (acao === "ler") return json(await ingestao.ler(id));
+    if (acao === "cancelar") return json(await ingestao.cancelar(id));
+    let escolha: unknown;
+    try { escolha = await request.json(); } catch { return json({ mensagens: ["Pedido inválido."] }, 400); }
+    return json(await ingestao.seguir(id, escolha));
+  } catch (erro) { return erroDaIngestao(erro); }
+}
+
 async function validar(raiz: string, wiki: string): Promise<{ codigo: number; saida: string }> {
   const cli = resolve(import.meta.dir, "../../cli.ts");
   const processo = Bun.spawn([process.execPath, cli, "validar", wiki], {
@@ -56,6 +114,7 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
   const wiki = caminhoWiki(raiz);
   const token = opcoes.token ?? randomBytes(32).toString("base64url");
   const portaInicial = opcoes.portaInicial ?? 4173;
+  const ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
   let servidor: Servidor | undefined;
   let ultimoErro: unknown;
 
@@ -64,6 +123,7 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
       servidor = Bun.serve({
         hostname: "127.0.0.1",
         port: porta,
+        maxRequestBodySize: LIMITE_DO_ENVIO * 2,
         fetch: async (request) => {
           if (!localHost(request)) return respostaSegura("Acesso recusado", { status: 403 });
           const url = new URL(request.url);
@@ -93,6 +153,12 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
             return json(resultado, resultado.codigo === 0 ? 200 : 409);
           }
           if (url.pathname === "/api/validar" && request.method === "POST") return json(await validar(raiz, wiki));
+          if (url.pathname === "/api/ingestao" && request.method === "GET") {
+            return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas: await ingestao.listar() });
+          }
+          if (url.pathname === "/api/fontes" && request.method === "POST") return receberFonte(request, ingestao, new Date());
+          const daConversa = ROTA_DA_CONVERSA.exec(url.pathname);
+          if (daConversa) return rotaDaConversa(request, daConversa[1]!, daConversa[2], ingestao);
           if (request.method === "GET" && (url.pathname === "/" || url.pathname.startsWith("/assets/"))) {
             const raizPublica = resolve(import.meta.dir, "../public");
             const caminho = url.pathname === "/" ? join(raizPublica, "index.html") : resolve(raizPublica, `.${url.pathname}`);

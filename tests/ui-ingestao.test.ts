@@ -2,66 +2,10 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Papel } from "../src/lib/papeis-ingestao";
-import type { Disponibilidade, EventoDoAgente, FimDaFase, PedidoDeFase, PonteDeAgente } from "../src/lib/ponte-agente";
+import type { FimDaFase, PonteDeAgente } from "../src/lib/ponte-agente";
+import { FONTE, relatorioValido, SESSAO } from "./apoio/ingestao-exemplo";
+import { PonteFalsa, type Roteiro } from "./apoio/ponte-falsa";
 import { ErroDeIngestao, IngestaoNaInterface, lerFechamento, mensagemDoEscritor, mensagemDoLeitor, rodarFechamento, type Conversa } from "../src/lib/ui-ingestao";
-
-type Roteiro = (pedido: PedidoDeFase, aoEvento: (evento: EventoDoAgente) => void, cancelamento: Promise<void>) => Promise<FimDaFase>;
-
-class PonteFalsa implements PonteDeAgente {
-  readonly nome = "Agente falso";
-  pedidos: PedidoDeFase[] = [];
-  consultas = 0;
-  cancelamentos = 0;
-  disponivel: Disponibilidade = { ok: true };
-  constructor(public roteiros: Partial<Record<Papel, Roteiro>> = {}) {}
-  async disponibilidade() { this.consultas++; return this.disponivel; }
-  executar(pedido: PedidoDeFase, aoEvento: (evento: EventoDoAgente) => void) {
-    this.pedidos.push(pedido);
-    let avisar!: () => void;
-    const cancelamento = new Promise<void>(resolver => { avisar = resolver; });
-    const roteiro = this.roteiros[pedido.papel] ?? (async () => ({ situacao: "concluida", texto: "", recusas: [] }) as FimDaFase);
-    return { cancelar: () => { this.cancelamentos++; avisar(); }, fim: roteiro(pedido, aoEvento, cancelamento) };
-  }
-}
-
-const FONTE = [
-  "# LLM Wiki",
-  "",
-  "## The core idea",
-  "The wiki is a persistent, compounding artifact.",
-  "",
-  "## Architecture",
-  "There are three layers.",
-  "",
-  "## Operations",
-  "A single source might touch 10-15 wiki pages.",
-  "Good answers can be filed back into the wiki as new pages.",
-  "",
-].join("\n");
-
-const SESSAO = "sessao-do-leitor";
-
-function relatorioValido(extra: Record<string, unknown> = {}) {
-  return {
-    versao: 1,
-    fonte: "raw/pessoal/llm-wiki.md",
-    takeaways: [
-      { texto: "A wiki acumula.", citacao: { trecho: "The wiki is a persistent, compounding artifact.", secao: "The core idea" }, certeza: "comprovado" },
-      { texto: "Três camadas.", citacao: { trecho: "There are three layers.", secao: "Architecture" }, certeza: "comprovado" },
-      { texto: "Uma fonte toca muitas páginas.", citacao: { trecho: "A single source might touch 10-15 wiki pages.", secao: "Operations" }, certeza: "provavel" },
-      { texto: "Respostas viram páginas.", citacao: { trecho: "Good answers can be filed back into the wiki as new pages.", secao: "Operations" }, certeza: "comprovado" },
-    ],
-    paginas: [
-      { caminho: "pessoal/sources/llm-wiki.md", tipo: "source", acao: "criar", motivo: "A fonte." },
-      { caminho: "pessoal/concepts/rag.md", tipo: "concept", acao: "criar", motivo: "Conceito central." },
-      { caminho: "pessoal/concepts/segundo-cerebro.md", tipo: "concept", acao: "atualizar", motivo: "Reforça." },
-    ],
-    lacunas: ["Não diz como resolver contradições."],
-    contradicoes: [],
-    ...extra,
-  };
-}
 
 const PAGINA_EXISTENTE = "---\ntitle: Segundo cérebro\ntype: concept\n---\nTexto antigo.\n";
 
