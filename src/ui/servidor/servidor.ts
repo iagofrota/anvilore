@@ -70,7 +70,8 @@ async function receberFonte(request: Request, ingestao: IngestaoNaInterface, ago
     const nome = dados.get("nome");
     const carimbo = isoComOffset(agora).slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
     const base = typeof nome === "string" && nome.trim() ? nome.trim() : `texto-colado-${carimbo}`;
-    fonte = { nome: /\.[a-z0-9]+$/i.test(base) ? base : `${base}.md`, conteudo: new TextEncoder().encode(texto) };
+    // Textarea/FormData pode transportar quebras LF como CRLF; arquivos enviados mantêm os bytes originais.
+    fonte = { nome: /\.[a-z0-9]+$/i.test(base) ? base : `${base}.md`, conteudo: new TextEncoder().encode(texto.replace(/\r\n/g, "\n")) };
   } else return json({ mensagens: ["Solte um arquivo ou cole um texto."] }, 400);
   try { return json(await ingestao.criar({ area: typeof area === "string" ? area : "", ...fonte }), 201); }
   catch (erro) { return erroDaIngestao(erro); }
@@ -168,7 +169,7 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
               const arquivo = await readFile(caminho);
               const tipo = caminho.endsWith(".html") ? "text/html; charset=utf-8" : caminho.endsWith(".css") ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8";
               const conteudo = tipo.startsWith("text/html") ? arquivo.toString().replaceAll("__ANVILORE_TOKEN__", token) : arquivo;
-              return respostaSegura(conteudo, { headers: { "content-type": tipo, "cache-control": "no-store", "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'" } });
+              return respostaSegura(conteudo, { headers: { "content-type": tipo, "cache-control": "no-store", "content-security-policy": `default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' http://localhost:${url.port} http://127.0.0.1:${url.port}` } });
             } catch (erro) {
               const codigo = (erro as NodeJS.ErrnoException).code;
               if (codigo === "ENOENT" || codigo === "EISDIR") return respostaSegura("Não encontrado", { status: 404 });

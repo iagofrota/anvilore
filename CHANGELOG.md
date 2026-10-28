@@ -12,6 +12,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 ### Added
 
 - Primeira automação E2E com Playwright e Chromium: um vault, um servidor e um Claude falso isolados por teste; o fluxo de ingestão, escrita, Revisão e aprovação humana confere também os arquivos gravados.
+
 - `anvilore versao` mostra a versão do kit e, num clone, a tag e o commit.
 - `anvilore migrar-rastreio` prepara o clone para a próxima versão, que deixa de rastrear os arquivos da pessoa
   (`SCHEMA.md`, índice e log da wiki, esqueleto e exemplo de `wiki/` e `raw/`): copia cada um com SHA-256 para
@@ -92,6 +93,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 ### Fixed
 
 - Os testes do `doctor` isolam agentes, Git, `PATH` e `HOME`; o teste do SDK MCP inicia o Bun atual sem procurar no `PATH`.
+- Texto colado no Chat grava quebras de linha LF mesmo quando o navegador as envia como CRLF. A política CSP da interface local aceita conexões apenas para a origem atual e os aliases `localhost`/`127.0.0.1` na mesma porta efêmera.
 - A fronteira de `raw/` vale pelo caminho real, não só pelo texto: o hook bloqueia a escrita que, por um link na
   wiki, cairia em `raw/`, e o `conferir-leitura` recusa fonte que sai de `raw/` por link e página que sai da wiki.
   O caminho é resolvido na ordem do disco (`link/../x` no Linux e no macOS sobe a partir do alvo do link), e destino

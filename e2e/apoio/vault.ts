@@ -11,6 +11,7 @@ export type Vault = {
   escrever(relativo: string, conteudo: string | Uint8Array): Promise<void>;
   ler(relativo: string): Promise<Buffer>;
   hash(relativo: string): Promise<string>;
+  limparFora(): Promise<void>;
   remover(): Promise<void>;
 };
 
@@ -39,6 +40,7 @@ export async function criarVault(): Promise<Vault> {
     escrever: async (relativo, conteudo) => { const caminho = join(raiz, relativo); await mkdir(dirname(caminho), { recursive: true }); await writeFile(caminho, conteudo); },
     ler: relativo => readFile(join(raiz, relativo)),
     hash: async relativo => createHash("sha256").update(await readFile(join(raiz, relativo))).digest("hex"),
+    limparFora: () => rm(fora, { recursive: true, force: true }),
     remover: async () => {
       const caminho = await realpath(raiz);
       if (!caminho.startsWith(`${tmp}${process.platform === "win32" ? "\\" : "/"}anvilore-e2e-`)) throw new Error(`Recusa limpar fora do vault descartável: ${caminho}`);

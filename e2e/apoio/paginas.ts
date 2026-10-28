@@ -10,5 +10,21 @@ export const CONTEUDO_FONTE_WIKI = [
 ].join("\n");
 
 export const CONTEUDO_LINK_QUEBRADO = [
-  "---", "type: concept", "slug: problema", "title: Problema", "tags: [teste]", "---", "", "[[destino-ausente]]", "",
+  "---", "type: concept", "slug: problema", "title: Problema", "tags: [teste]",
+  "generated:", "  by: claude-haiku-4-5/2.1.311", "  at: 2026-01-02T00:00:00Z", "---", "", "[[destino-ausente]]", "",
 ].join("\n");
+
+export function paginaGerada(slug: string, corpo = `Conteúdo de ${slug}.`, extras = ""): string {
+  return [
+    "---", "type: concept", `slug: ${slug}`, `title: ${slug}`,
+    "generated:", "  by: claude-haiku-4-5/2.1.311", "  at: 2026-01-02T00:00:00Z", extras.trimEnd(), "---", "", corpo, "",
+  ].filter(Boolean).join("\n");
+}
+
+export function paginaAtualizada(slug: string, corpo = `Conteúdo atualizado de ${slug}.`): string {
+  return paginaGerada(slug, corpo, "verified:\n  - by: human:teste\n    at: 2026-01-01T00:00:00Z");
+}
+
+export function paginaInvalida(slug: string): string {
+  return `---\ntype: concept\nslug: ${slug}\ntitle: Inválida\ngenerated: ontem\n---\nConteúdo inválido.\n`;
+}

@@ -4,8 +4,8 @@
 // `auth status` usa `auth`; com `--resume`, `escritor`; senão, `leitor`.
 // CLAUDE_FALSO_REGISTRO: arquivo onde cada execução acrescenta uma linha JSON com argv, cwd,
 // variáveis do Anvilore e o que chegou pelo stdin (a ponte deve deixá-lo vazio).
-import { appendFileSync, existsSync, mkdirSync, readFileSync, watch, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, watch, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 
 export type PassoDoFalso =
   | { linha: unknown }
@@ -41,8 +41,20 @@ if (argv[0] === "auth") {
 }
 
 const passos = (argv.includes("--resume") ? roteiro.escritor : roteiro.leitor) ?? [];
+function substituirMarcadores(valor: unknown): unknown {
+  const pasta = resolve(process.cwd(), ".anvilore/ui/conversas");
+  const nome = readdirSync(pasta).find(arquivo => arquivo.endsWith(".json"));
+  let fonteAtual = "";
+  if (nome) {
+    try { fonteAtual = String((JSON.parse(readFileSync(join(pasta, nome), "utf8")) as { fonte?: string }).fonte ?? ""); }
+    catch { /* conversa ainda não foi persistida */ }
+  }
+  return JSON.parse(JSON.stringify(valor)
+    .replaceAll("{{ROOT}}", process.cwd())
+    .replaceAll("{{FONTE_ATUAL}}", fonteAtual)) as unknown;
+}
 for (const passo of passos) {
-  if ("linha" in passo) process.stdout.write(JSON.stringify(passo.linha) + "\n");
+  if ("linha" in passo) process.stdout.write(JSON.stringify(substituirMarcadores(passo.linha)) + "\n");
   else if ("escrever" in passo) {
     const alvo = resolve(passo.escrever.caminho);
     mkdirSync(dirname(alvo), { recursive: true });
@@ -53,7 +65,6 @@ for (const passo of passos) {
     const pronto = resolve(passo.esperarArquivo.pronto);
     mkdirSync(dirname(alvo), { recursive: true });
     mkdirSync(dirname(pronto), { recursive: true });
-    writeFileSync(pronto, "pronto\n");
     if (!existsSync(alvo)) await new Promise<void>(resolveEspera => {
       const watcher = watch(dirname(alvo), (_evento, nome) => {
         if ((!nome || nome.toString() === alvo.split(/[\\/]/).at(-1)) && existsSync(alvo)) {
@@ -72,7 +83,7 @@ for (const passo of passos) {
         process.off("SIGINT", interromper);
         watcher.close();
         resolveEspera();
-      }
+      } else writeFileSync(pronto, "pronto\n");
     });
   }
   else if ("stderr" in passo) process.stderr.write(passo.stderr);
