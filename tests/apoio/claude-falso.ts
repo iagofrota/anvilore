@@ -10,7 +10,6 @@ import { dirname, resolve } from "node:path";
 export type PassoDoFalso =
   | { linha: unknown }
   | { escrever: { caminho: string; conteudo: string } }
-  | { acrescentar: { caminho: string; conteudo: string } }
   | { esperar: number }
   | { esperarSinal: { sessao: string; ignorar?: boolean } }
   | { stderr: string }
@@ -47,8 +46,7 @@ for (const passo of passos) {
     const alvo = resolve(passo.escrever.caminho);
     mkdirSync(dirname(alvo), { recursive: true });
     writeFileSync(alvo, passo.escrever.conteudo);
-  } else if ("acrescentar" in passo) appendFileSync(resolve(passo.acrescentar.caminho), passo.acrescentar.conteudo);
-  else if ("esperar" in passo) await Bun.sleep(passo.esperar);
+  } else if ("esperar" in passo) await Bun.sleep(passo.esperar);
   else if ("stderr" in passo) process.stderr.write(passo.stderr);
   else if ("sair" in passo) process.exit(passo.sair);
   else if ("esperarSinal" in passo) {

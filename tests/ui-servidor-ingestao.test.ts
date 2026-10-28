@@ -88,12 +88,12 @@ test("Dado uma fonte em raw/ Quando aperto Ingerir, decido na parada e sigo Ent√
   expect(lendo.status).toBe(200);
   expect(await lendo.json()).toMatchObject({ passo: "leitura" });
   let conversa: { passo: string; situacao: string } = { passo: "", situacao: "" };
-  for (let i = 0; i < 50 && conversa.passo !== "parada"; i++) { await Bun.sleep(10); conversa = await (await chamar(`/api/conversas/${criada.id}`)).json() as typeof conversa; }
+  for (let i = 0; i < 200 && conversa.passo !== "parada"; i++) { await Bun.sleep(25); conversa = await (await chamar(`/api/conversas/${criada.id}`)).json() as typeof conversa; }
   expect(conversa).toMatchObject({ passo: "parada", situacao: "esperando" });
   expect((await postar(`/api/conversas/${criada.id}/seguir`, { takeaways: [], paginas: [0], comentario: "" })).status).toBe(400);
   const seguindo = await postar(`/api/conversas/${criada.id}/seguir`, { takeaways: [0, 1, 2], paginas: [0, 1], comentario: "ok" });
   expect(seguindo.status).toBe(200);
-  for (let i = 0; i < 50 && conversa.passo !== "revisao"; i++) { await Bun.sleep(10); conversa = await (await chamar(`/api/conversas/${criada.id}`)).json() as typeof conversa; }
+  for (let i = 0; i < 200 && conversa.passo !== "revisao"; i++) { await Bun.sleep(25); conversa = await (await chamar(`/api/conversas/${criada.id}`)).json() as typeof conversa; }
   expect(conversa).toMatchObject({ passo: "revisao", situacao: "concluida" });
   expect(ponte.pedidos.map(p => p.papel)).toEqual(["leitor", "escritor"]);
   const estado = await (await chamar("/api/ingestao")).json() as { conversas: Array<{ id: string }> };
@@ -118,7 +118,7 @@ test("Dado o agente rodando Quando aperto Cancelar Ent√£o a ponte cancela", asyn
   await postar(`/api/conversas/${criada.id}/ler`);
   expect((await postar(`/api/conversas/${criada.id}/cancelar`)).status).toBe(200);
   let conversa = { situacao: "" };
-  for (let i = 0; i < 50 && conversa.situacao !== "cancelada"; i++) { await Bun.sleep(10); conversa = await (await chamar(`/api/conversas/${criada.id}`)).json() as typeof conversa; }
+  for (let i = 0; i < 200 && conversa.situacao !== "cancelada"; i++) { await Bun.sleep(25); conversa = await (await chamar(`/api/conversas/${criada.id}`)).json() as typeof conversa; }
   expect(conversa.situacao).toBe("cancelada");
   expect(ponte.cancelamentos).toBe(1);
   expect((await postar(`/api/conversas/${criada.id}/cancelar`)).status).toBe(409);

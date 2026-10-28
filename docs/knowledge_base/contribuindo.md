@@ -52,6 +52,10 @@ Os hooks da wiki ficam em `src/comandos/hooks-wiki.ts` e são exercitados por
 novas e o upstream. A instalação inicializa `wiki/` como repositório Git próprio quando necessário.
 Durante a escrita da ingestão pela interface, `ANVILORE_SEM_AUTOCOMMIT=1` desliga o hook de autocommit;
 a aprovação posterior continua disponível na Revisão.
+A ponte da interface com o Claude Code (`src/lib/ponte-claude-code.ts`) é testada com um `claude` falso,
+`tests/apoio/claude-falso.ts`, que emite o stream JSON visto na prova da ponte e registra argumentos,
+ambiente e stdin; a orquestração usa a ponte em memória de `tests/apoio/ponte-falsa.ts`. Nenhum teste
+chama o Claude Code real.
 A matriz configurada é:
 Claude Code: W11/W12/W13/W14/W17; Codex: W11/W13/W14/W17; Gemini: W11/W14/W17; Copilot CLI:
 W11/W17. W12 usa FileChanged com `SessionStart.watchPaths` só no Claude; W13 usa SessionStart=compact
