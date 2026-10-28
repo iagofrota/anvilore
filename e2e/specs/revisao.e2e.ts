@@ -1,11 +1,13 @@
 import { test, expect } from "../apoio/fixtures";
 import { paginaGerada, paginaAtualizada, paginaInvalida } from "../apoio/paginas";
 import { semearFila } from "../apoio/sementes";
+import { guardarEvidencias } from "../apoio/visuais";
 
 test("[C03] Dado rascunhos novos atualizados e inválidos Quando abro Revisão Então cada estado e barreira de aprovação aparece", async ({ page, app, oraculo, vault }) => {
   await semearFila(vault);
   await page.goto(`${app.base}/?token=${encodeURIComponent(app.token)}#/revisao`);
   await expect(page.getByRole("option")).toHaveCount(3);
+  await guardarEvidencias(page, "revisao");
   await expect(page.getByRole("option").filter({ hasText: "nova" })).toBeVisible();
   await expect(page.getByRole("option").filter({ hasText: "atualizada" })).toBeVisible();
   await expect(page.getByRole("option").filter({ hasText: "erro" })).toBeVisible();

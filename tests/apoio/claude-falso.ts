@@ -43,7 +43,7 @@ if (argv[0] === "auth") {
 const passos = (argv.includes("--resume") ? roteiro.escritor : roteiro.leitor) ?? [];
 function substituirMarcadores(valor: unknown): unknown {
   const pasta = resolve(process.cwd(), ".anvilore/ui/conversas");
-  const nome = readdirSync(pasta).find(arquivo => arquivo.endsWith(".json"));
+  const nome = existsSync(pasta) ? readdirSync(pasta).find(arquivo => arquivo.endsWith(".json")) : undefined;
   let fonteAtual = "";
   if (nome) {
     try { fonteAtual = String((JSON.parse(readFileSync(join(pasta, nome), "utf8")) as { fonte?: string }).fonte ?? ""); }

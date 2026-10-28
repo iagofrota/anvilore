@@ -2,6 +2,7 @@ import { test, expect } from "../apoio/fixtures";
 import { instantaneo, mesmaArvore } from "../apoio/vault";
 import { FONTE } from "../../tests/apoio/ingestao-exemplo";
 import { paginaGerada } from "../apoio/paginas";
+import { guardarEvidencias } from "../apoio/visuais";
 import { roteiroComEscritorParado, roteiroComFechamentoComErro, roteiroComLeitorParado, roteiroComRecusaRaw, roteiroDeLeituraInvalida, roteiroSemLogin } from "../apoio/roteiros";
 
 const chamada = (rota: string) => (url: URL) => url.pathname === rota;
@@ -14,6 +15,7 @@ test("[C11][C16][C18][C20][C05][C06] Dado uma fonte escolhida Quando a pessoa co
     await page.goto(app.url);
     await expect(page.getByRole("navigation", { name: "Telas" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Revisão" })).toBeVisible();
+    await guardarEvidencias(page, "chat");
     const antesDaPausa = await instantaneo(vault.wiki);
     const enviou = page.waitForResponse(resposta => chamada("/api/fontes")(new URL(resposta.url())) && resposta.request().method() === "POST");
     await page.locator('input[type="file"]').setInputFiles({ name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
