@@ -65,6 +65,8 @@ describe("inicializar", () => {
     expect(r.recriados.sort()).toEqual(["SCHEMA.md", "raw/.gitkeep", "wiki/.gitignore", "wiki/_meta/.gitkeep", "wiki/index.md", "wiki/log.md", "wiki/log/.gitkeep"]);
     expect(existsSync(join(raiz, "wiki", "exemplo"))).toBe(false);
     expect(existsSync(join(raiz, "raw", "exemplo"))).toBe(false);
+    expect(await Bun.file(join(raiz, "wiki", "index.md")).text()).not.toContain("[[area-tematica]]");
+    expect((await validarWiki(join(raiz, "wiki"))).ok).toBe(true);
   });
 
   test("Dado SCHEMA.md e índice da pessoa, Quando inicializar, Então nada dela é sobrescrito", async () => {

@@ -71,14 +71,19 @@ export async function planejarModelos(raiz: string, opcoes: { exemplo: boolean; 
 }
 
 // `wx`: se alguém criou o arquivo entre o plano e a escrita, a escrita falha em vez de sobrescrever.
-export async function escreverPeca(raiz: string, peca: PecaDoModelo): Promise<void> {
+export async function escreverPeca(raiz: string, peca: PecaDoModelo, opcoes: { exemplo?: boolean } = {}): Promise<void> {
   const caminho = join(raiz, peca.destino);
   await mkdir(dirname(caminho), { recursive: true });
-  await writeFile(caminho, await readFile(peca.origem), { flag: "wx" });
+  let conteudo = await readFile(peca.origem, "utf8");
+  if (opcoes.exemplo === false && peca.destino === "wiki/index.md") {
+    const inicioDoExemplo = conteudo.indexOf("\n## Área: exemplo\n");
+    if (inicioDoExemplo >= 0) conteudo = `${conteudo.slice(0, inicioDoExemplo).trimEnd()}\n`;
+  }
+  await writeFile(caminho, conteudo, { flag: "wx" });
 }
 
 export async function copiarModelos(raiz: string, opcoes: { exemplo: boolean; pasta?: string }): Promise<{ criados: string[]; existentes: string[] }> {
   const plano = await planejarModelos(raiz, opcoes);
-  for (const peca of plano.copiar) await escreverPeca(raiz, peca);
+  for (const peca of plano.copiar) await escreverPeca(raiz, peca, { exemplo: opcoes.exemplo });
   return { criados: plano.copiar.map(peca => peca.destino), existentes: plano.existentes };
 }

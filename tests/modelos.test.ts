@@ -72,6 +72,9 @@ test("Dado wiki/ existente e raw/ ausente, Quando copio com exemplo, Então só 
 test("Dado pedido sem exemplo, Quando copio numa pasta vazia, Então só o estrutural nasce", async () => {
   const r = await copiarModelos(tmp, { exemplo: false });
   expect(r.criados.sort()).toEqual([...ESTRUTURAIS].sort());
+  const indice = readFileSync(join(tmp, "wiki/index.md"), "utf8");
+  expect(indice).not.toContain("## Área: exemplo");
+  expect(indice).not.toContain("[[area-tematica]]");
 });
 
 test("Dado simulação, Quando planejo, Então devolve o que seria criado sem escrever nada", async () => {
