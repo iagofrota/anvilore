@@ -1,5 +1,5 @@
 ---
-generated: 2026-10-27
+generated: 2026-10-28
 ---
 
 # Decisões
@@ -173,3 +173,26 @@ Para a linhagem do método e a argumentação completa das posições de design,
 - A trava que sustenta isso: `bun src/cli.ts checar-docs` (links e menções) e
   `bun src/cli.ts checar-release` (revisão por pessoa antes da release). Código em
   `src/comandos/checar-docs.ts` e `src/comandos/checar-release.ts`.
+
+## Atualização automática do kit
+
+- O atualizador exige o arquivo de estado .anvilore/atualizacao.json, `origin` oficial e `HEAD` numa tag cuja versão
+  SemVer corresponde ao estado local (`src/lib/atualizacao.ts`). O comando é `anvilore atualizar`
+  com `--verificar`, `--voltar` e `--estado` (`src/comandos/atualizar.ts`, `src/cli.ts`).
+- A tag candidata é buscada sem tags implícitas e verificada por `git verify-tag` com SSH e o arquivo
+  de assinantes do kit instalado. Sem o arquivo de assinantes seguranca/assinantes local, a atualização recusa a candidata;
+  não há chave pública real versionada nesta entrega. A chave privada não é usada pelo atualizador.
+- Antes do checkout, o atualizador guarda arquivos rastreados modificados, caminhos declarados por
+  atualizacao/migracoes.json, configurações dos agentes e hashes de `raw/` e `wiki/` em
+  `.anvilore/atualizacao/<id>/`. Usa `migrarRastreio` e `devolverTudo` de `src/lib/migracao.ts` para
+  restaurar arquivos pessoais após checkout forçado. Não executa `git clean`.
+- Estado e log são gravados nos arquivos .anvilore/atualizacao.json e
+  .anvilore/atualizacao.log; a trava fica em .anvilore/atualizar.lock. Falha de reversão deixa
+  `reversao-incompleta` para retomada; `doctor` mostra versão e estado
+  (`src/comandos/doctor.ts`). SessionStart do Claude e Codex tenta aplicar uma atualização assinada
+  pendente e agenda a checagem seguinte (`hooks/hooks.json`, `src/comandos/instalar.ts`,
+  `src/comandos/hooks-wiki.ts`).
+- `anvilore ui` mostra o estado recente, o resumo da versão do changelog, as ações de verificação/aplicação/
+  reversão e o botão de retomada (`src/ui/servidor/servidor.ts`, `ui/web/main.tsx`).
+- A documentação descreve o código atual da fatia U2 e ainda aguarda revisão humana. A primeira
+  operação real depende da chave pública do dono no arquivo seguranca/assinantes.

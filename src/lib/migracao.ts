@@ -33,6 +33,8 @@ export interface Manifesto {
 
 export interface Dependencias {
   git?: Git;
+  // Atualizador: a tag assinada pode declarar uma lista adicional de arquivos a tirar do índice.
+  listaDoRastreio?: readonly string[];
   // Chamado ao entrar em cada etapa, já com a etapa gravada. Os testes usam para provocar falha (ou morte) no meio.
   aoEntrarNaEtapa?: (etapa: Etapa, manifesto: Manifesto) => void | Promise<void>;
   ambiente?: Record<string, string | undefined>;
@@ -90,15 +92,15 @@ export async function ehClone(raiz: string, git: Git): Promise<boolean> {
 }
 
 // O que da lista o índice do kit ainda rastreia.
-export function rastreadosNoIndice(git: Git): string[] {
-  const r = git(["ls-files", "-z", "--", ...LISTA_DO_RASTREIO]);
+export function rastreadosNoIndice(git: Git, lista: readonly string[] = LISTA_DO_RASTREIO): string[] {
+  const r = git(["ls-files", "-z", "--", ...lista]);
   if (r.codigo !== 0) throw new Error(`git ls-files falhou: ${r.saida.trim()}`);
   return listaZ(r.saida);
 }
 
 // O que da lista o commit atual rastreia: é o conjunto que um `git pull` pode querer tocar.
-function rastreadosNoHead(git: Git): string[] {
-  const r = git(["ls-tree", "-r", "-z", "--name-only", "HEAD", "--", ...LISTA_DO_RASTREIO]);
+function rastreadosNoHead(git: Git, lista: readonly string[] = LISTA_DO_RASTREIO): string[] {
+  const r = git(["ls-tree", "-r", "-z", "--name-only", "HEAD", "--", ...lista]);
   if (r.codigo !== 0) throw new Error(`git ls-tree falhou: ${r.saida.trim()}`);
   return listaZ(r.saida);
 }
@@ -287,7 +289,7 @@ async function devolverArquivo(raiz: string, manifesto: Manifesto, { caminho: re
   }
 }
 
-async function devolverTudo(raiz: string, manifesto: Manifesto): Promise<Devolucao> {
+export async function devolverTudo(raiz: string, manifesto: Manifesto): Promise<Devolucao> {
   const devolucao: Devolucao = { problemas: [], avisos: [] };
   for (const arquivo of manifesto.arquivos) {
     const problema = await devolverArquivo(raiz, manifesto, arquivo, devolucao.avisos);
@@ -312,9 +314,9 @@ async function garantirRepositorioDaWiki(raiz: string, manifesto: Manifesto, git
 }
 
 // Passo 4: o índice não lista mais nenhum; cada arquivo tem o SHA-256 da cópia (o que divergiu volta da cópia); a wiki tem commit.
-async function conferir(raiz: string, manifesto: Manifesto, git: Git): Promise<Devolucao> {
+async function conferir(raiz: string, manifesto: Manifesto, git: Git, lista: readonly string[] = LISTA_DO_RASTREIO): Promise<Devolucao> {
   const devolucao = await devolverTudo(raiz, manifesto);
-  devolucao.problemas.unshift(...rastreadosNoIndice(git).map(rel => `${rel}: o índice do kit ainda o rastreia`));
+  devolucao.problemas.unshift(...rastreadosNoIndice(git, lista).map(rel => `${rel}: o índice do kit ainda o rastreia`));
   if (manifesto.wiki && !manifesto.wiki.commit) devolucao.problemas.push(`${manifesto.wiki.caminho}: a wiki não tem commit`);
   return devolucao;
 }
@@ -396,7 +398,8 @@ async function migrarComTrava(raiz: string, git: Git, deps: Dependencias): Promi
   if (retomada.problemas.length) {
     return { codigo: 1, situacao: "incompleta", mensagens: ["Uma migração anterior não terminou e ainda não consegui devolver tudo:", ...retomada.problemas.map(p => `  ${p}`), ...retomada.avisos] };
   }
-  const rastreados = rastreadosNoIndice(git);
+  const lista = deps.listaDoRastreio ?? LISTA_DO_RASTREIO;
+  const rastreados = rastreadosNoIndice(git, lista);
   if (rastreados.length === 0) return { codigo: 0, situacao: "nada-a-migrar", mensagens: [...retomada.avisos, "Nada a migrar: o kit já não rastreia os seus arquivos."] };
 
   const avisos = [...retomada.avisos];
@@ -411,7 +414,7 @@ async function migrarComTrava(raiz: string, git: Git, deps: Dependencias): Promi
     const rm = git(["rm", "--cached", "-q", "--", ...rastreados]);
     if (rm.codigo !== 0) throw new Error(`git rm --cached falhou: ${rm.saida.trim()}`);
     await entrar(raiz, manifesto, "conferir", deps);
-    const conferencia = await conferir(raiz, manifesto, git);
+    const conferencia = await conferir(raiz, manifesto, git, lista);
     avisos.push(...conferencia.avisos);
     if (conferencia.problemas.length) throw new Error(conferencia.problemas.join("; "));
   } catch (erro) {
@@ -456,7 +459,7 @@ export async function puxar(raiz: string, deps: Dependencias & { argsDoPull?: st
     if (migracao.codigo !== 0) return migracao;
     const mensagens = migracao.situacao === "migrada" ? [...migracao.mensagens.slice(0, -1)] : [];
     const estacionar: string[] = [];
-    for (const rel of rastreadosNoHead(git)) if (await tipo(noDisco(raiz, rel)) === "arquivo") estacionar.push(rel);
+    for (const rel of rastreadosNoHead(git, deps.listaDoRastreio ?? LISTA_DO_RASTREIO)) if (await tipo(noDisco(raiz, rel)) === "arquivo") estacionar.push(rel);
 
     const manifesto = await novoManifesto(raiz, "puxar", estacionar);
     let pull: ResultadoGit;

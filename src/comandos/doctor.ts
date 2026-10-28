@@ -10,6 +10,7 @@ import { registradores, type Ambiente } from "../mcp/registro";
 import { caminhoWiki, repositorioDaWiki } from "../lib/wiki-repo";
 import { PASTA_MIGRACAO, situacaoDaMigracao } from "../lib/migracao";
 import { conferirAgentesDaIngestao } from "../lib/papeis-ingestao";
+import { versaoDoKit } from "./versao";
 
 export type Trava = { nome: string; ligada: boolean; comoLigar?: string; detalhe?: string; opcional?: boolean; naoInstalado?: boolean; semTrava?: boolean };
 export type Prerequisito = { nome: string; presente: boolean };
@@ -318,11 +319,13 @@ const AJUDA = "Uso: anvilore doctor [pasta]  (padrão: ANVILORE_DESTINO ou o dir
 const ONDE_INSTALAR: Record<string, string> = { bun: "https://bun.sh", git: "https://git-scm.com" };
 
 export async function comandoDoctor(args: string[], deps: { ambienteMcp?: Ambiente } = {}): Promise<number> {
-  if (args.length > 1 || args[0]?.startsWith("-")) {
+  const json = args.includes("--json");
+  const pos = args.filter(a => a !== "--json");
+  if (pos.length > 1 || pos[0]?.startsWith("-")) {
     console.error(AJUDA);
     return 2;
   }
-  const raiz = resolve(args[0] ?? process.env.ANVILORE_DESTINO ?? process.cwd());
+  const raiz = resolve(pos[0] ?? process.env.ANVILORE_DESTINO ?? process.cwd());
   try {
     if (!(await stat(raiz)).isDirectory()) throw new Error("não é um diretório");
   } catch (erro) {
@@ -330,9 +333,24 @@ export async function comandoDoctor(args: string[], deps: { ambienteMcp?: Ambien
     return 1;
   }
   const { travas, prerequisitos, avisos } = await diagnosticar(raiz);
-  const faltam = travas.filter(trava => !trava.ligada && !trava.opcional).length;
+  if (json) {
+    console.log(JSON.stringify({ travas, prerequisitos, avisos }));
+    return travas.some(t => !t.ligada && !t.opcional) || prerequisitos.some(p => !p.presente) ? 1 : 0;
+  }
+  let estadoAtualizador: Record<string, unknown> | undefined;
+  try { estadoAtualizador = JSON.parse(await readFile(join(raiz, ".anvilore/atualizacao.json"), "utf8")) as Record<string, unknown>; } catch { /* instalação não gerenciada */ }
+  const estadoRuim = ["reversao-incompleta", "migracao-incompleta", "aplicando", "revertendo"].includes(String(estadoAtualizador?.estado));
+  const faltam = travas.filter(trava => !trava.ligada && !trava.opcional).length + Number(estadoRuim);
   const ausentes = prerequisitos.filter(item => !item.presente).length;
   console.log(`anvilore doctor — ${raiz}`);
+  try {
+    const versao = await versaoDoKit(raiz);
+    console.log(`Versão do kit: ${versao.versao}${versao.tag ? ` (${versao.tag})` : ""}`);
+  } catch { console.log("Versão do kit: não foi possível ler"); }
+  if (estadoAtualizador) {
+    console.log(`Atualizador: ${String(estadoAtualizador.estado ?? "ocioso")} — modo ${String(estadoAtualizador.modo ?? "desconhecido")}, canal ${String(estadoAtualizador.canal ?? "desconhecido")}${estadoAtualizador.etapa ? `, etapa ${String(estadoAtualizador.etapa)}` : ""}`);
+    if (estadoRuim) console.log(`  recuperação pendente: ${String(estadoAtualizador.erro ?? estadoAtualizador.etapa ?? "processo interrompido")}`);
+  } else console.log("Atualizador: esta instalação ainda não tem estado gerenciado");
   console.log("Travas (o que impede o agente de atravessar a fronteira):");
   for (const trava of travas) for (const texto of linhas(trava)) console.log(texto);
   console.log("Pré-requisitos:");

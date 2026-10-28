@@ -25,6 +25,7 @@ import { comandoConferirLeitura } from "./comandos/conferir-leitura";
 import { comandoRotaIngestao } from "./comandos/rota-ingestao";
 import { comandoUi } from "./comandos/ui";
 import { comandoVersao } from "./comandos/versao";
+import { comandoAtualizar } from "./comandos/atualizar";
 
 export type Subcomando = (args: string[]) => Promise<number>;
 export type TabelaDeSubcomandos = Record<string, Subcomando>;
@@ -57,6 +58,7 @@ export const subcomandos: TabelaDeSubcomandos = {
   "rota-ingestao": comandoRotaIngestao,
   ui: comandoUi,
   versao: comandoVersao,
+  atualizar: comandoAtualizar,
 };
 
 function listar(tabela: TabelaDeSubcomandos): string {

@@ -49,6 +49,10 @@
       {
         "description": "Registra raw/ para avisos FileChanged, quando a CLI suporta o evento",
         "hooks": [{ "type": "command", "command": "bun \"$CLAUDE_PROJECT_DIR\"/src/cli.ts hooks-wiki watch-paths \"$CLAUDE_PROJECT_DIR\"", "shell": "bash" }]
+      },
+      {
+        "description": "Aplica atualização assinada pendente e agenda a próxima checagem sem bloquear a sessão",
+        "hooks": [{ "type": "command", "command": "bun \"$CLAUDE_PROJECT_DIR\"/src/cli.ts hooks-wiki atualizar \"$CLAUDE_PROJECT_DIR\"", "shell": "bash", "timeout": 600 }]
       }
     ],
     "Stop": [

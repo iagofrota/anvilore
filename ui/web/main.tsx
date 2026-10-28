@@ -28,6 +28,8 @@ function Aplicacao() {
   const [rota, setRota] = useState<Rota>(lerRota);
   const [tema, setTema] = useState<Tema>(() => localStorage.getItem("anvilore-tema") === "escuro" ? "escuro" : "claro");
   const [estado, setEstado] = useState<EstadoDaIngestao | null>(null);
+  const [operandoAtualizador, setOperandoAtualizador] = useState(false);
+  const [mensagemAtualizador, setMensagemAtualizador] = useState("");
 
   useEffect(() => {
     const mudou = () => setRota(lerRota());
@@ -43,6 +45,18 @@ function Aplicacao() {
     try { setEstado(await api<EstadoDaIngestao>("/api/ingestao")); } catch { /* a barra lateral fica sem a lista */ }
   }, []);
   useEffect(() => { void recarregarEstado(); }, [recarregarEstado]);
+
+  const acionarAtualizador = async (acao: "verificar" | "aplicar" | "voltar" | "automatico") => {
+    setOperandoAtualizador(true);
+    try {
+      const resultado = await api<{ mensagem: string }>("/api/atualizador", "POST", { acao });
+      setMensagemAtualizador(resultado.mensagem);
+      await recarregarEstado();
+    } catch (motivo) {
+      setMensagemAtualizador(motivo instanceof Error ? motivo.message : "Não foi possível executar o atualizador.");
+      await recarregarEstado();
+    } finally { setOperandoAtualizador(false); }
+  };
 
   // Voltar à interface sem uma conversa na URL reabre a que ficou no meio do caminho.
   const abertaUmaVez = React.useRef(false);
@@ -73,7 +87,30 @@ function Aplicacao() {
       </>}
       <div className="sidebar-bottom"><span className="status-dot" /> <span>{estado?.agente ?? "Agente"}</span> <span className="sidebar-spacer" /> <span className="mono">raw/ protegido</span></div>
     </aside>
+    <div className="main-column">
+    {estado?.atualizador && <section className={`update-panel ${["reversao-incompleta", "migracao-incompleta", "aplicando", "revertendo"].includes(estado.atualizador.estado) ? "problem" : ""}`} role={["reversao-incompleta", "migracao-incompleta", "aplicando", "revertendo"].includes(estado.atualizador.estado) ? "alert" : "status"}>
+      <div className="update-copy">
+        {estado.atualizador.atualizadoEm && Date.now() - Date.parse(estado.atualizador.atualizadoEm) < 60 * 60 * 1000
+          ? <strong>Atualizado para {estado.atualizador.versaoInstalada} — o que mudou</strong>
+          : <strong>Atualizador · {estado.atualizador.estado}</strong>}
+        {estado.atualizador.mudancas.map(item => <span key={item}>{item}</span>)}
+        {estado.atualizador.atualizadoEm && Date.now() - Date.parse(estado.atualizador.atualizadoEm) < 60 * 60 * 1000 && estado.atualizador.mudancas.length === 0 && <span>Veja o resumo desta versão em CHANGELOG.md.</span>}
+        {estado.atualizador.disponivel && <span>Versão {estado.atualizador.disponivel} conferida e pronta.</span>}
+        {estado.atualizador.erro && <span>{estado.atualizador.erro}</span>}
+        {estado.atualizador.etapa && <span>Etapa para recuperar: {estado.atualizador.etapa}</span>}
+        {mensagemAtualizador && <span>{mensagemAtualizador}</span>}
+      </div>
+      <div className="update-actions">
+        {estado.atualizador.estado === "baixada"
+          ? <button disabled={operandoAtualizador} onClick={() => void acionarAtualizador("aplicar")}>Atualizar agora</button>
+          : ["aplicando", "revertendo", "reversao-incompleta", "migracao-incompleta"].includes(estado.atualizador.estado)
+            ? <button disabled={operandoAtualizador} onClick={() => void acionarAtualizador("automatico")}>Tentar de novo</button>
+            : <button disabled={operandoAtualizador} onClick={() => void acionarAtualizador("verificar")}>Verificar agora</button>}
+        {estado.atualizador.podeVoltar && <button className="secondary-button" disabled={operandoAtualizador} onClick={() => void acionarAtualizador("voltar")}>Voltar para a versão anterior</button>}
+      </div>
+    </section>}
     {rota.tela === "revisao" ? <Revisao tema={tema} alternarTema={alternarTema} /> : <Chat id={rota.id} estado={estado} recarregarEstado={recarregarEstado} abrir={abrir} tema={tema} alternarTema={alternarTema} />}
+    </div>
   </div>;
 }
 

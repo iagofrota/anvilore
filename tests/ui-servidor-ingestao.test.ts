@@ -39,7 +39,26 @@ test("Dado a interface aberta Quando peço o estado da ingestão Então vêm o a
   const { chamar } = await servidor();
   const resposta = await chamar("/api/ingestao");
   expect(resposta.status).toBe(200);
-  expect(await resposta.json()).toEqual({ agente: "Agente falso", areas: ["pessoal", "trabalho"], conversas: [] });
+  expect(await resposta.json()).toEqual({ agente: "Agente falso", areas: ["pessoal", "trabalho"], conversas: [], atualizador: null });
+});
+
+test("Dado uma atualização recente Quando a interface lê o estado Então mostra a versão, o resumo e a opção de voltar", async () => {
+  mkdirSync(join(raiz, ".anvilore"), { recursive: true });
+  writeFileSync(join(raiz, ".anvilore/atualizacao.json"), JSON.stringify({
+    versao: 1, modo: "automatico", canal: "estavel", estado: "ocioso", versaoInstalada: "0.3.1",
+    atualizadoEm: new Date().toISOString(), id: "1-aabbccdd00", anterior: "commit-anterior",
+  }));
+  writeFileSync(join(raiz, "CHANGELOG.md"), "## [0.3.1]\n\n- Melhora atualização e reversão.\n- Mantém configurações.\n\n## [0.3.0]\n");
+  const { chamar } = await servidor();
+  const estado = await (await chamar("/api/ingestao")).json() as { atualizador: Record<string, unknown> };
+  expect(estado.atualizador).toMatchObject({ estado: "ocioso", versaoInstalada: "0.3.1", podeVoltar: true, mudancas: ["Melhora atualização e reversão.", "Mantém configurações."] });
+});
+
+test("Dado ação inválida Quando a interface chama o atualizador Então rejeita o pedido", async () => {
+  const { postar } = await servidor();
+  const resposta = await postar("/api/atualizador", { acao: "desconhecida" });
+  expect(resposta.status).toBe(400);
+  expect(await resposta.json()).toEqual({ mensagens: ["Ação do atualizador inválida."] });
 });
 
 test("Dado um arquivo solto com a área pessoal Quando envio Então o servidor grava em raw/pessoal e devolve a conversa", async () => {
