@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { LISTA_DO_RASTREIO, copiarModelos } from "../src/lib/modelos";
 import { lerManifestos, migrarRastreio, pendentes, puxar, situacaoDaMigracao, type Etapa } from "../src/lib/migracao";
 import { comandoMigrarRastreio } from "../src/comandos/migrar-rastreio";
@@ -427,7 +427,10 @@ describe("migrar-rastreio: doctor", () => {
     expect(trava.detalhe).toContain('etapa "tirar-do-indice"');
     expect(trava.detalhe).toContain(join(".anvilore", "migracao", r.manifesto!.id));
     expect(trava.comoLigar).toContain("migrar-rastreio");
-    expect(await comandoDoctor([pessoa])).toBe(1);
+    // Sem consultar agentes reais: PATH só com o git e MCP de mentira (o doctor real pergunta a cada CLI de agente).
+    process.env.PATH = dirname(Bun.which("git")!);
+    const ambienteMcp = { home: tmp, existe: async () => false, executar: async () => ({ codigo: 1, saida: "" }) };
+    expect(await comandoDoctor([pessoa], { ambienteMcp })).toBe(1);
     expect(console_.saida.join("\n")).toContain(MIGRACAO);
   });
 
