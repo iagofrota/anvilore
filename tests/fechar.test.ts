@@ -256,6 +256,17 @@ describe("fechar: gate do log do dia", () => {
     expect((await capturar(() => fecharWiki(join(clone, "wiki")))).valor.ok).toBe(false);
   });
 
+  test("Dado instalação nova com o esqueleto copiado de modelos/ e sem git, Quando fecho no mesmo dia, Então não cobra log pelo exemplo; editado, cobra", async () => {
+    const { wiki: w } = await esqueletoEm(tmp);
+    const limpa = await capturar(() => fecharWiki(w));
+    expect(limpa.valor.ok).toBe(true);
+    expect(limpa.saida).toContain("nenhuma pagina curada alterada hoje");
+    gravar(w, "exemplo/concepts/area-tematica.md", readFileSync(join(w, "exemplo/concepts/area-tematica.md"), "utf8") + "\nEdição de hoje.\n");
+    const r = await capturar(() => fecharWiki(w));
+    expect(r.valor).toEqual({ ok: false, passo: "gate-do-log" });
+    expect(r.saida).toContain(join("exemplo", "concepts", "area-tematica.md"));
+  });
+
   test("Dado esqueleto limpo e página nova ignorada pelo Git Quando fecho Então cobra só a página nova e o log destrava", async () => {
     const clone = clonarEsqueleto();
     const w = join(clone, "wiki");

@@ -21,6 +21,9 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 - `SCHEMA.md`, `wiki/` e `raw/` saíram do rastreio do kit (`.gitignore`); os originais ficam em `modelos/`. Os testes
   montam o esqueleto a partir de `modelos/`, e o `checar-docs` confere as menções a esses caminhos pelo original.
+- O gate do log no `fechar` não cobra entrada por arquivo da wiki igual, byte a byte, ao original em `modelos/`: o
+  esqueleto que o `instalar` copiou hoje não é edição. `tests/test-esqueleto.sh` passa a conferir o esqueleto em
+  `modelos/` e que o kit ignora `wiki/`, `raw/` e `SCHEMA.md`.
 
 ### Added
 
