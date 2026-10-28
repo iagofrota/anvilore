@@ -1,6 +1,7 @@
+import { existsSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
-import { posix } from "node:path";
-import { estaEmRaw } from "../lib/caminhos";
+import { dirname, join, posix, resolve } from "node:path";
+import { caminhoReal, dentroDe, estaEmRaw } from "../lib/caminhos";
 
 export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
 type Mapa = Record<string, unknown>;
@@ -87,9 +88,54 @@ function citaRaw(texto: string): boolean {
   return texto.split(/[\s"'`=<>;|&()[\]{}]+/).some(estaEmRaw);
 }
 
-// Caminho que cai em raw/: o próprio caminho, ou um relativo com o diretório de trabalho já dentro de raw/.
-function escreveEmRaw(caminho: string, cwd: string): boolean {
+// O clone em que este hook mora: a raiz confiável, que o payload não escolhe.
+const RAIZ_DO_CLONE = resolve(import.meta.dir, "../..");
+
+// Todo raw/ real que protege `inicio`: o de cada ancestral que tem um. Pega o raw/ que é link para uma pasta com outro nome,
+// que a comparação por nome não vê.
+function rawsAcima(inicio: string): string[] {
+  const raws: string[] = [];
+  for (let dir = inicio; ; dir = dirname(dir)) {
+    if (existsSync(join(dir, "raw"))) raws.push(caminhoReal(join(dir, "raw")));
+    if (dirname(dir) === dir) return raws;
+  }
+}
+
+// B1: o texto pode dizer wiki/ e o disco, por link, levar a raw/. Devolve o caminho real quando ele cai num raw/: pelo nome,
+// no raw/ do clone ou em qualquer raw/ acima do alvo ou do cwd. Relativo resolve contra o cwd; sem cwd, contra o do processo.
+// Um segmento acima de 255 bytes não é nome que um sistema de arquivos comum crie: a leitura que o mantém não chega ao disco.
+const temSegmentoLongo = (caminho: string) => caminho.split(/[\\/]/).some(segmento => Buffer.byteLength(segmento) > 255);
+
+function caiEmRawPeloDisco(caminho: string, cwd: string): string | undefined {
+  const base = caminhoReal(cwd || process.cwd());
+  const escrito = resolve(base, caminho);
+  // As duas leituras: a física (o disco segue o link antes do `..`) e a lexical (a ferramenta que normaliza o texto antes de
+  // gravar). Vale a pior. Uma leitura só some quando tem segmento acima de 255 bytes; se as duas somem, não há destino
+  // (mensagem longa de commit, por exemplo). Qualquer outro erro sobe, e o hook falha fechado.
+  const reais: string[] = [];
+  try {
+    reais.push(caminhoReal(caminho, base));
+  } catch (erro) {
+    if ((erro as NodeJS.ErrnoException).code !== "ENAMETOOLONG" || !temSegmentoLongo(caminho)) throw erro;
+  }
+  if (!temSegmentoLongo(escrito)) reais.push(caminhoReal(escrito));
+  if (!reais.length) return undefined;
+  // Candidatos acima do caminho escrito, dos reais e do cwd: só acrescentam bloqueio, nunca o tiram.
+  const raws = [join(RAIZ_DO_CLONE, "raw"), ...rawsAcima(dirname(escrito)), ...[...new Set(reais)].flatMap(real => rawsAcima(dirname(real))), ...rawsAcima(base)]
+    .map(raw => existsSync(raw) ? caminhoReal(raw) : raw);
+  return reais.find(real => estaEmRaw(real) || raws.some(raw => dentroDe(real, raw)));
+}
+
+// Pelo texto: o próprio caminho, ou um relativo com o diretório de trabalho já dentro de raw/.
+function escreveEmRawPeloTexto(caminho: string, cwd: string): boolean {
   return estaEmRaw(caminho) || (estaEmRaw(cwd) && !/^(?:[a-z]:|[\\/])/i.test(caminho));
+}
+
+// Caminho que cai em raw/, pelo texto ou pelo disco. Destino que não se resolve (ciclo, sem permissão) conta como raw/:
+// o hook falha fechado.
+function escreveEmRaw(caminho: string, cwd: string): boolean {
+  if (escreveEmRawPeloTexto(caminho, cwd)) return true;
+  try { return caiEmRawPeloDisco(caminho, cwd) !== undefined; } catch { return true; }
 }
 
 function caminhosDe(valor: unknown): string[] {
@@ -554,8 +600,12 @@ export function decidir(payload: string): Decisao {
     // Os caminhos vêm dos argumentos já decodificados (toolArgs do Copilot é texto) e do payload; o caminho em raw/ bloqueia
     // mesmo que a ferramenta também tenha um comando.
     const caminhos = [...new Set(caminhosDe([dados, entrada]))];
-    const alvo = caminhos.find(caminho => escreveEmRaw(caminho, cwd));
+    const alvo = caminhos.find(caminho => escreveEmRawPeloTexto(caminho, cwd));
     if (alvo !== undefined) return { acao: "bloquear", motivo: `caminho dentro de raw/: ${alvo}` };
+    for (const caminho of caminhos) {
+      const real = caiEmRawPeloDisco(caminho, cwd);
+      if (real !== undefined) return { acao: "bloquear", motivo: `caminho dentro de raw/ pelo caminho real: ${caminho} -> ${real}` };
+    }
     if (TERMINAIS.has(nome) || "command" in entrada || "cmd" in entrada) return decidirTerminal(entrada.command ?? entrada.cmd, cwd, nome === "powershell" || nome === "pwsh");
     if (caminhos.length) return { acao: "liberar", motivo: caminhos.join(" ") };
     return citaRaw(payload)

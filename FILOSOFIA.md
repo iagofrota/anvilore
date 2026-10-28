@@ -31,9 +31,12 @@ em vez de deixar passar. Errar recusando é o lado barato de errar.
 ## 2. A autoridade sobre o que é verdade é de quem cura, não do agente
 
 O agente ingere, cruza e escreve; o que entra na wiki como verdade passa por
-quem cura. A `skills/ingest` despacha um primeiro subagente que **lê e não
-escreve**, devolve 3–5 takeaways candidatos com a citação que os sustenta, e
-só depois do aval humano um segundo subagente escreve. Esse aval antes da
+quem cura. A `skills/ingest` separa dois papéis: um leitor que **lê e não
+escreve** e devolve 3–5 takeaways candidatos com a citação que os sustenta e as
+páginas que a fonte toca, e um escritor que só escreve depois do aval humano.
+Onde o agente tem subagente com ferramentas restritas, cada papel é um
+subagente; onde não tem, a mesma sessão faz os dois, em sequência, guiada pelos
+mesmos arquivos. Esse aval antes da
 escrita é regra da skill; o que o código impõe é o aval depois: o validador
 reprova a página que declara `generated` sem uma verificação humana posterior
 (`verified[]` com `by: human:<id>`) — sem provar quem escreveu a verificação.
@@ -158,8 +161,8 @@ repositório são **obra derivada** dela — traduzidas para português do Brasi
 e adaptadas, sob a licença MIT, com o aviso de copyright original preservado
 no [`LICENSE`](./LICENSE).
 
-O que este repositório acrescenta por cima: o passo de despacho de subagentes
-no `ingest`, o validador `anvilore validar` com testes, um schema
+O que este repositório acrescenta por cima: os papéis de leitor e escritor
+no `ingest`, com prompts e esquema do relatório em arquivo, o validador `anvilore validar` com testes, um schema
 deliberadamente menor, a fronteira de `raw/` com dentes em `hooks/`, o
 instalador multi-agente, e a ideia de que a coisa cresce em níveis — você
 começa com duas skills e um contrato, e só adiciona estrutura quando a dor

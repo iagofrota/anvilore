@@ -36,6 +36,17 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   uma migração estiver incompleta.
 - Os originais desses arquivos ficam em `modelos/`; `instalar` e `init` copiam de lá só o que falta, sem sobrescrever
   e sem depender do git, e o exemplo apagado pela pessoa não volta.
+- Esquema único do relatório do leitor da ingestão (`skills/ingest/relatorio-leitor.schema.json`): 3 a 5
+  takeaways com trecho literal e seção, páginas a criar ou atualizar, lacunas e contradições. O código
+  confere o esquema, que cada trecho existe na fonte e que a ação de cada página casa com a wiki.
+- `anvilore conferir-leitura <arquivo>`: a ferramenta confere o relatório do leitor antes da parada humana
+  (esquema, trecho literal na fonte, páginas a criar ou atualizar na wiki, inclusive com `ANVILORE_WIKI`).
+- Prompts do leitor e do escritor em `skills/ingest/leitor.md` e `skills/ingest/escritor.md`: a mesma fonte
+  para a skill no terminal e para a interface. `anvilore instalar --alvo claude` gera deles os agentes
+  `anvilore-leitor` (só lê) e `anvilore-escritor` (edita a wiki, sem comandos), mais as versões `-grande`;
+  o `doctor` acusa agente ausente ou desatualizado.
+- `anvilore rota-ingestao <fonte>`: pelo tamanho da fonte, diz se a ingestão usa a janela padrão, a grande
+  (acima de 400 000 bytes) ou se é preciso dividir (acima de 1 150 000 bytes).
 - Índice de busca FTS5 local e MCP opcional para consulta confinada à wiki, com `buscar`, `ler`,
   métricas locais agregadas e registro de usuário para Claude Code, Codex, Gemini CLI e Copilot CLI.
 - Comandos `anvilore mcp ligar|desligar|estado` e `anvilore indexar [--completo]`.
@@ -71,8 +82,25 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   Registra primeiro o PATH original; se faltar `rg`, usa uma versão fixa conferida por SHA-256
   apenas no diretório temporário do ensaio e a remove ao terminar.
 
+### Changed
+
+- O README avisa que, no Windows, só o CI testa o kit por enquanto: ainda não houve teste numa máquina Windows de
+  verdade.
+- A skill `ingest` separa sempre os papéis: o leitor lê e devolve o relatório, a pessoa aprova takeaways e
+  páginas numa parada só, e só então o escritor escreve. Antes, os subagentes só entravam acima de
+  400 000 bytes. No Claude Code a skill despacha os agentes gerados; nos outros agentes a própria sessão faz
+  os dois papéis, guiada pelos mesmos arquivos. A pessoa nunca roda comando: quem confere, aprova e fecha é
+  a ferramenta.
+
 ### Fixed
 
+- A fronteira de `raw/` vale pelo caminho real, não só pelo texto: o hook bloqueia a escrita que, por um link na
+  wiki, cairia em `raw/`, e o `conferir-leitura` recusa fonte que sai de `raw/` por link e página que sai da wiki.
+  O caminho é resolvido na ordem do disco (`link/../x` no Linux e no macOS sobe a partir do alvo do link), e destino
+  que não se resolve bloqueia.
+- `conferir-leitura` não trava mais a ingestão de PDF e imagem: sem extrair texto, confere o resto do relatório e avisa
+  que as citações não foram conferidas; a skill mostra o aviso na parada. Texto continua com a conferência estrita.
+  PDF e imagem são reconhecidos também pela assinatura dos primeiros bytes, mesmo com extensão de texto.
 - A Revisão só aprova se a página ainda tiver o mesmo conteúdo exibido quando a fila foi carregada; se mudou, informa e recarrega para nova revisão. Timestamps com offset só de horas aceitos pelo esquema também são reconhecidos na fila.
 
 ## [0.2.0] - 2026-10-25
