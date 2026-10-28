@@ -80,9 +80,14 @@ export function Chat({ id, estado, recarregarEstado, abrir, tema, alternarTema }
     comentario,
   }));
 
-  const naParada = conversa?.passo === "parada" && conversa.situacao === "esperando";
-  const rodando = conversa?.situacao === "rodando";
-  const passos = passosDoPainel(conversa ?? undefined);
+  const acoes: AcoesDaConversa = {
+    aoLer: () => void ler(),
+    aoCancelar: () => void cancelar(),
+    aoSeguir: () => void seguir(),
+    alternarTakeaway: indice => setTakeaways(atual => atual.map((v, j) => j === indice ? !v : v)),
+    alternarPagina: indice => setPaginas(atual => atual.map((v, j) => j === indice ? !v : v)),
+    mudarComentario: setComentario,
+  };
 
   return <main className="main chat-main">
     <header className="topbar">
@@ -97,89 +102,113 @@ export function Chat({ id, estado, recarregarEstado, abrir, tema, alternarTema }
       <section className="thread" aria-label="Conversa da ingestão">
         <div className="thread-scroll">
           {erro && <div className="alert" role="alert">{erro}</div>}
-          {!conversa ? (id ? <div className="loading">Abrindo a ingestão…</div> : <NovaIngestao estado={estado} aoCriar={async (criada, motivo) => { avisoAoAbrir.current = motivo ?? ""; await recarregarEstado(); abrir(criada.id); }} />) : <>
-            <Mensagem autor="Você">
-              <p>Ingere esta fonte{conversa.area ? ` na área ${conversa.area}` : ""}.</p>
-              <div className="file-card"><span className="file-icon">{conversa.nome.split(".").pop()?.slice(0, 4).toUpperCase() || "ARQ"}</span><span><strong>{conversa.nome}</strong><small>{tamanhoLegivel(conversa.bytes)}</small></span></div>
-            </Mensagem>
-            <div className="system-note"><span aria-hidden="true">🔒</span> Você salvou o arquivo em <code>{conversa.fonte}</code>. O agente lê <code>raw/</code>, nunca escreve.</div>
-            {conversa.passo === "fonte" && <div className="actions-row"><button className="approve-button" disabled={ocupado} onClick={() => void ler()}>Ingerir</button></div>}
-            {conversa.passo !== "fonte" && <Mensagem autor={estado?.agente ?? "Agente"} agente>
-              <Leituras itens={conversa.atividade.filter(a => a.papel === "leitor")} />
-              {conversa.passo === "leitura" && <EstadoDaFase conversa={conversa} ocupado={ocupado} aoCancelar={cancelar} aoLerDeNovo={ler} />}
-              {conversa.relatorio && <>
-                <p>Li a fonte inteira. Estes são os pontos principais, cada um com o trecho que o sustenta. {naParada ? "Desmarque o que não deve entrar na wiki:" : ""}</p>
-                {conversa.avisos.map(aviso => <div className="review-warning inline" role="note" key={aviso}>{aviso}</div>)}
-                <div className="card">
-                  <div className="card-head"><strong>Takeaways</strong><span>{takeaways.filter(Boolean).length} de {takeaways.length} selecionados</span></div>
-                  {conversa.relatorio.takeaways.map((takeaway, i) => <label className={`takeaway ${takeaways[i] ? "" : "off"}`} key={i}>
-                    <input type="checkbox" checked={takeaways[i] ?? true} disabled={!naParada} onChange={() => setTakeaways(atual => atual.map((v, j) => j === i ? !v : v))} />
-                    <span><span className="takeaway-text">{takeaway.texto}{takeaway.certeza !== "comprovado" && <em className="certainty"> · {CERTEZA[takeaway.certeza]}</em>}</span>
-                      <span className="quote">“{takeaway.citacao.trecho}” <code>§ {takeaway.citacao.secao}</code></span></span>
-                  </label>)}
-                </div>
-                <div className="plan-grid">
-                  {(["criar", "atualizar"] as const).map(acao => {
-                    const indices = conversa.relatorio!.paginas.flatMap((p, i) => p.acao === acao ? [i] : []);
-                    return <div className="card" key={acao}>
-                      <div className="card-head"><strong>{acao === "criar" ? "Criar" : "Atualizar"} · {indices.length}</strong></div>
-                      {indices.map(i => {
-                        const pagina = conversa.relatorio!.paginas[i]!;
-                        const fixa = pagina.tipo === "source";
-                        return <label className={`plan-item ${paginas[i] ? "" : "off"}`} key={pagina.caminho} title={pagina.motivo}>
-                          <input type="checkbox" checked={paginas[i] ?? true} disabled={!naParada || fixa} onChange={() => setPaginas(atual => atual.map((v, j) => j === i ? !v : v))} />
-                          <span className={`glyph ${pagina.tipo}`} aria-hidden="true" /><code>{pagina.caminho}</code>
-                        </label>;
-                      })}
-                      {indices.length === 0 && <div className="empty-filter">Nenhuma.</div>}
-                    </div>;
-                  })}
-                </div>
-                {conversa.relatorio.lacunas.length > 0 && <div className="note-list"><strong>Lacunas</strong><ul>{conversa.relatorio.lacunas.map(l => <li key={l}>{l}</li>)}</ul></div>}
-                {conversa.relatorio.contradicoes.length > 0 && <div className="note-list"><strong>Contradições (registradas, não resolvidas)</strong><ul>{conversa.relatorio.contradicoes.map(c => <li key={c.pagina + c.descricao}><code>{c.pagina}</code>: {c.descricao}</li>)}</ul></div>}
-                {naParada && <div className="decision">
-                  <textarea value={comentario} onChange={evento => setComentario(evento.target.value)} maxLength={4000} placeholder="Responda ao agente: enfatize, corte ou corrija um takeaway…" aria-label="Comentário para o escritor" />
-                  <div className="actions-row"><button className="approve-button" disabled={ocupado || !takeaways.some(Boolean)} onClick={() => void seguir()}>Pode seguir</button></div>
-                </div>}
-              </>}
-            </Mensagem>}
-            {conversa.escolha && conversa.relatorio && <Mensagem autor="Você">
-              <p>{textoDeSeguir(conversa.relatorio.takeaways.map((_, i) => conversa.escolha!.takeaways.includes(i)), conversa.relatorio.paginas.map((_, i) => conversa.escolha!.paginas.includes(i)))}</p>
-              {conversa.escolha.comentario && <p className="comment">{conversa.escolha.comentario}</p>}
-            </Mensagem>}
-            {["escrita", "fechamento", "revisao"].includes(conversa.passo) && <Mensagem autor={estado?.agente ?? "Agente"} agente>
-              <Escritas conversa={conversa} />
-              {conversa.passo === "escrita" && <EstadoDaFase conversa={conversa} ocupado={ocupado} aoCancelar={cancelar} />}
-              {conversa.passo === "fechamento" && <div className="now"><span className="pulse" /> Rodando <code>anvilore fechar</code>…</div>}
-              {conversa.fechamento && <Fechamento conversa={conversa} />}
-            </Mensagem>}
-          </>}
+          {!conversa ? (id ? <div className="loading">Abrindo a ingestão…</div> : <NovaIngestao estado={estado} aoCriar={async (criada, motivo) => { avisoAoAbrir.current = motivo ?? ""; await recarregarEstado(); abrir(criada.id); }} />)
+            : <ConversaDaIngestao conversa={conversa} agente={estado?.agente ?? "Agente"} ocupado={ocupado} takeaways={takeaways} paginas={paginas} comentario={comentario} acoes={acoes} />}
         </div>
       </section>
-      <aside className="ingest-panel" aria-label="Progresso da ingestão">
-        <h2>Ingestão</h2>
-        <ol className="steps">
-          {passos.map(passo => <li key={passo.rotulo} className={passo.estado}>
-            <span className="step-mark" aria-hidden="true">{passo.estado === "feito" ? "✓" : passo.estado === "parou" ? "!" : ""}</span>
-            <span><strong>{passo.rotulo}</strong><small>{passo.dica}</small></span>
-            <span className="sr-only">{passo.estado}</span>
-          </li>)}
-        </ol>
-        {rodando && conversa?.agora && <div className="now panel-now"><span className="pulse" /> {conversa.agora}</div>}
-        {conversa && <>
-          <h2>Fonte</h2>
-          <code className="source-path">{conversa.fonte}</code>
-          <dl className="facts"><dt>Tamanho</dt><dd>{tamanhoLegivel(conversa.bytes)}</dd>{conversa.rota && <><dt>Janela</dt><dd>{conversa.rota === "grande" ? "grande (custa mais)" : "padrão"}</dd></>}</dl>
-        </>}
-        <h2>Garantias</h2>
-        <ul className="guarantees">
-          <li><code>raw/</code> bloqueado pelo hook: o agente não grava lá.</li>
-          <li>Toda página nasce rascunho, com <code>generated</code>.</li>
-          <li>Só você grava <code>verified</code>, na tela de Revisão.</li>
-        </ul>
-      </aside>
+      <PainelDaIngestao conversa={conversa} />
     </div>
   </main>;
+}
+
+export type AcoesDaConversa = {
+  aoLer: () => void;
+  aoCancelar: () => void;
+  aoSeguir: () => void;
+  alternarTakeaway: (indice: number) => void;
+  alternarPagina: (indice: number) => void;
+  mudarComentario: (texto: string) => void;
+};
+
+type PropriedadesDaConversa = { conversa: Conversa; agente: string; ocupado: boolean; takeaways: boolean[]; paginas: boolean[]; comentario: string; acoes: AcoesDaConversa };
+
+// A conversa de uma ingestão, só a partir do estado: sem hooks nem chamadas à API, para ser testável sem navegador.
+export function ConversaDaIngestao({ conversa, agente, ocupado, takeaways, paginas, comentario, acoes }: PropriedadesDaConversa) {
+  const naParada = conversa.passo === "parada" && conversa.situacao === "esperando";
+  return <>
+    <Mensagem autor="Você">
+      <p>Ingere esta fonte{conversa.area ? ` na área ${conversa.area}` : ""}.</p>
+      <div className="file-card"><span className="file-icon">{conversa.nome.split(".").pop()?.slice(0, 4).toUpperCase() || "ARQ"}</span><span><strong>{conversa.nome}</strong><small>{tamanhoLegivel(conversa.bytes)}</small></span></div>
+    </Mensagem>
+    <div className="system-note"><span aria-hidden="true">🔒</span> Você salvou o arquivo em <code>{conversa.fonte}</code>. O agente lê <code>raw/</code>, nunca escreve.</div>
+    {conversa.passo === "fonte" && <div className="actions-row"><button className="approve-button" disabled={ocupado} onClick={acoes.aoLer}>Ingerir</button></div>}
+    {conversa.passo !== "fonte" && <Mensagem autor={agente} agente>
+      <Leituras itens={conversa.atividade.filter(a => a.papel === "leitor")} />
+      {conversa.passo === "leitura" && <EstadoDaFase conversa={conversa} ocupado={ocupado} aoCancelar={acoes.aoCancelar} aoLerDeNovo={acoes.aoLer} />}
+      {conversa.relatorio && <>
+        <p>Li a fonte inteira. Estes são os pontos principais, cada um com o trecho que o sustenta. {naParada ? "Desmarque o que não deve entrar na wiki:" : ""}</p>
+        {conversa.avisos.map(aviso => <div className="review-warning inline" role="note" key={aviso}>{aviso}</div>)}
+        <div className="card">
+          <div className="card-head"><strong>Takeaways</strong><span>{takeaways.filter(Boolean).length} de {takeaways.length} selecionados</span></div>
+          {conversa.relatorio.takeaways.map((takeaway, i) => <label className={`takeaway ${takeaways[i] ? "" : "off"}`} key={i}>
+            <input type="checkbox" checked={takeaways[i] ?? true} disabled={!naParada} onChange={() => acoes.alternarTakeaway(i)} />
+            <span><span className="takeaway-text">{takeaway.texto}{takeaway.certeza !== "comprovado" && <em className="certainty"> · {CERTEZA[takeaway.certeza]}</em>}</span>
+              <span className="quote">“{takeaway.citacao.trecho}” <code>§ {takeaway.citacao.secao}</code></span></span>
+          </label>)}
+        </div>
+        <div className="plan-grid">
+          {(["criar", "atualizar"] as const).map(acao => {
+            const indices = conversa.relatorio!.paginas.flatMap((p, i) => p.acao === acao ? [i] : []);
+            return <div className="card" key={acao}>
+              <div className="card-head"><strong>{acao === "criar" ? "Criar" : "Atualizar"} · {indices.length}</strong></div>
+              {indices.map(i => {
+                const pagina = conversa.relatorio!.paginas[i]!;
+                const fixa = pagina.tipo === "source";
+                return <label className={`plan-item ${paginas[i] ? "" : "off"}`} key={pagina.caminho} title={pagina.motivo}>
+                  <input type="checkbox" checked={paginas[i] ?? true} disabled={!naParada || fixa} onChange={() => acoes.alternarPagina(i)} />
+                  <span className={`glyph ${pagina.tipo}`} aria-hidden="true" /><code>{pagina.caminho}</code>
+                </label>;
+              })}
+              {indices.length === 0 && <div className="empty-filter">Nenhuma.</div>}
+            </div>;
+          })}
+        </div>
+        {conversa.relatorio.lacunas.length > 0 && <div className="note-list"><strong>Lacunas</strong><ul>{conversa.relatorio.lacunas.map(l => <li key={l}>{l}</li>)}</ul></div>}
+        {conversa.relatorio.contradicoes.length > 0 && <div className="note-list"><strong>Contradições (registradas, não resolvidas)</strong><ul>{conversa.relatorio.contradicoes.map(c => <li key={c.pagina + c.descricao}><code>{c.pagina}</code>: {c.descricao}</li>)}</ul></div>}
+        {naParada && <div className="decision">
+          <textarea value={comentario} onChange={evento => acoes.mudarComentario(evento.target.value)} maxLength={4000} placeholder="Responda ao agente: enfatize, corte ou corrija um takeaway…" aria-label="Comentário para o escritor" />
+          <div className="actions-row"><button className="approve-button" disabled={ocupado || !takeaways.some(Boolean)} onClick={acoes.aoSeguir}>Pode seguir</button></div>
+        </div>}
+      </>}
+    </Mensagem>}
+    {conversa.escolha && conversa.relatorio && <Mensagem autor="Você">
+      <p>{textoDeSeguir(conversa.relatorio.takeaways.map((_, i) => conversa.escolha!.takeaways.includes(i)), conversa.relatorio.paginas.map((_, i) => conversa.escolha!.paginas.includes(i)))}</p>
+      {conversa.escolha.comentario && <p className="comment">{conversa.escolha.comentario}</p>}
+    </Mensagem>}
+    {["escrita", "fechamento", "revisao"].includes(conversa.passo) && <Mensagem autor={agente} agente>
+      <Escritas conversa={conversa} />
+      {conversa.passo === "escrita" && <EstadoDaFase conversa={conversa} ocupado={ocupado} aoCancelar={acoes.aoCancelar} />}
+      {conversa.passo === "fechamento" && <div className="now"><span className="pulse" /> Rodando <code>anvilore fechar</code>…</div>}
+      {conversa.fechamento && <Fechamento conversa={conversa} />}
+    </Mensagem>}
+  </>;
+}
+
+export function PainelDaIngestao({ conversa }: { conversa: Conversa | null }) {
+  const passos = passosDoPainel(conversa ?? undefined);
+  const rodando = conversa?.situacao === "rodando";
+  return <aside className="ingest-panel" aria-label="Progresso da ingestão">
+    <h2>Ingestão</h2>
+    <ol className="steps">
+      {passos.map(passo => <li key={passo.rotulo} className={passo.estado}>
+        <span className="step-mark" aria-hidden="true">{passo.estado === "feito" ? "✓" : passo.estado === "parou" ? "!" : ""}</span>
+        <span><strong>{passo.rotulo}</strong><small>{passo.dica}</small></span>
+        <span className="sr-only">{passo.estado}</span>
+      </li>)}
+    </ol>
+    {rodando && conversa?.agora && <div className="now panel-now"><span className="pulse" /> {conversa.agora}</div>}
+    {conversa && <>
+      <h2>Fonte</h2>
+      <code className="source-path">{conversa.fonte}</code>
+      <dl className="facts"><dt>Tamanho</dt><dd>{tamanhoLegivel(conversa.bytes)}</dd>{conversa.rota && <><dt>Janela</dt><dd>{conversa.rota === "grande" ? "grande (custa mais)" : "padrão"}</dd></>}</dl>
+    </>}
+    <h2>Garantias</h2>
+    <ul className="guarantees">
+      <li><code>raw/</code> bloqueado pelo hook: o agente não grava lá.</li>
+      <li>Toda página nasce rascunho, com <code>generated</code>.</li>
+      <li>Só você grava <code>verified</code>, na tela de Revisão.</li>
+    </ul>
+  </aside>;
 }
 
 function Mensagem({ autor, agente = false, children }: { autor: string; agente?: boolean; children: React.ReactNode }) {
