@@ -1,4 +1,4 @@
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { valorDoPath } from "../comandos/instalar";
 import { FERRAMENTAS, MODELO_GRANDE } from "./papeis-ingestao";
 import type { Disponibilidade, EventoDoAgente, ExecucaoDeFase, FimDaFase, PedidoDeFase, PonteDeAgente, Recusa } from "./ponte-agente";
@@ -86,16 +86,30 @@ export function interpretarLinha(bruta: string): { eventos: EventoDoAgente[]; re
 }
 
 // A regra de caminho absoluto do Claude Code: duas barras seguidas do caminho sem a barra inicial.
-// Vale para Edit e Write. No Windows a forma `//C:/…` não foi provada.
-export function regraDeEdicao(caminhoAbsoluto: string): string {
+// `Edit` vale para Edit e Write (provado); `Read` vale para Read, Grep e Glob (não provado com o
+// claude real). No Windows a forma `//C:/…` não foi provada.
+function regraDeCaminho(ferramenta: "Edit" | "Read", caminhoAbsoluto: string): string {
   const normalizado = caminhoAbsoluto.replaceAll("\\", "/").replace(/\/+$/, "").replace(/^\/+/, "");
-  return `Edit(//${normalizado}/**)`;
+  return `${ferramenta}(//${normalizado}/**)`;
+}
+
+export function regraDeEdicao(caminhoAbsoluto: string): string {
+  return regraDeCaminho("Edit", caminhoAbsoluto);
+}
+
+// Leitura só no vault e na wiki (que pode morar fora dele): uma fonte com instrução escondida não leva o
+// agente a ler, por exemplo, as chaves da pessoa e copiá-las para a wiki.
+export function regrasDeLeitura(raiz: string, wiki: string): string[] {
+  const relativo = relative(resolve(raiz), resolve(wiki));
+  const dentro = relativo !== ".." && !relativo.startsWith(`..${sep}`) && !isAbsolute(relativo);
+  return [regraDeCaminho("Read", raiz), ...(dentro ? [] : [regraDeCaminho("Read", wiki)])];
 }
 
 export function argumentosDoPapel(pedido: PedidoDeFase): string[] {
   const { papel } = pedido;
   if (papel === "escritor" && !pedido.sessao) throw new Error("o escritor precisa da sessão do leitor");
-  const permitidas = papel === "leitor" ? [...FERRAMENTAS.leitor] : ["Read", "Grep", "Glob", regraDeEdicao(pedido.wiki)];
+  const leitura = regrasDeLeitura(pedido.raiz, pedido.wiki);
+  const permitidas = papel === "leitor" ? leitura : [...leitura, regraDeEdicao(pedido.wiki)];
   return [
     "-p", pedido.mensagem,
     "--output-format", "stream-json",

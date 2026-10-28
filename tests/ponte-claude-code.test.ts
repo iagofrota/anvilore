@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import type { EventoDoAgente } from "../src/lib/ponte-agente";
-import { argumentosDoPapel, interpretarLinha, PonteClaudeCode, regraDeEdicao } from "../src/lib/ponte-claude-code";
+import { argumentosDoPapel, interpretarLinha, PonteClaudeCode, regraDeEdicao, regrasDeLeitura } from "../src/lib/ponte-claude-code";
 import { esquemaRelatorioLeitor } from "../src/lib/relatorio-leitor";
 import type { RoteiroDoFalso } from "./apoio/claude-falso";
 import { antesDoInit, init, limite, resultado, resultadoDeFerramenta, SESSAO, textoDoAssistente, usoDeFerramenta } from "./apoio/eventos-claude";
@@ -97,6 +97,11 @@ test("Dado wiki absoluta Quando monto a regra de edição Então são duas barra
   expect(regraDeEdicao("C:\\Users\\ana\\wiki")).toBe("Edit(//C:/Users/ana/wiki/**)");
 });
 
+test("Dado wiki dentro ou fora do vault Quando monto as regras de leitura Então a leitura fica no vault e na wiki", () => {
+  expect(regrasDeLeitura("/v", "/v/wiki")).toEqual(["Read(//v/**)"]);
+  expect(regrasDeLeitura("/v", "/v-irma/wiki")).toEqual(["Read(//v/**)", "Read(//v-irma/wiki/**)"]);
+});
+
 test("Dado o papel leitor Quando monto os argumentos Então isola as configurações da pessoa, só lê e pede o esquema", () => {
   const args = argumentosDoPapel({ papel: "leitor", mensagem: "Leia.", raiz: "/v", wiki: "/v/wiki" });
   expect(args.slice(0, 2)).toEqual(["-p", "Leia."]);
@@ -106,7 +111,7 @@ test("Dado o papel leitor Quando monto os argumentos Então isola as configuraç
   expect(valor("--setting-sources")).toBe("project,local");
   expect(args).toContain("--strict-mcp-config");
   expect(valor("--tools")).toBe("Read,Grep,Glob");
-  expect(listaApos(args, "--allowedTools")).toEqual(["Read", "Grep", "Glob"]);
+  expect(listaApos(args, "--allowedTools")).toEqual(["Read(//v/**)"]);
   expect(valor("--permission-mode")).toBe("dontAsk");
   expect(valor("--system-prompt-snapshot")).toBe("off");
   expect(valor("--append-system-prompt-file")).toBe(join(KIT, "skills/ingest/leitor.md"));
@@ -121,7 +126,7 @@ test("Dado o papel escritor Quando monto os argumentos Então retoma a sessão, 
   expect(args.slice(0, 2)).toEqual(["-p", "Escreva."]);
   expect(valor("--resume")).toBe(SESSAO);
   expect(valor("--tools")).toBe("Read,Grep,Glob,Edit,Write");
-  expect(listaApos(args, "--allowedTools")).toEqual(["Read", "Grep", "Glob", "Edit(//fora/wiki/**)"]);
+  expect(listaApos(args, "--allowedTools")).toEqual(["Read(//v/**)", "Read(//fora/wiki/**)", "Edit(//fora/wiki/**)"]);
   expect(listaApos(args, "--disallowedTools")).toEqual(["Edit(//v/raw/**)", "Bash"]);
   expect(valor("--append-system-prompt-file")).toBe(join(KIT, "skills/ingest/escritor.md"));
   expect(valor("--system-prompt-snapshot")).toBe("off");
