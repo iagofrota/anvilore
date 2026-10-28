@@ -252,7 +252,7 @@ test("Dado fonte sem modelos/ Quando instalo Então reprova em vez de inventar c
   expect(r.exitCode).toBe(4); expect(r.stdout.toString()).toContain("modelos/");
   expect(existsSync(join(destino, "wiki"))).toBe(false);
   expect(existsSync(join(destino, "SCHEMA.md"))).toBe(false);
-});
+}, 30_000); // git init + commit da fonte copiada inteira: lento no runner Windows
 
 test("Dado fonte sem .git Quando instalo Então copia os modelos sem chamar git", () => {
   const copia = copiarFonte();

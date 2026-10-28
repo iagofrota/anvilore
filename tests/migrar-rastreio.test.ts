@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,6 +10,9 @@ import { executar } from "../src/cli";
 import { comandoDoctor, diagnosticar } from "../src/comandos/doctor";
 import { capturarConsole } from "./apoio/console";
 import { clonar, git, gitOk, montarOrigem, publicarN1 } from "./apoio/kit-git";
+
+// Cada cenário monta origem, clone e versões com git de verdade: no runner Windows isso passa dos 5 s padrão.
+setDefaultTimeout(30_000);
 
 let tmp: string;
 let console_: ReturnType<typeof capturarConsole>;
