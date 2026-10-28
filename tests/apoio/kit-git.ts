@@ -40,7 +40,8 @@ export const GITIGNORE_N = `raw/*
 !/wiki/exemplo/concepts/area-tematica.md
 .anvilore/
 `;
-export const GITIGNORE_N1 = "raw/\n/wiki/\n/SCHEMA.md\n.anvilore/\nanvilore.toml\n";
+// A N+1 é a versão deste repositório: usa o .gitignore real do kit.
+export const GITIGNORE_N1 = readFileSync(join(import.meta.dir, "../../.gitignore"), "utf8");
 
 export async function montarOrigem(tmp: string): Promise<{ origem: string; dev: string }> {
   const origem = join(tmp, "origem.git");

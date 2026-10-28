@@ -9,6 +9,19 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Atenção
+
+- **Antes de atualizar um clone antigo, peça ao agente para rodar `bun src/cli.ts migrar-rastreio --puxar`.** Esta
+  versão deixa de rastrear `SCHEMA.md`, `wiki/` e `raw/`, que são seus. O comando copia e confere cada arquivo, tira
+  do índice do kit sem apagar e atualiza o clone devolvendo tudo no lugar. Um `git pull` direto recusa quando você
+  editou um desses arquivos (nada se perde) e apaga os que não foram editados; nesse caso, `bun src/cli.ts instalar`
+  ou `init` os recria a partir de `modelos/`.
+
+### Changed
+
+- `SCHEMA.md`, `wiki/` e `raw/` saíram do rastreio do kit (`.gitignore`); os originais ficam em `modelos/`. Os testes
+  montam o esqueleto a partir de `modelos/`, e o `checar-docs` confere as menções a esses caminhos pelo original.
+
 ### Added
 
 - `anvilore versao` mostra a versão do kit e, num clone, a tag e o commit.

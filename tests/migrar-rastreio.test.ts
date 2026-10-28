@@ -369,6 +369,17 @@ describe("migrar-rastreio: atualizar o clone (PLANO §4b passo 5)", () => {
   });
 });
 
+describe("migrar-rastreio: o próprio kit na N+1", () => {
+  test("Dado este repositório, Quando listo o índice e o .gitignore, Então nenhum arquivo da pessoa é rastreado e todos são ignorados", () => {
+    const kit = resolve(import.meta.dir, "..");
+    expect(ls(kit)).toBe("");
+    for (const rel of ["SCHEMA.md", "wiki/index.md", "wiki/pessoal/concepts/x.md", "raw/fonte.pdf", ".anvilore/migracao/x/manifesto.json"]) {
+      expect(git(kit, "check-ignore", "-q", "--no-index", rel).codigo).toBe(0);
+    }
+    expect(git(kit, "check-ignore", "-q", "--no-index", "modelos/wiki/index.md").codigo).toBe(1);
+  });
+});
+
 describe("migrar-rastreio: comando", () => {
   test("Dado ajuda, argumento a mais ou opção desconhecida, Quando rodo o comando, Então 0, 2 e 2", async () => {
     expect(await comandoMigrarRastreio(["--help"])).toBe(0);
