@@ -11,6 +11,15 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Added
 
+- `anvilore versao` mostra a versão do kit e, num clone, a tag e o commit.
+- `anvilore migrar-rastreio` prepara o clone para a próxima versão, que deixa de rastrear os arquivos da pessoa
+  (`SCHEMA.md`, índice e log da wiki, esqueleto e exemplo de `wiki/` e `raw/`): copia cada um com SHA-256 para
+  `.anvilore/migracao/`, cria o repositório próprio da wiki se faltar, tira do índice do kit sem apagar do disco e
+  confere. Se parar no meio, não apaga nada e retoma na próxima vez. Com `--puxar`, atualiza o clone com `git pull`
+  tirando os arquivos do caminho e devolvendo-os conferidos. O `doctor` avisa "clone a migrar" e reprova enquanto
+  uma migração estiver incompleta.
+- Os originais desses arquivos ficam em `modelos/`; `instalar` e `init` copiam de lá só o que falta, sem sobrescrever
+  e sem depender do git, e o exemplo apagado pela pessoa não volta.
 - Índice de busca FTS5 local e MCP opcional para consulta confinada à wiki, com `buscar`, `ler`,
   métricas locais agregadas e registro de usuário para Claude Code, Codex, Gemini CLI e Copilot CLI.
 - Comandos `anvilore mcp ligar|desligar|estado` e `anvilore indexar [--completo]`.
