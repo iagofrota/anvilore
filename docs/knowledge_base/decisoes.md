@@ -100,6 +100,11 @@ Para a linhagem do método e a argumentação completa das posições de design,
   `bun run build:ui` e os assets são empacotados em `src/ui/public/`.
 - Durante a escrita de uma ingestão, `ANVILORE_SEM_AUTOCOMMIT=1` desliga o autocommit do hook
   `hooks-wiki autocommit`; a aprovação posterior continua sendo feita pela interface.
+- A fila calcula SHA-256 do conteúdo exibido; o servidor confere essa versão dentro de
+  `aprovarPaginas` antes de registrar `verified`. Se o conteúdo mudou, a interface informa a pessoa
+  e recarrega a fila para uma nova revisão (`src/lib/ui-fila.ts`, `src/comandos/aprovar.ts`,
+  `src/ui/servidor/servidor.ts`, `ui/web/main.tsx`). A fila também usa a mesma validação de timestamp
+  de `src/lib/okf.ts`, incluindo offsets só de horas.
 - O comportamento está em `src/ui/servidor/`, `src/comandos/hooks-wiki.ts` e `tests/hooks-wiki.test.ts`.
 
 ## Neutralidade de provedor de agente

@@ -1,4 +1,5 @@
 import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { lerFrontmatter } from "../lib/frontmatter";
 import { estadoAprovacaoHumana } from "../lib/okf";
@@ -60,7 +61,7 @@ function provenienciaAprovada(texto: string, identidade: string): string {
   return linhas.join(quebra);
 }
 
-export async function aprovarPaginas(raiz: string, arquivos: string[], ambiente: Record<string, string | undefined> = process.env): Promise<ResultadoAprovacao> {
+export async function aprovarPaginas(raiz: string, arquivos: string[], ambiente: Record<string, string | undefined> = process.env, versaoEsperada?: string): Promise<ResultadoAprovacao> {
   if (arquivos.length === 0) return { codigo: 2, mensagens: ["Uso: anvilore aprovar <página.md> [página.md ...]"] };
   const wiki = caminhoWiki(raiz, ambiente);
   const preparados: Array<{ caminho: string; texto: string }> = [];
@@ -74,6 +75,9 @@ export async function aprovarPaginas(raiz: string, arquivos: string[], ambiente:
       const relReal = relative(wikiReal, caminhoReal);
       if (relReal === ".." || relReal.startsWith(`..${sep}`) || isAbsolute(relReal)) throw new Error(`página fora de wiki/: ${arquivo}`);
       const original = await readFile(caminho, "utf8");
+      if (versaoEsperada && createHash("sha256").update(original).digest("hex") !== versaoEsperada) {
+        return { codigo: 3, mensagens: ["A página mudou desde que você abriu. Recarregue para revisar a versão nova."] };
+      }
       preparados.push({ caminho, texto: original });
     }
     const identidadeArquivo = resolve(raiz, ".anvilore/identidade");
