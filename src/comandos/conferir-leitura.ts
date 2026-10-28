@@ -21,10 +21,31 @@ const BINARIOS: Record<string, string> = {
   ".bmp": "imagem", ".tif": "imagem", ".tiff": "imagem", ".heic": "imagem", ".heif": "imagem",
 };
 
+const MARCAS_ISO_BMFF = new Set(["heic", "heix", "hevc", "hevx", "heim", "heis", "hevm", "hevs", "mif1", "msf1", "avif", "avis"]);
+
+// A assinatura dos primeiros bytes: a extensão de texto não esconde PDF ou imagem. Cada uma exige o cabeçalho inteiro,
+// para texto que só começa parecido ("BMW", "RIFF") continuar texto.
+function assinatura(bytes: Uint8Array): "pdf" | "imagem" | undefined {
+  const ascii = (inicio: number, fim: number) => Buffer.from(bytes.subarray(inicio, fim)).toString("latin1");
+  const prefixo = (...esperado: number[]) => esperado.every((byte, i) => bytes[i] === byte);
+  if (ascii(0, 5) === "%PDF-") return "pdf";
+  if (prefixo(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "imagem";
+  if (prefixo(0xff, 0xd8, 0xff)) return "imagem";
+  if (ascii(0, 6) === "GIF87a" || ascii(0, 6) === "GIF89a") return "imagem";
+  if (ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return "imagem";
+  // BMP: "BM" e os quatro bytes reservados (6 a 9) zerados.
+  if (ascii(0, 2) === "BM" && bytes.length >= 10 && [6, 7, 8, 9].every(i => bytes[i] === 0)) return "imagem";
+  if (prefixo(0x49, 0x49, 0x2a, 0x00) || prefixo(0x4d, 0x4d, 0x00, 0x2a)) return "imagem";
+  if (ascii(4, 8) === "ftyp" && MARCAS_ISO_BMFF.has(ascii(8, 12))) return "imagem";
+  return undefined;
+}
+
 // Texto UTF-8 da fonte, ou o motivo de ela não ter texto conferível. Falha de leitura sobe: quem chama falha fechado.
 function textoDaFonte(caminho: string, bytes: Uint8Array): { texto: string } | { binaria: string } {
   const formato = BINARIOS[extname(caminho).toLowerCase()];
   if (formato) return { binaria: formato };
+  const pela = assinatura(bytes);
+  if (pela) return { binaria: `${pela} com extensão de texto` };
   if (bytes.includes(0)) return { binaria: "binário" };
   // decodificarUtf8 só lança ErroDeEncoding: bytes que não formam UTF-8.
   try { return { texto: decodificarUtf8(bytes, caminho) }; } catch { return { binaria: "não é UTF-8" }; }

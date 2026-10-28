@@ -235,3 +235,51 @@ test("Dado fonte com link/../ no caminho Quando confiro Então reprova antes de 
     "FAIL: $.fonte: a fonte tem de estar em raw/ (veio raw/link/../notas/fonte.md)",
   ]);
 });
+
+// Revisão Codex 5 (B): extensão de texto não esconde PDF ou imagem. A assinatura dos primeiros bytes decide também.
+const aviso = (motivo: string) => `AVISO: citações não conferidas automaticamente (fonte binária: ${motivo}); confira os trechos na fonte antes de aprovar.`;
+
+test("Dado PDF só com ASCII salvo como .md e citação falsa Quando confiro Então aprova com aviso, não com OK silencioso", async () => {
+  writeFileSync(join(raiz, "raw/notas/fonte.md"), "%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n%%EOF\n");
+  gravar("leitura.json", JSON.stringify(relatorio("a wiki esquece")));
+  expect(await conferirArquivoDeLeitura(raiz, "leitura.json")).toEqual({ codigo: 0, mensagens: [aviso("pdf com extensão de texto"), OK_PADRAO] });
+});
+
+const ASSINATURAS: Array<[string, number[]]> = [
+  ["PNG", [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]],
+  ["JPEG", [0xff, 0xd8, 0xff, 0xe0]],
+  ["GIF", [...Buffer.from("GIF89a")]],
+  ["WEBP", [...Buffer.from("RIFF"), 0x24, 0x10, 0x01, 0x02, ...Buffer.from("WEBPVP8 ")]],
+  ["BMP", [...Buffer.from("BM"), 0x36, 0x10, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x00]],
+  ["TIFF II", [...Buffer.from("II*"), 0x00]],
+  ["TIFF MM", [...Buffer.from("MM"), 0x00, 0x2a]],
+  ["HEIC", [0x00, 0x00, 0x00, 0x18, ...Buffer.from("ftypheic")]],
+  ["AVIF", [0x00, 0x00, 0x00, 0x1c, ...Buffer.from("ftypavif")]],
+];
+for (const [nome, bytes] of ASSINATURAS) {
+  test(`Dado ${nome} salvo como .txt Quando confiro Então trata como imagem com extensão de texto`, async () => {
+    writeFileSync(join(raiz, "raw/notas/quadro.txt"), Buffer.concat([Buffer.from(bytes), Buffer.from(" a wiki acumula")]));
+    gravar("leitura.json", JSON.stringify(comFonte("raw/notas/quadro.txt")));
+    expect((await conferirArquivoDeLeitura(raiz, "leitura.json")).mensagens[0]).toBe(aviso("imagem com extensão de texto"));
+  });
+}
+
+test("Dado texto que começa com BM ou RIFF Quando confiro Então continua texto: a assinatura exige o cabeçalho inteiro", async () => {
+  writeFileSync(join(raiz, "raw/notas/fonte.md"), "BMW e RIFF. A wiki acumula. O agente mantém e a pessoa cura.\n");
+  gravar("leitura.json", JSON.stringify(relatorio()));
+  expect(await conferirArquivoDeLeitura(raiz, "leitura.json")).toEqual({ codigo: 0, mensagens: [OK_PADRAO] });
+  gravar("leitura.json", JSON.stringify(relatorio("a wiki esquece")));
+  expect((await conferirArquivoDeLeitura(raiz, "leitura.json")).codigo).toBe(1);
+});
+
+test("Dado PDF com extensão .pdf Quando confiro Então o motivo continua só pdf", async () => {
+  writeFileSync(join(raiz, "raw/notas/fonte.pdf"), "%PDF-1.4\n%%EOF\n");
+  gravar("leitura.json", JSON.stringify(comFonte("raw/notas/fonte.pdf")));
+  expect((await conferirArquivoDeLeitura(raiz, "leitura.json")).mensagens[0]).toBe(aviso("pdf"));
+});
+
+test("Dado texto UTF-8 com BOM Quando a citação é o começo da fonte Então confere normalmente", async () => {
+  writeFileSync(join(raiz, "raw/notas/fonte.md"), "﻿a wiki acumula. O agente mantém e a pessoa cura.\n");
+  gravar("leitura.json", JSON.stringify(relatorio()));
+  expect(await conferirArquivoDeLeitura(raiz, "leitura.json")).toEqual({ codigo: 0, mensagens: [OK_PADRAO] });
+});

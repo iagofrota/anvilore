@@ -73,6 +73,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   que não se resolve bloqueia.
 - `conferir-leitura` não trava mais a ingestão de PDF e imagem: sem extrair texto, confere o resto do relatório e avisa
   que as citações não foram conferidas; a skill mostra o aviso na parada. Texto continua com a conferência estrita.
+  PDF e imagem são reconhecidos também pela assinatura dos primeiros bytes, mesmo com extensão de texto.
 - A Revisão só aprova se a página ainda tiver o mesmo conteúdo exibido quando a fila foi carregada; se mudou, informa e recarrega para nova revisão. Timestamps com offset só de horas aceitos pelo esquema também são reconhecidos na fila.
 
 ## [0.2.0] - 2026-10-25
