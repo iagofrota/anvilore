@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { auditarWiki, comandoAuditar, exibirCaminho } from "../src/comandos/auditar";
 import { executar, subcomandos } from "../src/cli";
+import { esqueletoEm } from "./apoio/esqueleto";
 
 const HOJE = "2026-01-02";
 const CORPO = ["linha um do corpo", "linha dois do corpo", "linha tres do corpo"];
@@ -371,7 +372,7 @@ test("Dado reservados, navegação e arquivos que não são .md, Quando audito, 
 });
 
 test("Dado a wiki do repositório, Quando audito, Então nada é escrito nela e o relatório existe", async () => {
-  const wiki = join(import.meta.dir, "..", "wiki");
+  const { wiki } = await esqueletoEm(raiz);
   const antes = hashDe(wiki);
   const r = await auditarWiki(wiki, HOJE);
   expect(hashDe(wiki)).toBe(antes);

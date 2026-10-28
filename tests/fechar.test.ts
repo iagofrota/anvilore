@@ -19,6 +19,7 @@ import * as validar from "../src/comandos/validar";
 import { comandoFechar, fecharWiki } from "../src/comandos/fechar";
 import { executar, subcomandos } from "../src/cli";
 import { comandoInit } from "../src/comandos/init";
+import { esqueletoEm } from "./apoio/esqueleto";
 
 let tmp: string;
 const semLink = process.platform === "win32";
@@ -463,8 +464,7 @@ describe("fechar: escape explícito do gate", () => {
 
 describe("fechar: a wiki versionada do repositório", () => {
   test("Dado uma cópia da wiki do repositório, Quando fecho com o gate pulado, Então fecha e deixa os arquivos como estavam", async () => {
-    const copia = join(tmp, "wiki");
-    cpSync(join(import.meta.dir, "..", "wiki"), copia, { recursive: true });
+    const copia = (await esqueletoEm(tmp)).wiki;
     const antes = arvore(copia);
     process.env.ANVILORE_PULAR_GATE_LOG = "1";
     const r = await capturar(() => fecharWiki(copia));

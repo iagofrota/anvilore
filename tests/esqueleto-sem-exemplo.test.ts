@@ -1,16 +1,18 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { validarWiki } from "../src/comandos/validar";
+import { esqueletoEm } from "./apoio/esqueleto";
 
 // R73: o README manda apagar `wiki/exemplo/` e a seção `## Área: exemplo` do `wiki/index.md` antes de ligar um anvilore.toml com `areas`.
 // Só apagar a pasta deixa `[[area-tematica]]` no índice e o validador reprova por wikilink quebrado.
 const raiz = resolve(import.meta.dir, "..");
 const readme = readFileSync(join(raiz, "README.md"), "utf8");
 let tmp: string;
-beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), "anvilore-esqueleto-")); cpSync(join(raiz, "wiki"), join(tmp, "wiki"), { recursive: true }); });
-afterEach(() => rmSync(tmp, { recursive: true, force: true }));
+let pai: string;
+beforeEach(async () => { pai = mkdtempSync(join(tmpdir(), "anvilore-esqueleto-")); tmp = (await esqueletoEm(pai)).raiz; });
+afterEach(() => rmSync(pai, { recursive: true, force: true }));
 
 test("Dado o README Quando manda remover o exemplo Então diz a pasta e a seção do índice, com o trecho exato", () => {
   expect(readme).toContain("rm -r wiki/exemplo");

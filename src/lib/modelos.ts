@@ -23,6 +23,15 @@ export function destinoDoModelo(relModelo: string): string {
   return relModelo;
 }
 
+// O inverso de `destinoDoModelo`: onde mora em `modelos/` o original de um caminho da pessoa (`raw/`, `wiki/`, `SCHEMA.md`).
+export function origemNoModelo(destino: string): string | undefined {
+  const rel = destino.replace(/\/+$/, "");
+  if (rel === "raw" || rel.startsWith("raw/")) return `fontes${rel.slice("raw".length)}`;
+  if (rel === "wiki/.gitignore") return "wiki/gitignore";
+  if (rel === "wiki" || rel.startsWith("wiki/") || rel === "SCHEMA.md") return rel;
+  return undefined;
+}
+
 export function ehExemplo(destino: string): boolean {
   return destino.startsWith("wiki/exemplo/") || destino.startsWith("raw/exemplo/");
 }
