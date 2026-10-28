@@ -1,5 +1,21 @@
 export type LinhaDiferenca = { tipo: "igual" | "adicionada" | "removida"; texto: string };
 
+export class ErroApi extends Error {
+  constructor(message: string, readonly codigo?: number) { super(message); }
+}
+
+export async function erroDaResposta(resposta: Response): Promise<ErroApi> {
+  const texto = await resposta.text();
+  let mensagem: string | undefined;
+  let codigo: number | undefined;
+  try {
+    const corpo = JSON.parse(texto) as { codigo?: unknown; mensagens?: unknown };
+    if (typeof corpo.codigo === "number") codigo = corpo.codigo;
+    if (Array.isArray(corpo.mensagens) && typeof corpo.mensagens[0] === "string") mensagem = corpo.mensagens[0];
+  } catch { /* respostas não JSON mantêm o texto original */ }
+  return new ErroApi(mensagem || texto || "Falha ao falar com o Anvilore.", codigo);
+}
+
 export function indiceVizinho(indice: number, direcao: -1 | 1, tamanho: number): number {
   if (tamanho === 0) return -1;
   return Math.max(0, Math.min(tamanho - 1, indice + direcao));

@@ -85,6 +85,10 @@ function lerTimestamp(valor: unknown, campo: string, arquivo: string): Instante 
   return { data: { segundos: utc / 1000 - sinal * (offsetHoras! * 60 + offsetMinutos!) * 60, fracao: partes[7] ?? "" } };
 }
 
+export function timestampValido(valor: unknown): boolean {
+  return !("erro" in lerTimestamp(valor, "timestamp", "pagina"));
+}
+
 function lerAtor(valor: unknown, campo: string, arquivo: string): string | null {
   return typeof valor === "string" && ATOR.test(valor) ? null : `${campo} fora da convencao de atores: ${arquivo} (valor: ${String(valor)})`;
 }

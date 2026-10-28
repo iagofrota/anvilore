@@ -724,3 +724,39 @@ test("Dado só CLI ausente Quando termino Então não há o que reabrir e o pró
   expect(r.instalados).toEqual([]);
   expect(r.mensagens.join("\n")).not.toContain("Próximo passo");
 });
+
+test("Dado o alvo claude Quando instalo Então gera os agentes leitor e escritor dos prompts de skills/ingest e repetir não muda nada", async () => {
+  const { agentesDaIngestao } = await import("../src/lib/papeis-ingestao");
+  const r = await rodar(["claude"]);
+  expect(r.codigo).toBe(0);
+  for (const agente of await agentesDaIngestao(raiz)) {
+    expect(readFileSync(join(destino, agente.rel), "utf8")).toBe(agente.conteudo);
+  }
+  expect(readFileSync(join(destino, ".claude/agents/anvilore-leitor.md"), "utf8")).toContain(readFileSync(join(raiz, "skills/ingest/leitor.md"), "utf8"));
+  const antes = captura(destino);
+  expect((await rodar(["claude"])).veredito).toBe("INALTERADO");
+  expect(captura(destino)).toEqual(antes);
+});
+
+test("Dado agente gerado desatualizado e agente pessoal com o mesmo nome Quando instalo Então regrava o nosso e preserva o da pessoa", async () => {
+  await rodar(["claude"]);
+  writeFileSync(join(destino, ".claude/agents/anvilore-leitor.md"), "<!-- Gerado por `anvilore instalar` --> versão velha");
+  writeFileSync(join(destino, ".claude/agents/anvilore-escritor.md"), "meu escritor");
+  const r = await rodar(["claude"]);
+  expect(r.codigo).toBe(0);
+  expect(readFileSync(join(destino, ".claude/agents/anvilore-leitor.md"), "utf8")).toContain("# Papel: leitor da ingestão");
+  expect(readFileSync(join(destino, ".claude/agents/anvilore-escritor.md"), "utf8")).toBe("meu escritor");
+  expect(comBarras(r.mensagens.join("\n"))).toContain("AVISO: .claude/agents/anvilore-escritor.md já existe e não foi gerado pelo anvilore");
+});
+
+test("Dado alvos sem subagente com ferramentas restritas Quando instalo Então não gera agentes do Claude Code", async () => {
+  await rodar(["codex", "gemini", "copilot"]);
+  expect(existsSync(join(destino, ".claude/agents"))).toBe(false);
+});
+
+test("Dado agente que não dá para ler Quando instalo Então relata erro em vez de sobrescrever", async () => {
+  mkdirSync(join(destino, ".claude/agents/anvilore-leitor.md"), { recursive: true });
+  const r = await rodar(["claude"]);
+  expect(r.codigo).toBe(4);
+  expect(comBarras(r.mensagens.join("\n"))).toContain(".claude/agents/anvilore-leitor.md");
+});

@@ -20,6 +20,8 @@ import { comandoMetricas } from "./comandos/metricas";
 import { comandoIndexar, comandoMcp } from "./comandos/mcp";
 import { comandoHooksWiki } from "./comandos/hooks-wiki";
 import { comandoAprovar } from "./comandos/aprovar";
+import { comandoConferirLeitura } from "./comandos/conferir-leitura";
+import { comandoRotaIngestao } from "./comandos/rota-ingestao";
 import { comandoUi } from "./comandos/ui";
 
 export type Subcomando = (args: string[]) => Promise<number>;
@@ -48,6 +50,8 @@ export const subcomandos: TabelaDeSubcomandos = {
   mcp: comandoMcp,
   "hooks-wiki": comandoHooksWiki,
   aprovar: comandoAprovar,
+  "conferir-leitura": comandoConferirLeitura,
+  "rota-ingestao": comandoRotaIngestao,
   ui: comandoUi,
 };
 
