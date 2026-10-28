@@ -460,6 +460,77 @@ describe("migrar-rastreio: manifesto corrompido (revisão U1, B1)", () => {
   });
 });
 
+describe("migrar-rastreio: nada volta ao lugar sem conferir o SHA-256 (revisão U1, B2)", () => {
+  async function mortoComEstacionado() {
+    const { pessoa } = await cenario();
+    editar(pessoa, "SCHEMA.md", "MEU");
+    const script = join(import.meta.dir, "apoio", "morrer-no-meio.ts");
+    expect(Bun.spawnSync([process.execPath, script, pessoa, "puxar"]).exitCode).toBe(9);
+    const [pendente] = await pendentes(pessoa);
+    const pasta = join(pessoa, ".anvilore/migracao", pendente!.id);
+    return { pessoa, id: pendente!.id, pasta };
+  }
+
+  test("Dado o processo morto em puxar e o SCHEMA.md estacionado corrompido, Quando roda de novo, Então devolve a cópia conferida e guarda o corrompido ao lado, sem apagar", async () => {
+    const { pessoa, id, pasta } = await mortoComEstacionado();
+    writeFileSync(join(pasta, "estacionados/SCHEMA.md"), "CORRUPTO");
+    const r = await migrarRastreio(pessoa);
+    expect(r.codigo).toBe(0);
+    expect(readFileSync(join(pessoa, "SCHEMA.md"), "utf8")).toBe("MEU");
+    expect(readFileSync(join(pessoa, `SCHEMA.md.divergente-${id}`), "utf8")).toBe("CORRUPTO");
+    expect(r.mensagens.join("\n")).toContain(`SCHEMA.md.divergente-${id}`);
+    expect(await pendentes(pessoa)).toEqual([]);
+    expect((await puxar(pessoa)).codigo).toBe(0);
+    expect(readFileSync(join(pessoa, "SCHEMA.md"), "utf8")).toBe("MEU");
+  });
+
+  test("Dado o estacionado e a cópia de arquivos/ corrompidos, Quando roda de novo, Então bloqueia com os caminhos, não mexe em nada e o doctor sai 1", async () => {
+    const { pessoa, pasta } = await mortoComEstacionado();
+    writeFileSync(join(pasta, "estacionados/SCHEMA.md"), "CORRUPTO");
+    writeFileSync(join(pasta, "arquivos/SCHEMA.md"), "TAMBÉM");
+    for (const r of [await migrarRastreio(pessoa), await puxar(pessoa)]) {
+      expect(r.codigo).toBe(1);
+      expect(r.mensagens.join("\n")).toContain(join(".anvilore", "migracao", basename(pasta)));
+      expect(r.mensagens.join("\n")).toContain("SHA-256");
+    }
+    expect(existsSync(join(pessoa, "SCHEMA.md"))).toBe(false);
+    expect(readFileSync(join(pasta, "estacionados/SCHEMA.md"), "utf8")).toBe("CORRUPTO");
+    expect(gitOk(pessoa, "log", "-1", "--pretty=%s")).toBe("versão N");
+    const trava = (await diagnosticar(pessoa)).travas.find(t => t.nome === "Migração dos seus arquivos para fora do rastreio do kit");
+    expect(trava?.ligada).toBe(false);
+  });
+
+  test("Dado uma migração incompleta e o SCHEMA.md alterado depois, Quando retoma, Então a versão alterada fica guardada ao lado e o conferido volta", async () => {
+    const { pessoa } = await cenario({ n1: false });
+    editar(pessoa, "SCHEMA.md", "MEU");
+    const r = await migrarRastreio(pessoa, { aoEntrarNaEtapa: (e) => { if (e === "tirar-do-indice") throw new Error("falha simulada"); } });
+    editar(pessoa, "SCHEMA.md", "EDITADO DEPOIS");
+    const de_novo = await migrarRastreio(pessoa);
+    expect(de_novo.codigo).toBe(0);
+    expect(readFileSync(join(pessoa, "SCHEMA.md"), "utf8")).toBe("MEU");
+    expect(readFileSync(join(pessoa, `SCHEMA.md.divergente-${r.manifesto!.id}`), "utf8")).toBe("EDITADO DEPOIS");
+  });
+
+  test("Dado a conferência acha um arquivo divergente no mesmo processo, Quando restaura, Então o divergente fica guardado ao lado", async () => {
+    const { pessoa } = await cenario({ n1: false });
+    editar(pessoa, "SCHEMA.md", "MEU");
+    const r = await migrarRastreio(pessoa, { aoEntrarNaEtapa: (etapa) => { if (etapa === "conferir") editar(pessoa, "SCHEMA.md", "CORROMPIDO"); } });
+    expect(r.codigo).toBe(0);
+    expect(readFileSync(join(pessoa, "SCHEMA.md"), "utf8")).toBe("MEU");
+    expect(readFileSync(join(pessoa, `SCHEMA.md.divergente-${r.manifesto!.id}`), "utf8")).toBe("CORROMPIDO");
+  });
+
+  test("Dado um manifesto com estacionado que não está na lista de arquivos (sem hash), Quando roda de novo, Então bloqueia", async () => {
+    const { pessoa, pasta } = await mortoComEstacionado();
+    const caminho = join(pasta, "manifesto.json");
+    const dado = JSON.parse(readFileSync(caminho, "utf8"));
+    dado.arquivos = dado.arquivos.filter((a: { caminho: string }) => a.caminho !== "SCHEMA.md");
+    writeFileSync(caminho, JSON.stringify(dado));
+    expect((await migrarRastreio(pessoa)).codigo).toBe(1);
+    expect(readFileSync(join(pasta, "estacionados/SCHEMA.md"), "utf8")).toBe("MEU");
+  });
+});
+
 describe("migrar-rastreio: comando", () => {
   test("Dado ajuda, argumento a mais ou opção desconhecida, Quando rodo o comando, Então 0, 2 e 2", async () => {
     expect(await comandoMigrarRastreio(["--help"])).toBe(0);
