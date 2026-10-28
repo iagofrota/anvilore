@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,13 +16,32 @@ async function servidor(porta = 0) {
   return app;
 }
 
-function postAprovar(app: Awaited<ReturnType<typeof iniciarServidorUi>>, caminho: string, headers: Record<string, string> = {}) {
+function versaoAtual(caminho: string): string {
+  try { return createHash("sha256").update(readFileSync(join(raiz, "wiki", caminho))).digest("hex"); }
+  catch { return "0".repeat(64); }
+}
+
+function postAprovar(app: Awaited<ReturnType<typeof iniciarServidorUi>>, caminho: string, headers: Record<string, string> = {}, versao = versaoAtual(caminho)) {
   return fetch(`http://127.0.0.1:${app.porta}/api/aprovar?token=token-teste`, {
     method: "POST",
     headers: { "content-type": "application/json", origin: `http://127.0.0.1:${app.porta}`, ...headers },
-    body: JSON.stringify({ caminho }),
+    body: JSON.stringify({ caminho, versao }),
   });
 }
+
+test("Dado página alterada depois de abrir a fila Quando aprovo a versão exibida Então recebo 409 sem aprovar o texto novo", async () => {
+  const caminho = "concepts/alterada.md";
+  const exibido = "---\ntype: concept\nslug: alterada\ntitle: Alterada\ngenerated:\n  by: agente/teste\n  at: 2026-10-27T10:00:00Z\n---\nTexto que revisei.\n";
+  writeFileSync(join(raiz, "wiki", caminho), exibido);
+  const app = await servidor();
+  const fila = await (await fetch(`http://127.0.0.1:${app.porta}/api/rascunhos?token=token-teste`)).json() as Array<{ caminho: string; versao: string }>;
+  writeFileSync(join(raiz, "wiki", caminho), exibido.replace("Texto que revisei.", "Texto novo que não revisei."));
+
+  const resposta = await postAprovar(app, caminho, {}, fila[0]!.versao);
+  expect(resposta.status).toBe(409);
+  expect(await resposta.json()).toMatchObject({ mensagens: ["A página mudou desde que você abriu. Recarregue para revisar a versão nova."] });
+  expect(readFileSync(join(raiz, "wiki", caminho), "utf8")).not.toContain("verified:");
+});
 
 test("Dado interface local ativa Quando acesso sem token Então recebe 403", async () => {
   const app = await servidor();
@@ -104,6 +124,23 @@ test("Dado inicialização padrão Quando o servidor sobe Então abre URL de loo
   servidores.push(app.servidor);
   expect(app.servidor.hostname).toBe("127.0.0.1");
   expect(aberta).toBe(`http://127.0.0.1:${app.porta}/?token=token-teste`);
+});
+
+test("Dado abertura padrão no Linux Quando inicio a interface Então usa xdg-open para a URL local", async () => {
+  const bun = Bun as unknown as { spawn: (...args: unknown[]) => unknown };
+  const original = bun.spawn;
+  let comando: unknown;
+  bun.spawn = ((args: unknown) => { comando = args; return {}; }) as typeof bun.spawn;
+  try {
+    const app = await iniciarServidorUi(raiz, { portaInicial: 0, token: "token-teste" });
+    servidores.push(app.servidor);
+    expect(comando).toEqual(["xdg-open", app.url]);
+  } finally { bun.spawn = original; }
+});
+
+test("Dado rota local desconhecida Quando consulto Então recebe 404", async () => {
+  const app = await servidor();
+  expect((await fetch(`http://127.0.0.1:${app.porta}/rota-inexistente?token=token-teste`)).status).toBe(404);
 });
 
 test("Dado interface autorizada Quando carrego a página e os assets Então o token segue na URL", async () => {

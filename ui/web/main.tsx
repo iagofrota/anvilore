@@ -16,7 +16,15 @@ async function api<T>(rota: string, metodo = "GET", corpo?: unknown): Promise<T>
     method: metodo,
     ...(corpo === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(corpo) }),
   });
-  if (!resposta.ok) throw new Error((await resposta.text()) || "Falha ao falar com o Anvilore.");
+  if (!resposta.ok) {
+    const texto = await resposta.text();
+    let mensagem: string | undefined;
+    try {
+      const erro = JSON.parse(texto) as { mensagens?: unknown };
+      if (Array.isArray(erro.mensagens) && typeof erro.mensagens[0] === "string") mensagem = erro.mensagens[0];
+    } catch { /* respostas não JSON mantêm o texto original */ }
+    throw new Error(mensagem ?? texto ?? "Falha ao falar com o Anvilore.");
+  }
   return await resposta.json() as T;
 }
 
@@ -70,10 +78,14 @@ function Aplicacao() {
     if (!item?.aprovavel || salvando) return;
     setSalvando(true);
     try {
-      const resultado = await api<{ codigo: number; mensagens: string[] }>("/api/aprovar", "POST", { caminho: item.caminho });
+      const resultado = await api<{ codigo: number; mensagens: string[] }>("/api/aprovar", "POST", { caminho: item.caminho, versao: item.versao });
       if (resultado.codigo !== 0) throw new Error(resultado.mensagens.join(" "));
       await carregar();
-    } catch (motivo) { setErro(motivo instanceof Error ? motivo.message : "Não foi possível aprovar."); }
+    } catch (motivo) {
+      const mensagem = motivo instanceof Error ? motivo.message : "Não foi possível aprovar.";
+      if (mensagem === "A página mudou desde que você abriu. Recarregue para revisar a versão nova.") { await carregar(); setErro(mensagem); }
+      else setErro(mensagem);
+    }
     finally { setSalvando(false); }
   }, [item, salvando, carregar]);
 

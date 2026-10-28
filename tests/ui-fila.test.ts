@@ -34,6 +34,16 @@ test("Dado página aprovada após generated Quando abro Revisão Então não apa
   expect(await listarFilaRascunhos(raiz)).toHaveLength(0);
 });
 
+test("Dado generated e verified válidos com offset de horas Quando abro Revisão Então reconheço a aprovação e não reabro a página", async () => {
+  pagina("offset-horas", "2026-10-27T10:00:00-03", "verified:\n  - by: human:ana\n    at: 2026-10-27T11:00:00-03\n");
+  expect(await listarFilaRascunhos(raiz)).toHaveLength(0);
+});
+
+test("Dado rascunho válido com offset de horas Quando abro Revisão Então aparece como novo e aprovável", async () => {
+  pagina("rascunho-offset", "2026-10-27T10:00:00-03");
+  expect(await listarFilaRascunhos(raiz)).toMatchObject([{ status: "nova", aprovavel: true }]);
+});
+
 test("Dado frontmatter malformado Quando abro Revisão Então aparece erro real do validador e não pode aprovar", async () => {
   writeFileSync(join(raiz, "wiki/pessoal/concepts/quebrada.md"), "---\ntype: [\n---\ntexto\n");
   const fila = await listarFilaRascunhos(raiz);
