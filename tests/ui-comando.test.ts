@@ -26,6 +26,26 @@ test("Dado servidor ativo Quando recebo SIGINT Então fecho a porta e retorno", 
   expect(fechado).toBe(true);
 });
 
+test("Dado SIGINT durante ingestão Quando encerro a UI Então aguardo a limpeza do agente", async () => {
+  let servidorFechado = false;
+  let limpezaConcluida = false;
+  let liberarLimpeza!: () => void;
+  const limpeza = new Promise<void>(resolver => { liberarLimpeza = resolver; });
+  const registrar = (sinal: "SIGINT" | "SIGTERM", callback: () => void) => { if (sinal === "SIGINT") queueMicrotask(callback); };
+  const fake = { stop: () => { servidorFechado = true; } } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>["servidor"];
+  let terminou = false;
+  const encerramento = esperarEncerramento(fake, registrar, async () => { await limpeza; limpezaConcluida = true; }).then(() => { terminou = true; });
+
+  await Promise.resolve();
+  expect(servidorFechado).toBe(true);
+  expect(limpezaConcluida).toBe(false);
+  expect(terminou).toBe(false);
+  liberarLimpeza();
+  await encerramento;
+  expect(limpezaConcluida).toBe(true);
+  expect(terminou).toBe(true);
+});
+
 test("Dado configuração padrão Quando recebo SIGTERM Então o handler registrado fecha o servidor", async () => {
   let fechado = false;
   const fake = { stop: () => { fechado = true; } } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>["servidor"];
@@ -48,5 +68,23 @@ test("Dado comando válido Quando o servidor abre Então exibe a URL com token e
     expect(await comandoUi([], async () => fake, async servidor => { servidor.stop(true); })).toBe(0);
     expect(c.saida.join(" ")).toContain("http://127.0.0.1:4173/?token=token");
     expect(encerrou).toBe(true);
+  } finally { c.restaurar(); }
+});
+
+test("Dado servidor que expõe limpeza Quando comandoUi recebe o sinal Então espera o encerramento da ingestão", async () => {
+  const c = capturarConsole();
+  let ingestaoEncerrada = false;
+  const fake = {
+    servidor: { stop() {} }, porta: 4173, token: "token", url: "http://127.0.0.1:4173/?token=token",
+    encerrar: async () => { ingestaoEncerrada = true; },
+  } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>;
+  const esperar = async (
+    servidor: Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>["servidor"],
+    _registrar?: (sinal: "SIGINT" | "SIGTERM", callback: () => void) => void,
+    encerrar?: () => Promise<void>,
+  ) => { servidor.stop(true); await encerrar?.(); };
+  try {
+    expect(await comandoUi([], async () => fake, esperar)).toBe(0);
+    expect(ingestaoEncerrada).toBe(true);
   } finally { c.restaurar(); }
 });

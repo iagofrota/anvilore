@@ -138,8 +138,11 @@ Com o clone configurado:
    > verificação humana posterior. Uma empresa pode restringir áreas, tipos e
    > campos obrigatórios num `anvilore.toml` (veja o `SCHEMA.md`).
 
-Para abrir a fila de rascunhos em uma tela local, execute `anvilore ui`. A página
-abre no navegador; use **Aprovar** ou a tecla `A`, e `J`/`K` para navegar.
+Para ingerir e revisar numa tela local, execute `anvilore ui`. A página abre no
+navegador. No chat, solte um arquivo (ou cole um texto), escolha a área e aperte
+**Ingerir**: o Claude Code lê com a conta em que você já entrou, para nos
+takeaways para você decidir o que entra e só então escreve. Na Revisão, use
+**Aprovar** ou a tecla `A`, e `J`/`K` para navegar.
 
 Quando a wiki crescer, `skills/lint/SKILL.md` faz a varredura de manutenção:
 o que está estruturalmente quebrado, o que virou dívida de conhecimento e o

@@ -43,6 +43,15 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - A abertura concorrente de um índice SQLite novo repete operações bloqueadas antes de falhar.
 - Registros MCP com símbolos/ANSI são reconhecidos; remoção falha por agente e continua para os seguintes.
 - Symlinks internos são indexados uma vez pelo caminho canônico; consultas livres preservam termos como `caminho` e `title`.
+- Chat de ingestão na interface (`anvilore ui`): solte um arquivo ou cole um texto, escolha a área e aperte
+  Ingerir. A fonte vai para `raw/<área>/` (nome repetido ganha sufixo, nada é sobrescrito); o leitor do Claude
+  Code lê com a conta em que a pessoa já entrou, sem chave de API; a ingestão para uma vez nos takeaways e na
+  lista de páginas; o escritor escreve só o que foi marcado; a própria interface roda `fechar` e mostra a
+  saída real, com "N rascunhos esperam você" e o atalho para a Revisão. Um painel mostra os 7 passos, o
+  Cancelar interrompe o agente, e a conversa fica gravada em `.anvilore/ui/conversas/`: fechar o navegador
+  na parada e voltar continua do mesmo ponto.
+- O envio de fonte pela interface recusa `raw/` ou `raw/<área>` que, por link simbólico, apontem para fora do
+  vault ou de `raw/`, e o leitor manda ao Claude Code o esquema sem `$schema` e `$id`, que o `--json-schema` recusava.
 - `anvilore ui` abre uma Revisão local de rascunhos com aprovação pela lógica existente, navegação por teclado e validação real da wiki. A interface usa React+TypeScript e pode desligar o autocommit durante a escrita com `ANVILORE_SEM_AUTOCOMMIT=1`.
 - A Revisão alinha a aprovação à proveniência humana, preserva CRLF, mostra a URL com token, protege POST por Origin e Referrer-Policy, indexa cópias sem bloquear o event loop e deixa avisos globais sem bloquear a aprovação. O CI confere que os assets compilados estão versionados e atualizados.
 - Hooks nos quatro agentes para commit opcional de páginas em `wiki/`, backup opcional no GitHub ao fim da sessão e
