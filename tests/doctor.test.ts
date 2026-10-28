@@ -446,3 +446,32 @@ test("Dado .claude/ vazia no clone e claude antigo Quando diagnostico Então con
   claudeComVersao("2.0.9");
   expect((await travas())[VERSAO]?.opcional).toBeUndefined();
 });
+
+const papeis = "Papéis da ingestão no Claude Code (leitor e escritor)";
+
+test("Dado o Claude instalado no clone Quando diagnostico Então os papéis da ingestão estão ligados", async () => {
+  await instalarTudo(); completar();
+  expect((await travas())[papeis]).toEqual({ nome: papeis, ligada: true });
+});
+
+test("Dado agente da ingestão ausente ou desatualizado Quando diagnostico Então a trava desliga, diz qual e manda reinstalar", async () => {
+  await instalarTudo(); completar();
+  rmSync(join(clone, ".claude/agents/anvilore-escritor.md"));
+  writeFileSync(join(clone, ".claude/agents/anvilore-leitor-grande.md"), "velho");
+  const trava = (await travas())[papeis]!;
+  expect(trava.ligada).toBe(false);
+  expect(trava.opcional).toBeUndefined();
+  expect(trava.comoLigar).toContain("instalar --alvo claude");
+  expect(trava.detalhe).toBe(".claude/agents/anvilore-escritor.md não existe; .claude/agents/anvilore-leitor-grande.md desatualizado");
+});
+
+test("Dado agente da ingestão ilegível Quando diagnostico Então a trava desliga com o motivo", async () => {
+  await instalarTudo(); completar();
+  rmSync(join(clone, ".claude/agents/anvilore-leitor.md"));
+  mkdirSync(join(clone, ".claude/agents/anvilore-leitor.md"));
+  expect((await travas())[papeis]!.detalhe).toStartWith("não foi possível ler os agentes");
+});
+
+test("Dado clone sem .claude/ Quando diagnostico Então não cobra os papéis do Claude Code", async () => {
+  expect((await travas())[papeis]).toBeUndefined();
+});

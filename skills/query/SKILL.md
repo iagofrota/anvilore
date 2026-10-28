@@ -138,7 +138,7 @@ Depois de responder, pergunte:
 Quer que eu salve isso como uma página da wiki?
 ```
 
-Se o usuário disser sim, pergunte um título se não for óbvio. Então crie `wiki/concepts/<slug>.md` usando o modelo de conceito de `skills/ingest/SKILL.md`. A página inclui a resposta citada e a seção `## Pergunta de origem`:
+Se o usuário disser sim, pergunte um título se não for óbvio. Então crie `wiki/concepts/<slug>.md` usando o modelo de conceito de `skills/ingest/escritor.md`. A página inclui a resposta citada e a seção `## Pergunta de origem`:
 
 ```markdown
 ## Pergunta de origem

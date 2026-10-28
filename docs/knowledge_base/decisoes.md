@@ -43,11 +43,27 @@ Para a linhagem do método e a argumentação completa das posições de design,
 
 - O agente ingere, cruza e escreve. O que entra como verdade passa por quem cura
   (`FILOSOFIA.md`, seção 2; `README.md`, parágrafo "Por que ele é assim").
-- Onde isso está escrito como regra: `skills/ingest/SKILL.md` manda ler a fonte sem escrever,
-  discutir de 3 a 5 takeaways com a pessoa e só depois escrever (Passo 0 e Passo 2). O
-  `AGENTS.md` proíbe o agente de resolver uma contradição entre fontes por conta própria.
+- Onde isso está escrito como regra: `skills/ingest/SKILL.md` manda o leitor ler a fonte sem
+  escrever, mostrar de 3 a 5 takeaways e a lista de páginas numa parada só e só depois o escritor
+  escrever (Passos 1 a 3). O `AGENTS.md` proíbe o agente de resolver uma contradição entre fontes
+  por conta própria.
 - **Limite honesto:** isso é texto de skill e de contrato. Nenhum script ou hook confere que a
   pessoa deu o aval. Veja [governanca.md](governanca.md).
+
+## Leitor e escritor sempre separados
+
+- **Decisão do Iago em 2026-10-27, trazida pelo líder do W06.** A ingestão separa sempre os dois
+  papéis, para fonte de qualquer tamanho: o leitor lê e devolve o relatório, a pessoa aprova takeaways e
+  páginas numa parada só, e só então o escritor escreve. A pessoa nunca roda comando.
+- O que mudou do R70: ele dispensava subagentes abaixo de 400 000 bytes. O motivo era portabilidade, não
+  custo: a skill não podia pressupor subagentes nem um modelo do Claude Code. Esse motivo continua. No
+  Claude Code a skill despacha os agentes `anvilore-leitor` e `anvilore-escritor`, que o
+  `anvilore instalar` gera dos prompts (`src/lib/papeis-ingestao.ts`). Onde não há subagente com
+  ferramentas restritas, a própria sessão faz os dois papéis, guiada pelos mesmos arquivos. O tamanho da
+  fonte decide só a janela de contexto (`anvilore rota-ingestao`).
+- Os prompts (`skills/ingest/leitor.md`, `skills/ingest/escritor.md`) e o esquema do relatório
+  (`skills/ingest/relatorio-leitor.schema.json`) são a fonte única para a skill no terminal e para a
+  interface. O código só interpreta o esquema (`src/lib/relatorio-leitor.ts`).
 
 ## A fronteira rígida entre raw e wiki
 

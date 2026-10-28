@@ -9,6 +9,7 @@ import { avisoRg } from "../lib/rg";
 import { registradores, type Ambiente } from "../mcp/registro";
 import { caminhoWiki, repositorioDaWiki } from "../lib/wiki-repo";
 import { PASTA_MIGRACAO, situacaoDaMigracao } from "../lib/migracao";
+import { conferirAgentesDaIngestao } from "../lib/papeis-ingestao";
 
 export type Trava = { nome: string; ligada: boolean; comoLigar?: string; detalhe?: string; opcional?: boolean; naoInstalado?: boolean; semTrava?: boolean };
 export type Prerequisito = { nome: string; presente: boolean };
@@ -120,6 +121,21 @@ async function versaoDoClaude(raiz: string, path: string | undefined): Promise<T
   return configurado
     ? { nome, ligada: false, comoLigar, detalhe: `versão encontrada: ${achada[0]}` }
     : { nome, ligada: false, opcional: true, comoLigar: `${comoLigar}, se for usar o Claude Code neste clone`, detalhe: `versão encontrada: ${achada[0]}` };
+}
+
+// Os agentes leitor e escritor são cópia gerada dos prompts de skills/ingest/: só se cobra de quem
+// configurou o Claude Code neste clone. Faltando ou desatualizados, a skill despacha o papel errado.
+async function papeisDaIngestao(raiz: string): Promise<Trava | undefined> {
+  if (!(await stat(join(raiz, ".claude")).then(info => info.isDirectory(), () => false))) return undefined;
+  const nome = "Papéis da ingestão no Claude Code (leitor e escritor)";
+  let problemas: string[];
+  try {
+    problemas = await conferirAgentesDaIngestao(raiz);
+  } catch (erro) {
+    problemas = [`não foi possível ler os agentes (${(erro as Error).message})`];
+  }
+  if (!problemas.length) return { nome, ligada: true };
+  return { nome, ligada: false, comoLigar: comandoInstalar(raiz, "claude"), detalhe: problemas.join("; ") };
 }
 
 // Tira os comentários de shell/YAML (linha inteira ou depois de ` #`), respeitando aspas: texto comentado não é chamada ativa.
@@ -244,6 +260,8 @@ export async function diagnosticar(raiz: string, ambiente: Record<string, string
   }
   const versao = await versaoDoClaude(raiz, path);
   if (versao) travas.push(versao);
+  const papeis = await papeisDaIngestao(raiz);
+  if (papeis) travas.push(papeis);
   travas.push(await validacaoNoFechamento(raiz), await checagemAntesDeAceitar(raiz), await perfilDaEmpresa(raiz));
   const perfil: Perfil = await carregarPerfil(raiz).catch(() => ({}));
   const wiki = caminhoWiki(raiz, ambiente);

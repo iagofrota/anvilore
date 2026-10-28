@@ -40,7 +40,8 @@ deliberada de RAG e a neutralidade de provedor de agente — está em
 
 ## Começo em 5 minutos
 
-Linux, Windows e macOS: o CI roda a verificação nos três.
+Linux, Windows e macOS: o CI roda a verificação nos três. No Windows, por enquanto, só o CI testa: o kit ainda não
+foi provado numa máquina Windows de verdade, porque o mantenedor ainda não tem uma.
 
 **O que o Anvilore ainda não resolve:** vazamento de documentos internos. Ele impede que o agente grave em `raw/`, mas
 não impede que o conteúdo da wiki seja copiado, enviado a um serviço externo ou lido por quem não deveria; não o use como
