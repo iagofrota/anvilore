@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isoComOffset } from "../src/lib/hora";
@@ -89,4 +89,13 @@ test("Dado uma data Quando formato com offset Então sai ISO com segundos e o fu
   const texto = isoComOffset(new Date(2026, 9, 28, 9, 5, 7));
   expect(texto).toMatch(/^2026-10-28T09:05:07[+-]\d{2}:\d{2}$/);
   expect(new Date(texto).getTime()).toBe(new Date(2026, 9, 28, 9, 5, 7).getTime());
+});
+
+test("Dado uma área montada por link simbólico e um link quebrado Quando listo as áreas Então a área ligada aparece e o link quebrado não", async () => {
+  const fora = join(raiz, "outro-disco/estudos");
+  mkdirSync(join(fora, "sources"), { recursive: true });
+  // Junção no Windows dispensa privilégio de administrador; nos outros sistemas o tipo é ignorado.
+  symlinkSync(fora, join(raiz, "wiki/estudos"), "junction");
+  symlinkSync(join(raiz, "nao-existe"), join(raiz, "wiki/quebrado"), "junction");
+  expect(await areasDaWiki(join(raiz, "wiki"))).toEqual(["estudos", "pessoal", "trabalho"]);
 });

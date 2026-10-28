@@ -225,11 +225,14 @@ function Fechamento({ conversa }: { conversa: Conversa }) {
   const novas = conversa.atividade.filter(a => a.papel === "escritor" && a.verbo === "Criou").length;
   const atualizadas = conversa.atividade.filter(a => a.papel === "escritor" && a.verbo === "Atualizou" && a.alvo !== "wiki/index.md").length;
   return <>
-    <details className="activity">
+    <details className="activity" open={aviso.tipo === "erro"}>
       <summary><span>Rodou <code>anvilore fechar</code></span><span className={`result-badge ${fechamento.codigo === 0 ? "pass" : aviso.tipo === "rascunhos" ? "draft" : "fail"}`}>CÓDIGO {fechamento.codigo}</span></summary>
       <pre className="validation-output">{fechamento.saida}</pre>
     </details>
-    {aviso.tipo === "erro" ? <div className="alert inline" role="alert">{aviso.texto}. Veja a saída acima.</div> : <div className="drafts-card">
+    {aviso.tipo === "erro" ? <div className="alert inline" role="alert">
+      <p>{aviso.texto}. Veja a saída acima.</p>
+      {fechamento.rascunhos > 0 && <a className="secondary-button" href="#/revisao">Revisar os {fechamento.rascunhos} rascunhos</a>}
+    </div> : <div className="drafts-card">
       <div><strong>{aviso.texto}</strong><small>{novas} {novas === 1 ? "nova" : "novas"} · {atualizadas} {atualizadas === 1 ? "atualizada" : "atualizadas"}{atualizadas ? " (a aprovação antiga deixa de valer)" : ""}</small></div>
       <a className="approve-button" href="#/revisao">Revisar agora</a>
     </div>}

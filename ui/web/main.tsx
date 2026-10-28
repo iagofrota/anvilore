@@ -71,7 +71,7 @@ function Aplicacao() {
           </a>)}
         </nav>
       </>}
-      <div className="sidebar-bottom"><span className="status-dot" /> {estado?.agente ?? "Agente"} <span className="sidebar-spacer" /> <span className="mono">raw/ protegido</span></div>
+      <div className="sidebar-bottom"><span className="status-dot" /> <span>{estado?.agente ?? "Agente"}</span> <span className="sidebar-spacer" /> <span className="mono">raw/ protegido</span></div>
     </aside>
     {rota.tela === "revisao" ? <Revisao tema={tema} alternarTema={alternarTema} /> : <Chat id={rota.id} estado={estado} recarregarEstado={recarregarEstado} abrir={abrir} tema={tema} alternarTema={alternarTema} />}
   </div>;
