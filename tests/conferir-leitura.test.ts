@@ -89,10 +89,68 @@ test("Dado fonte que não existe em raw/ Quando confiro Então reprova dizendo o
   expect(await conferirArquivoDeLeitura(raiz, "leitura.json")).toEqual({ codigo: 1, mensagens: ["FAIL: fonte não encontrada: raw/notas/sumiu.md"] });
 });
 
-test("Dado fonte que não é UTF-8 Quando confiro Então reprova em vez de comparar texto corrompido", async () => {
+// P2 do Codex do GitHub: PDF e imagem não são texto. Sem dependência de produção para extrair texto, a citação de fonte
+// binária não é conferida pela ferramenta: o relatório passa com um aviso que a pessoa vê na parada. Texto continua estrito.
+const PDF = Buffer.concat([Buffer.from("%PDF-1.7\n1 0 obj << /Filter /FlateDecode >> stream\n"), Buffer.from([0x78, 0x9c, 0xe9, 0x00, 0xff, 0x13]), Buffer.from("\nendstream\n%%EOF\n")]);
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d]);
+const OK_PADRAO = "OK: leitura conferida — 3 takeaways, 2 páginas (1 a criar, 1 a atualizar), 0 lacunas, 0 contradições.";
+
+function comFonte(fonte: string) {
+  const r = relatorio();
+  r.fonte = fonte;
+  return r;
+}
+
+test("Dado PDF em raw/ com citações certas Quando confiro Então aprova com aviso de citações não conferidas", async () => {
+  writeFileSync(join(raiz, "raw/notas/fonte.pdf"), PDF);
+  gravar("leitura.json", JSON.stringify(comFonte("raw/notas/fonte.pdf")));
+  expect(await conferirArquivoDeLeitura(raiz, "leitura.json")).toEqual({
+    codigo: 0,
+    mensagens: ["AVISO: citações não conferidas automaticamente (fonte binária: pdf); confira os trechos na fonte antes de aprovar.", OK_PADRAO],
+  });
+});
+
+test("Dado imagem em raw/ Quando confiro Então aprova com o mesmo aviso", async () => {
+  writeFileSync(join(raiz, "raw/notas/quadro.PNG"), PNG);
+  gravar("leitura.json", JSON.stringify(comFonte("raw/notas/quadro.PNG")));
+  const r = await conferirArquivoDeLeitura(raiz, "leitura.json");
+  expect(r.codigo).toBe(0);
+  expect(r.mensagens[0]).toBe("AVISO: citações não conferidas automaticamente (fonte binária: imagem); confira os trechos na fonte antes de aprovar.");
+});
+
+test("Dado texto que não é UTF-8 Quando confiro Então não compara texto corrompido: aprova com aviso", async () => {
   writeFileSync(join(raiz, "raw/notas/fonte.md"), Buffer.from([0x63, 0x61, 0x66, 0xe9]));
   gravar("leitura.json", JSON.stringify(relatorio()));
-  expect((await conferirArquivoDeLeitura(raiz, "leitura.json")).mensagens[0]).toContain("não é UTF-8 válido");
+  const r = await conferirArquivoDeLeitura(raiz, "leitura.json");
+  expect(r.codigo).toBe(0);
+  expect(r.mensagens[0]).toBe("AVISO: citações não conferidas automaticamente (fonte binária: não é UTF-8); confira os trechos na fonte antes de aprovar.");
+});
+
+test("Dado arquivo de texto com byte nulo Quando confiro Então trata como binário e avisa", async () => {
+  writeFileSync(join(raiz, "raw/notas/dados.txt"), Buffer.from([0x61, 0x00, 0x62]));
+  gravar("leitura.json", JSON.stringify(comFonte("raw/notas/dados.txt")));
+  expect((await conferirArquivoDeLeitura(raiz, "leitura.json")).mensagens[0]).toContain("(fonte binária: binário)");
+});
+
+test("Dado .md com citação falsa Quando confiro Então continua reprovando: texto tem checagem estrita", async () => {
+  gravar("leitura.json", JSON.stringify(relatorio("a wiki esquece")));
+  expect((await conferirArquivoDeLeitura(raiz, "leitura.json")).codigo).toBe(1);
+});
+
+test("Dado PDF e página a criar que já existe Quando confiro Então reprova: a estrutura continua conferida", async () => {
+  writeFileSync(join(raiz, "raw/notas/fonte.pdf"), PDF);
+  const r = comFonte("raw/notas/fonte.pdf");
+  r.paginas[1]!.acao = "criar";
+  gravar("leitura.json", JSON.stringify(r));
+  expect((await conferirArquivoDeLeitura(raiz, "leitura.json")).mensagens).toEqual(["FAIL: $.paginas[1].acao: pessoal/concepts/wiki.md já existe; use atualizar"]);
+});
+
+test("Dado PDF que não dá para ler Quando confiro Então reprova: falha de leitura não vira aviso", async () => {
+  mkdirSync(join(raiz, "raw/notas/fonte.pdf"));
+  gravar("leitura.json", JSON.stringify(comFonte("raw/notas/fonte.pdf")));
+  const r = await conferirArquivoDeLeitura(raiz, "leitura.json");
+  expect(r.codigo).toBe(1);
+  expect(r.mensagens[0]).toStartWith("FAIL:");
 });
 
 test("Dado arquivo de leitura ausente ou sem JSON Quando confiro Então reprova com o motivo", async () => {

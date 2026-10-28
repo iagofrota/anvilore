@@ -153,6 +153,11 @@ describe("skill ingest: leitor e escritor sempre separados (W06)", () => {
     expect(skill).toContain("Relatório de subagente não é prova.");
   });
 
+  test("Dado fonte binária (PDF, imagem) Quando a conferência avisa que não conferiu as citações Então o aviso vai para a pessoa na parada", () => {
+    expect(skill).toContain("citações não conferidas automaticamente");
+    expect(skill).toMatch(/mostre o `AVISO` na parada/);
+  });
+
   test("Dado a skill Quando fala de comandos Então quem roda é a ferramenta, nunca a pessoa", () => {
     expect(skill).toContain("**Quem roda os comandos é você, nunca a pessoa.**");
     expect(skill).not.toContain("bun src/cli.ts");

@@ -181,12 +181,14 @@ export function conferirPaginas(relatorio: RelatorioLeitor, existe: (caminho: st
 
 export function conferirLeitura(
   valor: unknown,
-  contexto: { textoFonte: string; existe: (caminho: string) => boolean },
+  // `textoFonte` ausente: a fonte não tem texto que a ferramenta saiba ler (PDF, imagem). As citações ficam para a pessoa.
+  contexto: { textoFonte: string | undefined; existe: (caminho: string) => boolean },
 ): Conferencia {
   const doEsquema = validarRelatorioLeitor(valor);
   if (!doEsquema.ok) return doEsquema;
   const relatorio = valor as RelatorioLeitor;
-  const erros = [...conferirCitacoes(relatorio, contexto.textoFonte), ...conferirPaginas(relatorio, contexto.existe)];
+  const citacoes = contexto.textoFonte === undefined ? [] : conferirCitacoes(relatorio, contexto.textoFonte);
+  const erros = [...citacoes, ...conferirPaginas(relatorio, contexto.existe)];
   return { ok: erros.length === 0, erros };
 }
 

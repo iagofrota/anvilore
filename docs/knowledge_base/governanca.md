@@ -139,7 +139,9 @@ mostra os avisos ao modelo. A configuração do MCP é opcional e não substitui
   dois papéis" e "Passo 2 — A parada: takeaways e páginas juntos". Nenhum script confere que ele aconteceu.
 - O que o código confere antes da parada é o relatório do leitor: `anvilore conferir-leitura` reprova relatório
   fora do esquema, trecho citado que não existe na fonte e página a criar que já existe (ou a atualizar que não
-  existe), sempre pelo caminho real: fonte que, por link, sai de `raw/` e página que sai da wiki ou cai em `raw/` reprovam (`src/comandos/conferir-leitura.ts`, `src/lib/relatorio-leitor.ts`). Prova que o trecho existe, não que o
+  existe), sempre pelo caminho real. Em fonte binária (PDF, imagem, texto que não é UTF-8) o kit, sem dependência para
+  extrair texto, não confere os trechos: o relatório passa com um aviso que a skill mostra na parada, e o resto continua
+  conferido. Falha de leitura da fonte reprova. Ainda pelo caminho real: fonte que, por link, sai de `raw/` e página que sai da wiki ou cai em `raw/` reprovam (`src/comandos/conferir-leitura.ts`, `src/lib/relatorio-leitor.ts`). Prova que o trecho existe, não que o
   takeaway decorre dele.
 - A restrição de ferramentas por papel só tem dentes no Claude Code: os agentes `.claude/agents/anvilore-*.md`
   gerados pelo instalador declaram `tools` (leitor só lê; escritor sem `Bash`), e o `doctor` acusa agente ausente ou

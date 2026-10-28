@@ -255,6 +255,14 @@ describe("relatório do leitor: conferência com a fonte e com a wiki", () => {
     expect(conferirLeitura(r, { textoFonte: fonte, existe })).toEqual({ ok: false, erros: ['$.takeaways[0].citacao.trecho: não aparece na fonte ("inventado")'] });
   });
 
+  test("Dado fonte sem texto conferível Quando confiro tudo Então pula as citações e confere o resto", () => {
+    const existe = (caminho: string) => caminho === "pessoal/concepts/wiki-viva.md";
+    const r = valido();
+    r.takeaways[0].citacao.trecho = "trecho que só existe no PDF";
+    expect(conferirLeitura(r, { textoFonte: undefined, existe })).toEqual({ ok: true, erros: [] });
+    expect(conferirLeitura(r, { textoFonte: undefined, existe: () => false }).erros).toEqual(["$.paginas[1].acao: pessoal/concepts/wiki-viva.md não existe; use criar"]);
+  });
+
   test("Dado relatório fora do esquema Quando confiro tudo Então para no esquema", () => {
     expect(conferirLeitura({}, { textoFonte: fonte, existe: () => false }).erros[0]).toBe("$: falta o campo versao");
   });

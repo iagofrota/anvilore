@@ -103,6 +103,10 @@ esquema, que cada trecho citado existe na fonte e que cada página a criar ainda
 atualizar, sim). Com `FAIL`, devolva os erros ao leitor e peça o relatório corrigido; depois da segunda
 falha, mostre o problema à pessoa em vez de seguir. Relatório de subagente não é prova.
 
+Fonte binária (PDF, imagem, texto que não é UTF-8): a conferência não lê o texto e devolve
+`AVISO: citações não conferidas automaticamente`. Ela continua conferindo o resto; mostre o `AVISO` na parada,
+junto dos takeaways, para a pessoa conferir os trechos na fonte.
+
 ---
 
 ## Passo 2 — A parada: takeaways e páginas juntos

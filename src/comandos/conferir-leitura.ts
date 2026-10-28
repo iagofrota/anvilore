@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { extname, join, relative, resolve } from "node:path";
 import { caminhoReal, dentroDe, estaEmRaw } from "../lib/caminhos";
 import { conferirLeitura, extrairJson, validarRelatorioLeitor, type RelatorioLeitor } from "../lib/relatorio-leitor";
-import { lerUtf8Estrito } from "../lib/utf8";
+import { decodificarUtf8 } from "../lib/utf8";
 import { caminhoWiki } from "../lib/wiki-repo";
 
 export type ResultadoConferencia = { codigo: number; mensagens: string[] };
@@ -12,6 +12,22 @@ const USO = "Uso: anvilore conferir-leitura <arquivo>\n  Confere o relatório do
 
 function falha(mensagens: string[]): ResultadoConferencia {
   return { codigo: 1, mensagens: mensagens.map(m => `FAIL: ${m}`) };
+}
+
+// Formatos que o leitor lê (PDF, imagem) e que o kit, sem dependência de produção, não converte em texto.
+const BINARIOS: Record<string, string> = {
+  ".pdf": "pdf",
+  ".png": "imagem", ".jpg": "imagem", ".jpeg": "imagem", ".gif": "imagem", ".webp": "imagem",
+  ".bmp": "imagem", ".tif": "imagem", ".tiff": "imagem", ".heic": "imagem", ".heif": "imagem",
+};
+
+// Texto UTF-8 da fonte, ou o motivo de ela não ter texto conferível. Falha de leitura sobe: quem chama falha fechado.
+function textoDaFonte(caminho: string, bytes: Uint8Array): { texto: string } | { binaria: string } {
+  const formato = BINARIOS[extname(caminho).toLowerCase()];
+  if (formato) return { binaria: formato };
+  if (bytes.includes(0)) return { binaria: "binário" };
+  // decodificarUtf8 só lança ErroDeEncoding: bytes que não formam UTF-8.
+  try { return { texto: decodificarUtf8(bytes, caminho) }; } catch { return { binaria: "não é UTF-8" }; }
 }
 
 function plural(n: number, um: string, varios: string): string {
@@ -39,7 +55,8 @@ export async function conferirArquivoDeLeitura(
   const relatorio = valor as RelatorioLeitor;
   // B1: o esquema confere o texto dos caminhos; aqui vale o disco. Um link em raw/ não traz fonte de fora, e um link na wiki
   // não leva a página para fora dela nem para dentro de raw/.
-  let textoFonte: string;
+  let textoFonte: string | undefined;
+  let aviso: string | undefined;
   let paginasReais: string[];
   try {
     const rawReal = caminhoReal(join(raiz, "raw"));
@@ -52,7 +69,9 @@ export async function conferirArquivoDeLeitura(
       ? []
       : [`$.paginas[${i}].caminho: pelo caminho real a página sai da wiki ou cai em raw/ (${relatorio.paginas[i]!.caminho})`]);
     if (fora.length) return falha(fora);
-    textoFonte = await lerUtf8Estrito(fonteReal);
+    const fonte = textoDaFonte(fonteReal, await readFile(fonteReal));
+    if ("texto" in fonte) textoFonte = fonte.texto;
+    else aviso = `AVISO: citações não conferidas automaticamente (fonte binária: ${fonte.binaria}); confira os trechos na fonte antes de aprovar.`;
   } catch (erro) {
     if ((erro as NodeJS.ErrnoException).code === "ENOENT") return falha([`fonte não encontrada: ${relatorio.fonte}`]);
     return falha([(erro as Error).message]);
@@ -65,6 +84,7 @@ export async function conferirArquivoDeLeitura(
   return {
     codigo: 0,
     mensagens: [
+      ...(aviso ? [aviso] : []),
       `OK: leitura conferida — ${plural(relatorio.takeaways.length, "takeaway", "takeaways")}, ` +
       `${plural(relatorio.paginas.length, "página", "páginas")} (${criar} a criar, ${relatorio.paginas.length - criar} a atualizar), ` +
       `${plural(relatorio.lacunas.length, "lacuna", "lacunas")}, ${plural(relatorio.contradicoes.length, "contradição", "contradições")}.`,
