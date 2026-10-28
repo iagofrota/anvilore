@@ -5,6 +5,7 @@ import { comandoChecarRelease } from "./comandos/checar-release";
 import { comandoFatiarLog } from "./comandos/fatiar-log";
 import { comandoSincronizarIndice } from "./comandos/sincronizar-indice";
 import { comandoMigrarAreas } from "./comandos/migrar-areas";
+import { comandoMigrarRastreio } from "./comandos/migrar-rastreio";
 import { comandoIndexarLog } from "./comandos/indexar-log";
 import { comandoListarLacunas } from "./comandos/listar-lacunas";
 import { comandoRejuntarLinhas } from "./comandos/rejuntar-linhas";
@@ -33,6 +34,7 @@ export const subcomandos: TabelaDeSubcomandos = {
   "fatiar-log": comandoFatiarLog,
   "sincronizar-indice": comandoSincronizarIndice,
   "migrar-areas": comandoMigrarAreas,
+  "migrar-rastreio": comandoMigrarRastreio,
   "indexar-log": comandoIndexarLog,
   "listar-lacunas": comandoListarLacunas,
   "rejuntar-linhas": comandoRejuntarLinhas,

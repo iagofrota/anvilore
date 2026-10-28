@@ -8,6 +8,7 @@ import { alvosConhecidos, configuracaoDoHook, tirarHookAntigo, valorDoPath, type
 import { avisoRg } from "../lib/rg";
 import { registradores, type Ambiente } from "../mcp/registro";
 import { caminhoWiki, repositorioDaWiki } from "../lib/wiki-repo";
+import { PASTA_MIGRACAO, situacaoDaMigracao } from "../lib/migracao";
 
 export type Trava = { nome: string; ligada: boolean; comoLigar?: string; detalhe?: string; opcional?: boolean; naoInstalado?: boolean; semTrava?: boolean };
 export type Prerequisito = { nome: string; presente: boolean };
@@ -204,6 +205,34 @@ async function perfilDaEmpresa(raiz: string): Promise<Trava> {
   }
 }
 
+// PLANO §4b: clone que o kit ainda rastreia é só aviso (é a versão de hoje); migração que parou no meio reprova até ser retomada.
+async function migracaoDosArquivos(raiz: string, gitBin: string | null): Promise<{ trava?: Trava; aviso?: string }> {
+  const nome = "Migração dos seus arquivos para fora do rastreio do kit";
+  const comoLigar = "bun src/cli.ts migrar-rastreio (retoma de onde parou e não apaga nada)";
+  const git = (args: string[]) => {
+    if (gitBin === null) return { codigo: 127, saida: "git ausente" };
+    try {
+      const processo = Bun.spawnSync([gitBin, "-C", raiz, ...args], { stdout: "pipe", stderr: "pipe" });
+      return { codigo: processo.exitCode, saida: `${processo.stdout.toString()}${processo.stderr.toString()}` };
+    } catch (erro) { return { codigo: 126, saida: (erro as Error).message }; } // git que não executa: sem clone a conferir
+  };
+  try {
+    const { aMigrar, pendentes } = await situacaoDaMigracao(raiz, git);
+    const resultado: { trava?: Trava; aviso?: string } = {};
+    if (aMigrar.length) {
+      const exemplos = aMigrar.slice(0, 3).join(", ") + (aMigrar.length > 3 ? ", …" : "");
+      resultado.aviso = `Clone a migrar: o kit ainda rastreia ${aMigrar.length} arquivo(s) seu(s) (${exemplos}). Antes de atualizar este clone, peça ao agente para rodar \`bun src/cli.ts migrar-rastreio --puxar\` (copia, confere e não apaga nada).`;
+    }
+    const pendente = pendentes.at(-1);
+    if (pendente) {
+      resultado.trava = { nome, ligada: false, comoLigar, detalhe: `parou na etapa "${pendente.etapa ?? "?"}" (${pendente.estado}); cópia em ${join(PASTA_MIGRACAO, pendente.id)}${pendente.erro ? `: ${pendente.erro}` : ""}` };
+    }
+    return resultado;
+  } catch (erro) {
+    return { trava: { nome, ligada: false, comoLigar, detalhe: (erro as Error).message } };
+  }
+}
+
 export async function diagnosticar(raiz: string, ambiente: Record<string, string | undefined> = process.env): Promise<Diagnostico> {
   const travas: Trava[] = [];
   const path = valorDoPath(ambiente);
@@ -238,9 +267,12 @@ export async function diagnosticar(raiz: string, ambiente: Record<string, string
     { nome: "Commit automático das páginas de wiki", ligada: commitOk, opcional: !commitConfig, comoLigar: `${comandoInstalar(raiz, "claude")} --auto-commit`, detalhe: commitConfig && !wikiRepo ? `wiki não é um repositório Git: ${wiki}` : ignorada ? "uma página nova é ignorada pelo Git da wiki" : undefined },
     { nome: "Backup da branch no GitHub", ligada: backupOk, opcional: !backupConfig, comoLigar: `${comandoInstalar(raiz, "claude")} --github-backup`, detalhe: backupConfig && !wikiRepo ? `wiki não é um repositório Git: ${wiki}` : undefined },
   );
+  const migracao = await migracaoDosArquivos(raiz, gitBin);
+  if (migracao.trava) travas.push(migracao.trava);
   const prerequisitos = ["bun", "git"].map(nome => ({ nome, presente: Bun.which(nome, { PATH: path ?? "" }) !== null }));
   const aviso = avisoRg(path);
   const avisos = aviso ? [aviso] : [];
+  if (migracao.aviso) avisos.push(migracao.aviso);
   if (perfil.hooks?.githubBackup === true) {
     if (!backupOk) {
       avisos.push("Backup do GitHub está ligado, mas a branch atual não tem upstream; o backup não será enviado. Configure um upstream manualmente para habilitá-lo.");
