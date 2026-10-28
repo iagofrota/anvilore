@@ -52,7 +52,7 @@ test("Dado gravações simultâneas com o mesmo nome Quando chegam juntas Então
   expect(lidos).toEqual(conteudos.map(c => new TextDecoder().decode(c)).sort());
 });
 
-test("Dado área que não existe na wiki ou com caminho Quando gravo Então recuso sem criar nada em raw/", async () => {
+test("[C14.b] Dado área que não existe na wiki ou com caminho Quando gravo Então recuso sem criar nada em raw/", async () => {
   for (const area of ["inventada", "../fora", "pessoal/../../x", "_meta", "exemplo", ""]) {
     await expect(salvarFonte(raiz, { area, nome: "x.md", conteudo: new Uint8Array([1]) })).rejects.toBeInstanceOf(ErroDeFonte);
   }
@@ -66,7 +66,7 @@ test("Dado wiki sem áreas Quando gravo sem área Então a fonte vai direto para
   await expect(salvarFonte(raiz, { area: "pessoal", nome: "a.md", conteudo: new Uint8Array([65]) })).rejects.toThrow("área");
 });
 
-test("Dado conteúdo vazio Quando gravo Então recuso", async () => {
+test("[C14.a] Dado conteúdo vazio Quando gravo Então recuso", async () => {
   await expect(salvarFonte(raiz, { area: "pessoal", nome: "a.md", conteudo: new Uint8Array() })).rejects.toThrow("vazia");
 });
 

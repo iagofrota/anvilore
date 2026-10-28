@@ -49,7 +49,7 @@ test("Dado interface local ativa Quando acesso sem token Então recebe 403", asy
   expect(resposta.status).toBe(403);
 });
 
-test("Dado token válido com Host externo Quando acesso a API Então recebe 403", async () => {
+test("[C02.b] Dado token válido com Host externo Quando acesso a API Então recebe 403", async () => {
   const app = await servidor();
   const resposta = await fetch(`http://127.0.0.1:${app.porta}/api/rascunhos?token=token-teste`, { headers: { host: "exemplo.test" } });
   expect(resposta.status).toBe(403);
@@ -174,7 +174,7 @@ test("Dado página válida Quando faço POST sem token ou com Host externo Entã
   expect(readFileSync(arquivo, "utf8")).toBe(original);
 });
 
-test("Dado caminhos fora da fila Quando tento aprovar ../, raw e symlink Então recusa sem alterar os arquivos", async () => {
+test("[C08.a–d] Dado caminho fora da fila (../, raw/, symlink ou ausente) Quando tento aprovar Então recusa sem alterar os arquivos", async () => {
   const raw = join(raiz, "raw/segredo.md");
   const fora = join(raiz, "fora.md");
   const alvo = join(raiz, "fora/concepts/symlink.md");
@@ -186,7 +186,7 @@ test("Dado caminhos fora da fila Quando tento aprovar ../, raw e symlink Então 
   writeFileSync(raw, rawOriginal); writeFileSync(fora, foraOriginal); writeFileSync(alvo, foraOriginal);
   symlinkSync(join(raiz, "fora/concepts"), join(raiz, "wiki/atalho/concepts"), "junction");
   const app = await servidor();
-  for (const caminho of ["../raw/segredo.md", "raw/segredo.md", "atalho/concepts/symlink.md", fora]) {
+  for (const caminho of ["../raw/segredo.md", "raw/segredo.md", "atalho/concepts/symlink.md", "concepts/ausente.md", fora]) {
     expect((await postAprovar(app, caminho)).status).toBe(409);
   }
   expect(readFileSync(raw, "utf8")).toBe(rawOriginal);

@@ -61,7 +61,7 @@ test("Dado texto colado Quando envio Então vira um .md em raw/<área>", async (
   expect(semNome.fonte).toMatch(/^raw\/trabalho\/texto-colado-\d{8}-\d{6}\.md$/);
 });
 
-test("Dado envio sem token, sem origem, com área inválida, vazio ou grande demais Quando chega Então recuso sem gravar em raw/", async () => {
+test("[C14.a–d] Dado envio sem token, sem origem, com área inválida, vazio ou grande demais Quando chega Então recuso sem gravar em raw/", async () => {
   const { chamar, base } = await servidor();
   expect((await chamar("/api/fontes", { method: "POST", body: formulario({ area: "pessoal", texto: "x" }) }, "errado")).status).toBe(403);
   expect((await fetch(`${base}/api/fontes?token=token-teste`, { method: "POST", body: formulario({ area: "pessoal", texto: "x" }) })).status).toBe(403);
@@ -124,7 +124,7 @@ test("Dado o agente rodando Quando aperto Cancelar Então a ponte cancela", asyn
   expect((await postar(`/api/conversas/${criada.id}/cancelar`)).status).toBe(409);
 });
 
-test("Dado ids desconhecidos, métodos errados ou corpo inválido Quando chamo Então recebo o erro certo", async () => {
+test("[C25.a–d] Dado ids desconhecidos, métodos errados ou corpo inválido Quando chamo Então recebo o erro certo", async () => {
   const { chamar, postar } = await servidor();
   expect((await chamar("/api/conversas/nao-existe")).status).toBe(404);
   expect((await chamar("/api/conversas/..%2f..%2fetc")).status).toBe(404);
