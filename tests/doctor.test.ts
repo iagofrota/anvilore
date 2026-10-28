@@ -13,7 +13,11 @@ let tmp: string, clone: string, bin: string;
 let consoleCapturado: ReturnType<typeof capturarConsole>;
 
 function executavel(nome: string) {
-  writeFileSync(join(bin, process.platform === "win32" ? `${nome}.cmd` : nome), "echo teste\n", { mode: 0o755 });
+  const arquivo = join(bin, process.platform === "win32" ? `${nome}.cmd` : nome);
+  const conteudo = process.platform === "win32"
+    ? '@echo off\r\nexit /b 0\r\n'
+    : '#!/bin/sh\nexit 0\n';
+  writeFileSync(arquivo, conteudo, { mode: 0o755 });
 }
 beforeEach(() => {
   consoleCapturado = capturarConsole();
@@ -26,6 +30,7 @@ beforeEach(() => {
   for (const nome of ["bun", "git", "rg", ...alvosConhecidos]) executavel(nome);
   process.env.BUN_INSTALL = join(tmp, "bun"); process.env.BUN_INSTALL_CACHE_DIR = join(tmp, "bun-cache");
   process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH = join(tmp, "bun-transpiler"); process.env.XDG_CACHE_HOME = join(tmp, "cache");
+  for (const chave of Object.keys(process.env)) if (chave.toLowerCase() === "path") delete process.env[chave];
   process.env.PATH = bin; process.env.HOME = join(tmp, "lar"); process.env.USERPROFILE = join(tmp, "lar");
 });
 afterEach(() => {
@@ -50,12 +55,19 @@ function completar() {
   gravar(".github/workflows/ci.yml", "jobs:\n  t:\n    steps:\n      - run: bun src/cli.ts checar-docs\n");
 }
 async function travas() { return Object.fromEntries((await diagnosticar(clone)).travas.map(t => [t.nome, t])); }
+async function doctor(args: string[]) {
+  return comandoDoctor(args, { ambienteMcp: {
+    home: join(tmp, "lar"),
+    existe: async () => false,
+    executar: async () => ({ codigo: 0, saida: "" }),
+  } });
+}
 const protecao = (agente: string) => `Proteção do raw/ no ${agente}`;
 
 test("Dado rg ausente mas travas completas Quando rodo doctor Então avisa sobre query e continua com saída zero", async () => {
   await instalarTudo(); completar();
   rmSync(join(bin, process.platform === "win32" ? "rg.cmd" : "rg"));
-  expect(await comandoDoctor([clone])).toBe(0);
+  expect(await doctor([clone])).toBe(0);
   expect(consoleCapturado.saida.join("\n")).toMatch(/AVISO:.*query.*rg/);
   expect(consoleCapturado.saida.join("\n")).toContain("MCP de consulta à wiki: opcional");
   expect(readdirSync(bin).some(nome => /^rg(?:\.cmd|\.exe)?$/.test(nome))).toBe(false);
@@ -82,7 +94,7 @@ test("Dado repositório com a proteção do raw instalada Quando diagnostico Ent
 
 test("Dado repositório sem a proteção Quando rodo o doctor Então diz que nenhum agente tem a trava, o comando que a liga e devolve 1", async () => {
   completar();
-  const codigo = await comandoDoctor([clone]);
+  const codigo = await doctor([clone]);
   const saida = consoleCapturado.saida.join("\n");
   expect(codigo).toBe(1);
   expect(saida).toContain("Proteção do raw/ em pelo menos um agente: desligada — para ligar: bun src/cli.ts instalar --alvo claude");
@@ -93,7 +105,7 @@ test("Dado repositório sem a proteção Quando rodo o doctor Então diz que nen
 
 test("Dado repositório completo Quando rodo o doctor Então diz ligada em linguagem simples e devolve 0", async () => {
   await instalarTudo(); completar();
-  expect(await comandoDoctor([clone])).toBe(0);
+  expect(await doctor([clone])).toBe(0);
   const saida = consoleCapturado.saida.join("\n");
   expect(saida).toContain("Proteção do raw/ no Claude Code: ligada");
   expect(saida).toContain("Validação no fechamento da wiki: ligada");
@@ -108,7 +120,7 @@ test("Dado git ausente do PATH Quando diagnostico Então lista git como pré-req
   rmSync(join(bin, process.platform === "win32" ? "git.cmd" : "git"));
   const d = await diagnosticar(clone);
   expect(d.prerequisitos).toEqual([{ nome: "bun", presente: true }, { nome: "git", presente: false }]);
-  expect(await comandoDoctor([clone])).toBe(1);
+  expect(await doctor([clone])).toBe(1);
   expect(consoleCapturado.saida.join("\n")).toContain("git: ausente");
 });
 
@@ -134,13 +146,13 @@ test("Dado agente sem eventos de arquivo/compactação Quando doctor diagnostica
 });
 
 test("Dado backup opt-in em branch sem upstream Quando doctor diagnostica Então avisa que o backup não pode enviar", async () => {
-  const path = ambiente.PATH ?? ambiente.Path ?? "";
+  const path = bin;
   const git = Bun.which("git", { PATH: path });
-  if (!git) throw new Error("git real necessário para preparar o cenário");
-  const run = (args: string[]) => Bun.spawnSync([git, "-C", clone, ...args], { stdout: "pipe", stderr: "pipe" });
-  expect(Bun.spawnSync([git, "init", "--initial-branch=main", clone], { stdout: "pipe", stderr: "pipe" }).exitCode).toBe(0);
-  expect(run(["config", "user.name", "Teste"]).exitCode).toBe(0);
-  expect(run(["config", "user.email", "teste@example.test"]).exitCode).toBe(0);
+  expect(git).not.toBeNull();
+  const conteudo = process.platform === "win32"
+    ? '@echo off\r\nif "%~3"=="rev-parse" if "%~4"=="--show-toplevel" echo %~2\r\nexit /b 1\r\n'
+    : '#!/bin/sh\nif [ "$3" = "rev-parse" ] && [ "$4" = "--show-toplevel" ]; then printf "%s\\n" "$2"; exit 0; fi\nexit 1\n';
+  writeFileSync(git!, conteudo, { mode: 0o755 });
   writeFileSync(join(clone, "anvilore.toml"), "[hooks]\ngithub_backup = true\n");
   const d = await diagnosticar(clone, { PATH: path });
   expect(d.avisos.join("\n")).toMatch(/backup.*upstream/i);
@@ -220,20 +232,20 @@ test("Dado perfil da empresa Quando diagnostico Então ausente é opcional, vál
 
 test("Dado só o perfil opcional ausente Quando rodo o doctor Então não conta como falta", async () => {
   await instalarTudo(); completar();
-  expect(await comandoDoctor([clone])).toBe(0);
+  expect(await doctor([clone])).toBe(0);
   expect(consoleCapturado.saida.join("\n")).toContain("Perfil da empresa (anvilore.toml): não configurado (opcional)");
 });
 
 test("Dado --help ou argumentos demais Quando rodo o doctor Então imprime o uso e devolve 2", async () => {
-  expect(await comandoDoctor(["--help"])).toBe(2);
-  expect(await comandoDoctor([clone, "outro"])).toBe(2);
-  expect(await comandoDoctor(["--desconhecido"])).toBe(2);
+  expect(await doctor(["--help"])).toBe(2);
+  expect(await doctor([clone, "outro"])).toBe(2);
+  expect(await doctor(["--desconhecido"])).toBe(2);
   expect(consoleCapturado.erros.join("\n")).toContain("Uso: anvilore doctor");
 });
 
 test("Dado pasta inexistente Quando rodo o doctor Então reprova nomeando a pasta em vez de relatar tudo desligado", async () => {
   const ausente = join(tmp, "nao existe");
-  expect(await comandoDoctor([ausente])).toBe(1);
+  expect(await doctor([ausente])).toBe(1);
   expect(consoleCapturado.erros.join("\n")).toContain(ausente);
   expect(consoleCapturado.saida).toEqual([]);
 });
@@ -241,11 +253,11 @@ test("Dado pasta inexistente Quando rodo o doctor Então reprova nomeando a past
 test("Dado nenhum argumento Quando rodo o doctor Então usa ANVILORE_DESTINO ou o diretório atual", async () => {
   await instalarTudo(); completar();
   process.env.ANVILORE_DESTINO = clone;
-  expect(await comandoDoctor([])).toBe(0);
+  expect(await doctor([])).toBe(0);
   delete process.env.ANVILORE_DESTINO;
   const antes = process.cwd(); process.chdir(clone);
-  try { expect(await comandoDoctor([])).toBe(0); } finally { process.chdir(antes); }
-}, 15_000);
+  try { expect(await doctor([])).toBe(0); } finally { process.chdir(antes); }
+});
 
 test.skipIf(process.platform === "win32")("Dado o Claude que dorme e deixa um filho segurando stdout, Quando roda doctor, Então termina em menos de 10 segundos", async () => {
   const claude = join(bin, "claude");
@@ -279,7 +291,7 @@ test("Dado o CLI Quando executo doctor Então o subcomando está registrado", as
 });
 
 test("Dado o processo real Quando rodo bun src/cli.ts doctor Então imprime o relatório e o código de saída", () => {
-  const p = Bun.spawnSync([process.execPath, join(raizKit, "src/cli.ts"), "doctor", clone], { env: { ...process.env, PATH: `${bin}${process.platform === "win32" ? ";" : ":"}${ambiente.PATH ?? ambiente.Path ?? ""}` }, stdout: "pipe", stderr: "pipe" });
+  const p = Bun.spawnSync([process.execPath, join(raizKit, "src/cli.ts"), "doctor", clone], { env: { ...process.env, PATH: bin }, stdout: "pipe", stderr: "pipe" });
   expect(p.exitCode).toBe(1);
   expect(p.stdout.toString()).toContain("desligada — para ligar:");
 });
@@ -294,7 +306,7 @@ test("Dado clone só com Claude e a trava ligada Quando rodo o doctor Então os 
   const t = await travas();
   for (const agente of ["Codex", "Gemini", "Copilot"]) expect(t[protecao(agente)]).toMatchObject({ ligada: false, opcional: true });
   expect(t[protecao("Claude Code")]?.ligada).toBe(true);
-  expect(await comandoDoctor([clone])).toBe(0);
+  expect(await doctor([clone])).toBe(0);
   const saida = consoleCapturado.saida.join("\n");
   expect(saida).toContain("Proteção do raw/ no Codex: não instalado (opcional)");
   expect(saida).toContain("Resultado: tudo ligado");
@@ -306,14 +318,14 @@ test("Dado agente presente só pela pasta de configuração Quando a trava falta
   const t = await travas();
   expect(t[protecao("Gemini")]).toMatchObject({ ligada: false }); expect(t[protecao("Gemini")]?.opcional).toBeUndefined();
   expect(t[protecao("Codex")]?.opcional).toBe(true);
-  expect(await comandoDoctor([clone])).toBe(1);
+  expect(await doctor([clone])).toBe(1);
   expect(consoleCapturado.saida.join("\n")).toContain("Proteção do raw/ no Gemini: desligada — para ligar:");
 });
 
 test("Dado agente com CLI no PATH e sem configuração no clone Quando diagnostico Então é só encontrado, sem trava, e não reprova (R70-H)", async () => {
   await instalar({ alvos: ["claude"], destino: clone, simular: false }); completar(); semCli("gemini", "copilot");
   expect((await travas())[protecao("Codex")]).toMatchObject({ ligada: false, opcional: true, semTrava: true });
-  expect(await comandoDoctor([clone])).toBe(0);
+  expect(await doctor([clone])).toBe(0);
   const saida = consoleCapturado.saida.join("\n");
   expect(saida).toContain("Proteção do raw/ no Codex: encontrado, sem trava neste clone (opcional: bun src/cli.ts instalar --alvo codex");
   expect(saida).toContain("Proteção do raw/ no Claude Code: ligada");
@@ -322,7 +334,7 @@ test("Dado agente com CLI no PATH e sem configuração no clone Quando diagnosti
 
 test("Dado nenhum agente instalado nem encontrado Quando rodo o doctor Então ainda sai 1 pedindo a instalação do Claude", async () => {
   completar(); semCli("claude", "codex", "gemini", "copilot");
-  expect(await comandoDoctor([clone])).toBe(1);
+  expect(await doctor([clone])).toBe(1);
   const saida = consoleCapturado.saida.join("\n");
   expect(saida).toContain("Proteção do raw/ no Claude Code: não instalado (opcional)");
   expect(saida).toContain("Proteção do raw/ em pelo menos um agente: desligada — para ligar: bun src/cli.ts instalar --alvo claude");
@@ -331,7 +343,7 @@ test("Dado nenhum agente instalado nem encontrado Quando rodo o doctor Então ai
 test("Dado um agente configurado e desligado ao lado de outro ligado Quando rodo o doctor Então sai 1 pelo desligado", async () => {
   await instalar({ alvos: ["claude"], destino: clone, simular: false }); completar();
   mkdirSync(join(clone, ".codex"));
-  expect(await comandoDoctor([clone])).toBe(1);
+  expect(await doctor([clone])).toBe(1);
   expect(consoleCapturado.saida.join("\n")).toContain("Proteção do raw/ no Codex: desligada");
 });
 
@@ -346,7 +358,7 @@ test("Dado Claude Code anterior à 2.1.295 Quando rodo o doctor Então avisa par
   await instalarTudo(); completar(); claudeComVersao("2.1.200 (Claude Code)");
   const t = (await travas())[VERSAO];
   expect(t).toMatchObject({ ligada: false }); expect(t?.comoLigar).toContain("atualize o Claude Code"); expect(t?.detalhe).toContain("2.1.200");
-  expect(await comandoDoctor([clone])).toBe(1);
+  expect(await doctor([clone])).toBe(1);
   expect(consoleCapturado.saida.join("\n")).toContain(`${VERSAO}: desligada — para ligar: atualize o Claude Code`);
 });
 
@@ -356,13 +368,13 @@ test("Dado Claude Code na 2.1.295 ou mais novo Quando rodo o doctor Então a ver
     claudeComVersao(versao);
     expect((await travas())[VERSAO]?.ligada).toBe(true);
   }
-  expect(await comandoDoctor([clone])).toBe(0);
+  expect(await doctor([clone])).toBe(0);
 });
 
 test("Dado versão ilegível ou Claude ausente Quando diagnostico Então avisa sem reprovar e não inventa a trava", async () => {
   await instalarTudo(); completar();
   expect((await travas())[VERSAO]).toMatchObject({ ligada: false, opcional: true });
-  expect(await comandoDoctor([clone])).toBe(0);
+  expect(await doctor([clone])).toBe(0);
   semCli("claude");
   expect((await travas())[VERSAO]).toBeUndefined();
 });
@@ -413,7 +425,7 @@ test("Dado trava comentada Quando rodo o doctor Então não diz tudo ligado e de
   await instalarTudo();
   gravar("src/comandos/fechar.ts", "// comandoValidar([raiz])\n");
   gravar(".github/workflows/ci.yml", "jobs:\n  t:\n    steps:\n      # - run: bun src/cli.ts checar-docs\n      - run: echo ok\n");
-  expect(await comandoDoctor([clone])).toBe(1);
+  expect(await doctor([clone])).toBe(1);
   const saida = consoleCapturado.saida.join("\n");
   expect(saida).not.toContain("tudo ligado"); expect(saida).toContain("Validação no fechamento da wiki: desligada");
   expect(saida).toContain("Checagem antes de aceitar a mudança: desligada");
@@ -425,7 +437,7 @@ test("Dado Codex com trava, sem .claude/ e claude 2.1.0 só no PATH Quando rodo 
   claudeComVersao("2.1.0 (Claude Code)");
   const t = (await travas())[VERSAO];
   expect(t).toMatchObject({ ligada: false, opcional: true }); expect(t?.detalhe).toContain("2.1.0");
-  expect(await comandoDoctor([clone])).toBe(0);
+  expect(await doctor([clone])).toBe(0);
   const saida = consoleCapturado.saida.join("\n");
   expect(saida).toContain(`${VERSAO}: não configurado (opcional)`);
   expect(saida).toContain("Resultado: tudo ligado");
@@ -436,7 +448,7 @@ test("Dado Claude configurado no clone (.claude/) com a trava e versão 2.1.0 Qu
   claudeComVersao("2.1.0 (Claude Code)");
   expect((await travas())[VERSAO]).toMatchObject({ ligada: false });
   expect((await travas())[VERSAO]?.opcional).toBeUndefined();
-  expect(await comandoDoctor([clone])).toBe(1);
+  expect(await doctor([clone])).toBe(1);
   expect(consoleCapturado.saida.join("\n")).toContain("atualize o Claude Code");
 });
 
