@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Conversa } from "../src/lib/ui-ingestao";
-import { type AcoesDaConversa, ConversaDaIngestao, PainelDaIngestao } from "../ui/web/chat";
+import { type AcoesDaConversa, ConversaDaIngestao, PainelDaIngestao } from "../ui/web/conversa";
 import { relatorioValido } from "./apoio/ingestao-exemplo";
 
 // Sem navegador e sem dependência nova: a marcação vem do react-dom/server e a interação é provada chamando o
