@@ -18,7 +18,9 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   confere. Se parar no meio, não apaga nada e retoma na próxima vez. Com `--puxar`, atualiza o clone com `git pull`
   tirando os arquivos do caminho e devolvendo-os conferidos. O `doctor` avisa "clone a migrar" e reprova enquanto
   uma migração estiver incompleta. Manifesto de migração ilegível, fora da forma ou ausente com arquivo estacionado
-  bloqueia o comando e o `doctor`, apontando a cópia, em vez de ser ignorado.
+  bloqueia o comando e o `doctor`, apontando a cópia, em vez de ser ignorado. Nenhum arquivo volta ao lugar sem
+  conferir o SHA-256: o que não confere fica guardado ao lado como `<nome>.divergente-<id>`, e sem cópia que confira
+  a migração para e aponta os caminhos.
 - Os originais desses arquivos ficam em `modelos/`; `instalar` e `init` copiam de lá só o que falta, sem sobrescrever
   e sem depender do git, e o exemplo apagado pela pessoa não volta.
 - Esquema único do relatório do leitor da ingestão (`skills/ingest/relatorio-leitor.schema.json`): 3 a 5

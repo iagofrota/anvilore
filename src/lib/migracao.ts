@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { copyFile, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { LISTA_DO_RASTREIO } from "./modelos";
 import { caminhoWiki, inicializarRepositorioWiki, repositorioDaWiki } from "./wiki-repo";
 
@@ -139,6 +139,9 @@ function defeitoDoManifesto(dado: unknown, id: string): string | undefined {
   }
   if (!listaDeCaminhos(m.ausentes) || !listaDeCaminhos(m.rastreados)) return "ausentes ou rastreados fora da forma";
   if (m.estacionados !== undefined && !listaDeCaminhos(m.estacionados)) return "estacionados fora da forma";
+  // Estacionado sem SHA-256 na lista de arquivos não teria como ser conferido na volta.
+  const comHash = new Set((m.arquivos as Arquivo[]).map(a => a.caminho));
+  if (m.estacionados?.some(rel => !comHash.has(rel))) return "estacionado sem SHA-256 na lista de arquivos";
   const wiki = m.wiki as Record<string, unknown> | undefined;
   if (wiki !== undefined && (wiki === null || typeof wiki !== "object" || typeof wiki.caminho !== "string" || typeof wiki.criada !== "boolean" || typeof wiki.commit !== "boolean")) {
     return "wiki fora da forma";
@@ -238,24 +241,59 @@ async function copiar(raiz: string, manifesto: Manifesto, caminhos: string[]): P
   await gravarManifesto(raiz, manifesto);
 }
 
-// Devolve da cópia o que faltar ou divergir. `soAusentes`: na retomada, um arquivo presente e diferente pode ser edição
-// legítima da pessoa depois da falha, e fica como está.
-async function restaurar(raiz: string, manifesto: Manifesto, soAusentes: boolean): Promise<string[]> {
-  const problemas: string[] = [];
-  for (const { caminho: rel, sha256: esperado } of manifesto.arquivos) {
-    const alvo = noDisco(raiz, rel);
-    try {
-      const situacao = await tipo(alvo);
-      if (situacao === "arquivo" && (soAusentes || await sha256(alvo) === esperado)) continue;
-      if (situacao === "outro") throw new Error("o caminho está ocupado por algo que não é arquivo; não apago nada");
-      await mkdir(dirname(alvo), { recursive: true });
-      await copyFile(copiaDe(raiz, manifesto, rel), alvo);
-      if (await sha256(alvo) !== esperado) throw new Error("o SHA-256 depois de restaurar não confere");
-    } catch (erro) {
-      problemas.push(`${rel}: ${motivo(erro)}`);
-    }
+type Devolucao = { problemas: string[]; avisos: string[] };
+
+// Guarda ao lado do arquivo, com o id da migração no nome, a versão que não confere: nada é apagado.
+async function guardarAoLado(origem: string, alvo: string, id: string): Promise<string> {
+  for (let n = 1; ; n++) {
+    const destino = `${alvo}.divergente-${id}${n > 1 ? `-${n}` : ""}`;
+    if (await tipo(destino) !== "ausente") continue;
+    await rename(origem, destino);
+    return destino;
   }
-  return problemas;
+}
+
+// Põe um arquivo da pessoa de volta no lugar. Nada volta sem conferir o SHA-256: a fonte é o estacionado, se confere,
+// senão a cópia de `arquivos/`, se confere; sem nenhuma que confira, bloqueia sem mexer em nada. O que estava no lugar
+// (ou estacionado) e não confere fica guardado ao lado como `<nome>.divergente-<id>`. Arquivo ainda estacionado com o
+// lugar ocupado por outro também bloqueia: o ocupante não é da migração.
+async function devolverArquivo(raiz: string, manifesto: Manifesto, { caminho: rel, sha256: esperado }: Arquivo, avisos: string[]): Promise<string | undefined> {
+  const alvo = noDisco(raiz, rel);
+  const copia = copiaDe(raiz, manifesto, rel);
+  const vaga = manifesto.estacionados?.includes(rel) ? vagaDe(raiz, manifesto, rel) : undefined;
+  const confere = async (caminho: string) => await tipo(caminho) === "arquivo" && await sha256(caminho) === esperado;
+  try {
+    const noLugar = await tipo(alvo);
+    const estacionado = vaga !== undefined && await tipo(vaga) === "arquivo";
+    if (noLugar === "outro") return `${rel}: o lugar está ocupado por algo que não é arquivo; não apago nada`;
+    if (noLugar === "arquivo" && estacionado) {
+      return `${rel}: o lugar foi ocupado enquanto o seu estava estacionado; o seu ficou em ${join(PASTA_MIGRACAO, manifesto.id, "estacionados")}`;
+    }
+    if (noLugar === "arquivo" && await confere(alvo)) return undefined;
+    const fonte = estacionado && await confere(vaga!) ? vaga! : await confere(copia) ? copia : undefined;
+    if (fonte === undefined) {
+      const onde = [estacionado ? vaga! : undefined, copia].filter(Boolean).map(c => relative(raiz, c!)).join(" e ");
+      return `${rel}: nenhuma cópia confere com o SHA-256 (${onde}); nada foi mexido`;
+    }
+    if (noLugar === "arquivo") avisos.push(`${rel}: a versão no lugar não conferia e ficou guardada em ${relative(raiz, await guardarAoLado(alvo, alvo, manifesto.id))}`);
+    if (estacionado && fonte !== vaga) avisos.push(`${rel}: a versão estacionada não conferia e ficou guardada em ${relative(raiz, await guardarAoLado(vaga!, alvo, manifesto.id))}`);
+    await mkdir(dirname(alvo), { recursive: true });
+    if (fonte === vaga) await rename(vaga, alvo);
+    else await copyFile(copia, alvo);
+    if (!(await confere(alvo))) return `${rel}: o SHA-256 depois de devolver não confere`;
+    return undefined;
+  } catch (erro) {
+    return `${rel}: ${motivo(erro)}`;
+  }
+}
+
+async function devolverTudo(raiz: string, manifesto: Manifesto): Promise<Devolucao> {
+  const devolucao: Devolucao = { problemas: [], avisos: [] };
+  for (const arquivo of manifesto.arquivos) {
+    const problema = await devolverArquivo(raiz, manifesto, arquivo, devolucao.avisos);
+    if (problema) devolucao.problemas.push(problema);
+  }
+  return devolucao;
 }
 
 async function garantirRepositorioDaWiki(raiz: string, manifesto: Manifesto, git: Git, ambiente: Record<string, string | undefined>): Promise<void> {
@@ -274,57 +312,50 @@ async function garantirRepositorioDaWiki(raiz: string, manifesto: Manifesto, git
 }
 
 // Passo 4: o índice não lista mais nenhum; cada arquivo tem o SHA-256 da cópia (o que divergiu volta da cópia); a wiki tem commit.
-async function conferir(raiz: string, manifesto: Manifesto, git: Git): Promise<string[]> {
-  const problemas = rastreadosNoIndice(git).map(rel => `${rel}: o índice do kit ainda o rastreia`);
-  problemas.push(...await restaurar(raiz, manifesto, false));
-  if (manifesto.wiki && !manifesto.wiki.commit) problemas.push(`${manifesto.wiki.caminho}: a wiki não tem commit`);
-  return problemas;
+async function conferir(raiz: string, manifesto: Manifesto, git: Git): Promise<Devolucao> {
+  const devolucao = await devolverTudo(raiz, manifesto);
+  devolucao.problemas.unshift(...rastreadosNoIndice(git).map(rel => `${rel}: o índice do kit ainda o rastreia`));
+  if (manifesto.wiki && !manifesto.wiki.commit) devolucao.problemas.push(`${manifesto.wiki.caminho}: a wiki não tem commit`);
+  return devolucao;
 }
 
-async function falhar(raiz: string, manifesto: Manifesto, erro: string, situacao: "incompleta" = "incompleta"): Promise<Resultado> {
+async function falhar(raiz: string, manifesto: Manifesto, erro: string, avisosAntes: string[] = []): Promise<Resultado> {
   // Antes de declarar a falha, devolve da cópia o que faltar: a falha nunca deixa um arquivo da pessoa fora do lugar.
-  const naoDevolvidos = await restaurar(raiz, manifesto, true);
+  const { problemas: naoDevolvidos, avisos: avisosAgora } = await devolverTudo(raiz, manifesto);
+  const avisos = [...avisosAntes, ...avisosAgora];
   manifesto.estado = "migracao-incompleta";
   manifesto.erro = [erro, ...naoDevolvidos].join("; ");
   await gravarManifesto(raiz, manifesto);
   const pasta = join(PASTA_MIGRACAO, manifesto.id);
   return {
-    codigo: 1, situacao, manifesto,
+    codigo: 1, situacao: "incompleta", manifesto,
     mensagens: [
       `A migração parou na etapa "${manifesto.etapa}": ${manifesto.erro}.`,
+      ...avisos,
       `Nada seu foi apagado. A cópia conferida está em ${pasta}/arquivos/.`,
       "Resolva o motivo e rode de novo `anvilore migrar-rastreio`: ele retoma daqui.",
     ],
   };
 }
 
-// Manifestos que ficaram pela metade (falha ou processo morto): devolve o que estiver estacionado ou faltando.
-async function retomar(raiz: string): Promise<string[]> {
-  const problemas: string[] = [];
+// Manifestos que ficaram pela metade (falha ou processo morto): devolve o que estiver estacionado ou faltando, sempre
+// conferindo o SHA-256.
+async function retomar(raiz: string): Promise<Devolucao> {
+  const total: Devolucao = { problemas: [], avisos: [] };
   for (const antigo of await pendentes(raiz)) {
-    const erros: string[] = [];
-    for (const rel of antigo.estacionados ?? []) {
-      const vaga = vagaDe(raiz, antigo, rel);
-      if (await tipo(vaga) !== "arquivo") continue;
-      const alvo = noDisco(raiz, rel);
-      if (await tipo(alvo) !== "ausente") { erros.push(`${rel}: o lugar está ocupado; o seu ficou em ${join(PASTA_MIGRACAO, antigo.id, "estacionados")}`); continue; }
-      try {
-        await mkdir(dirname(alvo), { recursive: true });
-        await rename(vaga, alvo);
-      } catch (erro) { erros.push(`${rel}: ${motivo(erro)}`); }
-    }
-    erros.push(...await restaurar(raiz, antigo, true));
-    if (erros.length) {
+    const { problemas, avisos } = await devolverTudo(raiz, antigo);
+    total.avisos.push(...avisos);
+    if (problemas.length) {
       antigo.estado = "migracao-incompleta";
-      antigo.erro = erros.join("; ");
-      problemas.push(...erros);
+      antigo.erro = problemas.join("; ");
+      total.problemas.push(...problemas.map(p => `${p} (migração ${join(PASTA_MIGRACAO, antigo.id)})`));
     } else {
       antigo.estado = "retomada";
       delete antigo.erro;
     }
     await gravarManifesto(raiz, antigo);
   }
-  return problemas;
+  return total;
 }
 
 async function travar(raiz: string): Promise<() => Promise<void>> {
@@ -356,18 +387,19 @@ async function preparar(raiz: string, deps: Dependencias): Promise<{ git: Git; s
 }
 
 async function migrarComTrava(raiz: string, git: Git, deps: Dependencias): Promise<Resultado> {
-  let problemasDaRetomada: string[];
+  let retomada: Devolucao;
   try {
-    problemasDaRetomada = await retomar(raiz);
+    retomada = await retomar(raiz);
   } catch (erro) {
     return { codigo: 1, situacao: "incompleta", mensagens: [`Não sigo: ${motivo(erro)}.`] };
   }
-  if (problemasDaRetomada.length) {
-    return { codigo: 1, situacao: "incompleta", mensagens: ["Uma migração anterior não terminou e ainda não consegui devolver tudo:", ...problemasDaRetomada.map(p => `  ${p}`)] };
+  if (retomada.problemas.length) {
+    return { codigo: 1, situacao: "incompleta", mensagens: ["Uma migração anterior não terminou e ainda não consegui devolver tudo:", ...retomada.problemas.map(p => `  ${p}`), ...retomada.avisos] };
   }
   const rastreados = rastreadosNoIndice(git);
-  if (rastreados.length === 0) return { codigo: 0, situacao: "nada-a-migrar", mensagens: ["Nada a migrar: o kit já não rastreia os seus arquivos."] };
+  if (rastreados.length === 0) return { codigo: 0, situacao: "nada-a-migrar", mensagens: [...retomada.avisos, "Nada a migrar: o kit já não rastreia os seus arquivos."] };
 
+  const avisos = [...retomada.avisos];
   const manifesto = await novoManifesto(raiz, "migracao", rastreados);
   try {
     await entrar(raiz, manifesto, "copiar", deps);
@@ -379,10 +411,11 @@ async function migrarComTrava(raiz: string, git: Git, deps: Dependencias): Promi
     const rm = git(["rm", "--cached", "-q", "--", ...rastreados]);
     if (rm.codigo !== 0) throw new Error(`git rm --cached falhou: ${rm.saida.trim()}`);
     await entrar(raiz, manifesto, "conferir", deps);
-    const problemas = await conferir(raiz, manifesto, git);
-    if (problemas.length) throw new Error(problemas.join("; "));
+    const conferencia = await conferir(raiz, manifesto, git);
+    avisos.push(...conferencia.avisos);
+    if (conferencia.problemas.length) throw new Error(conferencia.problemas.join("; "));
   } catch (erro) {
-    return falhar(raiz, manifesto, motivo(erro));
+    return falhar(raiz, manifesto, motivo(erro), avisos);
   }
   manifesto.estado = "concluida";
   delete manifesto.etapa;
@@ -391,6 +424,7 @@ async function migrarComTrava(raiz: string, git: Git, deps: Dependencias): Promi
   return {
     codigo: 0, situacao: "migrada", manifesto,
     mensagens: [
+      ...avisos,
       `Migração concluída: ${rastreados.length} arquivo(s) saíram do rastreio do kit e continuam no disco, conferidos pelo SHA-256.${wiki}`,
       ...(manifesto.ausentes.length ? [`Já estavam apagados e continuam apagados: ${manifesto.ausentes.join(", ")}.`] : []),
       `Cópia em ${join(PASTA_MIGRACAO, manifesto.id)}/arquivos/.`,
@@ -443,8 +477,9 @@ export async function puxar(raiz: string, deps: Dependencias & { argsDoPull?: st
       pull = { codigo: 1, saida: `parou na etapa "${manifesto.etapa}": ${motivo(erro)}` };
     }
     // Com o pull bom ou não, tudo o que foi estacionado volta agora e é conferido.
-    const problemas = await devolver(raiz, manifesto);
-    if (problemas.length) return falhar(raiz, manifesto, [...(pull.codigo === 0 ? [] : [pull.saida.trim()]), ...problemas].join("; "));
+    const devolucao = await devolverTudo(raiz, manifesto);
+    if (devolucao.problemas.length) return falhar(raiz, manifesto, [...(pull.codigo === 0 ? [] : [pull.saida.trim()]), ...devolucao.problemas].join("; "), devolucao.avisos);
+    mensagens.push(...devolucao.avisos);
     manifesto.estado = "concluida";
     delete manifesto.etapa;
     if (pull.codigo !== 0) manifesto.erro = `git pull: ${pull.saida.trim()}`;
@@ -457,28 +492,6 @@ export async function puxar(raiz: string, deps: Dependencias & { argsDoPull?: st
   } finally {
     await pronto.soltar();
   }
-}
-
-// Devolve os estacionados (rename de volta) e confere contra a fotografia; o que não der, volta da cópia.
-async function devolver(raiz: string, manifesto: Manifesto): Promise<string[]> {
-  const problemas: string[] = [];
-  for (const rel of manifesto.estacionados ?? []) {
-    const vaga = vagaDe(raiz, manifesto, rel);
-    if (await tipo(vaga) !== "arquivo") continue;
-    const alvo = noDisco(raiz, rel);
-    if (await tipo(alvo) !== "ausente") {
-      problemas.push(`${rel}: o lugar foi ocupado durante a atualização; o seu ficou em ${join(PASTA_MIGRACAO, manifesto.id, "estacionados")}`);
-      continue;
-    }
-    try {
-      await mkdir(dirname(alvo), { recursive: true });
-      await rename(vaga, alvo);
-    } catch (erro) {
-      problemas.push(`${rel}: ${motivo(erro)}`);
-    }
-  }
-  if (problemas.length) return problemas;
-  return restaurar(raiz, manifesto, false);
 }
 
 // Para o doctor: o que o kit ainda rastreia da lista e as migrações que não terminaram.
