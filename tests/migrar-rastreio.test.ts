@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { LISTA_DO_RASTREIO, copiarModelos } from "../src/lib/modelos";
 import { lerManifestos, migrarRastreio, pendentes, puxar, situacaoDaMigracao, type Etapa } from "../src/lib/migracao";
 import { comandoMigrarRastreio } from "../src/comandos/migrar-rastreio";
@@ -366,6 +366,86 @@ describe("migrar-rastreio: atualizar o clone (PLANO §4b passo 5)", () => {
     editar(pessoa, "SCHEMA.md", "MEU");
     gitOk(pessoa, "checkout", "-q", "--force", "--detach", "HEAD~1");
     expect(readFileSync(join(pessoa, "SCHEMA.md"), "utf8")).not.toBe("MEU");
+  });
+});
+
+describe("migrar-rastreio: manifesto corrompido (revisão U1, B1)", () => {
+  // Processo morto com SCHEMA.md estacionado; devolve o id do manifesto que ficou "puxando".
+  async function mortoComEstacionado() {
+    const { pessoa } = await cenario();
+    editar(pessoa, "SCHEMA.md", "MEU");
+    const script = join(import.meta.dir, "apoio", "morrer-no-meio.ts");
+    expect(Bun.spawnSync([process.execPath, script, pessoa, "puxar"]).exitCode).toBe(9);
+    const [pendente] = await pendentes(pessoa);
+    const pasta = join(pessoa, ".anvilore/migracao", pendente!.id);
+    return { pessoa, pendente: pendente!, pasta, manifesto: join(pasta, "manifesto.json") };
+  }
+  async function bloqueia(pessoa: string, pasta: string) {
+    for (const r of [await migrarRastreio(pessoa), await puxar(pessoa)]) {
+      expect(r.codigo).toBe(1);
+      expect(r.situacao).not.toBe("nada-a-migrar");
+      expect(r.mensagens.join("\n")).toContain(join(".anvilore", "migracao", basename(pasta)));
+    }
+    expect(readFileSync(join(pasta, "estacionados/SCHEMA.md"), "utf8")).toBe("MEU");
+    expect(existsSync(join(pessoa, "SCHEMA.md"))).toBe(false);
+    expect(gitOk(pessoa, "log", "-1", "--pretty=%s")).toBe("versão N");
+    const trava = (await diagnosticar(pessoa)).travas.find(t => t.nome === "Migração dos seus arquivos para fora do rastreio do kit");
+    expect(trava?.ligada).toBe(false);
+    expect(trava?.detalhe).toContain(join(".anvilore", "migracao", basename(pasta)));
+  }
+
+  test("Dado o processo morto em puxar e o manifesto trocado por {}, Quando roda de novo, Então bloqueia apontando a cópia e nunca diz nada-a-migrar", async () => {
+    const { pessoa, pasta, manifesto } = await mortoComEstacionado();
+    writeFileSync(manifesto, "{}");
+    await bloqueia(pessoa, pasta);
+  });
+
+  test("Dado o manifesto com id diferente do nome da pasta, Quando roda de novo, Então bloqueia", async () => {
+    const { pessoa, pasta, manifesto } = await mortoComEstacionado();
+    const dado = JSON.parse(readFileSync(manifesto, "utf8"));
+    writeFileSync(manifesto, JSON.stringify({ ...dado, id: "outro" }));
+    await bloqueia(pessoa, pasta);
+  });
+
+  for (const [caso, mudar] of [
+    ["sem a lista de arquivos", (m: any) => { delete m.arquivos; }],
+    ["com estado desconhecido", (m: any) => { m.estado = "feito"; }],
+    ["com SHA-256 malformado", (m: any) => { m.arquivos[0].sha256 = "abc"; }],
+    ["com caminho que sai do clone", (m: any) => { m.estacionados = ["../fora.md"]; }],
+    ["com caminho absoluto", (m: any) => { m.arquivos[0].caminho = "/etc/passwd"; }],
+    ["com estacionados que não é lista", (m: any) => { m.estacionados = "SCHEMA.md"; }],
+    ["com a wiki sem forma", (m: any) => { m.wiki = { caminho: 1 }; }],
+    ["que não é objeto", (_m: any) => null],
+  ] as const) {
+    test(`Dado o manifesto ${caso}, Quando roda de novo, Então bloqueia`, async () => {
+      const { pessoa, pasta, manifesto } = await mortoComEstacionado();
+      const dado = JSON.parse(readFileSync(manifesto, "utf8"));
+      const resultado = (mudar as (m: any) => unknown)(dado);
+      writeFileSync(manifesto, JSON.stringify(resultado === null ? [] : dado));
+      await bloqueia(pessoa, pasta);
+    });
+  }
+
+  test("Dado estacionados/ com arquivo e sem manifesto, Quando roda de novo, Então bloqueia", async () => {
+    const { pessoa, pasta, manifesto } = await mortoComEstacionado();
+    rmSync(manifesto);
+    await bloqueia(pessoa, pasta);
+  });
+
+  test("Dado uma pasta de migração vazia, sem manifesto (morte antes de gravá-lo), Quando migra, Então segue normalmente", async () => {
+    const { pessoa } = await cenario({ n1: false });
+    mkdirSync(join(pessoa, ".anvilore/migracao/2026-01-01T00-00-00-000Z-abcdef"), { recursive: true });
+    expect((await migrarRastreio(pessoa)).codigo).toBe(0);
+  });
+
+  test("Dado o manifesto corrompido corrigido à mão (o estacionado devolvido), Quando roda de novo, Então segue", async () => {
+    const { pessoa, pasta, manifesto } = await mortoComEstacionado();
+    writeFileSync(manifesto, "{}");
+    expect((await puxar(pessoa)).codigo).toBe(1);
+    renameSync(join(pasta, "estacionados/SCHEMA.md"), join(pessoa, "SCHEMA.md"));
+    rmSync(pasta, { recursive: true });
+    expect((await puxar(pessoa)).codigo).toBe(0);
+    expect(readFileSync(join(pessoa, "SCHEMA.md"), "utf8")).toBe("MEU");
   });
 });
 
