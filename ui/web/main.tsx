@@ -1,24 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { Rascunho } from "../../src/lib/ui-fila";
-import { diffLinhas, erroDaResposta, ErroApi, indiceVizinho } from "./revisao";
+import { api } from "./api";
+import { Chat, type EstadoDaIngestao } from "./chat";
+import { diffLinhas, ErroApi, indiceVizinho } from "./revisao";
 import "./styles.css";
 
 type Item = Rascunho & { anterior?: string };
 type ResultadoValidacao = { codigo: number; saida: string };
 type Filtro = "Todas" | "Novas" | "Atualizadas";
-
-const token = document.querySelector<HTMLMetaElement>('meta[name="anvilore-token"]')?.content ?? "";
-const parametroToken = `token=${encodeURIComponent(token)}`;
-
-async function api<T>(rota: string, metodo = "GET", corpo?: unknown): Promise<T> {
-  const resposta = await fetch(`${rota}?${parametroToken}`, {
-    method: metodo,
-    ...(corpo === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(corpo) }),
-  });
-  if (!resposta.ok) throw await erroDaResposta(resposta);
-  return await resposta.json() as T;
-}
+type Tema = "claro" | "escuro";
+type Rota = { tela: "chat" | "revisao"; id?: string };
 
 function dataCurta(valor?: string): string {
   if (!valor) return "—";
@@ -26,12 +18,70 @@ function dataCurta(valor?: string): string {
   return Number.isNaN(data.valueOf()) ? valor : new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short" }).format(data);
 }
 
+function lerRota(): Rota {
+  const [, tela, id] = window.location.hash.split("/");
+  if (tela === "revisao") return { tela: "revisao" };
+  return { tela: "chat", ...(id && /^[a-z0-9-]+$/.test(id) ? { id } : {}) };
+}
+
 function Aplicacao() {
+  const [rota, setRota] = useState<Rota>(lerRota);
+  const [tema, setTema] = useState<Tema>(() => localStorage.getItem("anvilore-tema") === "escuro" ? "escuro" : "claro");
+  const [estado, setEstado] = useState<EstadoDaIngestao | null>(null);
+
+  useEffect(() => {
+    const mudou = () => setRota(lerRota());
+    window.addEventListener("hashchange", mudou);
+    return () => window.removeEventListener("hashchange", mudou);
+  }, []);
+  useEffect(() => {
+    document.documentElement.dataset.theme = tema;
+    localStorage.setItem("anvilore-tema", tema);
+  }, [tema]);
+
+  const recarregarEstado = useCallback(async () => {
+    try { setEstado(await api<EstadoDaIngestao>("/api/ingestao")); } catch { /* a barra lateral fica sem a lista */ }
+  }, []);
+  useEffect(() => { void recarregarEstado(); }, [recarregarEstado]);
+
+  // Voltar à interface sem uma conversa na URL reabre a que ficou no meio do caminho.
+  const abertaUmaVez = React.useRef(false);
+  useEffect(() => {
+    if (abertaUmaVez.current || !estado || rota.tela !== "chat" || rota.id) return;
+    abertaUmaVez.current = true;
+    const pendente = estado.conversas.find(c => ["rodando", "esperando", "pronta"].includes(c.situacao));
+    if (pendente) window.location.hash = `#/chat/${pendente.id}`;
+  }, [estado, rota]);
+
+  const abrir = useCallback((id?: string) => { window.location.hash = id ? `#/chat/${id}` : "#/chat"; }, []);
+  const alternarTema = useCallback(() => setTema(atual => atual === "claro" ? "escuro" : "claro"), []);
+
+  return <div className="layout">
+    <aside className="sidebar">
+      <div className="brand"><span className="brand-mark">a</span><span>anvilore</span></div>
+      <nav className="nav" aria-label="Telas">
+        <a href="#/chat" className={rota.tela === "chat" && !rota.id ? "active" : ""} onClick={() => abertaUmaVez.current = true}>＋ Nova ingestão</a>
+        <a href="#/revisao" className={rota.tela === "revisao" ? "active" : ""}>Revisão</a>
+      </nav>
+      {estado && estado.conversas.length > 0 && <>
+        <div className="vault-label">CONVERSAS</div>
+        <nav className="conversations" aria-label="Conversas">
+          {estado.conversas.map(c => <a key={c.id} href={`#/chat/${c.id}`} className={rota.id === c.id ? "active" : ""} title={c.fonte}>
+            <span className={`conversation-dot ${c.situacao}`} aria-hidden="true" />Ingerir: {c.nome}
+          </a>)}
+        </nav>
+      </>}
+      <div className="sidebar-bottom"><span className="status-dot" /> {estado?.agente ?? "Agente"} <span className="sidebar-spacer" /> <span className="mono">raw/ protegido</span></div>
+    </aside>
+    {rota.tela === "revisao" ? <Revisao tema={tema} alternarTema={alternarTema} /> : <Chat id={rota.id} estado={estado} recarregarEstado={recarregarEstado} abrir={abrir} tema={tema} alternarTema={alternarTema} />}
+  </div>;
+}
+
+function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void }) {
   const [itens, setItens] = useState<Item[] | null>(null);
   const [selecionado, setSelecionado] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("Todas");
   const [aba, setAba] = useState<"visual" | "markdown">("visual");
-  const [tema, setTema] = useState<"claro" | "escuro">(() => localStorage.getItem("anvilore-tema") === "escuro" ? "escuro" : "claro");
   const [erro, setErro] = useState("");
   const [validacao, setValidacao] = useState<ResultadoValidacao | null>(null);
   const [validando, setValidando] = useState(false);
@@ -47,10 +97,6 @@ function Aplicacao() {
   }, []);
 
   useEffect(() => { void carregar(true); }, [carregar]);
-  useEffect(() => {
-    document.documentElement.dataset.theme = tema;
-    localStorage.setItem("anvilore-tema", tema);
-  }, [tema]);
 
   const executarValidacao = useCallback(async () => {
     setValidando(true);
@@ -96,22 +142,14 @@ function Aplicacao() {
   const linhas = item?.anterior !== undefined ? diffLinhas(item.anterior, item.conteudo) : [];
   const pendentes = itens?.length ?? 0;
 
-  return <div className="layout">
-    <aside className="sidebar">
-      <div className="brand"><span className="brand-mark">a</span><span>anvilore</span></div>
-      <div className="vault-label">REVISÃO</div>
-      <div className="vault-path" title="Fila de páginas geradas">Rascunhos da wiki</div>
-      <div className="sidebar-bottom"><span className="status-dot" /> Local · protegido <span className="sidebar-spacer" /> <span className="mono">127.0.0.1</span></div>
-    </aside>
-
-    <main className="main">
+  return <main className="main">
       <header className="topbar">
         <div><h1>Revisão</h1><span className="subhead">{pendentes ? `${pendentes} aguardando você` : itens === null ? "Lendo a wiki…" : "nada pendente"}</span></div>
         <div className="top-actions">
           <div className="segmented" role="group" aria-label="Filtrar rascunhos">
             {(["Todas", "Novas", "Atualizadas"] as Filtro[]).map(opcao => <button key={opcao} className={filtro === opcao ? "selected" : ""} aria-pressed={filtro === opcao} onClick={() => setFiltro(opcao)}>{opcao}</button>)}
           </div>
-          <button className="icon-button" title="Alternar tema" aria-label="Alternar tema claro ou escuro" onClick={() => setTema(tema === "claro" ? "escuro" : "claro")}>{tema === "claro" ? "◐" : "☼"}</button>
+          <button className="icon-button" title="Alternar tema" aria-label="Alternar tema claro ou escuro" onClick={alternarTema}>{tema === "claro" ? "◐" : "☼"}</button>
         </div>
       </header>
 
@@ -158,8 +196,7 @@ function Aplicacao() {
           </footer>
         </section>}
       </div>}
-    </main>
-  </div>;
+  </main>;
 }
 
 function MarkdownSeguro({ texto }: { texto: string }) {
