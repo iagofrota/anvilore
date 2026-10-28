@@ -72,3 +72,18 @@ test("Dado um kit com tag e commit, Quando formato a linha, Então mostra os doi
   expect(formatarVersao({ versao: "1.0.0", commit: "abc1234" })).toBe("anvilore 1.0.0 (commit abc1234)");
   expect(formatarVersao({ versao: "1.0.0", tag: "v1.0.0", commit: "abc1234" })).toBe("anvilore 1.0.0 (tag v1.0.0, commit abc1234)");
 });
+
+test("Dado um kit com package.json inválido, Quando rodo versao, Então sai 1 e diz o motivo", async () => {
+  const dir = join(tmp, "ruim"); mkdirSync(dir); writeFileSync(join(dir, "package.json"), "{}");
+  expect(await comandoVersao([], dir)).toBe(1);
+  expect(console_.erros.join("\n")).toContain("versao: package.json sem versão");
+});
+
+test("Dado git ausente do PATH, Quando pergunto a versão de um clone, Então vem só a do package.json", async () => {
+  const dir = kit();
+  git(dir, "init", "-q"); git(dir, "add", "."); git(dir, "commit", "-qm", "c");
+  const path = process.env.PATH;
+  process.env.PATH = join(tmp, "vazio");
+  try { expect(await versaoDoKit(dir)).toEqual({ versao: "9.8.7" }); }
+  finally { process.env.PATH = path; }
+});

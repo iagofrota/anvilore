@@ -3,7 +3,8 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, re
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { instalar, ligarDiretorio, comandoInstalar, pecaDoEsqueleto, valorDoPath, type Alvo } from "../src/comandos/instalar";
+import { instalar, ligarDiretorio, comandoInstalar, valorDoPath, type Alvo } from "../src/comandos/instalar";
+import { ehExemplo, pecasDoModelo } from "../src/lib/modelos";
 import { executar } from "../src/cli";
 import { capturarConsole } from "./apoio/console";
 
@@ -138,26 +139,42 @@ test("Dado CLI ausente Quando instalo todos Então relata e pula só o ausente c
   expect(existsSync(join(destino, ".codex"))).toBe(false);
 });
 
-test("Dado página pessoal Quando recrio esqueleto e repito Então preserva conteúdo e fronteira versionada", async () => {
+test("Dado página pessoal Quando recrio esqueleto e repito Então preserva conteúdo e copia o resto dos modelos", async () => {
   mkdirSync(join(destino, "wiki/exemplo/concepts"), { recursive: true });
   writeFileSync(join(destino, "wiki/exemplo/concepts/pessoal.md"), "PESSOAL");
   await rodar();
-  const git = Bun.which("git", { PATH: pathOriginal }); expect(git).not.toBeNull();
-  const lista = Bun.spawnSync([git!, "-C", raiz, "ls-files", "--", "wiki/"], { env: ambiente });
-  expect(lista.exitCode).toBe(0);
-  const esperados = lista.stdout.toString().trim().split(/\r?\n/).sort();
-  for (const rel of esperados) expect(readFileSync(join(destino, rel), "utf8")).toBe(readFileSync(join(raiz, rel), "utf8"));
+  for (const peca of await pecasDoModelo()) {
+    if (ehExemplo(peca.destino) && peca.destino.startsWith("wiki/")) continue;
+    expect(readFileSync(join(destino, peca.destino))).toEqual(readFileSync(peca.origem));
+  }
   expect(readFileSync(join(destino, "wiki/exemplo/concepts/pessoal.md"), "utf8")).toBe("PESSOAL");
 });
 
-test("Dado esqueleto versionado Quando recrio a wiki Então o conjunto criado é exatamente o git ls-files", async () => {
-  const git = Bun.which("git", { PATH: pathOriginal }); expect(git).not.toBeNull();
-  const lista = Bun.spawnSync([git!, "-C", raiz, "ls-files", "--", "wiki/"], { env: ambiente });
-  expect(lista.exitCode).toBe(0);
-  const esperados = lista.stdout.toString().trim().split(/\r?\n/).sort();
+test("Dado destino sem wiki/ nem raw/ Quando instalo Então o conjunto criado é exatamente o de modelos/", async () => {
+  const esperados = (await pecasDoModelo()).map(peca => peca.destino).sort();
   await rodar();
-  const criados = arquivosEm(join(destino, "wiki")).map(rel => `wiki/${rel}`);
+  const criados = [...arquivosEm(join(destino, "wiki")).map(rel => `wiki/${rel}`), ...arquivosEm(join(destino, "raw")).map(rel => `raw/${rel}`), "SCHEMA.md"].sort();
   expect(criados).toEqual(esperados);
+});
+
+test("Dado SCHEMA.md e índice editados e exemplos apagados Quando reinstalo Então nada é sobrescrito e nada apagado volta", async () => {
+  await rodar();
+  writeFileSync(join(destino, "SCHEMA.md"), "MEU SCHEMA"); writeFileSync(join(destino, "wiki/index.md"), "MEU ÍNDICE");
+  rmSync(join(destino, "wiki/exemplo"), { recursive: true }); rmSync(join(destino, "raw/exemplo"), { recursive: true });
+  rmSync(join(destino, "wiki/log.md"));
+  const r = await rodar();
+  expect(r.codigo).toBe(0);
+  expect(readFileSync(join(destino, "SCHEMA.md"), "utf8")).toBe("MEU SCHEMA");
+  expect(readFileSync(join(destino, "wiki/index.md"), "utf8")).toBe("MEU ÍNDICE");
+  expect(existsSync(join(destino, "wiki/exemplo"))).toBe(false);
+  expect(existsSync(join(destino, "raw/exemplo"))).toBe(false);
+  expect(existsSync(join(destino, "wiki/log.md"))).toBe(true);
+});
+
+test("Dado simulação Quando instalo Então anuncia os modelos sem escrever", async () => {
+  const r = await rodar(["claude"], true);
+  expect(r.mensagens.join("\n")).toContain("simula escrita: SCHEMA.md");
+  expect(existsSync(join(destino, "SCHEMA.md"))).toBe(false);
 });
 
 test("Dado link antigo e diretório pessoal Quando instalo Então corrige link e preserva diretório avisando", async () => {
@@ -201,7 +218,7 @@ test("Dado argumentos de instalar Quando comando é despachado Então valida alv
 
 function copiarFonte() {
   const copia = join(tmp, "fonte"); mkdirSync(copia);
-  for (const rel of ["src", "hooks", "skills", "wiki"]) cpSync(join(raiz, rel), join(copia, rel), { recursive: true });
+  for (const rel of ["src", "hooks", "skills", "modelos"]) cpSync(join(raiz, rel), join(copia, rel), { recursive: true });
   writeFileSync(join(copia, "AGENTS.md"), "contrato");
   return copia;
 }
@@ -224,30 +241,25 @@ test("Dado fonte distinta com skill nova Quando instalo Então links apontam à 
   if (process.platform !== "win32") expect(readlinkSync(join(destino, ".claude/skills/lint"))).toBe("../../../fonte/skills/lint");
 });
 
-test("Dado wiki apagada na fonte Quando instalo Então recupera do último commit ou falha explicitamente sem git", async () => {
+test("Dado fonte sem modelos/ Quando instalo Então reprova em vez de inventar conteúdo, mesmo com git", () => {
   const copia = copiarFonte();
   const git = Bun.which("git", { PATH: pathOriginal }); expect(git).not.toBeNull();
-  for (const args of [["init", "-q"], ["add", "wiki"], ["-c", "user.name=Teste", "-c", "user.email=teste@exemplo", "commit", "-qm", "fixture"]]) {
+  for (const args of [["init", "-q"], ["add", "."], ["-c", "user.name=Teste", "-c", "user.email=teste@exemplo", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture"]]) {
     expect(Bun.spawnSync([git!, "-C", copia, ...args], { env: { ...ambiente, HOME: lar, USERPROFILE: lar } }).exitCode).toBe(0);
   }
-  rmSync(join(copia, "wiki"), { recursive: true });
-  const semGit = executarCopia(copia, join(tmp, "bin"));
-  expect(semGit.exitCode).toBe(4); expect(semGit.stdout.toString()).toContain("git ausente");
-  await expect(pecaDoEsqueleto("wiki/index.md", copia)).rejects.toThrow("git ausente");
-  process.env.PATH = `${join(tmp, "bin")}${delimiter}${pathOriginal}`;
-  expect(await pecaDoEsqueleto("wiki/index.md", copia)).toBe(readFileSync(join(raiz, "wiki/index.md"), "utf8"));
-  await expect(pecaDoEsqueleto("wiki/ausente.md", copia)).rejects.toThrow("último commit");
-  await expect(pecaDoEsqueleto("skills", copia)).rejects.toThrow();
-  const comGit = executarCopia(copia);
-  expect(comGit.exitCode).toBe(0);
-  expect(readFileSync(join(destino, "wiki/index.md"), "utf8")).toBe(readFileSync(join(raiz, "wiki/index.md"), "utf8"));
+  rmSync(join(copia, "modelos"), { recursive: true });
+  const r = executarCopia(copia);
+  expect(r.exitCode).toBe(4); expect(r.stdout.toString()).toContain("modelos/");
+  expect(existsSync(join(destino, "wiki"))).toBe(false);
+  expect(existsSync(join(destino, "SCHEMA.md"))).toBe(false);
 });
 
-test("Dado esqueleto ausente sem commit Quando instalo Então reprova em vez de inventar conteúdo", () => {
-  const copia = copiarFonte(); rmSync(join(copia, "wiki"), { recursive: true });
-  const r = executarCopia(copia);
-  expect(r.exitCode).toBe(4); expect(r.stdout.toString()).toContain("último commit");
-  expect(existsSync(join(destino, "wiki"))).toBe(false);
+test("Dado fonte sem .git Quando instalo Então copia os modelos sem chamar git", () => {
+  const copia = copiarFonte();
+  const r = executarCopia(copia, join(tmp, "bin"));
+  expect(r.exitCode).toBe(0);
+  expect(readFileSync(join(destino, "wiki/index.md"))).toEqual(readFileSync(join(raiz, "modelos/wiki/index.md")));
+  expect(readFileSync(join(destino, "SCHEMA.md"))).toEqual(readFileSync(join(raiz, "modelos/SCHEMA.md")));
 });
 
 test("Dado destino com configuração ilegível Quando instalo Então relata erro sem sucesso silencioso", async () => {

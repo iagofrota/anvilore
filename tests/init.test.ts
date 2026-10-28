@@ -23,6 +23,9 @@ afterEach(() => {
 
 const TIPOS = ["concepts", "entities", "sources"];
 const listar = (dir: string) => readdirSync(dir).sort();
+// Áreas de wiki/: tira o esqueleto que o init recria dos modelos (índice, log, _meta/, log/, .gitignore).
+const ESQUELETO = new Set(["_meta", "log", "index.md", "log.md", ".gitignore"]);
+const areasEm = (dir: string) => listar(dir).filter((nome) => !ESQUELETO.has(nome));
 
 function entradaCom(...respostas: string[]): Readable {
   return Readable.from(respostas.map((r) => `${r}\n`));
@@ -44,7 +47,7 @@ describe("inicializar", () => {
     const r = await inicializar({ raiz, areas: ["pessoal", "saude"] });
     expect(r.criadas).toEqual(["pessoal", "saude"]);
     expect(r.jaExistiam).toEqual([]);
-    expect(listar(join(raiz, "wiki"))).toEqual(["pessoal", "saude"]);
+    expect(areasEm(join(raiz, "wiki"))).toEqual(["pessoal", "saude"]);
     expect(listar(join(raiz, "wiki", "pessoal"))).toEqual(TIPOS);
     expect(listar(join(raiz, "wiki", "saude"))).toEqual(TIPOS);
   });
@@ -55,6 +58,27 @@ describe("inicializar", () => {
     const log = Bun.spawnSync(["git", "-C", join(raiz, "wiki"), "log", "-1", "--pretty=%s"], { stdout: "pipe" });
     expect(log.exitCode).toBe(0);
     expect(log.stdout.toString().trim()).toBe("wiki: início");
+  });
+
+  test("Dado uma pasta sem SCHEMA.md nem índice, Quando inicializar, Então recria as peças estruturais dos modelos sem o exemplo", async () => {
+    const r = await inicializar({ raiz, areas: ["pessoal"] });
+    expect(r.recriados.sort()).toEqual(["SCHEMA.md", "raw/.gitkeep", "wiki/.gitignore", "wiki/_meta/.gitkeep", "wiki/index.md", "wiki/log.md", "wiki/log/.gitkeep"]);
+    expect(existsSync(join(raiz, "wiki", "exemplo"))).toBe(false);
+    expect(existsSync(join(raiz, "raw", "exemplo"))).toBe(false);
+  });
+
+  test("Dado SCHEMA.md e índice da pessoa, Quando inicializar, Então nada dela é sobrescrito", async () => {
+    writeFileSync(join(raiz, "SCHEMA.md"), "MEU SCHEMA");
+    mkdirSync(join(raiz, "wiki")); writeFileSync(join(raiz, "wiki", "index.md"), "MEU ÍNDICE");
+    const r = await inicializar({ raiz, areas: ["pessoal"] });
+    expect(r.recriados).not.toContain("SCHEMA.md");
+    expect(await Bun.file(join(raiz, "SCHEMA.md")).text()).toBe("MEU SCHEMA");
+    expect(await Bun.file(join(raiz, "wiki", "index.md")).text()).toBe("MEU ÍNDICE");
+  });
+
+  test("Dado peças recriadas, Quando rodo o comando init, Então ele diz quais voltaram do modelo", async () => {
+    expect(await comandoInit(["--areas", "pessoal"], { raiz, interativo: false })).toBe(0);
+    expect(console_.saida.join("\n")).toContain("Recriado do modelo: SCHEMA.md");
   });
 
   test("Dado init repetido, Quando inicializar de novo, Então devolve jaExistiam e não altera nada", async () => {
@@ -203,7 +227,7 @@ describe("comandoInit", () => {
   test("Dado --areas pessoal,saude, Quando rodar sem perguntas, Então cria as duas e devolve 0", async () => {
     const codigo = await comandoInit(["--areas", "pessoal,saude"], { raiz });
     expect(codigo).toBe(0);
-    expect(listar(join(raiz, "wiki"))).toEqual(["pessoal", "saude"]);
+    expect(areasEm(join(raiz, "wiki"))).toEqual(["pessoal", "saude"]);
     expect(listar(join(raiz, "wiki", "saude"))).toEqual(TIPOS);
   });
 
@@ -330,7 +354,7 @@ describe("comandoInit interativo", () => {
     const { saida, texto } = saidaMudaEcoada();
     const codigo = await comandoInit([], { raiz, interativo: true, entrada: entradaCom("", ""), saida });
     expect(codigo).toBe(0);
-    expect(listar(join(raiz, "wiki"))).toEqual(["pessoal", "profissional", "projetos-paralelos", "saude"]);
+    expect(areasEm(join(raiz, "wiki"))).toEqual(["pessoal", "profissional", "projetos-paralelos", "saude"]);
     expect(texto()).toContain("pessoal");
     expect(texto()).toContain("projetos-paralelos");
   });
@@ -339,19 +363,19 @@ describe("comandoInit interativo", () => {
     const { saida } = saidaMudaEcoada();
     const codigo = await comandoInit([], { raiz, interativo: true, entrada: entradaCom("1,4", "estudos"), saida });
     expect(codigo).toBe(0);
-    expect(listar(join(raiz, "wiki"))).toEqual(["estudos", "pessoal", "saude"]);
+    expect(areasEm(join(raiz, "wiki"))).toEqual(["estudos", "pessoal", "saude"]);
   });
 
   test("Dado nomes na resposta, Quando rodar, Então mantém as nomeadas", async () => {
     const { saida } = saidaMudaEcoada();
     await comandoInit([], { raiz, interativo: true, entrada: entradaCom("saude, pessoal", ""), saida });
-    expect(listar(join(raiz, "wiki"))).toEqual(["pessoal", "saude"]);
+    expect(areasEm(join(raiz, "wiki"))).toEqual(["pessoal", "saude"]);
   });
 
   test("Dado nenhuma e duas novas, Quando rodar, Então cria só as novas", async () => {
     const { saida } = saidaMudaEcoada();
     await comandoInit([], { raiz, interativo: true, entrada: entradaCom("nenhuma", "estudos, casa"), saida });
-    expect(listar(join(raiz, "wiki"))).toEqual(["casa", "estudos"]);
+    expect(areasEm(join(raiz, "wiki"))).toEqual(["casa", "estudos"]);
   });
 
   test("Dado nenhuma e nada novo, Quando rodar, Então devolve 1 dizendo que nenhuma área foi escolhida", async () => {
@@ -468,7 +492,7 @@ describe("init × anvilore.toml (R70-F)", () => {
   test("Dado toml com areas, Quando init pede só áreas da lista, Então cria normalmente", async () => {
     toml('areas = ["pessoal", "saude"]\n');
     expect(await comandoInit(["--areas", "pessoal,saude"], { raiz })).toBe(0);
-    expect(listar(join(raiz, "wiki"))).toEqual(["pessoal", "saude"]);
+    expect(areasEm(join(raiz, "wiki"))).toEqual(["pessoal", "saude"]);
   });
 
   test("Dado toml com areas e a caixa diferente, Quando init pede, Então recusa como o validador (comparação exata) e não cria nada", async () => {

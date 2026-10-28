@@ -1,5 +1,6 @@
 import { readFile, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { valorDoPath } from "./instalar";
 
 const fonte = resolve(import.meta.dir, "../..");
 
@@ -9,12 +10,10 @@ const USO = `Uso: anvilore versao
 Mostra a versão do kit (package.json) e, quando o kit é um clone git, a tag exata e o commit.`;
 
 function git(raiz: string, args: string[]): string | undefined {
-  try {
-    const processo = Bun.spawnSync(["git", "-C", raiz, ...args], { stdout: "pipe", stderr: "pipe" });
-    return processo.exitCode === 0 ? processo.stdout.toString().trim() : undefined;
-  } catch {
-    return undefined; // git ausente: a versão do package.json basta
-  }
+  const exe = Bun.which("git", { PATH: valorDoPath() });
+  if (exe === null) return undefined; // git ausente: a versão do package.json basta
+  const processo = Bun.spawnSync([exe, "-C", raiz, ...args], { stdout: "pipe", stderr: "pipe" });
+  return processo.exitCode === 0 ? processo.stdout.toString().trim() : undefined;
 }
 
 // Só usa o git quando o kit é a raiz do repositório: uma cópia dentro de outro repositório não herda o commit de fora.
@@ -41,7 +40,7 @@ export function formatarVersao({ versao, tag, commit }: VersaoDoKit): string {
   return detalhes.length ? `anvilore ${versao} (${detalhes.join(", ")})` : `anvilore ${versao}`;
 }
 
-export async function comandoVersao(args: string[]): Promise<number> {
+export async function comandoVersao(args: string[], raiz: string = fonte): Promise<number> {
   if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) {
     console.log(USO);
     return 0;
@@ -51,7 +50,7 @@ export async function comandoVersao(args: string[]): Promise<number> {
     return 2;
   }
   try {
-    console.log(formatarVersao(await versaoDoKit()));
+    console.log(formatarVersao(await versaoDoKit(raiz)));
     return 0;
   } catch (erro) {
     console.error(`versao: ${(erro as Error).message}`);

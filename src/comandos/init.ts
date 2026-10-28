@@ -7,6 +7,7 @@ import { parseArgs } from "node:util";
 import { chaveDeNome } from "../lib/caminhos";
 import { NOME_DO_PERFIL, areaPermitida, carregarPerfil } from "../lib/perfil";
 import { diretorioDeTipo, nomeReservado } from "../lib/reservados";
+import { copiarModelos } from "../lib/modelos";
 import { caminhoWiki, inicializarRepositorioWiki } from "../lib/wiki-repo";
 
 export const AREAS_PADRAO = ["pessoal", "profissional", "projetos-paralelos", "saude"] as const;
@@ -17,6 +18,7 @@ export interface ResultadoInit {
   jaExistiam: string[];
   avisos: string[];
   observacoes: string[];
+  recriados: string[];
 }
 
 type OpcoesInit = { raiz: string; areas: string[] };
@@ -172,7 +174,9 @@ export async function inicializar({ raiz, areas }: OpcoesInit): Promise<Resultad
   await conferirWiki(wiki);
   await conferirConflitosNoDisco(wiki, nomes);
 
-  const resultado: ResultadoInit = { criadas: [], jaExistiam: [], avisos: [], observacoes: avisosDoPerfil };
+  // As peças estruturais que faltam (SCHEMA.md, índice, log) voltam do modelo; nada existente é sobrescrito e o exemplo não volta.
+  const { criados: recriados } = await copiarModelos(raiz, { exemplo: false });
+  const resultado: ResultadoInit = { criadas: [], jaExistiam: [], avisos: [], observacoes: avisosDoPerfil, recriados };
   for (const area of nomes) {
     const caminho = join(wiki, area);
     if ((await estadoDaArea(caminho)) === "quebrado") {
@@ -280,7 +284,8 @@ export async function comandoInit(args: string[], ambiente: AmbienteInit = {}): 
     const areas = areasPedidas !== undefined
       ? areasPedidas.split(",").map((nome) => nome.trim())
       : await perguntarAreas(ambiente.entrada ?? process.stdin, ambiente.saida ?? process.stdout);
-    const { criadas, jaExistiam, avisos, observacoes } = await inicializar({ raiz, areas });
+    const { criadas, jaExistiam, avisos, observacoes, recriados } = await inicializar({ raiz, areas });
+    if (recriados.length > 0) console.log(`Recriado do modelo: ${recriados.join(", ")}.`);
     for (const aviso of [...observacoes, ...avisos]) console.warn(`AVISO: ${aviso}`);
     if (criadas.length + jaExistiam.length === 0) {
       console.error("Nenhuma área criada; veja os avisos acima.");
