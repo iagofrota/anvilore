@@ -43,11 +43,11 @@ export async function conferirArquivoDeLeitura(
   let paginasReais: string[];
   try {
     const rawReal = caminhoReal(join(raiz, "raw"));
-    const fonteReal = caminhoReal(resolve(raiz, relatorio.fonte));
+    const fonteReal = caminhoReal(relatorio.fonte, raiz);
     if (!dentroDe(fonteReal, rawReal)) return falha([`a fonte sai de raw/ pelo caminho real: ${relatorio.fonte}`]);
     const wiki = caminhoWiki(raiz, ambiente);
     const wikiReal = caminhoReal(wiki);
-    paginasReais = relatorio.paginas.map(pagina => caminhoReal(join(wiki, pagina.caminho)));
+    paginasReais = relatorio.paginas.map(pagina => caminhoReal(pagina.caminho, wiki));
     const fora = paginasReais.flatMap((real, i) => dentroDe(real, wikiReal) && !dentroDe(real, rawReal) && !estaEmRaw(relative(wikiReal, real))
       ? []
       : [`$.paginas[${i}].caminho: pelo caminho real a página sai da wiki ou cai em raw/ (${relatorio.paginas[i]!.caminho})`]);

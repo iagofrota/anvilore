@@ -88,27 +88,28 @@ function citaRaw(texto: string): boolean {
   return texto.split(/[\s"'`=<>;|&()[\]{}]+/).some(estaEmRaw);
 }
 
-// O raw/ real do projeto: o do ancestral mais próximo de `inicio` que tem um raw/. Pega o raw/ que é link para uma pasta
-// com outro nome, que a comparação por nome não vê.
-function rawDoProjeto(inicio: string): string | undefined {
+// O clone em que este hook mora: a raiz confiável, que o payload não escolhe.
+const RAIZ_DO_CLONE = resolve(import.meta.dir, "../..");
+
+// Todo raw/ real que protege `inicio`: o de cada ancestral que tem um. Pega o raw/ que é link para uma pasta com outro nome,
+// que a comparação por nome não vê.
+function rawsAcima(inicio: string): string[] {
+  const raws: string[] = [];
   for (let dir = inicio; ; dir = dirname(dir)) {
-    if (existsSync(join(dir, "raw"))) return caminhoReal(join(dir, "raw"));
-    if (dirname(dir) === dir) return undefined;
+    if (existsSync(join(dir, "raw"))) raws.push(caminhoReal(join(dir, "raw")));
+    if (dirname(dir) === dir) return raws;
   }
 }
 
-// B1: o texto pode dizer wiki/ e o disco, por link, levar a raw/. Devolve o caminho real quando ele cai num raw/ (pelo nome
-// ou dentro do raw/ real do projeto do alvo ou do cwd). Relativo resolve contra o cwd; sem cwd, contra o do processo.
+// B1: o texto pode dizer wiki/ e o disco, por link, levar a raw/. Devolve o caminho real quando ele cai num raw/: pelo nome,
+// no raw/ do clone ou em qualquer raw/ acima do alvo ou do cwd. Relativo resolve contra o cwd; sem cwd, contra o do processo.
 function caiEmRawPeloDisco(caminho: string, cwd: string): string | undefined {
-  const base = resolve(cwd || process.cwd());
-  const absoluto = resolve(base, caminho);
-  const real = caminhoReal(absoluto);
+  const base = caminhoReal(cwd || process.cwd());
+  const real = caminhoReal(caminho, base);
   if (estaEmRaw(real)) return real;
-  for (const inicio of [dirname(absoluto), base]) {
-    const raw = rawDoProjeto(inicio);
-    if (raw !== undefined && dentroDe(real, raw)) return real;
-  }
-  return undefined;
+  // Candidatos acima do caminho escrito, do real e do cwd: só acrescentam bloqueio, nunca o tiram.
+  const raws = [join(RAIZ_DO_CLONE, "raw"), ...rawsAcima(dirname(resolve(base, caminho))), ...rawsAcima(dirname(real)), ...rawsAcima(base)];
+  return raws.some(raw => dentroDe(real, existsSync(raw) ? caminhoReal(raw) : raw)) ? real : undefined;
 }
 
 // Pelo texto: o próprio caminho, ou um relativo com o diretório de trabalho já dentro de raw/.
@@ -116,9 +117,11 @@ function escreveEmRawPeloTexto(caminho: string, cwd: string): boolean {
   return estaEmRaw(caminho) || (estaEmRaw(cwd) && !/^(?:[a-z]:|[\\/])/i.test(caminho));
 }
 
-// Caminho que cai em raw/, pelo texto ou pelo disco.
+// Caminho que cai em raw/, pelo texto ou pelo disco. Destino que não se resolve (ciclo, sem permissão) conta como raw/:
+// o hook falha fechado.
 function escreveEmRaw(caminho: string, cwd: string): boolean {
-  return escreveEmRawPeloTexto(caminho, cwd) || caiEmRawPeloDisco(caminho, cwd) !== undefined;
+  if (escreveEmRawPeloTexto(caminho, cwd)) return true;
+  try { return caiEmRawPeloDisco(caminho, cwd) !== undefined; } catch { return true; }
 }
 
 function caminhosDe(valor: unknown): string[] {

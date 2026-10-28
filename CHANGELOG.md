@@ -69,6 +69,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 - A fronteira de `raw/` vale pelo caminho real, não só pelo texto: o hook bloqueia a escrita que, por um link na
   wiki, cairia em `raw/`, e o `conferir-leitura` recusa fonte que sai de `raw/` por link e página que sai da wiki.
+  O caminho é resolvido na ordem do disco (`link/../x` no Linux e no macOS sobe a partir do alvo do link), e destino
+  que não se resolve bloqueia.
 
 ## [0.2.0] - 2026-10-25
 

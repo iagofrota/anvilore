@@ -1,5 +1,5 @@
 import { lstatSync, readlinkSync, realpathSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 
 export function normalizarFimDeLinha(texto: string): string {
   return texto.replaceAll("\r\n", "\n");
@@ -20,34 +20,56 @@ export function estaEmRaw(alvo: string): boolean {
     .some((componente) => componente.replace(/[. ]+$/, "").toLowerCase() === "raw");
 }
 
-// Caminho real de `alvo`, exista ele ou não: a fronteira de raw/ vale pelo disco, não pelo texto. Para o que ainda não existe,
-// vale o caminho real do diretório pai existente mais próximo; um link pendente é seguido até o arquivo que a escrita criaria.
-// Links em ciclo (ou mais de 40 saltos) lançam erro: quem decide falha fechado.
-export function caminhoReal(alvo: string): string {
-  return resolverReal(alvo, { saltos: 0 });
+// Caminho real de `alvo`, exista ele ou não: a fronteira de raw/ vale pelo disco, não pelo texto. Resolve componente a
+// componente, na ordem do sistema de arquivos: no POSIX o link é seguido antes de aplicar o `..` seguinte (`link/../x` sobe a
+// partir do alvo real do link); no Windows o `..` é lexical, como o próprio Windows faz. Para o que ainda não existe, vale o
+// caminho real do diretório pai existente mais próximo; um link pendente é seguido até o arquivo que a escrita criaria.
+// Links em ciclo (ou mais de 40 saltos) lançam erro: quem decide falha fechado. Relativo parte de `base`.
+export function caminhoReal(alvo: string, base: string = process.cwd()): string {
+  return resolverReal(alvo, base, { saltos: 0 });
 }
 
-// Um contador só para a resolução inteira: links no pai e no alvo somam no mesmo limite.
-function resolverReal(alvo: string, conta: { saltos: number }): string {
-  if (conta.saltos > 40) throw new Error(`links demais ao resolver ${alvo}`);
-  const absoluto = resolve(alvo);
-  try {
-    return realpathSync.native(absoluto);
-  } catch (erro) {
-    const codigo = (erro as NodeJS.ErrnoException).code;
-    if (codigo !== "ENOENT" && codigo !== "ENOTDIR") throw erro;
+// Erros que dizem "isto não existe como caminho": o caminho real continua pelo texto.
+const INEXISTENTE = new Set(["ENOENT", "ENOTDIR", "ENAMETOOLONG", "EINVAL"]);
+
+function inexistente(erro: unknown): boolean {
+  return INEXISTENTE.has((erro as NodeJS.ErrnoException).code ?? "");
+}
+
+function resolverReal(alvo: string, base: string, conta: { saltos: number }): string {
+  const windows = process.platform === "win32";
+  // No Windows, resolve() aplica o `..` pelo texto, que é o que o sistema faz; no POSIX o texto fica intacto até o disco.
+  const texto = windows ? resolve(base, alvo) : alvo;
+  let atual: string;
+  let resto: string;
+  if (isAbsolute(texto)) {
+    atual = parse(texto).root;
+    resto = texto.slice(atual.length);
+  } else {
+    atual = resolverReal(base, "/", conta);
+    resto = texto;
   }
-  let info: ReturnType<typeof lstatSync> | undefined;
-  try { info = lstatSync(absoluto); } catch { /* não existe: sobe para o pai */ }
-  const pai = dirname(absoluto);
-  if (info?.isSymbolicLink()) {
-    // Como o disco: alvo relativo parte do diretório real onde o link mora, não do caminho escrito.
-    const destino = readlinkSync(absoluto);
-    conta.saltos++;
-    return resolverReal(isAbsolute(destino) ? destino : join(resolverReal(pai, conta), destino), conta);
+  for (const segmento of resto.split(windows ? /[\\/]+/ : "/")) {
+    if (segmento === "" || segmento === ".") continue;
+    // `atual` já é real: subir a partir dele é subir no disco.
+    if (segmento === "..") { atual = dirname(atual); continue; }
+    const proximo = join(atual, segmento);
+    try {
+      atual = realpathSync.native(proximo);
+      continue;
+    } catch (erro) {
+      if (!inexistente(erro)) throw erro;
+    }
+    let link = false;
+    try { link = lstatSync(proximo).isSymbolicLink(); } catch (erro) { if (!inexistente(erro)) throw erro; }
+    if (link) {
+      if (++conta.saltos > 40) throw new Error(`links demais ao resolver ${alvo}`);
+      atual = resolverReal(readlinkSync(proximo), atual, conta);
+    } else {
+      atual = proximo;
+    }
   }
-  if (pai === absoluto) return absoluto;
-  return join(resolverReal(pai, conta), basename(absoluto));
+  return atual;
 }
 
 // `filho` é `pai` ou mora dentro dele (comparação por segmento: raw-velho não está em raw).

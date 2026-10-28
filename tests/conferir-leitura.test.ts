@@ -168,3 +168,12 @@ test.skipIf(process.platform === "win32")("Dado página a atualizar que é link 
     "FAIL: $.paginas[1].caminho: pelo caminho real a página sai da wiki ou cai em raw/ (pessoal/concepts/wiki.md)",
   ]);
 });
+
+test("Dado fonte com link/../ no caminho Quando confiro Então reprova antes de tocar o disco: .. nunca vale na fonte", async () => {
+  const r = relatorio();
+  r.fonte = "raw/link/../notas/fonte.md";
+  gravar("leitura.json", JSON.stringify(r));
+  expect((await conferirArquivoDeLeitura(raiz, "leitura.json")).mensagens).toEqual([
+    "FAIL: $.fonte: a fonte tem de estar em raw/ (veio raw/link/../notas/fonte.md)",
+  ]);
+});

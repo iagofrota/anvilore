@@ -878,3 +878,54 @@ test("Dado área da wiki que é link para raw/ Quando o terminal redireciona par
   expect(decidir(comando("cp notas.md wiki/pessoal/a.md")).acao).toBe("bloquear");
   expect(decidir(comando("echo x > wiki/a.md")).acao).toBe("liberar");
 });
+
+// Revisão de segurança 2.
+test.skipIf(process.platform === "win32")("Dado .. depois de área que é link para dentro de raw/ Quando escrevo Então bloqueia", () => {
+  const base = projeto();
+  mkdirSync(join(base, "raw/sub"));
+  symlinkSync(join(base, "raw/sub"), join(base, "wiki/pessoal"), "dir");
+  expect(decidir(arquivo(`${base}/wiki/pessoal/../a.md`)).acao).toBe("bloquear");
+  const comando = JSON.stringify({ tool_name: "Bash", cwd: base, tool_input: { command: "echo x > wiki/pessoal/../a.md" } });
+  expect(decidir(comando).acao).toBe("bloquear");
+});
+
+test.skipIf(process.platform === "win32")("Dado destino de terminal que não se resolve (links em ciclo) Quando decido Então falha fechado", () => {
+  const base = projeto();
+  symlinkSync(join(base, "wiki/b.md"), join(base, "wiki/a.md"));
+  symlinkSync(join(base, "wiki/a.md"), join(base, "wiki/b.md"));
+  const comando = JSON.stringify({ tool_name: "Bash", cwd: base, tool_input: { command: "echo x > wiki/a.md" } });
+  expect(decidir(comando).acao).toBe("bloquear");
+});
+
+test("Dado palavra longa demais para ser caminho Quando o comando não escreve em raw/ Então libera", () => {
+  const base = projeto();
+  const comando = JSON.stringify({ tool_name: "Bash", cwd: base, tool_input: { command: `git commit -m "${"x".repeat(400)}"` } });
+  expect(decidir(comando).acao).toBe("liberar");
+});
+
+test("Dado cwd com um raw/ próprio mais perto Quando escrevo na pasta para onde aponta o raw/ do projeto de cima Então bloqueia: vale todo raw/ do caminho", () => {
+  const base = projeto();
+  const evidencias = join(temporario, "evidencias");
+  mkdirSync(evidencias);
+  rmSync(join(base, "raw"), { recursive: true });
+  symlinkSync(evidencias, join(base, "raw"), linkDeDiretorio);
+  mkdirSync(join(base, "sub/raw"), { recursive: true });
+  const payload = JSON.stringify({ tool_name: "Write", cwd: join(base, "sub"), tool_input: { file_path: join(evidencias, "b.md") } });
+  expect(decidir(payload).acao).toBe("bloquear");
+});
+
+test.skipIf(process.platform === "win32")("Dado Edit com link/../arquivo e link para dentro de raw/ Quando decido Então bloqueia", () => {
+  const base = projeto();
+  mkdirSync(join(base, "raw/sub"));
+  symlinkSync(join(base, "raw/sub"), join(base, "wiki/link"), "dir");
+  const payload = JSON.stringify({ tool_name: "Edit", cwd: base, tool_input: { file_path: "wiki/link/../x.md" } });
+  expect(decidir(payload).acao).toBe("bloquear");
+});
+
+test.skipIf(process.platform !== "win32")("Dado Windows Quando o caminho tem link/../arquivo Então o .. é lexical, como no próprio Windows", () => {
+  const base = projeto();
+  mkdirSync(join(base, "raw/sub"));
+  symlinkSync(join(base, "raw/sub"), join(base, "wiki/link"), "junction");
+  expect(decidir(arquivo(`${base}\\wiki\\link\\..\\x.md`)).acao).toBe("liberar");
+  expect(decidir(arquivo(`${base}\\wiki\\link\\x.md`)).acao).toBe("bloquear");
+});

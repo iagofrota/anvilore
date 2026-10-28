@@ -166,3 +166,30 @@ test.skipIf(process.platform === "win32")("Dado link relativo dentro de pasta qu
     expect(caminhoReal(join(base, "wiki/a/l"))).toBe(join(base, "raw/f.md"));
   } finally { rmSync(base, { recursive: true, force: true }); }
 });
+
+// Revisão de segurança 2: no POSIX o `..` vem depois do link (o disco resolve o link e só então sobe), não pelo texto.
+test.skipIf(process.platform === "win32")("Dado .. logo depois de pasta que é link Quando resolvo Então sobe a partir do alvo real do link", () => {
+  const base = cenario(b => { mkdirSync(join(b, "raw/sub")); symlinkSync(join(b, "raw/sub"), join(b, "wiki/pessoal"), "dir"); });
+  try {
+    expect(caminhoReal(`${base}/wiki/pessoal/../a.md`)).toBe(join(base, "raw/a.md"));
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+test.skipIf(process.platform === "win32")("Dado link pendente cujo alvo relativo tem .. depois de outro link Quando resolvo Então segue o disco", () => {
+  const base = cenario(b => {
+    mkdirSync(join(b, "raw/fundo"));
+    symlinkSync(join(b, "raw/fundo"), join(b, "wiki/atalho"), "dir");
+    symlinkSync("atalho/../x.md", join(b, "wiki/l"));
+  });
+  try {
+    expect(caminhoReal(join(base, "wiki/l"))).toBe(join(base, "raw/x.md"));
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+test("Dado caminho relativo e uma base Quando resolvo Então parte da base", () => {
+  const base = cenario(() => {});
+  try {
+    expect(caminhoReal("wiki/x.md", base)).toBe(join(base, "wiki/x.md"));
+    expect(caminhoReal("a".repeat(300), base)).toBe(join(base, "a".repeat(300)));
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
