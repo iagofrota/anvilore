@@ -81,7 +81,7 @@ afterEach(() => rmSync(raiz, { recursive: true, force: true }));
 
 const fechamentoSoRascunhos = async () => ({ codigo: 1, saida: "ERRO: página gerada sem aprovação humana: wiki/pessoal/sources/llm-wiki.md\nERRO: página gerada sem aprovação humana: wiki/pessoal/concepts/rag.md\nVALIDACAO: FAIL (2 violacoes de invariante)\nFECHAMENTO: FAIL no passo validar-wiki\n" });
 
-function servico(ponte: PonteDeAgente, fechar = fechamentoSoRascunhos) {
+function servico(ponte: PonteDeAgente, fechar: (raiz: string, wiki: string) => Promise<{ codigo: number; saida: string }> = fechamentoSoRascunhos) {
   return new IngestaoNaInterface(raiz, { ponte, agora: () => agora, fechar, ambiente: {} });
 }
 
