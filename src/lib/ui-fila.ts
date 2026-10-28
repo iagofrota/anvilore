@@ -1,10 +1,11 @@
 import { readdir, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { basename, join, relative, resolve, sep } from "node:path";
 import { lerFrontmatter } from "./frontmatter";
 import { caminhoWiki } from "./wiki-repo";
 import { validarWiki } from "../comandos/validar";
-import { estadoAprovacaoHumana } from "./okf";
+import { estadoAprovacaoHumana, timestampValido } from "./okf";
 
 export type Rascunho = {
   caminho: string;
@@ -19,6 +20,7 @@ export type Rascunho = {
   erros?: string[];
   avisos?: string[];
   conteudo: string;
+  versao: string;
 };
 
 async function listarMarkdown(diretorio: string, prefixo = ""): Promise<string[]> {
@@ -57,18 +59,18 @@ export async function listarFilaRascunhos(raiz: string, ambiente: Record<string,
     let frontmatter: Record<string, unknown> | null;
     try { frontmatter = lerFrontmatter(conteudo); }
     catch {
-      fila.push({ caminho, titulo: basename(caminho, ".md"), tipo: "", status: "erro", aprovavel: false, erros: erroDoValidador(validacao.erros, caminho), conteudo });
+      fila.push({ caminho, titulo: basename(caminho, ".md"), tipo: "", status: "erro", aprovavel: false, erros: erroDoValidador(validacao.erros, caminho), conteudo, versao: createHash("sha256").update(conteudo).digest("hex") });
       continue;
     }
     if (!frontmatter || frontmatter.generated === undefined) continue;
     const generated = frontmatter.generated;
-    const geradaEm = ehMapa(generated) && instanteValido(generated.at);
+    const geradaEm = ehMapa(generated) && timestampValido(generated.at);
     const estadoAprovacao = estadoAprovacaoHumana(frontmatter);
     const diagnosticos = erroDoValidador(validacao.erros, caminho).filter(erro => !erro.startsWith(`página gerada sem aprovação humana: ${caminho}`));
     const erros = diagnosticos.filter(erro => !erroGlobal(erro));
     const avisos = diagnosticos.filter(erroGlobal);
     if (!geradaEm || estadoAprovacao === "invalida") {
-      fila.push({ caminho, titulo: String(frontmatter.title ?? basename(caminho, ".md")), tipo: String(frontmatter.type ?? ""), status: "erro", aprovavel: false, erros, conteudo });
+      fila.push({ caminho, titulo: String(frontmatter.title ?? basename(caminho, ".md")), tipo: String(frontmatter.type ?? ""), status: "erro", aprovavel: false, erros, conteudo, versao: createHash("sha256").update(conteudo).digest("hex") });
       continue;
     }
     if (estadoAprovacao === "vigente") continue;
@@ -89,14 +91,10 @@ export async function listarFilaRascunhos(raiz: string, ambiente: Record<string,
       ...(erros.length ? { erros } : {}),
       ...(avisos.length ? { avisos } : {}),
       conteudo,
+      versao: createHash("sha256").update(conteudo).digest("hex"),
     });
   }
   return fila;
-}
-
-function instanteValido(valor: unknown): boolean {
-  if (typeof valor !== "string" && typeof valor !== "number" && !(valor instanceof Date)) return false;
-  return Number.isFinite(Date.parse(String(valor)));
 }
 
 export async function indexarCopias(raiz: string): Promise<Map<string, string>> {

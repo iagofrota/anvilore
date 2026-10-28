@@ -82,13 +82,14 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
             })));
           }
           if (url.pathname === "/api/aprovar" && request.method === "POST") {
-            let corpo: { caminho?: unknown };
+            let corpo: { caminho?: unknown; versao?: unknown };
             try { corpo = await request.json() as { caminho?: unknown }; } catch { return json({ codigo: 2, mensagens: ["Pedido inválido."] }, 400); }
             if (typeof corpo.caminho !== "string") return json({ codigo: 2, mensagens: ["Página inválida."] }, 400);
+            if (typeof corpo.versao !== "string" || !/^[a-f0-9]{64}$/.test(corpo.versao)) return json({ codigo: 2, mensagens: ["Versão inválida."] }, 400);
             const fila = await listarFilaRascunhos(raiz);
             const item = fila.find(rascunho => rascunho.caminho === corpo.caminho && rascunho.aprovavel);
             if (!item) return json({ codigo: 1, mensagens: ["Aprovação recusada: página ausente da fila ou inválida."] }, 409);
-            const resultado = await aprovarPaginas(raiz, [join(wiki, item.caminho)]);
+            const resultado = await aprovarPaginas(raiz, [join(wiki, item.caminho)], process.env, corpo.versao);
             return json(resultado, resultado.codigo === 0 ? 200 : 409);
           }
           if (url.pathname === "/api/validar" && request.method === "POST") return json(await validar(raiz, wiki));
