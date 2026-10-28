@@ -110,6 +110,57 @@ async function gravarManifesto(raiz: string, manifesto: Manifesto): Promise<void
   await rename(temporario, destino); // temporário + renomear: o manifesto nunca fica pela metade
 }
 
+const ETAPAS: Etapa[] = ["copiar", "repositorio-wiki", "tirar-do-indice", "conferir", "estacionar", "puxar", "devolver"];
+const ESTADOS: EstadoMigracao[] = ["migrando", "concluida", "migracao-incompleta", "puxando", "retomada"];
+
+// Caminho relativo ao clone, com `/`, sem `..`, sem unidade e sem raiz: é para lá que a restauração escreve.
+function caminhoSeguro(valor: unknown): valor is string {
+  if (typeof valor !== "string" || valor === "" || /^[\\/]|^[a-z]:|\\/i.test(valor)) return false;
+  return valor.split("/").every(parte => parte !== "" && parte !== "." && parte !== "..");
+}
+
+const listaDeCaminhos = (valor: unknown): valor is string[] => Array.isArray(valor) && valor.every(caminhoSeguro);
+const textoOpcional = (valor: unknown) => valor === undefined || typeof valor === "string";
+
+// O manifesto é o mapa de onde estão os arquivos da pessoa: com qualquer campo fora da forma, a retomada não sabe o que
+// devolver. Então ele é conferido por inteiro (inclusive o id contra o nome da pasta) e, inválido, bloqueia.
+function defeitoDoManifesto(dado: unknown, id: string): string | undefined {
+  if (dado === null || typeof dado !== "object" || Array.isArray(dado)) return "não é um objeto";
+  const m = dado as Record<string, unknown>;
+  if (m.versao !== 1) return "versao diferente de 1";
+  if (m.id !== id) return `id ${JSON.stringify(m.id)} diferente do nome da pasta`;
+  if (m.tipo !== "migracao" && m.tipo !== "puxar") return "tipo desconhecido";
+  if (typeof m.criado !== "string") return "sem data de criação";
+  if (!ESTADOS.includes(m.estado as EstadoMigracao)) return `estado desconhecido ${JSON.stringify(m.estado)}`;
+  if (m.etapa !== undefined && !ETAPAS.includes(m.etapa as Etapa)) return `etapa desconhecida ${JSON.stringify(m.etapa)}`;
+  if (!textoOpcional(m.erro) || !textoOpcional(m.retomadaPor)) return "erro ou retomadaPor fora da forma";
+  if (!Array.isArray(m.arquivos) || !m.arquivos.every(a => a !== null && typeof a === "object" && caminhoSeguro((a as Arquivo).caminho) && /^[a-f0-9]{64}$/.test(String((a as Arquivo).sha256)))) {
+    return "lista de arquivos ausente ou fora da forma";
+  }
+  if (!listaDeCaminhos(m.ausentes) || !listaDeCaminhos(m.rastreados)) return "ausentes ou rastreados fora da forma";
+  if (m.estacionados !== undefined && !listaDeCaminhos(m.estacionados)) return "estacionados fora da forma";
+  const wiki = m.wiki as Record<string, unknown> | undefined;
+  if (wiki !== undefined && (wiki === null || typeof wiki !== "object" || typeof wiki.caminho !== "string" || typeof wiki.criada !== "boolean" || typeof wiki.commit !== "boolean")) {
+    return "wiki fora da forma";
+  }
+  return undefined;
+}
+
+async function temArquivoDentro(pasta: string): Promise<boolean> {
+  try {
+    for (const entrada of await readdir(pasta, { recursive: true, withFileTypes: true })) if (!entrada.isDirectory()) return true;
+    return false;
+  } catch (erro) {
+    if ((erro as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw erro;
+  }
+}
+
+function bloqueio(id: string, motivo: string): Error {
+  const pasta = join(PASTA_MIGRACAO, id);
+  return new Error(`manifesto ${motivo} em ${pasta}. Nada seu foi apagado: a cópia e o que estiver estacionado continuam em ${pasta}. Devolva os arquivos de ${join(pasta, "estacionados")} ao lugar, se houver, e só então tire a pasta daí`);
+}
+
 export async function lerManifestos(raiz: string): Promise<Manifesto[]> {
   let ids: string[];
   try {
@@ -120,12 +171,20 @@ export async function lerManifestos(raiz: string): Promise<Manifesto[]> {
   }
   const manifestos: Manifesto[] = [];
   for (const id of ids.sort()) {
+    let texto: string;
     try {
-      manifestos.push(JSON.parse(await readFile(join(raiz, PASTA_MIGRACAO, id, "manifesto.json"), "utf8")) as Manifesto);
+      texto = await readFile(join(raiz, PASTA_MIGRACAO, id, "manifesto.json"), "utf8");
     } catch (erro) {
-      if ((erro as NodeJS.ErrnoException).code === "ENOENT") continue; // pasta sem manifesto: não é desta ferramenta
-      throw new Error(`manifesto ilegível em ${join(PASTA_MIGRACAO, id)}: ${motivo(erro)}`, { cause: erro });
+      if ((erro as NodeJS.ErrnoException).code !== "ENOENT") throw bloqueio(id, `ilegível (${motivo(erro)})`);
+      // Pasta sem manifesto: morte antes de gravá-lo (vazia) passa; com arquivo estacionado, a pessoa tem algo fora do lugar.
+      if (await temArquivoDentro(join(raiz, PASTA_MIGRACAO, id, "estacionados"))) throw bloqueio(id, "ausente com arquivos estacionados");
+      continue;
     }
+    let dado: unknown;
+    try { dado = JSON.parse(texto); } catch (erro) { throw bloqueio(id, `ilegível (${motivo(erro)})`); }
+    const defeito = defeitoDoManifesto(dado, id);
+    if (defeito) throw bloqueio(id, `inválido (${defeito})`);
+    manifestos.push(dado as Manifesto);
   }
   return manifestos;
 }
@@ -240,10 +299,9 @@ async function falhar(raiz: string, manifesto: Manifesto, erro: string, situacao
 }
 
 // Manifestos que ficaram pela metade (falha ou processo morto): devolve o que estiver estacionado ou faltando.
-async function retomar(raiz: string, novo: Manifesto | undefined): Promise<string[]> {
+async function retomar(raiz: string): Promise<string[]> {
   const problemas: string[] = [];
   for (const antigo of await pendentes(raiz)) {
-    if (antigo.id === novo?.id) continue;
     const erros: string[] = [];
     for (const rel of antigo.estacionados ?? []) {
       const vaga = vagaDe(raiz, antigo, rel);
@@ -298,7 +356,12 @@ async function preparar(raiz: string, deps: Dependencias): Promise<{ git: Git; s
 }
 
 async function migrarComTrava(raiz: string, git: Git, deps: Dependencias): Promise<Resultado> {
-  const problemasDaRetomada = await retomar(raiz, undefined);
+  let problemasDaRetomada: string[];
+  try {
+    problemasDaRetomada = await retomar(raiz);
+  } catch (erro) {
+    return { codigo: 1, situacao: "incompleta", mensagens: [`Não sigo: ${motivo(erro)}.`] };
+  }
   if (problemasDaRetomada.length) {
     return { codigo: 1, situacao: "incompleta", mensagens: ["Uma migração anterior não terminou e ainda não consegui devolver tudo:", ...problemasDaRetomada.map(p => `  ${p}`)] };
   }
