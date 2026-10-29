@@ -1080,3 +1080,67 @@ describe("atualizador com Git real: só aceita assinatura SSH na tag", () => {
     }
   });
 });
+
+// Correção A5: a configuração global do git da pessoa não pode abrir um transporte que execute programa (`ext::`)
+// na chamada de rede feita antes de a assinatura da tag passar (o fetch).
+describe("atualizador: transporte do git antes da verificação (A5)", () => {
+  const OFICIAL = "https://github.com/iagofrota/anvilore.git";
+  // Config global hostil num arquivo do teste, valendo só durante `corpo` (o Bun não repassa process.env sem env explícito;
+  // o atualizador passa).
+  async function comExtHostil(k: Kit, corpo: (marcador: string) => Promise<void>) {
+    const marcador = join(k.pai, "marcador-ext");
+    const helper = join(k.pai, "helper-ext.sh");
+    await writeFile(helper, `#!/bin/sh\nprintf executado >> "${marcador}"\nexit 1\n`, { mode: 0o755 });
+    const config = join(k.pai, "gitconfig-hostil");
+    for (const [chave, valor] of [["protocol.ext.allow", "always"], [`url.ext::${helper}.insteadOf`, OFICIAL]] as const) {
+      expect(Bun.spawnSync(["git", "config", "--file", config, chave, valor]).exitCode).toBe(0);
+    }
+    const antes = { global: process.env.GIT_CONFIG_GLOBAL, sistema: process.env.GIT_CONFIG_NOSYSTEM };
+    process.env.GIT_CONFIG_GLOBAL = config; process.env.GIT_CONFIG_NOSYSTEM = "1";
+    try { await corpo(marcador); } finally {
+      for (const [nome, valor] of [["GIT_CONFIG_GLOBAL", antes.global], ["GIT_CONFIG_NOSYSTEM", antes.sistema]] as const) {
+        if (valor === undefined) delete process.env[nome]; else process.env[nome] = valor;
+      }
+    }
+  }
+
+  real("Dado insteadOf para ext:: na URL oficial, Quando aplico, Então o clone deixa de ser reconhecido e o helper não roda (o get-url expande o insteadOf)", async () => {
+    const k = await kit(tres.slice(0, 2));
+    const { executar: _fetchSimulado, ...semExecutar } = k.deps();
+    await comExtHostil(k, async marcador => {
+      await expect(atualizar("aplicar", semExecutar)).rejects.toThrow("clone não gerenciado");
+      expect(existsSync(marcador)).toBe(false);
+      expect(k.head()).toBe(k.commits["0.3.0"]!);
+    });
+  });
+
+  real("Dado o get-url dizendo oficial mas o transporte reescrito para ext::, Quando o fetch roda, Então o helper não roda, a atualização recusa e nada muda", async () => {
+    const k = await kit(tres.slice(0, 2));
+    const { execPadrao } = await import("../src/lib/atualizacao");
+    const executar = (args: string[], cwd: string) => args[0] === "remote" ? { codigo: 0, saida: `${OFICIAL}\n` } : execPadrao(args, cwd);
+    await comExtHostil(k, async marcador => {
+      await expect(atualizar("aplicar", k.deps({ executar }))).rejects.toThrow("fetch");
+      expect(existsSync(marcador)).toBe(false);
+      expect(k.head()).toBe(k.commits["0.3.0"]!);
+      expect(k.git(["rev-parse", "--verify", "-q", "refs/tags/v0.3.1"]).codigo).not.toBe(0);
+    });
+  });
+
+  test("Dado uma chamada de rede do git, Quando a guarda é montada, Então só o protocolo da origem, sem helper de credencial, sem askpass e sem prompt; o resto passa intacto", async () => {
+    const { guardaDeRede } = await import("../src/lib/atualizacao");
+    const base = { PATH: "/bin", GIT_ALLOW_PROTOCOL: "ext:fd:file", GIT_ASKPASS: "/tmp/abre-janela" };
+    for (const verbo of ["fetch", "ls-remote", "clone", "pull"]) {
+      const g = guardaDeRede([verbo, "--no-tags", "origin"], base, OFICIAL);
+      expect(g.args, verbo).toEqual(["-c", "credential.helper=", "-c", "core.askPass=", verbo, "--no-tags", "origin"]);
+      expect(g.env, verbo).toMatchObject({ PATH: "/bin", GIT_ALLOW_PROTOCOL: "https", GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" });
+    }
+    expect(guardaDeRede(["fetch", "origin"], base, "git@github.com:iagofrota/anvilore.git").env.GIT_ALLOW_PROTOCOL).toBe("ssh");
+    expect(guardaDeRede(["fetch", "origin"], base, "ssh://git@github.com/iagofrota/anvilore.git").env.GIT_ALLOW_PROTOCOL).toBe("ssh");
+    for (const estranha of [undefined, "", "ext::/tmp/x", "fd::3", "http://exemplo/x.git", "file:///tmp/x"]) {
+      expect(guardaDeRede(["fetch", "origin"], base, estranha).env.GIT_ALLOW_PROTOCOL, String(estranha)).toBe("https");
+    }
+    const local = guardaDeRede(["rev-parse", "HEAD"], base, OFICIAL);
+    expect(local.args).toEqual(["rev-parse", "HEAD"]);
+    expect(local.env).toBe(base);
+  });
+});

@@ -128,8 +128,8 @@ const ausente = (e: unknown) => codigoFs(e) === "ENOENT" || codigoFs(e) === "ENO
 const motivo = (e: unknown) => e instanceof Error ? e.message : String(e);
 
 // Sem `trim`: a saída de `status`/`diff -z` começa com caracteres significativos.
-function execPadrao(args: string[], cwd: string) {
-  const p = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+export function execPadrao(args: string[], cwd: string) {
+  const p = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", env: process.env });
   return { codigo: p.exitCode, saida: `${p.stdout.toString()}${p.stderr.toString()}` };
 }
 function erro(assunto: string, detalhe: string) { return new Error(`${assunto}: ${detalhe}`); }
