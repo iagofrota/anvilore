@@ -1144,14 +1144,22 @@ describe("atualizador: transporte do git antes da verificação (A5)", () => {
   });
 });
 
-// RR6: o instalador entrega o arquivo de chaves confiáveis da própria execução (ANVILORE_ASSINANTES_DO_INSTALADOR). Numa pasta
-// que ficou para trás na troca de chave, ele vale no lugar do seguranca/assinantes local, e só ele.
-describe("atualizador: assinantes confiáveis vindos do instalador (RR6)", () => {
+// RR6/R1: o instalador entrega o arquivo de chaves confiáveis da própria execução pela opção explícita
+// `--assinantes-do-instalador <arquivo>` (nunca pelo ambiente). Numa pasta que ficou para trás na troca de chave, ele vale
+// no lugar do seguranca/assinantes local, e só ele.
+describe("atualizador: assinantes confiáveis vindos do instalador (RR6, R1)", () => {
+  const OPCAO = "--assinantes-do-instalador";
   const VAR = "ANVILORE_ASSINANTES_DO_INSTALADOR";
   async function comVariavel(valor: string | undefined, corpo: () => Promise<void>) {
     const antes = process.env[VAR];
     if (valor === undefined) delete process.env[VAR]; else process.env[VAR] = valor;
     try { await corpo(); } finally { if (antes === undefined) delete process.env[VAR]; else process.env[VAR] = antes; }
+  }
+  // O comando como o instalador o chama: a opção na linha de comando; devolve o código e o que foi escrito.
+  async function comando(args: string[], k: Kit) {
+    const c = capturarConsole();
+    try { const codigo = await comandoAtualizar(args, k.deps()); return { codigo, saida: c.saida.join("\n"), erros: c.erros.join("\n") }; }
+    finally { c.restaurar(); }
   }
   // Pasta instalada na 0.3.0 com assinantes só da chave antiga (a do kit); a 0.3.1 traz a chave nova nos assinantes dela.
   async function pastaAtrasada(assinarComNova: boolean) {
@@ -1164,29 +1172,61 @@ describe("atualizador: assinantes confiáveis vindos do instalador (RR6)", () =>
   }
   const intacta = (k: Kit) => expect(k.head()).toBe(k.commits["0.3.0"]!);
 
-  real("Dado assinantes locais só da chave antiga e tag da chave nova, Quando o instalador passa o arquivo com a nova, Então aplica e seguranca/assinantes fica limpo e igual ao da tag", async () => {
+  real("Dado assinantes locais só da chave antiga e tag da chave nova, Quando o instalador passa a opção com o arquivo da nova, Então aplica e seguranca/assinantes fica limpo e igual ao da tag", async () => {
     const { k, arquivoNovo } = await pastaAtrasada(true);
-    await comVariavel(arquivoNovo, async () => {
-      expect(await atualizar("aplicar", k.deps())).toContain("Atualizado para 0.3.1");
-    });
+    const r = await comando([OPCAO, arquivoNovo], k);
+    expect(r.codigo).toBe(0);
+    expect(r.saida).toContain("Atualizado para 0.3.1");
     expect(k.head()).toBe(k.commits["0.3.1"]!);
     expect(k.git(["status", "--porcelain", "--", "seguranca/assinantes"]).saida.trim()).toBe("");
     expect(await readFile(join(k.raiz, "seguranca/assinantes"), "utf8")).toBe(k.ok(["show", "v0.3.1:seguranca/assinantes"]) + "\n");
   });
 
-  real("Dado a mesma pasta atrasada, Quando não há a variável, Então recusa a tag da chave nova (o arquivo local é só o antigo)", async () => {
+  real("Dado a mesma pasta atrasada, Quando não há a opção, Então recusa a tag da chave nova (o arquivo local é só o antigo)", async () => {
     const { k } = await pastaAtrasada(true);
-    await comVariavel(undefined, async () => {
-      await expect(atualizar("aplicar", k.deps())).rejects.toThrow("git verify-tag recusou a tag v0.3.1");
+    const r = await comando([], k);
+    expect(r.codigo).toBe(1);
+    expect(r.erros).toContain("git verify-tag recusou a tag v0.3.1");
+    intacta(k);
+  });
+
+  real("Dado a variável ANVILORE_ASSINANTES_DO_INSTALADOR no ambiente com o arquivo da chave nova e SEM a opção, Quando atualizo, Então ela é ignorada: confere com o seguranca/assinantes local e recusa", async () => {
+    const { k, arquivoNovo } = await pastaAtrasada(true);
+    await comVariavel(arquivoNovo, async () => {
+      const r = await comando([], k);
+      expect(r.codigo).toBe(1);
+      expect(r.erros).toContain("git verify-tag recusou a tag v0.3.1");
+      expect(r.erros).not.toContain("o instalador não entregou as chaves");
     });
     intacta(k);
   });
 
-  real("Dado o arquivo do instalador só com a chave nova, Quando a tag é da chave ANTIGA, Então recusa: os dois arquivos não se somam", async () => {
-    const { k, arquivoNovo } = await pastaAtrasada(false);
-    await comVariavel(arquivoNovo, async () => {
-      await expect(atualizar("aplicar", k.deps())).rejects.toThrow("git verify-tag recusou a tag v0.3.1");
+  real("Dado a variável no ambiente apontando para uma pasta e SEM a opção, Quando a tag é da chave antiga, Então aplica pelo seguranca/assinantes local (a variável não troca a âncora)", async () => {
+    const { k } = await pastaAtrasada(false);
+    await comVariavel(join(k.pai, "nao-existe"), async () => {
+      const r = await comando([], k);
+      expect(r.codigo).toBe(0);
     });
+    expect(k.head()).toBe(k.commits["0.3.1"]!);
+  });
+
+  real("Dado a variável com a chave nova e a opção com outro arquivo (só a chave antiga) , Quando atualizo, Então vale a opção e não a variável", async () => {
+    const { k, arquivoNovo } = await pastaAtrasada(true);
+    const antigo = join(k.pai, "assinantes-antigos");
+    await writeFile(antigo, await readFile(join(k.raiz, "seguranca/assinantes"), "utf8"));
+    await comVariavel(arquivoNovo, async () => {
+      const r = await comando([OPCAO, antigo], k);
+      expect(r.codigo).toBe(1);
+      expect(r.erros).toContain("git verify-tag recusou a tag v0.3.1");
+    });
+    intacta(k);
+  });
+
+  real("Dado o arquivo da opção só com a chave nova, Quando a tag é da chave ANTIGA, Então recusa: os dois arquivos não se somam", async () => {
+    const { k, arquivoNovo } = await pastaAtrasada(false);
+    const r = await comando([OPCAO, arquivoNovo], k);
+    expect(r.codigo).toBe(1);
+    expect(r.erros).toContain("git verify-tag recusou a tag v0.3.1");
     intacta(k);
   });
 
@@ -1196,14 +1236,30 @@ describe("atualizador: assinantes confiáveis vindos do instalador (RR6)", () =>
     ["ilegível (é uma pasta)", async (k: Kit) => { const p = join(k.pai, "pasta"); await mkdir(p); return p; }],
     ["com o nome em branco", async () => ""],
   ] as const) {
-    real(`Dado o arquivo do instalador ${caso} e tag da chave ANTIGA (que o arquivo local aceitaria), Quando aplico, Então recusa com mensagem simples e não cai no arquivo local`, async () => {
+    real(`Dado o arquivo da opção ${caso} e tag da chave ANTIGA (que o arquivo local aceitaria), Quando aplico, Então recusa com mensagem simples e não cai no arquivo local`, async () => {
       const { k } = await pastaAtrasada(false);
-      const caminho = await preparar(k);
-      await comVariavel(caminho, async () => {
-        await expect(atualizar("aplicar", k.deps())).rejects.toThrow("o instalador não entregou as chaves confiáveis");
-      });
+      const r = await comando([OPCAO, await preparar(k)], k);
+      expect(r.codigo).toBe(1);
+      expect(r.erros).toContain("o instalador não entregou as chaves confiáveis");
       intacta(k);
       expect((await k.estado()).estado).toBe("recusada");
     });
   }
+
+  real("Dado a opção junto de --verificar, --voltar ou --estado, ou sem o arquivo, ou repetida, Quando invoco, Então é uso inválido (código 2), a mensagem de uso não cita a opção interna e nada muda", async () => {
+    const { k, arquivoNovo } = await pastaAtrasada(true);
+    const invalidos = [
+      [OPCAO, arquivoNovo, "--verificar"], ["--verificar", OPCAO, arquivoNovo],
+      [OPCAO, arquivoNovo, "--voltar"], [OPCAO, arquivoNovo, "--estado"],
+      [OPCAO], [OPCAO, "--verificar"], [OPCAO, arquivoNovo, OPCAO, arquivoNovo],
+    ];
+    for (const args of invalidos) {
+      const r = await comando(args, k);
+      expect([args.join(" "), r.codigo]).toEqual([args.join(" "), 2]);
+      expect(r.erros).toContain("Uso: anvilore atualizar");
+      expect(r.erros).not.toContain("assinantes");
+    }
+    intacta(k);
+    expect((await k.estado()).estado).toBe("ocioso");
+  });
 });
