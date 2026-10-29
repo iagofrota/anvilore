@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { readdir, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { test, expect } from "../apoio/fixtures";
+import { escolherArquivo } from "../apoio/acoes";
 import { paginaGerada } from "../apoio/paginas";
 import { FONTE } from "../../tests/apoio/ingestao-exemplo";
 
@@ -60,7 +61,7 @@ for (const variante of ["raw", "area"] as const) {
       await symlink(vault.fora, join(vault.raw, "pessoal"), "dir");
     }
     await page.goto(app.url);
-    await page.locator('input[type="file"]').setInputFiles({ name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
+    await escolherArquivo(page, { name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
     await page.getByRole("button", { name: "Ingerir", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("aponta para fora");
     await expect(page.getByText("llm-wiki.md")).toBeVisible();
