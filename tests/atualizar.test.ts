@@ -561,3 +561,46 @@ describe("atualizador com Git real: verificar, automático e estado", () => {
     expect(estado.operacao).toBeUndefined();
   });
 });
+
+describe("atualizador com Git real: ciclo do alerta de raw/ alterado", () => {
+  real("Dado raw/ alterado numa atualização desfeita, Quando verifico, outra versão falha, peço o estado e volto (falhando e retomando), Então o alerta continua; Quando uma atualização termina conferida, Então ele sai", async () => {
+    const k = await kit([
+      { versao: "0.3.0" }, { versao: "0.3.1" }, { versao: "0.3.2", cli: { corromperRaw: true } },
+      { versao: "0.3.3", cli: { doctorRuim: true } }, { versao: "0.3.4" },
+    ]);
+    await mkdir(join(k.raiz, "raw"), { recursive: true });
+    await writeFile(join(k.raiz, "raw/evidencia.md"), "original\n");
+    const alerta = async () => (await k.estado()).alerta as string | undefined;
+
+    k.publicar(["v0.3.1"]);
+    expect(await atualizar("aplicar", k.deps())).toContain("Atualizado para 0.3.1");
+    k.publicar(["v0.3.2"]);
+    await expect(atualizar("aplicar", k.deps())).rejects.toThrow("raw/evidencia.md mudou");
+    expect(await alerta()).toContain("raw/evidencia.md mudou");
+
+    k.publicar(["v0.3.3"]);
+    expect(await atualizar("verificar", k.deps())).toContain("0.3.3 conferida");
+    expect(await alerta()).toContain("raw/evidencia.md mudou");
+
+    // Falha sem tocar em dados: a reversão não acha problema novo e o alerta antigo não pode sumir.
+    await expect(atualizar("aplicar", k.deps())).rejects.toThrow("o doctor ficou pior");
+    expect(await alerta()).toContain("raw/evidencia.md mudou");
+    const estado = await atualizar("estado", k.deps());
+    expect(estado).toContain("ATENÇÃO: raw/ ou wiki/ mudaram");
+    expect(estado).toContain("Último erro: prova: o doctor ficou pior");
+
+    let negarR1 = true;
+    const base = k.deps();
+    const executar = (args: string[], cwd: string) => negarR1 && args[0] === "checkout" && args.at(-1) === k.commits["0.3.0"] ? { codigo: 1, saida: "erro R1" } : base.executar!(args, cwd);
+    await expect(atualizar("voltar", k.deps({ executar }))).rejects.toThrow("reversão incompleta");
+    expect(await alerta()).toContain("raw/evidencia.md mudou");
+    negarR1 = false;
+    expect(await atualizar("automatico", k.deps())).toContain("Recuperação concluída: voltei para 0.3.0");
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+    expect(await alerta()).toContain("raw/evidencia.md mudou");
+
+    k.publicar(["v0.3.4"]);
+    expect(await atualizar("aplicar", k.deps())).toContain("Atualizado para 0.3.4");
+    expect(await alerta()).toBeUndefined();
+  });
+});

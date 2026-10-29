@@ -217,15 +217,18 @@ Para a linhagem do método e a argumentação completa das posições de design,
   (o exemplo só se a pasta não existia). O `.git` da wiki fica fora da medição (a migração pode criá-lo
   e o autocommit o altera). O atualizador **detecta** mudança, não restaura conteúdo de `raw/` ou da
   wiki que não esteja na cópia (a): nesse caso desfaz o kit, recusa a versão, grava `alerta` no estado
-  (mostrado pelo `doctor`, pela interface e por `anvilore atualizar --estado` até a próxima atualização
-  conferida) e a mensagem diz o que mudou, em vez de afirmar que está como antes.
+  (mostrado pelo `doctor` em modo texto — o `doctor --json` não traz o estado do atualizador —, pela
+  interface e por `anvilore atualizar --estado` até a próxima atualização conferida) e a mensagem diz o
+  que mudou, em vez de afirmar que está como antes. **Limite:** a atualização seguinte mede a partir de
+  `raw/` e da wiki como estão; não restaura nem lembra o dano anterior, e ao terminar conferida apaga o
+  alerta mesmo que o arquivo continue alterado.
 - Estado: a operação em curso (`operacao`: tipo, cópia, origem, alvo, para onde voltar) fica separada
   da última atualização bem-sucedida (`ultima`, usada por `--voltar`, que só age se o `HEAD` for o commit
   dela). Refs refs/anvilore/anterior e refs/anvilore/operacao guardam os commits. Reversão R1–R5
   conferida etapa a etapa; falha deixa `reversao-incompleta` com etapa e erro, mantém cópia e refs, e o
   próximo início retoma antes de consultar releases. Processo morto com `aplicando` é retomado igual.
   Log em .anvilore/atualizacao.log; trava .anvilore/atualizar.lock com o pid (dono morto = trava
-  abandonada, removida e registrada). `doctor` mostra versão, estado e alerta
+  abandonada, removida e registrada). `doctor` (modo texto) mostra versão, estado e alerta
   (`src/comandos/doctor.ts`). SessionStart do Claude e Codex tenta aplicar uma atualização assinada
   pendente e agenda a checagem seguinte (`hooks/hooks.json`, `src/comandos/instalar.ts`,
   `src/comandos/hooks-wiki.ts`).
