@@ -24,6 +24,8 @@
 # `curl | bash` ocupa a entrada padrão: tudo mora em funções, o script só roda na última linha, e as respostas
 # vêm de /dev/tty.
 
+# Os comandos filhos recebem o caminho da pasta por argumento ($1), por isso as aspas simples em `bash -c`.
+# shellcheck disable=SC2016
 set -o pipefail
 
 REPO_OFICIAL="https://github.com/iagofrota/anvilore.git"
@@ -55,6 +57,8 @@ PLATAFORMA=""
 PASTA=""
 TAG=""
 BUN_GERENCIADO=0
+AUTO_COMMIT=1
+INSTALACAO_NOVA=1
 RG_FALTA=0
 AVISOS=""
 ULTIMA_SAIDA=""
@@ -259,7 +263,9 @@ baixar_dependencia() {
   fi
   mkdir -p "$(dirname "$destino")" || { rm -rf "$pasta"; return 1; }
   # Copia para um nome vizinho e renomeia: trocar um executável em uso não dá "text file busy".
-  cp "$pasta/extraido/$executavel" "$destino.novo" && chmod 755 "$destino.novo" && mv -f "$destino.novo" "$destino" || { rm -f "$destino.novo"; rm -rf "$pasta"; return 1; }
+  if ! { cp "$pasta/extraido/$executavel" "$destino.novo" && chmod 755 "$destino.novo" && mv -f "$destino.novo" "$destino"; }; then
+    rm -f "$destino.novo"; rm -rf "$pasta"; return 1
+  fi
   rm -rf "$pasta"
   registrar "$dep: instalado em $destino (SHA-256 conferido)"
   return 0
@@ -358,7 +364,7 @@ passo_git_e_bun() {
     esac
     hash -r 2>/dev/null
     atual=$(versao_do_bun)
-    [ -n "$atual" ] && versao_maior_ou_igual "$atual" "$bun_versao" || falhar "o Bun baixado não roda neste computador ($PLATAFORMA)."
+    if [ -z "$atual" ] || ! versao_maior_ou_igual "$atual" "$bun_versao"; then falhar "o Bun baixado não roda neste computador ($PLATAFORMA)."; fi
     BUN_GERENCIADO=1
     # Os hooks chamam `bun` pelo PATH; ~/.local/bin entra no PATH de quem abre uma sessão nova.
     if [ ! -e "$HOME/.local/bin/bun" ] && mkdir -p "$HOME/.local/bin" 2>/dev/null; then
@@ -467,14 +473,19 @@ verificar_assinatura() {
   [ "$tipo_alvo" = "commit" ] || { MOTIVO="a tag assinada não aponta direto para um commit."; return 1; }
   commit_ref=$(git -C "$dir" rev-parse "refs/tags/$tag^{commit}" 2>/dev/null)
   cabeca=$(git -C "$dir" rev-parse HEAD 2>/dev/null)
-  [ -n "$objeto" ] && [ "$objeto" = "$commit_ref" ] && [ "$objeto" = "$cabeca" ] || { MOTIVO="o código baixado não é o commit que o Iago assinou."; return 1; }
+  if [ -z "$objeto" ] || [ "$objeto" != "$commit_ref" ] || [ "$objeto" != "$cabeca" ]; then MOTIVO="o código baixado não é o commit que o Iago assinou."; return 1; fi
   return 0
 }
 
+# O arquivo instalacao-em-andamento marca que a primeira instalação ainda não terminou (some no passo do estado): se
+# a rodada cair no meio, a seguinte a termina como instalação NOVA (cria as áreas padrão e liga o commit automático).
+# Grava o estado mínimo DENTRO do clone ainda temporário ($1): quando a pasta aparece no lugar final, ela já é uma
+# instalação reconhecível (uma rodada interrompida depois disso é retomada, não recusada como "outra coisa").
 gravar_estado_inicial() {
-  local arquivo="$PASTA/.anvilore/atualizacao.json"
-  mkdir -p "$PASTA/.anvilore" || falhar "não consegui criar $PASTA/.anvilore."
-  ( umask 077; printf '{\n  "versao": 1,\n  "modo": "automatico",\n  "canal": "estavel",\n  "estado": "ocioso",\n  "versaoInstalada": "%s"\n}\n' "${TAG#v}" >"$arquivo.tmp" && mv -f "$arquivo.tmp" "$arquivo" ) || falhar "não consegui gravar $arquivo."
+  local dir="$1" arquivo="$1/.anvilore/atualizacao.json"
+  mkdir -p "$dir/.anvilore" || falhar "não consegui criar $dir/.anvilore."
+  printf 'bun=%s\n' "$BUN_GERENCIADO" >"$dir/.anvilore/instalacao-em-andamento"
+  ( umask 077; printf '{\n  "versao": 1,\n  "modo": "automatico",\n  "canal": "estavel",\n  "estado": "ocioso",\n  "versaoInstalada": "%s"\n}\n' "${TAG#v}" >"$arquivo.tmp" && mv -f "$arquivo.tmp" "$arquivo" ) || falhar "não consegui gravar o estado da atualização."
 }
 
 passo_baixar_kit() {
@@ -494,11 +505,11 @@ passo_baixar_kit() {
     rm -rf "$CLONE_TMP"; CLONE_TMP=""
     falhar "assinatura inválida: $MOTIVO Apaguei o que baixei, não liguei nenhum agente e não instalei nada."
   fi
+  gravar_estado_inicial "$CLONE_TMP"
   [ -d "$PASTA" ] && rmdir "$PASTA" 2>/dev/null
   mv "$CLONE_TMP" "$PASTA" || falhar "não consegui colocar o kit em $PASTA."
   CLONE_TMP=""
   mover_registro "$PASTA"
-  gravar_estado_inicial
   dizer "Versão $TAG conferida (assinatura do Iago) e instalada em $PASTA."
 }
 
@@ -549,7 +560,10 @@ passo_configurar() {
   local agente codigo
   dizer "Preparando o kit (dependências e configuração dos agentes)..."
   rodar bash -c 'cd "$1" && bun install --frozen-lockfile' _ "$PASTA" || falhar "o 'bun install' do kit falhou (rede ou proxy?). Rode o instalador de novo quando a rede voltar."
-  rodar bash -c 'cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts instalar --destino "$1" --auto-commit' _ "$PASTA"
+  local extra=""
+  [ "$AUTO_COMMIT" = "1" ] && extra="--auto-commit"
+  # shellcheck disable=SC2086
+  rodar bash -c 'cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts instalar --destino "$1" $2' _ "$PASTA" "$extra"
   codigo=$?
   INSTALADOS=$(printf '%s\n' "$ULTIMA_SAIDA" | sed -n 's/^instalados: //p' | head -n1 | tr -d ',')
   if [ "$codigo" -ne 0 ]; then
@@ -562,7 +576,9 @@ passo_configurar() {
       *) falhar "achei o $agente, mas ele não ficou configurado. Rode o instalador de novo." ;;
     esac
   done
-  # Sem onboarding na interface ainda: áreas padrão (dá para mudar depois). Falha aqui não impede o resto.
+  # Sem onboarding na interface ainda: a instalação NOVA cria as áreas padrão (dá para mudar depois). Numa instalação que
+  # já existe as áreas são da pessoa: não recria a que ela apagou. Falha aqui não impede o resto.
+  [ "$INSTALACAO_NOVA" = "1" ] || return 0
   if ! rodar bash -c 'cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts init --areas "$2"' _ "$PASTA" "$AREAS_PADRAO"; then
     avisar "não consegui criar as áreas padrão da wiki; você pode escolher as áreas depois."
   fi
@@ -576,14 +592,14 @@ passo_estado() {
   local script="$TMP_DIR/estado.ts"
   cat >"$script" <<'ANVILORE_FIM_ESTADO'
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
-const [arquivo, alvos, bunGerenciado] = process.argv.slice(2);
+const [arquivo, alvos, bunGerenciado, autoCommit] = process.argv.slice(2);
 let atual: Record<string, unknown> = {};
 try { atual = JSON.parse(readFileSync(arquivo!, "utf8")); } catch {}
 // Preserva o que a pessoa ou o atualizador já decidiram (modo, canal, estado, versão); só acrescenta o que o instalador sabe.
 const novo = {
   versao: 1, modo: "automatico", canal: "estavel", estado: "ocioso", ...atual,
   alvos: alvos ? alvos.split(",") : [],
-  autoCommit: true,
+  autoCommit: autoCommit === "1",
   bunGerenciado: bunGerenciado === "1" || atual.bunGerenciado === true,
 };
 writeFileSync(`${arquivo}.tmp`, `${JSON.stringify(novo, null, 2)}\n`, { mode: 0o600 });
@@ -591,7 +607,8 @@ renameSync(`${arquivo}.tmp`, arquivo!);
 ANVILORE_FIM_ESTADO
   local alvos
   alvos=$(printf '%s' "$INSTALADOS" | tr ' ' ',')
-  rodar bun "$script" "$PASTA/.anvilore/atualizacao.json" "$alvos" "$BUN_GERENCIADO" || falhar "não consegui gravar o estado da atualização."
+  rodar bun "$script" "$PASTA/.anvilore/atualizacao.json" "$alvos" "$BUN_GERENCIADO" "$AUTO_COMMIT" || falhar "não consegui gravar o estado da atualização."
+  rm -f "$PASTA/.anvilore/instalacao-em-andamento"
 }
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -618,7 +635,16 @@ passo_atualizar_existente() {
   local primeira
   mover_registro "$PASTA"
   dizer "Já existe uma instalação em $PASTA: vou conferir e atualizar, sem sobrescrever nada seu."
-  if [ -f "$PASTA/.anvilore/atualizacao.json" ] && grep -Eq '"bunGerenciado": *true' "$PASTA/.anvilore/atualizacao.json"; then BUN_GERENCIADO=1; fi
+  INSTALACAO_NOVA=0
+  if [ -f "$PASTA/.anvilore/instalacao-em-andamento" ]; then
+    INSTALACAO_NOVA=1
+    grep -q '^bun=1$' "$PASTA/.anvilore/instalacao-em-andamento" && BUN_GERENCIADO=1
+    registrar "instalação anterior não terminou: retomando como instalação nova"
+  elif [ -f "$PASTA/.anvilore/atualizacao.json" ]; then
+    grep -Eq '"bunGerenciado": *true' "$PASTA/.anvilore/atualizacao.json" && BUN_GERENCIADO=1
+    # Escolha da pessoa (ou do atualizador): só mantém o commit automático se o estado diz que está ligado.
+    grep -Eq '"autoCommit": *true' "$PASTA/.anvilore/atualizacao.json" || AUTO_COMMIT=0
+  fi
   if rodar bash -c 'cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts atualizar' _ "$PASTA"; then
     dizer "Atualização: $(printf '%s\n' "$ULTIMA_SAIDA" | tail -n1)"
   else

@@ -1,8 +1,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { criarCenario, raizDoRepo } from "./apoio/instalar-sh";
+import { join, resolve } from "node:path";
 import { criarChave, gitReal } from "./apoio/kit-atualizavel";
 import { embutirInstalador } from "../scripts/embutir-instalador";
 
@@ -10,13 +9,16 @@ import { embutirInstalador } from "../scripts/embutir-instalador";
 // descartável): `bun install --frozen-lockfile`, `instalar --auto-commit`, `init` e `doctor` reais. É o mesmo que o job
 // de CI "instalar-do-zero" faz. Precisa de rede para o npm; `ANVILORE_SEM_REDE=1` pula.
 
+const raizDoRepo = resolve(import.meta.dir, "..");
 const rodar = process.platform === "linux" && process.env.ANVILORE_SEM_REDE !== "1";
 const pastas: string[] = [];
 afterAll(async () => { await Promise.all(pastas.map(p => rm(p, { recursive: true, force: true }))); });
+// O apoio só carrega quando o teste roda (Linux com rede).
+const apoio = rodar ? await import("./apoio/instalar-sh") : undefined;
 const existe = (caminho: string) => stat(caminho).then(() => true, () => false);
 
 test.skipIf(!rodar)("Dado o kit real numa tag assinada, Quando instalo do zero em silêncio, Então o doctor sai 0, auto_commit liga, a wiki vira repositório e o hook recusa escrita em raw/", async () => {
-  const base = await criarCenario({ agentes: [] });
+  const base = await apoio!.criarCenario({ agentes: [] });
   pastas.push(base.pai);
   const pai = await mkdtemp(join(tmpdir(), "anvilore-kit-real-"));
   pastas.push(pai);

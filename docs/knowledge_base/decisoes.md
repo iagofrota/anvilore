@@ -271,3 +271,16 @@ Para a linhagem do método e a argumentação completa das posições de design,
   reversão e o botão de retomada (`src/ui/servidor/servidor.ts`, `ui/web/main.tsx`).
 - A documentação descreve o código atual da fatia U2 e ainda aguarda revisão humana. A primeira
   operação real depende da chave pública do dono no arquivo seguranca/assinantes.
+
+## Instalador do Linux (instalar.sh)
+
+- O instalador é um script bash único (`instalador/instalar.sh`) e a release embute nele o manifesto de dependências e
+  a chave pública (`scripts/embutir-instalador.ts`). Motivo: ele precisa dos dois antes de clonar o kit, e a única
+  confiança inicial é a do HTTPS do GitHub ao baixar o script; daí em diante só entra o que o dono assinou.
+- Sem chave embutida válida o script recusa instalar. Não há chave de mentira no modelo do repositório.
+- Só vale assinatura SSH. O `git verify-tag` escolhe o verificador pelo tipo de assinatura que a tag traz; por isso o
+  script exige o bloco SSH e desliga os programas de gpg e x509, para o chaveiro da pessoa nunca entrar na decisão.
+- Respostas por /dev/tty e `ANVILORE_SEM_PERGUNTAS=1`; sem terminal usa os padrões. Instalar o Claude Code é sempre
+  uma pergunta (D7), nunca padrão silencioso.
+- O Bun baixado vai para ~/.bun/bin e ganha um link em ~/.local/bin/bun, porque os hooks chamam `bun` pelo PATH
+  e uma sessão aberta antes do instalador não enxerga o PATH novo (prova U0, item 16).

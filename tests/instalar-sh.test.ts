@@ -1,16 +1,18 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { lstat, mkdir, readFile, readlink, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readlink, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { criarCenario, type Cenario } from "./apoio/instalar-sh";
+import type { criarCenario as CriarCenario, Cenario } from "./apoio/instalar-sh";
 
 // PLANO §2 (instalar.sh, passos 1–12) e §8 (cenários 1, 3–5, 16, 17, 33–35). Todo teste roda num HOME vazio, com o
 // PATH montado pelo teste e um repositório local no lugar do GitHub (ANVILORE_ORIGEM). Só Linux: o script recusa macOS.
 
 const linux = process.platform === "linux";
+// O apoio só carrega no Linux: no Windows e no macOS ele nunca roda e derrubaria a cobertura por arquivo.
+const apoio = linux ? await import("./apoio/instalar-sh") : undefined;
 const cenarios: Cenario[] = [];
 afterEach(async () => { await Promise.all(cenarios.splice(0).map(c => c.limpar())); });
-async function novo(...args: Parameters<typeof criarCenario>) { const c = await criarCenario(...args); cenarios.push(c); return c; }
+async function novo(...args: Parameters<typeof CriarCenario>) { const c = await apoio!.criarCenario(...args); cenarios.push(c); return c; }
 const existe = (caminho: string) => stat(caminho).then(() => true, () => false);
 const hashDe = async (caminho: string) => createHash("sha256").update(await readFile(caminho)).digest("hex");
 
@@ -204,7 +206,11 @@ test.skipIf(!linux)("Dado uma instalação existente, Quando rodo de novo, Entã
   await mkdir(join(c.pasta, "wiki/pessoal"), { recursive: true });
   await writeFile(join(c.pasta, "wiki/pessoal/pagina.md"), "minha página\n");
   const antes = { raw: await hashDe(join(c.pasta, "raw/nota.md")), schema: await hashDe(join(c.pasta, "SCHEMA.md")), pagina: await hashDe(join(c.pasta, "wiki/pessoal/pagina.md")) };
-  await writeFile(join(c.pasta, ".anvilore/atualizacao.json"), JSON.stringify({ ...(await c.estado()), modo: "perguntar", canal: "teste" }));
+  // Escolhas da pessoa: commit automático desligado, área padrão apagada.
+  await writeFile(join(c.pasta, ".anvilore/atualizacao.json"), JSON.stringify({ ...(await c.estado()), modo: "perguntar", canal: "teste", autoCommit: false }));
+  await rm(join(c.pasta, "anvilore.toml"));
+  await rm(join(c.pasta, "wiki/saude"), { recursive: true });
+  const chamadasAntes = (await c.chamadas()).length;
   const cabeca = c.kit.git(["-C", c.pasta, "rev-parse", "HEAD"]).saida.trim();
   const r = c.rodar();
   expect(r.codigo, r.tudo).toBe(0);
@@ -212,11 +218,31 @@ test.skipIf(!linux)("Dado uma instalação existente, Quando rodo de novo, Entã
   expect(r.saida).toContain("Aviso: não atualizei agora");
   expect(r.saida).not.toContain("Baixando o Anvilore");
   expect({ raw: await hashDe(join(c.pasta, "raw/nota.md")), schema: await hashDe(join(c.pasta, "SCHEMA.md")), pagina: await hashDe(join(c.pasta, "wiki/pessoal/pagina.md")) }).toEqual(antes);
-  expect(await c.estado()).toMatchObject({ modo: "perguntar", canal: "teste", alvos: ["claude"], versaoInstalada: "0.3.0" });
+  expect(await c.estado()).toMatchObject({ modo: "perguntar", canal: "teste", alvos: ["claude"], versaoInstalada: "0.3.0", autoCommit: false });
+  expect(await existe(join(c.pasta, "anvilore.toml"))).toBe(false);
+  expect(await existe(join(c.pasta, "wiki/saude"))).toBe(false);
+  const novas = (await c.chamadas()).slice(chamadasAntes);
+  expect(novas.some(l => l.startsWith("instalar") && !l.includes("--auto-commit"))).toBe(true);
+  expect(novas.some(l => l.startsWith("init"))).toBe(false);
   expect(Bun.spawnSync(["git", "-C", c.pasta, "rev-parse", "HEAD"], { stdout: "pipe" }).stdout.toString().trim()).toBe(cabeca);
   const log = await c.log();
   expect(log.match(/início: instalar\.sh/g)?.length).toBe(2);
   expect(r.saida).toContain("Pronto:");
+});
+
+test.skipIf(!linux)("Dado uma primeira instalação interrompida na configuração, Quando rodo de novo, Então termina como instalação nova (áreas e commit automático) e não a recusa", async () => {
+  const c = await novo();
+  const cai = c.rodar({ STUB_INSTALAR_CODIGO: "4" });
+  expect(cai.codigo).toBe(1);
+  expect(await existe(join(c.pasta, ".anvilore/instalacao-em-andamento"))).toBe(true);
+  const r = c.rodar();
+  expect(r.codigo, r.tudo).toBe(0);
+  expect(r.saida).toContain("Já existe uma instalação");
+  expect(await existe(join(c.pasta, ".anvilore/instalacao-em-andamento"))).toBe(false);
+  expect(await existe(join(c.pasta, "wiki/saude"))).toBe(true);
+  expect(await c.estado()).toMatchObject({ autoCommit: true, alvos: ["claude"] });
+  expect(await readFile(join(c.pasta, "anvilore.toml"), "utf8")).toContain("auto_commit = true");
+  expect(await c.log()).toContain("retomando como instalação nova");
 });
 
 test.skipIf(!linux)("Dado a pasta padrão ocupada por outra coisa, Quando instalo em silêncio, Então para sem mexer em nada", async () => {

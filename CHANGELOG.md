@@ -37,6 +37,17 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Added
 
+- `instalador/instalar.sh`: instalador do Linux (x64 e arm64), base do macOS. Instala o que falta (git, Bun e rg, com
+  SHA-256 conferido contra `instalador/dependencias.json`), baixa a última release, **só aceita a tag se a assinatura
+  SSH bater com a chave embutida no próprio script**, liga os agentes que a pessoa tem, grava o estado da atualização
+  e roda o `doctor`. Responde por /dev/tty (`curl | bash`), aceita `ANVILORE_SEM_PERGUNTAS=1` e `ANVILORE_ORIGEM`, termina
+  "parcial" sem agente e continua sem rg. Rodar de novo numa pasta instalada só confere e atualiza. O atalho do menu é
+  da próxima fatia (`criar_atalho` ainda não faz nada).
+- `instalador/dependencias.json`: manifesto de Bun, rg e PortableGit por plataforma (URL oficial e SHA-256 conferidos).
+- `scripts/embutir-instalador.ts`: gera o `instalar.sh` da release com o manifesto e a chave pública embutidos e, com
+  `--conferir`, prova que a cópia embutida é igual aos arquivos. Sem chave válida não gera.
+- Job `instalar-linux` (`.github/workflows/instalar-linux.yml`) e `scripts/provar-instalar-linux.sh`: instalação do zero
+  e reexecução num HOME vazio, em Linux x64 e arm64, com o manifesto real.
 - `anvilore atualizar [--verificar | --voltar | --estado]`: verifica releases publicadas, compara SemVer/canal,
   confere a assinatura SSH com a confiança local — e que o nome assinado da tag é a versão anunciada, sem
   tag leve nem aninhada — e aplica com estado retomável. Antes do checkout, recusa a versão

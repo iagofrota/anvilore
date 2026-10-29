@@ -1,16 +1,20 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { criarCenario, raizDoRepo, type Cenario } from "./apoio/instalar-sh";
+import { join, resolve } from "node:path";
+import type { criarCenario as CriarCenario, Cenario } from "./apoio/instalar-sh";
 import { embutirInstalador } from "../scripts/embutir-instalador";
+
+const raizDoRepo = resolve(import.meta.dir, "..");
 
 // As funções do instalar.sh sem rodar a instalação (ANVILORE_INSTALAR_CARREGAR=1 só define as funções), a descoberta
 // da versão pelo GitHub (com `curl` de mentira), a pasta padrão e as respostas por /dev/tty num pseudoterminal.
 
 const linux = process.platform === "linux";
+// O apoio só carrega no Linux: no Windows e no macOS ele nunca roda e derrubaria a cobertura por arquivo.
+const apoio = linux ? await import("./apoio/instalar-sh") : undefined;
 const cenarios: Cenario[] = [];
 afterEach(async () => { await Promise.all(cenarios.splice(0).map(c => c.limpar())); });
-async function novo(...args: Parameters<typeof criarCenario>) { const c = await criarCenario(...args); cenarios.push(c); return c; }
+async function novo(...args: Parameters<typeof CriarCenario>) { const c = await apoio!.criarCenario(...args); cenarios.push(c); return c; }
 const existe = (caminho: string) => stat(caminho).then(() => true, () => false);
 
 function funcao(c: Cenario, corpo: string, extra: Record<string, string> = {}) {

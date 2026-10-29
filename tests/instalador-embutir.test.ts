@@ -2,7 +2,8 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { conferirEmbutidos, embutirInstalador, lerEmbutidos, validarAssinantes } from "../scripts/embutir-instalador";
+import { comandoEmbutir, conferirEmbutidos, embutirInstalador, lerEmbutidos, validarAssinantes } from "../scripts/embutir-instalador";
+import { capturarConsole } from "./apoio/console";
 import { criarChave } from "./apoio/kit-atualizavel";
 
 // PLANO §2 passo 4 e cenário 36: o build da release embute o manifesto e a chave pública no instalar.sh, e um teste
@@ -93,4 +94,27 @@ test("Dado a linha de comando, Quando gero e confiro o instalar.sh, Então grava
   expect(semChave.exitCode).toBe(1);
   expect(semChave.stderr.toString()).toContain("assinantes");
   expect(rodar("--lixo").exitCode).toBe(2);
+});
+
+test("Dado a função da linha de comando, Quando gero, confiro e peço ajuda, Então devolve os códigos e as mensagens combinados", async () => {
+  const pasta = await mkdtemp(join(tmpdir(), "anvilore-embutir-"));
+  pastas.push(pasta);
+  const assinantes = join(pasta, "assinantes"), saida = join(pasta, "dist", "instalar.sh");
+  await writeFile(assinantes, await assinantesDescartaveis());
+  const c = capturarConsole();
+  try {
+    expect(await comandoEmbutir(["--help"])).toBe(0);
+    expect(c.saida.join("\n")).toContain("Uso: bun scripts/embutir-instalador.ts");
+    expect(await comandoEmbutir(["--assinantes", assinantes, "--saida", saida])).toBe(0);
+    expect(await readFile(saida, "utf8")).toContain("cat <<'ANVILORE_FIM_ASSINANTES'");
+    expect(await comandoEmbutir(["--conferir", saida, "--assinantes", assinantes])).toBe(0);
+    expect(c.saida.join("\n")).toContain("embutidos conferem");
+    expect(await comandoEmbutir(["--conferir", join(pasta, "nao-existe.sh"), "--assinantes", assinantes])).toBe(1);
+    expect(c.erros.join("\n")).toContain("instalar.sh: não consegui ler");
+    await writeFile(assinantes, "lixo\n");
+    expect(await comandoEmbutir(["--conferir", saida, "--assinantes", assinantes])).toBe(1);
+    expect(await comandoEmbutir(["--assinantes", assinantes, "--saida", saida])).toBe(1);
+    expect(await comandoEmbutir(["--modelo", join(pasta, "sem-modelo.sh"), "--assinantes", assinantes])).toBe(1);
+    expect(await comandoEmbutir(["--que-nao-existe"])).toBe(2);
+  } finally { c.restaurar(); }
 });

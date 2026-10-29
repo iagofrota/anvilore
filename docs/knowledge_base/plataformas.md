@@ -226,6 +226,60 @@ chamada Raw seria bloqueada (falha fechada, de propósito). O hook
 (`src/comandos/hook-proteger-raw.ts`) usa `estaEmRaw`: Raw/a.md é bloqueado em qualquer sistema,
 e no Linux isso é falso positivo aceito. Veja [governanca.md](governanca.md).
 
+## Instalador do Linux (instalar.sh)
+
+Fatia U3 dos instaladores. O script (`instalador/instalar.sh`) instala o kit em Linux x64 e arm64 e é a base
+do macOS (que ainda recusa com mensagem simples). Ele faz os passos 1 a 9, 11 e 12 do plano: confere o sistema,
+instala o que falta (git, `ssh-keygen`, `unzip`, Bun e rg), baixa a última release, **confere a assinatura da tag**,
+liga os agentes que a pessoa tem, grava o estado da atualização, roda o `doctor` e termina com três linhas: o
+que foi instalado, onde está e o próximo passo. O atalho (passo 10) é da fatia U6: o script só tem a função
+`criar_atalho`, vazia, com o contrato escrito no comentário.
+
+Onde cada coisa fica (Linux):
+
+```
+~/Anvilore/                    kit e dados (clone da tag assinada); registro em .anvilore/instalacao.log
+~/.bun/bin/bun                 só se o Bun do sistema faltava ou era mais velho (marca bunGerenciado no estado)
+~/.local/bin/bun               link para o de cima, para sessões novas acharem o bun
+~/.local/bin/rg                só se o rg faltava (zip/tar do manifesto, SHA-256 conferido)
+```
+
+- **Manifesto e chave dentro do script.** `instalador/dependencias.json` (versão, URL oficial e SHA-256 de Bun, rg
+  e PortableGit por plataforma) e a chave pública (arquivo seguranca/assinantes, ainda sem chave real) vão
+  embutidos no instalar.sh pela release: `scripts/embutir-instalador.ts` gera o script e, com `--conferir`,
+  prova que a cópia embutida é igual aos arquivos. O instalar.sh do repositório é só o modelo: sem manifesto e sem
+  chave válida ele recusa instalar e explica. O manifesto traz uma entrada por linha para o `awk` do script ler
+  (não há `jq` nem Python garantidos); `tests/instalador-manifesto.test.ts` trava esse formato.
+- **Assinatura.** Depois do `git clone --branch <tag>` o script confere, antes de rodar qualquer coisa do kit:
+  que a tag é anotada, que tem bloco de assinatura SSH (OpenPGP e x509 são recusados e os programas de gpg ficam
+  desligados), que `git verify-tag` aprova com a chave embutida, que o nome assinado é o da tag, que ela aponta
+  direto para um commit e que o `HEAD` baixado é esse commit. Falhou: apaga o que baixou, não liga agente nenhum
+  e diz por quê. O mesmo critério do atualizador (`src/lib/atualizacao.ts`).
+- **Perguntas.** Respostas vêm de /dev/tty, porque `curl | bash` ocupa a entrada. Sem terminal, ou com
+  `ANVILORE_SEM_PERGUNTAS=1`, vale a resposta padrão (instalar pacotes que faltam: sim; instalar o Claude Code:
+  não, salvo `ANVILORE_INSTALAR_CLAUDE=sim`). `ANVILORE_ESPERAR_ENTER=1` faz o script esperar Enter no fim, para a
+  janela de um atalho com `Terminal=true` não fechar antes de a pessoa ler o resumo.
+- **Variáveis para teste e QA:** `ANVILORE_ORIGEM` (clonar de um repositório local), `ANVILORE_VERSAO` (uma tag
+  específica) e `ANVILORE_PASTA`. O `ANVILORE_DESTINO` do kit não é usado aqui, para não confundir a pasta do kit com a
+  pasta de uma wiki.
+- **Pasta que já é instalação** (tem `.git`, `AGENTS.md`, `src/cli.ts`, `skills/` e o estado em
+  .anvilore/atualizacao.json) vira "atualizar": roda `anvilore atualizar` e `instalar` de novo, sem sobrescrever o
+  que é da pessoa nem as escolhas gravadas (modo, canal, commit automático desligado) e não recria a área da wiki que
+  ela apagou; só a primeira instalação cria as áreas padrão. Se a primeira rodada caiu no meio, a seguinte a termina
+  como instalação nova (marcador instalacao-em-andamento). Pasta que existe e é outra coisa: pergunta outro nome, ou
+  para (sem terminal), sem tocar em nada.
+- **Sem agente:** o kit fica instalado, o `doctor` sai 1 e o resultado é "parcial", com exit 0. **Sem rg:** a
+  instalação continua e o resumo avisa que a busca da skill `query` fica indisponível.
+- **Pacotes do sistema:** `git`, `curl`, `ssh-keygen` (pacote `openssh-client`, `openssh-clients` ou `openssh`) e
+  `unzip` (só se o Bun precisa ser baixado). Falta algum: pergunta e usa `sudo` com `apt`, `dnf`, `pacman` ou
+  `zypper`. O pacote `.deb`/`.rpm` da fatia U9 deve declarar `openssh-client` como dependência, além do plano.
+
+Provas: `tests/instalar-sh.test.ts`, `tests/instalar-sh-funcoes.test.ts` (inclui pseudoterminal) e
+`tests/instalar-sh-kit-real.test.ts` (kit de verdade, com rede para o npm), todos em HOME vazio e com tag assinada
+por chave descartável. **Não provado aqui:** `curl | bash` contra o GitHub real (a primeira release assinada ainda não
+existe), `sudo` e gerenciadores de pacote reais (os testes usam substitutos), o login do Claude Code, e distribuições
+que não sejam as do CI.
+
 ## O que esta página não afirma
 
 - Que o CI da Onda 1 esteja verde nos três sistemas; só a fundação tem execução confirmada acima.

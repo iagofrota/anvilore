@@ -1,0 +1,35 @@
+name: instalar-linux
+
+# Fatia U3: o instalar.sh instala o kit do zero num HOME vazio, em Linux x64 e arm64, com o manifesto real
+# (baixa o Bun e o rg dos releases oficiais e confere o SHA-256). Arquivo separado do ci.yml de propósito: a U5
+# reorganiza o ci.yml e não precisa resolver conflito com este job.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  instalar-do-zero:
+    name: instalar.sh do zero (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Conferir o instalar.sh (shellcheck) e o manifesto embutido
+        run: |
+          shellcheck -S warning instalador/instalar.sh scripts/provar-instalar-linux.sh
+          bun test tests/instalador-manifesto.test.ts tests/instalador-embutir.test.ts
+      - name: Instalar do zero e de novo, num HOME vazio, com o manifesto real
+        run: bash scripts/provar-instalar-linux.sh
