@@ -432,7 +432,7 @@ resolver_tag() {
   local local_url
   if [ -n "${ANVILORE_VERSAO:-}" ]; then TAG="v${ANVILORE_VERSAO#v}"
   elif [ -n "${ANVILORE_ORIGEM:-}" ]; then
-    TAG=$(git ls-remote --tags --refs "$ANVILORE_ORIGEM" 2>/dev/null | sed 's#.*refs/tags/##' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
+    TAG=$(git_rede ls-remote --tags --refs "$ANVILORE_ORIGEM" 2>/dev/null | sed 's#.*refs/tags/##' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
   else
     local_url=$(curl -fsSI --proto '=https' --max-time 30 -o /dev/null -w '%{redirect_url}' "$URL_ULTIMA" 2>/dev/null)
     TAG="${local_url##*/tag/}"
@@ -453,6 +453,29 @@ resolver_tag() {
 git_staging() {
   git -c "core.hooksPath=$HOOKS_VAZIO" "$@"
 }
+
+# Protocolos que o git de rede pode usar: só o da URL de origem (https na oficial; nos testes, caminho local ou ssh).
+# Qualquer outro (ext::, fd::, git://, http://) fica de fora, mesmo que a configuração global o libere.
+protocolos_da_origem() {
+  case "${ANVILORE_ORIGEM:-}" in
+    "") echo https ;;
+    file://* | /* | ./* | ../*) echo file ;;
+    ssh://*) echo ssh ;;
+    *) echo https ;;
+  esac
+}
+
+# git que fala com a rede ANTES de a assinatura passar (ls-remote e clone). Vale o que o instalador decide, não a
+# configuração global da pessoa: GIT_ALLOW_PROTOCOL vence qualquer protocol.<nome>.allow (inclusive um
+# protocol.ext.allow=always, que o transporte `ext::` usaria para rodar um programa), o credential.helper é zerado
+# e nenhum programa de senha ou terminal é chamado. Subshell: nada disso vaza para o resto da instalação.
+# A config global continua valendo (proxy em http.proxy, por exemplo).
+git_rede() (
+  export GIT_ALLOW_PROTOCOL
+  GIT_ALLOW_PROTOCOL=$(protocolos_da_origem)
+  export GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=
+  git_staging -c credential.helper= -c core.askPass= "$@"
+)
 
 # Confere a assinatura da tag no clone $1 com a chave embutida. MOTIVO diz por que recusou.
 verificar_assinatura() {
@@ -512,7 +535,7 @@ passo_baixar_kit() {
   mkdir -p "$HOOKS_VAZIO" || falhar "não consegui criar uma pasta temporária."
   # --no-checkout: o conteúdo da candidata não é gravado (e nenhum filtro do git, como o do git-lfs, roda sobre ele)
   # antes de a assinatura passar.
-  if ! rodar git_staging -c advice.detachedHead=false clone --quiet --no-checkout --branch "$TAG" -- "$origem" "$CLONE_TMP"; then
+  if ! rodar git_rede -c advice.detachedHead=false clone --quiet --no-checkout --branch "$TAG" -- "$origem" "$CLONE_TMP"; then
     falhar "não consegui baixar o Anvilore $TAG de $origem."
   fi
   dizer "Conferindo a assinatura da versão..."

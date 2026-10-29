@@ -99,6 +99,9 @@ test.skipIf(!linux)("Dado um repositório com várias tags, Quando instalo de AN
 test.skipIf(!linux)("Dado a origem oficial (sem ANVILORE_ORIGEM), Quando instalo, Então descobre a tag pelo redirecionamento e deixa o origin oficial para o atualizador", async () => {
   const c = await novo();
   await c.comando("curl", CURL_FALSO(Bun.which("curl")!));
+  // O insteadOf do teste manda a URL oficial (https) para um repositório local (file), e a guarda do instalador só deixa passar
+  // https: este git de PATH libera `file` só no clone do cenário. A guarda em si é coberta em instalar-sh-seguranca.test.ts.
+  await c.comando("git", `#!/bin/sh\ncase " $* " in *" clone "*) GIT_ALLOW_PROTOCOL=https:file; export GIT_ALLOW_PROTOCOL ;; esac\nexec ${Bun.which("git")} "$@"\n`);
   const r = c.rodar({
     ANVILORE_ORIGEM: "", FALSO_LOCATION: "https://github.com/iagofrota/anvilore/releases/tag/v0.3.0",
     GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: `url.${c.kit.raiz}.insteadOf`, GIT_CONFIG_VALUE_0: "https://github.com/iagofrota/anvilore.git",

@@ -42,6 +42,9 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   filtros do git (como o do git-lfs) e hooks da configuração global não rodam sobre conteúdo não autenticado.
 - `instalar.sh` fixa o verificador SSH (`gpg.ssh.program=ssh-keygen`) no `verify-tag`: um programa aprovador na
   configuração global do git não consegue mais aceitar uma tag assinada por chave fora dos assinantes.
+- `instalar.sh` só deixa o git falar com a rede (`ls-remote` e `clone`) pelo protocolo da origem: `GIT_ALLOW_PROTOCOL` vale mais
+  que qualquer `protocol.<nome>.allow` da configuração global, então um `url.<ext::programa>.insteadOf` não executa nada
+  antes da assinatura. O `credential.helper` é zerado e não há pergunta de senha nem de terminal nessas chamadas.
 
 ### Added
 
