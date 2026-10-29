@@ -40,7 +40,17 @@ if (comando === "doctor") {
   process.exit(ok ? 0 : 1);
 }
 if (comando === "init") { for (const a of (resto[1] ?? "").split(",")) mkdirSync(join("wiki", a), { recursive: true }); process.exit(0); }
-if (comando === "atualizar") { console.error("atualizar: clone não gerenciado: exige origin oficial"); process.exit(1); }
+if (comando === "atualizar") {
+  // Registra como o instalador entregou as chaves: pela opção (com o conteúdo do arquivo) e/ou pela variável de ambiente.
+  const i = resto.indexOf("--assinantes-do-instalador");
+  const arquivo = i >= 0 ? resto[i + 1] : undefined;
+  appendFileSync(".anvilore/atualizar-entrega.log", JSON.stringify({ variavel: process.env.ANVILORE_ASSINANTES_DO_INSTALADOR ?? null, arquivo: arquivo ?? null, conteudo: arquivo && existsSync(arquivo) ? readFileSync(arquivo, "utf8") : null }) + "\\n");
+  const codigo = Number(process.env.STUB_ATUALIZAR_CODIGO ?? 1);
+  // 2 = o atualizador antigo da pasta, que não conhece a opção e responde com o uso.
+  if (codigo === 2) { console.error("Uso: anvilore atualizar [--verificar | --voltar | --estado]"); process.exit(2); }
+  if (codigo === 0) { console.log("Anvilore já está atualizado."); process.exit(0); }
+  console.error("atualizar: clone não gerenciado: exige origin oficial"); process.exit(1);
+}
 if (comando === "hook") process.exit(2);
 process.exit(64);
 `;

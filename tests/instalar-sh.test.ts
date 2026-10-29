@@ -230,6 +230,49 @@ test.skipIf(!linux)("Dado uma instalação existente, Quando rodo de novo, Entã
   expect(r.saida).toContain("Pronto:");
 });
 
+test.skipIf(!linux)("R1: Dado uma instalação existente, Quando rodo de novo, Então o atualizador recebe as chaves embutidas pela opção --assinantes-do-instalador (arquivo com o conteúdo embutido)", async () => {
+  const c = await novo({ agentes: ["claude"] });
+  expect(c.rodar().codigo).toBe(0);
+  const r = c.rodar({ STUB_ATUALIZAR_CODIGO: "0" });
+  expect(r.codigo, r.tudo).toBe(0);
+  expect(r.saida).not.toContain("não atualizei agora");
+  const entregas = (await readFile(join(c.pasta, ".anvilore/atualizar-entrega.log"), "utf8")).trim().split("\n").map(l => JSON.parse(l) as { variavel: string | null; arquivo: string | null; conteudo: string | null });
+  const ultima = entregas.at(-1)!;
+  expect(ultima.arquivo).toMatch(/assinantes-reinstalacao$/);
+  expect(ultima.conteudo).toBe(c.assinantes);
+  expect(ultima.variavel).toBeNull();
+});
+
+test.skipIf(!linux)("R1: Dado o instalador sem variável no ambiente, Quando reinstalo, Então o atualizador não recebe variável nenhuma (só a opção)", async () => {
+  const c = await novo({ agentes: ["claude"] });
+  expect(c.rodar().codigo).toBe(0);
+  const r = c.rodar({ STUB_ATUALIZAR_CODIGO: "0" });
+  expect(r.codigo, r.tudo).toBe(0);
+  const ultima = JSON.parse((await readFile(join(c.pasta, ".anvilore/atualizar-entrega.log"), "utf8")).trim().split("\n").at(-1)!) as { variavel: string | null; arquivo: string | null };
+  expect(ultima.variavel).toBeNull();
+  expect(ultima.arquivo).not.toBeNull();
+});
+
+test.skipIf(!linux)("R1: Dado o atualizador antigo da pasta (devolve 2 com 'Uso:' para a opção), Quando reinstalo, Então avisa em linguagem simples, sai com erro e não muda HEAD nem arquivos", async () => {
+  const c = await novo({ agentes: ["claude"] });
+  expect(c.rodar().codigo).toBe(0);
+  await mkdir(join(c.pasta, "raw"), { recursive: true });
+  await writeFile(join(c.pasta, "raw/nota.md"), "minha nota\n");
+  const antes = { nota: await hashDe(join(c.pasta, "raw/nota.md")), agentes: await hashDe(join(c.pasta, "AGENTS.md")) };
+  const cabeca = c.kit.git(["-C", c.pasta, "rev-parse", "HEAD"]).saida.trim();
+  const chamadasAntes = (await c.chamadas()).length;
+  const r = c.rodar({ STUB_ATUALIZAR_CODIGO: "2" });
+  expect(r.codigo, r.tudo).not.toBe(0);
+  expect(r.tudo).toContain("A pasta tem uma versão antiga do Anvilore que não sabe receber as chaves do instalador");
+  expect(r.tudo).toContain("nada foi mudado");
+  expect(r.tudo).not.toContain("Uso:");
+  expect(r.tudo).not.toContain("Pronto:");
+  expect(c.kit.git(["-C", c.pasta, "rev-parse", "HEAD"]).saida.trim()).toBe(cabeca);
+  expect({ nota: await hashDe(join(c.pasta, "raw/nota.md")), agentes: await hashDe(join(c.pasta, "AGENTS.md")) }).toEqual(antes);
+  // Parou ali: só o atualizador foi chamado (nem instalar nem doctor rodaram depois).
+  expect((await c.chamadas()).slice(chamadasAntes)).toEqual([]);
+});
+
 test.skipIf(!linux)("Dado uma primeira instalação interrompida na configuração, Quando rodo de novo, Então termina como instalação nova (áreas e commit automático) e não a recusa", async () => {
   const c = await novo();
   const cai = c.rodar({ STUB_INSTALAR_CODIGO: "4" });
