@@ -1028,4 +1028,32 @@ describe("atualizador com Git real: só aceita assinatura SSH na tag", () => {
       else await rm(homeGitconfig, { force: true });
     }
   });
+
+  test("Dado verificarAssinaturaTag com tag SSH, Quando executa verify-tag, Então o argv contém gpg.program, gpg.openpgp.program, gpg.x509.program e gpg.ssh.program fixados", async () => {
+    const raiz = await mkdtemp(join(tmpdir(), "anvilore-mutacao-"));
+    try {
+      await mkdir(join(raiz, "seguranca"), { recursive: true });
+      await writeFile(join(raiz, "seguranca/assinantes"), "principal namespaces=\"git\" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA\n");
+      const chamadas: string[][] = [];
+      const execFalso = (args: string[]) => {
+        chamadas.push(args);
+        if (args[0] === "cat-file") {
+          return { codigo: 0, saida: "object abc\ntype commit\ntag v0.3.1\n\nmsg\n-----BEGIN SSH SIGNATURE-----\nsig\n-----END SSH SIGNATURE-----\n" };
+        }
+        return { codigo: 0, saida: "" };
+      };
+      const { verificarAssinaturaTag } = await import("../src/lib/atualizacao");
+      const r = verificarAssinaturaTag(raiz, "v0.3.1", execFalso, "objeto-tag");
+      expect(r).toBeUndefined();
+      const verifyTagArgs = chamadas.find(args => args.includes("verify-tag"));
+      expect(verifyTagArgs).toBeDefined();
+      expect(verifyTagArgs).toContain("gpg.format=ssh");
+      expect(verifyTagArgs).toContain("gpg.ssh.program=ssh-keygen");
+      expect(verifyTagArgs).toContain("gpg.program=anvilore-sem-gpg");
+      expect(verifyTagArgs).toContain("gpg.openpgp.program=anvilore-sem-gpg");
+      expect(verifyTagArgs).toContain("gpg.x509.program=anvilore-sem-gpg");
+    } finally {
+      await rm(raiz, { recursive: true, force: true });
+    }
+  });
 });
