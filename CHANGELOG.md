@@ -144,6 +144,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   para sistema, assinatura e download). Não pede administrador, não chama `exit`, grava o `PATH` do usuário sem expandir
   `%VARIÁVEL%` (com `reg.exe` em Constrained Language Mode), clona com `core.autocrlf=false` e escreve UTF-8. O atalho do
   Menu Iniciar é da próxima fatia (`AnvCriarAtalho` ainda não faz nada).
+- `instalar.ps1`: a candidata é clonada sem checkout e sem hooks, e seus arquivos só são gravados depois de a assinatura SSH passar; o `verify-tag` fixa `gpg.ssh.program=ssh-keygen` e desliga gpg/x509 (filtros, hooks e verificadores da configuração global do git da pessoa não ajudam uma tag falsa).
 - `scripts/embutir-instalador.ts` também embute o manifesto e a chave no `instalar.ps1` (`--modelo instalador/instalar.ps1`).
 - Job `instalar-ps1` no CI (`windows-latest`): testes Pester das funções e prova de ponta a ponta num perfil vazio.
 

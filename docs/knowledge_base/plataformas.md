@@ -309,9 +309,14 @@ O passo 10 (atalhos) é da fatia U6: o script só tem `AnvCriarAtalho`, que não
 - **Origem e assinatura.** `ANVILORE_ORIGEM` troca a origem (CI e QA usam um repositório local); `ANVILORE_VERSAO`, `ANVILORE_PASTA`,
   `ANVILORE_INSTALAR_CLAUDE` e `ANVILORE_ESPERAR_ENTER` têm os mesmos nomes do Linux. O clone usa `-c core.autocrlf=false` e
   vai primeiro para `Anvilore.novo`; só depois de conferido é movido para o lugar. A conferência é a do `instalador/instalar.sh`: a tag
-  é anotada, tem bloco `-----BEGIN SSH SIGNATURE-----` (OpenPGP e x509 são recusados e os programas de gpg apontam para
-  um comando que não existe), `git verify-tag` aprova com a chave embutida, o nome assinado é o da tag, ela aponta para um
-  commit e o commit é o do `HEAD`. Falhou: apaga o que baixou e não liga agente nenhum.
+  é anotada, tem bloco `-----BEGIN SSH SIGNATURE-----` (OpenPGP e x509 são recusados), `git verify-tag` aprova com a chave
+  embutida, o nome assinado é o da tag, ela aponta para um commit e o commit é o do `HEAD`. Falhou: apaga o que baixou e
+  não liga agente nenhum. Correções da revisão de segurança (A1 e A2), no mesmo desenho do `instalador/instalar.sh`: o clone é
+  `--no-checkout` e todo comando git do staging leva `core.hooksPath` para uma pasta vazia, então nenhum filtro (smudge,
+  git-lfs) nem hook da configuração global da pessoa roda sobre a candidata antes da assinatura; só depois dela vem o
+  `checkout --force --detach` do commit verificado. O `verify-tag` fixa `gpg.format=ssh`, `gpg.ssh.program=ssh-keygen`,
+  `gpg.program=false`, `gpg.openpgp.program=false` e `gpg.x509.program=false`: um `gpg.ssh.program` aprovador no
+  `.gitconfig` não aprova mais a tag de uma chave que não é a embutida. Continua pelo `PATH` (A3, backlog).
 - **Manifesto e chave.** Vêm embutidos pela release (`bun scripts/embutir-instalador.ts --modelo instalador/instalar.ps1`,
   e `--conferir` prova que a cópia é igual aos arquivos). O `instalar.ps1` do repositório é só o modelo: sem chave embutida
   ele **recusa instalar** (código 3). `ANVILORE_MANIFESTO` e `ANVILORE_ASSINANTES` (arquivos) só valem com a região
@@ -327,7 +332,8 @@ Pester) e `tests/instalar-ps1/e2e.Tests.ps1` (o script de verdade, num perfil va
 local com tag assinada por chave descartável criada no teste, usando o instalador **embutido pelo mesmo mecanismo da
 release**). Os cenários cobertos: instalação do zero sem Git, Bun nem rg (baixa e confere os três), reinstalar sem mexer em
 `raw/`, tag sem assinatura, de outra chave, com o nome trocado e com assinatura OpenPGP falsa (com um `gpg` de mentira que
-aprovaria tudo), instalador sem chave, `ANVILORE_ASSINANTES` ignorado numa release, sem agente, hash adulterado, versão e
+aprovaria tudo), filtro de checkout e hook na configuração global, `gpg.ssh.program` aprovador (A1 e A2; cada um provado
+com uma mutação que desfaz a correção e derruba o teste), instalador sem chave, `ANVILORE_ASSINANTES` ignorado numa release, sem agente, hash adulterado, versão e
 pasta pedidas. `tests/instalar-ps1.test.ts` e `tests/instalador-embutir-ps1.test.ts` (Bun) guardam o contrato estático e o
 embutir. **Não provado:** execução como usuário sem administrador (o runner é administrador; o plano da U0 já provou a
 extração e o uso sem admin), duplo clique e SmartScreen, Explorer e terminais já abertos com o `PATH` novo, Constrained
