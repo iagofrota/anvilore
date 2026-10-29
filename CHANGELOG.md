@@ -14,6 +14,15 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - O atualizador exige exclusivamente assinatura SSH na tag candidata (`-----BEGIN SSH SIGNATURE-----`), fixa `gpg.ssh.program=ssh-keygen` e desabilita programas OpenPGP e x509 (`gpg.program`, `gpg.openpgp.program`, `gpg.x509.program` apontados para comando inexistente no `verify-tag`), impedindo que tags com assinaturas OpenPGP, x509 ou verificadores SSH customizados no `.gitconfig` aprovem tags não confiáveis.
 - O `fetch` do atualizador (e qualquer `ls-remote`, `clone` ou `pull`) roda com `GIT_ALLOW_PROTOCOL` só do protocolo da origem oficial (https; ssh se o clone foi feito por ssh), `credential.helper` zerado, `GIT_ASKPASS` vazio e `GIT_TERMINAL_PROMPT=0`: um `protocol.ext.allow=always` com `url.<ext::programa>.insteadOf` na configuração global não executa código antes da assinatura. A configuração global continua valendo no resto (proxy, por exemplo).
 - O atualizador aceita o arquivo de chaves confiáveis que o instalador entrega pela opção interna `--assinantes-do-instalador <arquivo>` e, com ele, confere a tag **só** contra esse arquivo (não soma com o `seguranca/assinantes` da pasta). Assim uma instalação que ficou para trás na troca de chave recebe a versão nova ao rodar o instalador de novo, sem editar arquivo do kit. Arquivo ausente, vazio ou ilegível recusa a versão com mensagem simples; nunca volta ao arquivo local. O atualizador **não lê nenhuma variável de ambiente** para isso: uma atualização manual ou agendada nunca troca as chaves por herança do ambiente. A opção só vale ao aplicar (junto de `--verificar`, `--voltar` ou `--estado` é uso inválido, código 2). Alcance: a opção não prova que quem chamou é o instalador (um processo local hostil pode passá-la, assim como poderia trocar o `PATH`); o ganho é que a âncora de confiança deixa de ser herdada por acidente.
+- `instalar.sh` não grava nenhum arquivo da candidata antes de autenticar a tag: o clone é `--no-checkout`, os hooks ficam
+  desligados no staging (`core.hooksPath` vazio) e o checkout do commit verificado só vem depois da assinatura. Assim
+  filtros do git (como o do git-lfs) e hooks da configuração global não rodam sobre conteúdo não autenticado.
+- `instalar.sh` fixa o verificador SSH (`gpg.ssh.program=ssh-keygen`) no `verify-tag`: um programa aprovador na
+  configuração global do git não consegue mais aceitar uma tag assinada por chave fora dos assinantes.
+- `instalar.sh` só deixa o git falar com a rede (`ls-remote` e `clone`) pelo protocolo da origem: `GIT_ALLOW_PROTOCOL` vale mais
+  que qualquer `protocol.<nome>.allow` da configuração global, então um `url.<ext::programa>.insteadOf` não executa nada
+  antes da assinatura. O `credential.helper` é zerado e não há pergunta de senha nem de terminal nessas chamadas.
+- Rodar o `instalar.sh` numa pasta já instalada passa pelo atualizador do kit, que agora fixa o verificador SSH: um `gpg.ssh.program` aprovador na configuração global não faz a reinstalação aplicar uma tag assinada por chave fora dos assinantes (`tests/instalar-sh-reinstalacao.test.ts`).
 
 ### Fixed
 
@@ -34,17 +43,6 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - O gate do log no `fechar` não cobra entrada por arquivo da wiki igual, byte a byte, ao original em `modelos/`: o
   esqueleto que o `instalar` copiou hoje não é edição. `tests/test-esqueleto.sh` passa a conferir o esqueleto em
   `modelos/` e que o kit ignora `wiki/`, `raw/` e `SCHEMA.md`.
-
-### Security
-
-- `instalar.sh` não grava nenhum arquivo da candidata antes de autenticar a tag: o clone é `--no-checkout`, os hooks ficam
-  desligados no staging (`core.hooksPath` vazio) e o checkout do commit verificado só vem depois da assinatura. Assim
-  filtros do git (como o do git-lfs) e hooks da configuração global não rodam sobre conteúdo não autenticado.
-- `instalar.sh` fixa o verificador SSH (`gpg.ssh.program=ssh-keygen`) no `verify-tag`: um programa aprovador na
-  configuração global do git não consegue mais aceitar uma tag assinada por chave fora dos assinantes.
-- `instalar.sh` só deixa o git falar com a rede (`ls-remote` e `clone`) pelo protocolo da origem: `GIT_ALLOW_PROTOCOL` vale mais
-  que qualquer `protocol.<nome>.allow` da configuração global, então um `url.<ext::programa>.insteadOf` não executa nada
-  antes da assinatura. O `credential.helper` é zerado e não há pergunta de senha nem de terminal nessas chamadas.
 
 ### Added
 
