@@ -385,8 +385,29 @@ function AnvTemAssinaturaSsh {
   return [bool]([regex]::IsMatch($ConteudoDaTag, '(?m)^-----BEGIN SSH SIGNATURE-----\r?$'))
 }
 
-# Programas de gpg/x509 que não existem: se alguma assinatura não-SSH chegasse ao git, ele não acharia como aprová-la.
-$script:AnvSemGpg = @('-c', 'gpg.program=anvilore-sem-gpg', '-c', 'gpg.openpgp.program=anvilore-sem-gpg', '-c', 'gpg.x509.program=anvilore-sem-gpg')
+# Enquanto a assinatura não passa, nenhum hook roda: core.hooksPath aponta para uma pasta vazia e vence o que a configuração
+# global da pessoa disser. Filtros de checkout (smudge, git-lfs) nem chegam a rodar: o clone é --no-checkout.
+function AnvArgsStaging {
+  param([string]$HooksVazio, [string[]]$Argumentos)
+  return @('-c', "core.hooksPath=$HooksVazio") + $Argumentos
+}
+
+function AnvArgsClone {
+  param([string]$Origem, [string]$Tag, [string]$Staging, [string]$HooksVazio)
+  return AnvArgsStaging -HooksVazio $HooksVazio -Argumentos @('clone', '--quiet', '--no-checkout', '-c', 'core.autocrlf=false', '-c', 'advice.detachedHead=false', '--branch', $Tag, '--', $Origem, $Staging)
+}
+
+# Só agora, com o commit autenticado, os arquivos da candidata são gravados.
+function AnvArgsCheckout {
+  param([string]$Staging, [string]$Commit)
+  return @('-C', $Staging, 'checkout', '--quiet', '--force', '--detach', $Commit)
+}
+
+function AnvArgsVerificarTag {
+  param([string]$Staging, [string]$Ref, [string]$Assinantes, [string]$HooksVazio)
+  # false: um programa que sempre falha, para o caso de uma assinatura OpenPGP/x509 chegar ao git.
+  return AnvArgsStaging -HooksVazio $HooksVazio -Argumentos @('-C', $Staging, '-c', 'gpg.format=ssh', '-c', 'gpg.program=false', '-c', 'gpg.openpgp.program=false', '-c', 'gpg.x509.program=false', '-c', "gpg.ssh.allowedSignersFile=$Assinantes", 'verify-tag', $Ref)
+}
 
 # ---------------------------------------------------------------- passos
 
@@ -556,24 +577,28 @@ function AnvBaixarKit {
   $assinFile = Join-Path $Temp 'assinantes'
   Set-Content -LiteralPath $assinFile -Value $assinantes -NoNewline -Encoding ASCII
   $env:GIT_TERMINAL_PROMPT = '0'
-  $clone = AnvExecutar $Git @('clone', '-c', 'core.autocrlf=false', '-c', 'advice.detachedHead=false', '--branch', $tag, $origem, $staging)
+  $semHooks = Join-Path $Temp 'sem-hooks'
+  New-Item -ItemType Directory -Path $semHooks -Force | Out-Null
+  $clone = AnvExecutar $Git (AnvArgsClone -Origem $origem -Tag $tag -Staging $staging -HooksVazio $semHooks)
   if ($clone.Codigo -ne 0) {
     Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
     AnvParar 1 "Não consegui baixar o Anvilore ($tag). Confira a internet e rode o instalador de novo. $($clone.Saida)"
   }
   $ref = "refs/tags/$tag"
   $razao = $null
+  $verificado = $null
   $v = [pscustomobject]@{ Codigo = 0; Saida = '' }
-  $tipo = AnvExecutar $Git @('-C', $staging, 'cat-file', '-t', $ref)
-  $cab = AnvExecutar $Git @('-C', $staging, 'cat-file', 'tag', $ref)
+  $tipo = AnvExecutar $Git (AnvArgsStaging -HooksVazio $semHooks -Argumentos @('-C', $staging, 'cat-file', '-t', $ref))
+  $cab = AnvExecutar $Git (AnvArgsStaging -HooksVazio $semHooks -Argumentos @('-C', $staging, 'cat-file', 'tag', $ref))
   if ($tipo.Saida.Trim() -ne 'tag') { $razao = 'a versão não é uma tag anotada' }
   elseif (-not (AnvTemAssinaturaSsh -ConteudoDaTag $cab.Saida)) { $razao = 'a tag não tem assinatura SSH' }
   else {
-    $v = AnvExecutar $Git (@('-C', $staging, '-c', 'gpg.format=ssh') + $script:AnvSemGpg + @('-c', "gpg.ssh.allowedSignersFile=$assinFile", 'verify-tag', $ref))
+    $v = AnvExecutar $Git (AnvArgsVerificarTag -Staging $staging -Ref $ref -Assinantes $assinFile -HooksVazio $semHooks)
     if ($v.Codigo -ne 0) { $razao = 'a assinatura não confere com a chave do Anvilore' }
     else {
-      $head = AnvExecutar $Git @('-C', $staging, 'rev-parse', 'HEAD')
+      $head = AnvExecutar $Git (AnvArgsStaging -HooksVazio $semHooks -Argumentos @('-C', $staging, 'rev-parse', 'HEAD'))
       $razao = AnvIdentidadeDaTag -Cabecalho $cab.Saida -Tag $tag -Commit $head.Saida.Trim()
+      if (-not $razao) { $verificado = $head.Saida.Trim() }
     }
   }
   if ($razao) {
@@ -582,6 +607,11 @@ function AnvBaixarKit {
     AnvParar 3 "A versão $tag não passou na conferência de segurança ($razao). Apaguei o que baixei, não liguei nenhum agente e não instalei nada."
   }
   AnvEscrever "Assinatura da versão $tag conferida."
+  $co = AnvExecutar $Git (AnvArgsCheckout -Staging $staging -Commit $verificado)
+  if ($co.Codigo -ne 0) {
+    Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+    AnvParar 1 "Não consegui gravar os arquivos do Anvilore $tag. Apaguei o que baixei. $($co.Saida)"
+  }
   if (Test-Path -LiteralPath $Pasta) { Remove-Item -LiteralPath $Pasta -Recurse -Force }
   Move-Item -LiteralPath $staging -Destination $Pasta
   return $tag
