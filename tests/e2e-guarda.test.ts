@@ -43,9 +43,8 @@ test("Dado pasta existente Quando um arquivo muda, surge ou some Então a guarda
   expect(conferirFoto("raw", antes, await fotografar(join(raiz, "raw")))).toContain("hashes diferem");
 });
 
-test("Dado erro que não é ENOENT na raiz Quando a guarda fotografa Então o erro propaga", async () => {
-  // chmod 000 não bloqueia leitura no Windows nem para root: a prova só vale em POSIX sem privilégio.
-  if (process.platform === "win32" || process.getuid?.() === 0) return;
+// chmod 000 não bloqueia leitura no Windows nem para root: a prova só vale em POSIX sem privilégio.
+test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("Dado erro que não é ENOENT na raiz Quando a guarda fotografa Então o erro propaga", async () => {
   mkdirSync(join(raiz, "fechada/raw"), { recursive: true });
   chmodSync(join(raiz, "fechada"), 0o000);
   await expect(fotografar(join(raiz, "fechada/raw"))).rejects.toMatchObject({ code: "EACCES" });
