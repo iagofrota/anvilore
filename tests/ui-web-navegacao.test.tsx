@@ -9,10 +9,12 @@ test("Dado endereço vazio, só # ou desconhecido Quando leio a rota Então abre
   for (const hash of ["", "#", "#/", "#/inicio", "#/nao-existe", "#/inicio/x"]) expect(lerRota(hash)).toEqual({ tela: "inicio" });
 });
 
-test("Dado endereços de Revisão e Chat Quando leio a rota Então devolve a tela e o id da conversa", () => {
+test("Dado endereços de Revisão, Chat, Biblioteca e Nota Quando leio a rota Então devolve a tela e o id correspondente", () => {
   expect(lerRota("#/revisao")).toEqual({ tela: "revisao" });
   expect(lerRota("#/chat")).toEqual({ tela: "chat" });
   expect(lerRota("#/chat/20261028-140000-abc123")).toEqual({ tela: "chat", id: "20261028-140000-abc123" });
+  expect(lerRota("#/biblioteca")).toEqual({ tela: "biblioteca" });
+  expect(lerRota("#/nota/pessoal/conceitos/padrao.md")).toEqual({ tela: "nota", id: "pessoal/conceitos/padrao.md" });
 });
 
 test("Dado id de conversa com caractere fora do padrão Quando leio a rota Então ignora o id", () => {
@@ -21,14 +23,21 @@ test("Dado id de conversa com caractere fora do padrão Quando leio a rota Entã
 });
 
 test("Dado uma rota Quando monto o endereço Então volta ao mesmo que lerRota entende", () => {
-  for (const rota of [{ tela: "inicio" as const }, { tela: "chat" as const }, { tela: "chat" as const, id: "a-1" }, { tela: "revisao" as const }]) {
+  for (const rota of [
+    { tela: "inicio" as const },
+    { tela: "chat" as const },
+    { tela: "chat" as const, id: "a-1" },
+    { tela: "biblioteca" as const },
+    { tela: "nota" as const, id: "pessoal/conceitos/padrao.md" },
+    { tela: "revisao" as const },
+  ]) {
     expect(lerRota(hashDaRota(rota))).toEqual(rota);
   }
 });
 
 test("O menu tem Início primeiro e cada item leva ao endereço da própria tela", () => {
   expect(MENU[0]).toMatchObject({ tela: "inicio", rotulo: "Início" });
-  expect(MENU.map(item => item.rotulo)).toEqual(["Início", "＋ Nova ingestão", "Revisão"]);
+  expect(MENU.map(item => item.rotulo)).toEqual(["Início", "＋ Nova ingestão", "Biblioteca", "Revisão"]);
   for (const item of MENU) expect(lerRota(item.hash).tela).toBe(item.tela);
 });
 

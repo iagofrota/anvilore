@@ -10,6 +10,8 @@ import { areasDaWiki } from "../../lib/ui-fonte";
 import { validarWiki } from "../../comandos/validar";
 import { resumoDoInicio, saudeDaWiki } from "../../lib/ui-inicio";
 import { ErroDeIngestao, IngestaoNaInterface } from "../../lib/ui-ingestao";
+import { listarBiblioteca } from "../../lib/ui-biblioteca";
+import { ErroDeCaminhoInvalido, obterNota } from "../../lib/ui-nota";
 import { caminhoWiki } from "../../lib/wiki-repo";
 import { atualizar } from "../../lib/atualizacao";
 
@@ -195,6 +197,21 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
             return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas, ...await resumoDoInicio(raiz, abertas, process.env, validada), saude: await saudeDaWiki(wiki, validada) });
           }
           if (url.pathname === "/api/saude" && request.method === "GET") return json(await saudeDaWiki(wiki));
+          if (url.pathname === "/api/biblioteca" && request.method === "GET") {
+            return json(await listarBiblioteca(raiz));
+          }
+          if (url.pathname === "/api/nota" && request.method === "GET") {
+            const caminho = url.searchParams.get("caminho");
+            if (!caminho) return json({ mensagens: ["Parâmetro 'caminho' obrigatório."] }, 400);
+            try {
+              const nota = await obterNota(raiz, caminho);
+              if (!nota) return json({ mensagens: ["Página não encontrada."] }, 404);
+              return json(nota);
+            } catch (erro) {
+              if (erro instanceof ErroDeCaminhoInvalido) return json({ mensagens: [erro.message] }, erro.status);
+              throw erro;
+            }
+          }
           if (url.pathname === "/api/ingestao" && request.method === "GET") {
             return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas: await ingestao.listar(), atualizador: await estadoAtualizador(raiz) });
           }
