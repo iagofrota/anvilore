@@ -35,6 +35,14 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   esqueleto que o `instalar` copiou hoje não é edição. `tests/test-esqueleto.sh` passa a conferir o esqueleto em
   `modelos/` e que o kit ignora `wiki/`, `raw/` e `SCHEMA.md`.
 
+### Security
+
+- `instalar.sh` não grava nenhum arquivo da candidata antes de autenticar a tag: o clone é `--no-checkout`, os hooks ficam
+  desligados no staging (`core.hooksPath` vazio) e o checkout do commit verificado só vem depois da assinatura. Assim
+  filtros do git (como o do git-lfs) e hooks da configuração global não rodam sobre conteúdo não autenticado.
+- `instalar.sh` fixa o verificador SSH (`gpg.ssh.program=ssh-keygen`) no `verify-tag`: um programa aprovador na
+  configuração global do git não consegue mais aceitar uma tag assinada por chave fora dos assinantes.
+
 ### Added
 
 - `instalador/instalar.sh`: instalador do Linux (x64 e arm64), base do macOS. Instala o que falta (git, Bun e rg, com

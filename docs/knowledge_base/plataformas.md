@@ -250,10 +250,11 @@ Onde cada coisa fica (Linux):
   prova que a cópia embutida é igual aos arquivos. O instalar.sh do repositório é só o modelo: sem manifesto e sem
   chave válida ele recusa instalar e explica. O manifesto traz uma entrada por linha para o `awk` do script ler
   (não há `jq` nem Python garantidos); `tests/instalador-manifesto.test.ts` trava esse formato.
-- **Assinatura.** Depois do `git clone --branch <tag>` o script confere, antes de rodar qualquer coisa do kit:
+- **Assinatura.** O clone é `--no-checkout` e os hooks ficam desligados (`core.hooksPath` vazio) até a assinatura passar: nenhum
+  arquivo da candidata é gravado, e nenhum filtro do git ou hook da configuração global roda sobre ela. O script confere:
   que a tag é anotada, que tem bloco de assinatura SSH (OpenPGP e x509 são recusados e os programas de gpg ficam
-  desligados), que `git verify-tag` aprova com a chave embutida, que o nome assinado é o da tag, que ela aponta
-  direto para um commit e que o `HEAD` baixado é esse commit. Falhou: apaga o que baixou, não liga agente nenhum
+  desligados), que `git verify-tag` aprova com a chave embutida (com `gpg.ssh.program=ssh-keygen` fixado no comando, para a configuração global não escolher o verificador), que o nome assinado é o da tag, que ela aponta
+  direto para um commit e que o `HEAD` baixado é esse commit. Só então faz o `checkout` desse commit. Falhou: apaga o que baixou, não liga agente nenhum
   e diz por quê. O mesmo critério do atualizador (`src/lib/atualizacao.ts`).
 - **Perguntas.** Respostas vêm de /dev/tty, porque `curl | bash` ocupa a entrada. Sem terminal, ou com
   `ANVILORE_SEM_PERGUNTAS=1`, vale a resposta padrão (instalar pacotes que faltam: sim; instalar o Claude Code:

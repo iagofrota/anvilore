@@ -464,11 +464,13 @@ verificar_assinatura() {
   [ "$tipo" = "tag" ] || { MOTIVO="$tag não é uma tag anotada e assinada (tipo: ${tipo:-desconhecido})."; return 1; }
   # O `verify-tag` escolhe o verificador pelo tipo da assinatura que está na tag (OpenPGP e x509 passariam pelo gpg do
   # usuário, com o chaveiro dele). Só vale assinatura SSH conferida contra a chave embutida: exige o bloco SSH e
-  # desliga os programas de gpg/x509.
+  # desliga os programas de gpg/x509 e fixa o verificador SSH em `ssh-keygen`: um `gpg.ssh.program` do ~/.gitconfig
+  # (ou de qualquer config global) poderia aprovar uma assinatura de chave que não é a embutida.
   if ! git_staging -C "$dir" cat-file tag "$id" 2>/dev/null | grep -q '^-----BEGIN SSH SIGNATURE-----$'; then
     MOTIVO="a tag $tag não tem assinatura SSH."; return 1
   fi
-  if ! rodar git_staging -C "$dir" -c gpg.format=ssh -c gpg.program=false -c gpg.openpgp.program=false -c gpg.x509.program=false \
+  if ! rodar git_staging -C "$dir" -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen \
+      -c gpg.program=false -c gpg.openpgp.program=false -c gpg.x509.program=false \
       -c "gpg.ssh.allowedSignersFile=$assinantes" verify-tag "$id"; then
     MOTIVO="a assinatura da tag $tag não é do Iago (ou não existe)."; return 1
   fi

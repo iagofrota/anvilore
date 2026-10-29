@@ -91,3 +91,33 @@ test.skipIf(!linux)("A1: Dado o hook global e uma tag válida, Quando instalo, E
   expect(r.codigo, r.tudo).toBe(0);
   expect(await existe(join(c.pasta, "src/cli.ts"))).toBe(true);
 });
+test.skipIf(!linux)("A2: Dado o verify-tag, Quando o instalador o chama, Então o argv fixa os quatro programas de verificação", async () => {
+  const c = await novo();
+  const log = join(c.pai, "git-argv.log");
+  await c.comando("git", `#!/bin/sh\nprintf '%s\\n' "$*" >> "${log}"\nexec ${Bun.which("git")} "$@"\n`);
+  const r = c.rodar();
+  expect(r.codigo, r.tudo).toBe(0);
+  const linhas = (await readFile(log, "utf8")).split("\n").filter(l => l.includes(" verify-tag "));
+  expect(linhas.length).toBe(1);
+  for (const opcao of ["gpg.format=ssh", "gpg.ssh.program=ssh-keygen", "gpg.program=false", "gpg.openpgp.program=false", "gpg.x509.program=false", "gpg.ssh.allowedSignersFile="]) {
+    expect(linhas[0], opcao).toContain(`-c ${opcao}`);
+  }
+});
+
+test.skipIf(!linux)("A2: Dado gpg.ssh.program aprovador na config global e tag assinada por chave fora dos assinantes, Quando instalo, Então recusa", async () => {
+  const c = await novo();
+  const atacante = await novo();
+  const aprovador = join(c.pai, "aprova-tudo.sh");
+  await writeFile(aprovador, `#!/bin/sh
+case "$*" in
+  *find-principals*) echo atacante@exemplo ;;
+  *) echo 'Good "git" signature for atacante@exemplo with ED25519 key SHA256:falso' ;;
+esac
+exit 0
+`, { mode: 0o755 });
+  global(c, "gpg.ssh.program", aprovador);
+  const r = c.rodar({ ANVILORE_ORIGEM: atacante.kit.raiz });
+  expect(r.codigo, r.tudo).toBe(1);
+  expect(r.erro).toContain("a assinatura da tag v0.3.0 não é do Iago");
+  expect(await existe(c.pasta)).toBe(false);
+});
