@@ -119,7 +119,7 @@ Sem seguranca/assinantes (ausente, vazio ou ilegível), o kit recusa toda candid
 executado por quem instala pela primeira vez. Para fechar a cadeia de confiança antes da primeira execução:
 1. A chave pública embutida no instalador gerado precisa ser idêntica a seguranca/assinantes (conferida por `bun scripts/embutir-instalador.ts --conferir <script>`).
 2. Cada instalador gerado (dist/instalar.sh e dist/instalar.ps1) deve ter seu SHA-256 e sua assinatura SSH (`ssh-keygen -Y sign -n file`) publicados junto da release.
-3. Quem baixa o instalador confere o hash e a assinatura (`ssh-keygen -Y verify`) contra a chave pública obtida por canal independente (como o README oficial ou perfil do mantenedor) antes de executá-lo.
+3. Quem baixa o instalador confere o hash e a assinatura (`ssh-keygen -Y verify`) contra a chave pública obtida por canal independente **fora do repositório e fora do GitHub** (o README do próprio repositório não é canal independente; a âncora deve residir fora desse domínio, como site pessoal do mantenedor ou registro público verificado — definir qual será esse canal é uma pendência do dono antes da publicação da primeira versão).
 
 ## Passo a passo de cada release
 
@@ -179,12 +179,12 @@ por vez**.
 
    O `--conferir` confirma que a chave embutida e o manifesto batem exatamente com seguranca/assinantes e instalador/dependencias.json. (Nota: este passo passa a valer quando as branches U3 e U4 forem mescladas na `main`).
 9. **Assinar e gerar hashes dos instaladores.**
-   Gere o hash SHA-256 e a assinatura SSH (`ssh-keygen -Y sign -n file`) de cada instalador gerado:
+   Gere o hash SHA-256 (executado dentro de `dist` para que o checksum registre apenas o nome do arquivo, permitindo conferência na pasta de download) e a assinatura SSH (`ssh-keygen -Y sign -n file`) de cada instalador gerado:
 
    ```bash
-   sha256sum dist/instalar.sh > dist/instalar.sh.sha256
+   (cd dist && sha256sum instalar.sh > instalar.sh.sha256)
    ssh-keygen -Y sign -f <CAMINHO-DA-CHAVE-PRIVADA> -n file dist/instalar.sh
-   sha256sum dist/instalar.ps1 > dist/instalar.ps1.sha256
+   (cd dist && sha256sum instalar.ps1 > instalar.ps1.sha256)
    ssh-keygen -Y sign -f <CAMINHO-DA-CHAVE-PRIVADA> -n file dist/instalar.ps1
    ```
 
@@ -270,8 +270,8 @@ gh release create vX.Y.Z dist/instalar.sh dist/instalar.sh.sha256 dist/instalar.
   versão (`gh release create --help`); numa correção de uma linha antiga, use `--latest=false` para não
   tirar o posto da versão mais nova.
 
-**Como quem instala confere o instalador antes de executar** (canal independente):
-Quem faz o primeiro download obtém a chave pública por canal independente (README oficial do repositório ou perfil do mantenedor) e grava em um arquivo local `assinantes` (ex.: `echo "<EMAIL-DO-MANTENEDOR> namespaces=\"file\" <CHAVE-PUBLICA>" > assinantes` ou sem a opção de namespace).
+**Como quem instala confere o instalador antes de executar (canal independente):**
+Quem faz o primeiro download obtém a chave pública por canal independente **fora do GitHub e fora do repositório** (o README do repositório não é canal independente, pois um atacante que comprometesse o repositório alteraria o instalador e o README juntos; a âncora deve ser externa, como site do mantenedor ou registro público verificado — definir qual será esse canal externo é pendência do dono). A pessoa grava essa chave em um arquivo local `assinantes` (ex.: `echo "<EMAIL-DO-MANTENEDOR> namespaces=\"file\" <CHAVE-PUBLICA>" > assinantes` ou sem a opção de namespace).
 A pessoa confere o hash SHA-256 e a assinatura SSH antes de rodar:
 
 No Linux:
@@ -282,11 +282,16 @@ ssh-keygen -Y verify -f assinantes -I "<EMAIL-DO-MANTENEDOR>" -n file -s instala
 
 No Windows (PowerShell):
 ```powershell
-Get-FileHash .\instalar.ps1 -Algorithm SHA256
-ssh-keygen -Y verify -f assinantes -I "<EMAIL-DO-MANTENEDOR>" -n file -s .\instalar.ps1.sig (Get-Content .\instalar.ps1 -Raw)
+$hashEsperado = (Get-Content .\instalar.ps1.sha256).Trim().Split()[0]
+$hashCalculado = (Get-FileHash .\instalar.ps1 -Algorithm SHA256).Hash
+if ($hashCalculado.ToLower() -ne $hashEsperado.ToLower()) {
+    throw "Hash SHA-256 não confere: esperado $hashEsperado, obtido $hashCalculado"
+}
+Get-Content .\instalar.ps1 -Raw | ssh-keygen -Y verify -f assinantes -I "<EMAIL-DO-MANTENEDOR>" -n file -s .\instalar.ps1.sig
+if ($LASTEXITCODE -ne 0) { throw "Assinatura SSH do instalador inválida!" }
 ```
 
-A saída `Good "file" signature` confirma que o instalador está autêntico e íntegro.
+A saída `Good "file" signature` e a ausência de exceções confirmam que o instalador está autêntico e íntegro.
 
 ### Depois de publicar
 
@@ -356,17 +361,33 @@ Passar ao passo 3 sem que a versão do passo 2 esteja em todas as instalações 
 recusar as tags novas (chave desconhecida).
 
 **Recuperação de instalações que ficaram para trás:**
-Se alguma máquina não recebeu a versão de transição e a rotação avançou para a chave nova, a atualização
-automática é recusada. O procedimento manual de recuperação para essas instalações é:
-- Baixar o instalador da versão mais recente (dist/instalar.sh ou dist/instalar.ps1), verificar o hash SHA-256 e a assinatura SSH contra a chave pública publicada por canal independente, e reinstalar;
-- Ou atualizar o repositório buscando a tag da release e conferindo a assinatura com a chave nova obtida por canal independente **antes** do checkout:
+Se alguma máquina não recebeu a versão de transição e a rotação avançou para a chave nova, o atualizador automático daquela máquina recusa a versão (chave desconhecida).
+**Nunca faça `git checkout` manual direto**: o checkout manual pula o atualizador, não executa a migração de rastreio (`atualizacao/migracoes.json`) e pode sobrescrever ou remover arquivos pessoais (`raw/`, `wiki/`, `SCHEMA.md`).
 
-  ```bash
-  git fetch origin refs/tags/vX.Y.Z:refs/tags/vX.Y.Z
-  git -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen -c gpg.ssh.allowedSignersFile=<ARQUIVO-COM-CHAVE-NOVA> verify-tag vX.Y.Z
-  ```
+Os dois caminhos seguros de recuperação são:
 
-  Se a verificação falhar, **não faça checkout**. Só faça `git checkout vX.Y.Z` se o comando confirmar `Good "git" signature` e sair com 0.
+1. **Reinstalar com o instalador verificado (recomendado):**
+   Baixe o instalador da versão mais recente (`dist/instalar.sh (quando U3 entrar)` ou `dist/instalar.ps1 (quando U4 entrar)`), confira seu hash SHA-256 e sua assinatura SSH contra a chave pública obtida por canal independente fora do GitHub (veja "Segurança no bootstrap"), e execute-o. O instalador preserva os dados pessoais existentes e atualiza a chave em seguranca/assinantes.
+
+2. **Atualizar via `anvilore atualizar` após validar assinatura e identidade da tag:**
+   Para aplicar pelo próprio kit sem reinstalar:
+   a. Obtenha a nova chave pública por canal independente fora do GitHub (pendência do dono) e adicione-a em seguranca/assinantes (ou em arquivo temporário de assinantes).
+   b. Busque a tag e confira a **assinatura** e a **identidade interna da tag** (garantindo que o objeto assinado é uma tag anotada apontando para commit, com o nome exato e com a versão correspondente no `package.json`):
+
+   ```bash
+   git fetch origin refs/tags/vX.Y.Z:refs/tags/vX.Y.Z
+   git -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen -c gpg.ssh.allowedSignersFile=<ARQUIVO-COM-CHAVE-NOVA> verify-tag vX.Y.Z
+   git cat-file -t vX.Y.Z
+   git cat-file tag vX.Y.Z | sed -n 1,4p
+   git show vX.Y.Z:package.json | rg '"version":'
+   ```
+
+   A assinatura deve confirmar `Good "git" signature`, `git cat-file -t` deve retornar `tag`, o cabeçalho deve trazer `tag vX.Y.Z` e `type commit`, e o `package.json` deve conter `"version": "X.Y.Z"`. Se qualquer verificação falhar, **pare imediatamente**.
+   c. Em seguida, com a chave nova em seguranca/assinantes, execute a atualização segura pelo próprio Anvilore, que aplica a migração e salvaguarda os dados pessoais:
+
+   ```bash
+   bun src/cli.ts atualizar
+   ```
 
 **Chave comprometida**
 

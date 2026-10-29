@@ -38,7 +38,7 @@ mostre só o que decide algo.
      e registre em "Atenção" no CHANGELOG;
    - `bun run checar`, `bun src/cli.ts checar-docs`, `bun src/cli.ts checar-release X.Y.Z`;
    - checklist de segurança: nenhum achado de segurança ALTO ou MÉDIO aberto nos instaladores ou no atualizador, com revisão de outro modelo registrada;
-   - instaladores (quando U3/U4 entrarem na `main`): embutir instalador (`bun scripts/embutir-instalador.ts`), conferir com `--conferir`, gerar `sha256` e assinar com `ssh-keygen -Y sign -n file`;
+   - instaladores (quando U3/U4 entrarem na `main`): embutir instalador (`bun scripts/embutir-instalador.ts`), conferir com `--conferir`, gerar `sha256` dentro de `dist` (`cd dist && sha256sum ...`) e assinar com `ssh-keygen -Y sign -n file`;
    - **`checar-release` reprovando por falta de `verified` é esperado** até o dono revisar as páginas:
      diga quais páginas faltam e pare. Nunca ponha `verified`.
 3. **Entrar na `main`.** Enviar a branch, abrir o PR e mesclar são ações públicas: peça o "sim" de
@@ -69,6 +69,7 @@ Pare, diga em **uma frase** o que aconteceu e o que fazer. Não tente consertar 
 release publicada: release ruim se corrige com a **próxima versão de correção** (página, "Release
 ruim"). Se o dono pedir para "refazer" a tag, recuse e proponha a versão seguinte. Em rotação de
 chaves, assinar com a nova exige que todas as instalações tenham a versão de transição; para as que
-ficaram para trás, a recuperação é manual (reinstalar com o instalador verificado ou buscar a tag e
-conferir a assinatura SSH com a chave nova antes do checkout). Ambiente local já comprometido
-(binários no PATH) está fora do alcance da assinatura.
+ficaram para trás, a recuperação é manual (reinstalar com o instalador verificado ou via
+`bun src/cli.ts atualizar` após conferir assinatura e identidade da tag contra a chave nova obtida fora
+do GitHub; nunca checkout manual). A definição da âncora externa de chave é pendência do dono.
+Ambiente local já comprometido (binários no PATH) está fora do alcance da assinatura.
