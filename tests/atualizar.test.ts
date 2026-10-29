@@ -1056,4 +1056,27 @@ describe("atualizador com Git real: só aceita assinatura SSH na tag", () => {
       await rm(raiz, { recursive: true, force: true });
     }
   });
+
+  test("Dado verificarAssinaturaTag quando cat-file sai com código diferente de zero, Então recusa (falha fechado) e não chama verify-tag", async () => {
+    const raiz = await mkdtemp(join(tmpdir(), "anvilore-fail-closed-"));
+    try {
+      await mkdir(join(raiz, "seguranca"), { recursive: true });
+      await writeFile(join(raiz, "seguranca/assinantes"), "principal namespaces=\"git\" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA\n");
+      const chamadas: string[][] = [];
+      const execFalso = (args: string[]) => {
+        chamadas.push(args);
+        if (args[0] === "cat-file") {
+          return { codigo: 1, saida: "fatal: objeto corrompido" };
+        }
+        return { codigo: 0, saida: "" };
+      };
+      const { verificarAssinaturaTag } = await import("../src/lib/atualizacao");
+      const r = verificarAssinaturaTag(raiz, "v0.3.1", execFalso, "objeto-tag");
+      expect(r).toBeDefined();
+      expect(r).toContain("a tag não tem assinatura SSH");
+      expect(chamadas.some(args => args.includes("verify-tag"))).toBe(false);
+    } finally {
+      await rm(raiz, { recursive: true, force: true });
+    }
+  });
 });
