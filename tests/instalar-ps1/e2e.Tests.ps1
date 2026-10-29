@@ -208,30 +208,58 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
     }
   }
 
-  Context 'reinstalar entrega as chaves embutidas ao atualizador (RR6)' {
+  Context 'reinstalar entrega as chaves embutidas ao atualizador pela opção (RR6, R1)' {
     # Dado uma pasta instalada cujo atualizador só conhece o seguranca/assinantes dela (que pode estar atrasado na troca de
-    # chave); Quando o instalador roda de novo; Então o `atualizar` da pasta recebe ANVILORE_ASSINANTES_DO_INSTALADOR apontando
-    # para um arquivo com as chaves embutidas no instalador. O comportamento do atualizador com essa variável é provado
-    # em tests/atualizar.test.ts; aqui prova-se o encanamento no Windows, trocando o `atualizar` da pasta por um que só registra.
+    # chave); Quando o instalador roda de novo; Então o `atualizar` da pasta recebe o ARGUMENTO --assinantes-do-instalador
+    # apontando para um arquivo com as chaves embutidas no instalador, e nenhuma variável de ambiente com elas. O
+    # comportamento do atualizador com a opção é provado em tests/atualizar.test.ts; aqui prova-se o encanamento no
+    # Windows, trocando o `atualizar` da pasta por um que só registra.
     BeforeAll {
       $script:PastaRR6 = Join-Path $script:P1 'Anvilore'
       $script:RegistroRR6 = 'C:\anv-cfg-rr6.json'
       Remove-Item $script:RegistroRR6 -ErrorAction SilentlyContinue
       $cli = Join-Path $script:PastaRR6 'src\cli.ts'
       $linhas = [IO.File]::ReadAllLines($cli)
-      $gancho = 'if (process.argv[2] === "atualizar") { const v = process.env.ANVILORE_ASSINANTES_DO_INSTALADOR ?? ""; await Bun.write("C:/anv-cfg-rr6.json", JSON.stringify({ variavel: v, conteudo: v ? await Bun.file(v).text() : "" })); process.exit(0); }'
+      $gancho = 'if (process.argv[2] === "atualizar") { const args = process.argv.slice(3); const i = args.indexOf("--assinantes-do-instalador"); const arq = i >= 0 ? (args[i + 1] ?? "") : ""; await Bun.write("C:/anv-cfg-rr6.json", JSON.stringify({ args, variavel: process.env.ANVILORE_ASSINANTES_DO_INSTALADOR ?? "", arquivo: arq, conteudo: arq ? await Bun.file(arq).text() : "" })); process.exit(0); }'
       [IO.File]::WriteAllLines($cli, @($linhas[0], $gancho) + $linhas[1..($linhas.Count - 1)])
       $script:R2b = Rodar $script:P1 $script:OrigemBoa $script:Release $script:PathComAgente
     }
     It 'termina completo'                       { $script:R2b.Codigo | Should -Be 0 }
-    It 'o atualizador da pasta foi chamado com a variável' {
+    It 'o atualizador da pasta foi chamado com a opção e o arquivo' {
       Test-Path $script:RegistroRR6 | Should -BeTrue
-      (Get-Content -Raw -Encoding UTF8 $script:RegistroRR6 | ConvertFrom-Json).variavel | Should -Not -BeNullOrEmpty
+      $j = Get-Content -Raw -Encoding UTF8 $script:RegistroRR6 | ConvertFrom-Json
+      @($j.args) | Should -Contain '--assinantes-do-instalador'
+      $j.arquivo | Should -Not -BeNullOrEmpty
+    }
+    It 'não entrega as chaves por variável de ambiente' {
+      (Get-Content -Raw -Encoding UTF8 $script:RegistroRR6 | ConvertFrom-Json).variavel | Should -BeNullOrEmpty
     }
     It 'o arquivo entregue tem as chaves embutidas no instalador' {
       $j = Get-Content -Raw -Encoding UTF8 $script:RegistroRR6 | ConvertFrom-Json
       $j.conteudo.Trim() | Should -Be ((Get-Content -Raw -Encoding ASCII $script:Boa.Assinantes).Trim())
     }
+  }
+
+  Context 'atualizador antigo na pasta, que responde com o uso (código 2) à opção (R1)' {
+    # Dado uma pasta instalada cujo `atualizar` é de uma versão que não conhece a opção (devolve 2 com "Uso:"); Quando o
+    # instalador roda de novo; Então para com a mensagem própria, em linguagem simples, saída diferente de zero, sem mudar
+    # o commit do kit nem os arquivos da pessoa.
+    BeforeAll {
+      $script:PastaAntiga = Join-Path $script:P1 'Anvilore'
+      $cli = Join-Path $script:PastaAntiga 'src\cli.ts'
+      $linhas = [IO.File]::ReadAllLines($cli)
+      $gancho = 'if (process.argv[2] === "atualizar") { console.error("Uso: anvilore atualizar [--verificar | --voltar | --estado]"); process.exit(2); }'
+      # A linha 1 é o gancho do contexto anterior (registra e sai com 0): troca por este.
+      [IO.File]::WriteAllLines($cli, @($linhas[0], $gancho) + $linhas[2..($linhas.Count - 1)])
+      $script:HashAntiga = (Get-FileHash (Join-Path $script:Pasta1 'raw\minha-fonte.txt')).Hash
+      $script:HeadAntiga = (& git -C $script:PastaAntiga rev-parse HEAD).Trim()
+      $script:R2c = Rodar $script:P1 $script:OrigemBoa $script:Release $script:PathComAgente
+    }
+    It 'sai com erro'                           { $script:R2c.Codigo | Should -Not -Be 0 }
+    It 'explica em linguagem simples'           { $script:R2c.Saida | Should -Match 'A pasta tem uma versão antiga do Anvilore que não sabe receber as chaves do instalador; nada foi mudado' }
+    It 'não diz que concluiu'                   { $script:R2c.Saida | Should -Not -Match 'Pronto' }
+    It 'não troca o commit do kit'              { (& git -C $script:PastaAntiga rev-parse HEAD).Trim() | Should -Be $script:HeadAntiga }
+    It 'não mexe no que é da pessoa'            { (Get-FileHash (Join-Path $script:Pasta1 'raw\minha-fonte.txt')).Hash | Should -Be $script:HashAntiga }
   }
 
   Context 'assinatura que não confere (cenários 5 e 9)' {

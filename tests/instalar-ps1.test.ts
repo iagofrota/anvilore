@@ -96,12 +96,19 @@ describe("instalar.ps1: transporte do git antes da assinatura (A5) e chaves da r
     expect(corpo).toMatch(/Remove-Item/);
   });
 
-  test("Dado uma pasta já instalada, Quando o instalador roda o atualizador dela, Então entrega as chaves embutidas só nessa chamada", () => {
-    expect(codigo).toMatch(/ANVILORE_ASSINANTES_DO_INSTALADOR/);
+  test("Dado uma pasta já instalada, Quando o instalador roda o atualizador dela, Então entrega as chaves embutidas pela opção --assinantes-do-instalador e não pelo ambiente (R1)", () => {
     const trecho = /\$jaInstalado\) \{[\s\S]*?\} else \{/.exec(codigo)?.[0] ?? "";
-    expect(trecho).toContain("AnvExecutarComAmbiente");
-    expect(trecho).toContain("ANVILORE_ASSINANTES_DO_INSTALADOR");
     expect(trecho).toMatch(/'atualizar'/);
+    expect(trecho).toMatch(/'--assinantes-do-instalador'\s*,\s*\$assinReinstalacao/);
+    expect(trecho).not.toContain("AnvExecutarComAmbiente");
+    expect(codigo).not.toContain("ANVILORE_ASSINANTES_DO_INSTALADOR");
+  });
+
+  test("Dado o atualizador antigo da pasta que devolve 2 (uso) para a opção, Então o instalador para com mensagem simples e não segue como atualizado (R1)", () => {
+    const trecho = /\$jaInstalado\) \{[\s\S]*?\} else \{/.exec(codigo)?.[0] ?? "";
+    expect(trecho).toMatch(/\$at\.Codigo -eq 2/);
+    expect(trecho).toContain("A pasta tem uma versão antiga do Anvilore que não sabe receber as chaves do instalador; nada foi mudado");
+    expect(trecho).toMatch(/AnvParar 1 /);
   });
 });
 
