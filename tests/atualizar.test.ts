@@ -788,3 +788,210 @@ describe("atualizador com Git real: recusa depois do fetch devolve a ref da tag"
     expect(await atualizar("aplicar", k.deps({ executar: e.legitimo }))).toContain("Atualizado para 0.3.2");
   });
 });
+
+describe("atualizador com Git real: só aceita assinatura SSH na tag", () => {
+  async function semMudanca(k: Kit, versao: string) {
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+    const estado = await k.estado();
+    expect(estado).toMatchObject({ versaoInstalada: "0.3.0", estado: "recusada" });
+    expect(estado.recusadas ?? []).not.toContain(versao);
+    expect(estado.operacao).toBeUndefined();
+    expect(estado.ultima).toBeUndefined();
+    expect(existsSync(join(k.raiz, ".anvilore/atualizacao"))).toBe(false);
+    expect(Date.now() - Date.parse(estado.verificadoEm)).toBeLessThan(60_000);
+  }
+
+  function criarTagPgp(k: Kit, tag: string, commit: string) {
+    const corpo = `object ${commit}\ntype commit\ntag ${tag}\ntagger CI <ci@anvilore.test> 1700000000 +0000\n\nprova pgp\n-----BEGIN PGP SIGNATURE-----\n\niQEzBAABCAAdFiEEfalso\n=abcd\n-----END PGP SIGNATURE-----\n`;
+    const p = Bun.spawnSync(["git", "-C", k.raiz, "hash-object", "-t", "tag", "-w", "--stdin"], {
+      stdin: Buffer.from(corpo),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (p.exitCode !== 0) throw new Error(`hash-object falhou: ${p.stderr.toString()}`);
+    return p.stdout.toString().trim();
+  }
+
+  function criarTagX509(k: Kit, tag: string, commit: string) {
+    const corpo = `object ${commit}\ntype commit\ntag ${tag}\ntagger CI <ci@anvilore.test> 1700000000 +0000\n\nprova x509\n-----BEGIN SIGNED MESSAGE-----\nfakex509\n-----END SIGNED MESSAGE-----\n`;
+    const p = Bun.spawnSync(["git", "-C", k.raiz, "hash-object", "-t", "tag", "-w", "--stdin"], {
+      stdin: Buffer.from(corpo),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (p.exitCode !== 0) throw new Error(`hash-object falhou: ${p.stderr.toString()}`);
+    return p.stdout.toString().trim();
+  }
+
+  async function comVerificadorAprovador(k: Kit, nome: "gpg" | "gpgsm") {
+    const pastaBin = join(k.pai, "bin");
+    await mkdir(pastaBin, { recursive: true });
+    const arq = join(pastaBin, nome);
+    const script = `#!/bin/sh\necho '[GNUPG:] NEWSIG'\necho '[GNUPG:] GOODSIG ABCDEF0123456789 falso <f@x>'\necho '[GNUPG:] VALIDSIG ABCDEF0123456789 2026-10-29 1 0 4 0 1 8 00 ABCDEF0123456789'\necho '[GNUPG:] TRUST_ULTIMATE 0 pgp'\nexit 0\n`;
+    await writeFile(arq, script, { mode: 0o755 });
+    return { pastaBin, arq };
+  }
+
+  real("Dado chamada direta a verificarAssinaturaTag com tag OpenPGP falsa e gpg aprovador, Quando verifico, Então recusa com mensagem explicativa", async () => {
+    const k = await kit(tres.slice(0, 2));
+    const { pastaBin, arq } = await comVerificadorAprovador(k, "gpg");
+    const oid = criarTagPgp(k, "v0.3.1", k.commits["0.3.1"]!);
+    k.ok(["update-ref", "refs/tags/v0.3.1", oid]);
+    k.ok(["config", "gpg.program", arq]);
+
+    const pathAntes = process.env.PATH;
+    process.env.PATH = `${pastaBin}:${pathAntes}`;
+    try {
+      const { verificarAssinaturaTag } = await import("../src/lib/atualizacao");
+      const recusa = verificarAssinaturaTag(k.raiz, "v0.3.1", k.git, oid);
+      expect(recusa).toBeDefined();
+      expect(recusa).toContain("a tag não tem assinatura SSH");
+    } finally {
+      process.env.PATH = pathAntes;
+    }
+  });
+
+  real("Dado chamada direta a verificarAssinaturaTag com tag x509 falsa e gpgsm aprovador, Quando verifico, Então recusa com mensagem explicativa", async () => {
+    const k = await kit(tres.slice(0, 2));
+    const { pastaBin, arq } = await comVerificadorAprovador(k, "gpgsm");
+    const oid = criarTagX509(k, "v0.3.1", k.commits["0.3.1"]!);
+    k.ok(["update-ref", "refs/tags/v0.3.1", oid]);
+    k.ok(["config", "gpg.x509.program", arq]);
+
+    const pathAntes = process.env.PATH;
+    process.env.PATH = `${pastaBin}:${pathAntes}`;
+    try {
+      const { verificarAssinaturaTag } = await import("../src/lib/atualizacao");
+      const recusa = verificarAssinaturaTag(k.raiz, "v0.3.1", k.git, oid);
+      expect(recusa).toBeDefined();
+      expect(recusa).toContain("a tag não tem assinatura SSH");
+    } finally {
+      process.env.PATH = pathAntes;
+    }
+  });
+
+  real("Dado tag com assinatura OpenPGP falsa e gpg aprovador no PATH e no gitconfig, Quando aplico, Então recusa por não ter assinatura SSH e devolve a ref", async () => {
+    const k = await kit([...tres.slice(0, 2), { versao: "0.3.2" }]);
+    const { pastaBin, arq } = await comVerificadorAprovador(k, "gpg");
+    const oid = criarTagPgp(k, "v0.3.2", k.commits["0.3.2"]!);
+    const espelho = join(k.pai, "espelho-pgp.git");
+    expect(Bun.spawnSync(["git", "clone", "-q", "--bare", k.raiz, espelho]).exitCode).toBe(0);
+    const espelhoGit = gitReal(espelho);
+    expect(espelhoGit(["update-ref", "refs/tags/v0.3.2", oid]).codigo).toBe(0);
+    k.ok(["config", "gpg.program", arq]);
+    k.ok(["update-ref", "-d", "refs/tags/v0.3.2"]);
+
+    const homeGitconfig = join(process.env.HOME ?? tmpdir(), ".gitconfig");
+    let gitconfigAntes: string | null = null;
+    try {
+      if (existsSync(homeGitconfig)) gitconfigAntes = await readFile(homeGitconfig, "utf8");
+      await writeFile(homeGitconfig, `[gpg]\n\tprogram = ${arq}\n`);
+
+      k.publicar(["v0.3.2"]);
+      const pathAntes = process.env.PATH;
+      process.env.PATH = `${pastaBin}:${pathAntes}`;
+      try {
+        const executar = (args: string[]) => args[0] === "fetch"
+          ? k.git(["-c", `url.${espelho}.insteadOf=https://github.com/iagofrota/anvilore.git`, ...args])
+          : k.git(args);
+
+        await expect(atualizar("aplicar", k.deps({ executar }))).rejects.toThrow("a tag não tem assinatura SSH");
+        await semMudanca(k, "0.3.2");
+        expect(k.git(["rev-parse", "--verify", "-q", "refs/tags/v0.3.2"]).codigo).not.toBe(0);
+      } finally {
+        process.env.PATH = pathAntes;
+      }
+    } finally {
+      if (gitconfigAntes !== null) await writeFile(homeGitconfig, gitconfigAntes);
+      else await rm(homeGitconfig, { force: true });
+    }
+  });
+
+  real("Dado tag com assinatura x509 falsa e gpgsm aprovador no PATH, Quando aplico, Então recusa por não ter assinatura SSH e devolve a ref", async () => {
+    const k = await kit([...tres.slice(0, 2), { versao: "0.3.2" }]);
+    const { pastaBin, arq } = await comVerificadorAprovador(k, "gpgsm");
+    const oid = criarTagX509(k, "v0.3.2", k.commits["0.3.2"]!);
+    const espelho = join(k.pai, "espelho-x509.git");
+    expect(Bun.spawnSync(["git", "clone", "-q", "--bare", k.raiz, espelho]).exitCode).toBe(0);
+    const espelhoGit = gitReal(espelho);
+    expect(espelhoGit(["update-ref", "refs/tags/v0.3.2", oid]).codigo).toBe(0);
+    k.ok(["config", "gpg.x509.program", arq]);
+    k.ok(["update-ref", "-d", "refs/tags/v0.3.2"]);
+
+    const homeGitconfig = join(process.env.HOME ?? tmpdir(), ".gitconfig");
+    let gitconfigAntes: string | null = null;
+    try {
+      if (existsSync(homeGitconfig)) gitconfigAntes = await readFile(homeGitconfig, "utf8");
+      await writeFile(homeGitconfig, `[gpg "x509"]\n\tprogram = ${arq}\n[gpg]\n\tx509program = ${arq}\n`);
+
+      k.publicar(["v0.3.2"]);
+      const pathAntes = process.env.PATH;
+      process.env.PATH = `${pastaBin}:${pathAntes}`;
+      try {
+        const executar = (args: string[]) => args[0] === "fetch"
+          ? k.git(["-c", `url.${espelho}.insteadOf=https://github.com/iagofrota/anvilore.git`, ...args])
+          : k.git(args);
+
+        await expect(atualizar("aplicar", k.deps({ executar }))).rejects.toThrow("a tag não tem assinatura SSH");
+        await semMudanca(k, "0.3.2");
+        expect(k.git(["rev-parse", "--verify", "-q", "refs/tags/v0.3.2"]).codigo).not.toBe(0);
+      } finally {
+        process.env.PATH = pathAntes;
+      }
+    } finally {
+      if (gitconfigAntes !== null) await writeFile(homeGitconfig, gitconfigAntes);
+      else await rm(homeGitconfig, { force: true });
+    }
+  });
+
+  real("Dado GIT_CONFIG_GLOBAL hostil e GNUPGHOME apontando para diretório inválido, Quando aplico, Então o resultado não é alterado pelas variáveis de ambiente", async () => {
+    const k = await kit([...tres.slice(0, 2), { versao: "0.3.2" }]);
+    const { pastaBin, arq } = await comVerificadorAprovador(k, "gpg");
+    const oid = criarTagPgp(k, "v0.3.2", k.commits["0.3.2"]!);
+    const espelho = join(k.pai, "espelho-pgp-env.git");
+    expect(Bun.spawnSync(["git", "clone", "-q", "--bare", k.raiz, espelho]).exitCode).toBe(0);
+    const espelhoGit = gitReal(espelho);
+    expect(espelhoGit(["update-ref", "refs/tags/v0.3.2", oid]).codigo).toBe(0);
+    k.ok(["update-ref", "-d", "refs/tags/v0.3.2"]);
+
+    const gitconfigHostil = join(k.pai, "gitconfig-hostil");
+    await writeFile(gitconfigHostil, `[gpg]\n\tformat = openpgp\n\tprogram = ${arq}\n[gpg "ssh"]\n\tallowedSignersFile = /dev/null\n`);
+
+    k.publicar(["v0.3.2"]);
+    const envAntes = {
+      GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
+      GNUPGHOME: process.env.GNUPGHOME,
+      PATH: process.env.PATH,
+    };
+    process.env.GIT_CONFIG_GLOBAL = gitconfigHostil;
+    process.env.GNUPGHOME = join(k.pai, "gnupghome-inexistente");
+    process.env.PATH = `${pastaBin}:${process.env.PATH}`;
+    try {
+      const executar = (args: string[]) => args[0] === "fetch"
+        ? k.git(["-c", `url.${espelho}.insteadOf=https://github.com/iagofrota/anvilore.git`, ...args])
+        : k.git(args);
+
+      // A tag OpenPGP DEVE continuar sendo recusada, mesmo com GIT_CONFIG_GLOBAL apontando para o gpg falso
+      await expect(atualizar("aplicar", k.deps({ executar }))).rejects.toThrow("a tag não tem assinatura SSH");
+      await semMudanca(k, "0.3.2");
+      expect(k.git(["rev-parse", "--verify", "-q", "refs/tags/v0.3.2"]).codigo).not.toBe(0);
+
+      // Agora com a tag SSH legítima: as flags CLI do verificarAssinaturaTag prevalecem sobre o GIT_CONFIG_GLOBAL hostil
+      k.ok(["-c", "gpg.format=ssh", "-c", `user.signingkey=${k.chave}`, "tag", "-s", "v0.3.2", k.commits["0.3.2"]!, "-m", "v0.3.2"]);
+      const espelhoBom = join(k.pai, "espelho-ssh-bom.git");
+      expect(Bun.spawnSync(["git", "clone", "-q", "--bare", k.raiz, espelhoBom]).exitCode).toBe(0);
+      k.ok(["update-ref", "-d", "refs/tags/v0.3.2"]);
+      const executarBom = (args: string[]) => args[0] === "fetch"
+        ? k.git(["-c", `url.${espelhoBom}.insteadOf=https://github.com/iagofrota/anvilore.git`, ...args])
+        : k.git(args);
+      expect(await atualizar("aplicar", k.deps({ executar: executarBom }))).toContain("Atualizado para 0.3.2");
+      expect(k.head()).toBe(k.commits["0.3.2"]!);
+    } finally {
+      if (envAntes.GIT_CONFIG_GLOBAL !== undefined) process.env.GIT_CONFIG_GLOBAL = envAntes.GIT_CONFIG_GLOBAL;
+      else delete process.env.GIT_CONFIG_GLOBAL;
+      if (envAntes.GNUPGHOME !== undefined) process.env.GNUPGHOME = envAntes.GNUPGHOME;
+      else delete process.env.GNUPGHOME;
+      process.env.PATH = envAntes.PATH;
+    }
+  });
+});
