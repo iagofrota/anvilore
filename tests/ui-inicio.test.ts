@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { atividadeRecente, fontesSemIngestao, saudeDaWiki } from "../src/lib/ui-inicio";
+import { atividadeRecente, fontesSemIngestao, resumoDoInicio, saudeDaWiki } from "../src/lib/ui-inicio";
 
 let raiz: string;
 let wiki: string;
@@ -158,8 +158,6 @@ test("Dado wiki inexistente Quando consulto a saúde Então devolve erro legíve
 });
 
 // --- Resumo da tela --------------------------------------------------------------------------------------
-
-import { resumoDoInicio } from "../src/lib/ui-inicio";
 
 const GERADA = (slug: string, extras = "") => `---\ntype: concept\nslug: ${slug}\ntitle: ${slug}\ngenerated:\n  by: agente/teste\n  at: 2026-10-27T10:00:00Z\n${extras}---\n\nCorpo.\n`;
 

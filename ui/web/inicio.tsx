@@ -141,6 +141,14 @@ function CartaoDeFontes({ fontes }: { fontes: ResumoDoInicio["fontes"] }) {
 
 type PropriedadesDaTela = { tema: "claro" | "escuro"; alternarTema: () => void };
 
+export type Leitura<T> = { valor: T; erro?: undefined } | { valor?: undefined; erro: string };
+
+// Lê uma rota da API e devolve o valor ou a mensagem para a pessoa; nunca lança.
+export async function lerDaApi<T>(rota: string, falha: string, chamar: (rota: string) => Promise<T> = api): Promise<Leitura<T>> {
+  try { return { valor: await chamar(rota) }; }
+  catch (motivo) { return { erro: motivo instanceof Error ? motivo.message : falha }; }
+}
+
 export function Inicio({ tema, alternarTema }: PropriedadesDaTela) {
   const [dados, setDados] = useState<DadosDoInicio | null>(null);
   const [saude, setSaude] = useState<SaudeDaWiki | null>(null);
@@ -150,17 +158,17 @@ export function Inicio({ tema, alternarTema }: PropriedadesDaTela) {
   // A saúde é a parte lenta (varre a wiki toda): a tela aparece primeiro e ela chega depois.
   const conferirSaude = useCallback(async () => {
     setSaudeCarregando(true);
-    try { setSaude(await api<SaudeDaWiki>("/api/saude")); }
-    catch (motivo) { setErro(motivo instanceof Error ? motivo.message : "Não foi possível conferir a saúde da wiki."); }
-    finally { setSaudeCarregando(false); }
+    const leitura = await lerDaApi<SaudeDaWiki>("/api/saude", "Não foi possível conferir a saúde da wiki.");
+    if (leitura.erro !== undefined) setErro(leitura.erro); else setSaude(leitura.valor);
+    setSaudeCarregando(false);
   }, []);
 
   useEffect(() => {
     let ativo = true;
-    api<DadosDoInicio>("/api/inicio").then(
-      resposta => { if (ativo) setDados(resposta); },
-      motivo => { if (ativo) setErro(motivo instanceof Error ? motivo.message : "Não foi possível ler a wiki."); },
-    );
+    void lerDaApi<DadosDoInicio>("/api/inicio", "Não foi possível ler a wiki.").then(leitura => {
+      if (!ativo) return;
+      if (leitura.erro !== undefined) setErro(leitura.erro); else setDados(leitura.valor);
+    });
     void conferirSaude();
     return () => { ativo = false; };
   }, [conferirSaude]);

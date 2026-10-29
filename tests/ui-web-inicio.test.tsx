@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ResumoDoInicio, SaudeDaWiki } from "../src/lib/ui-inicio";
-import { PainelDoInicio, saudacao, situacaoDaSaude, type DadosDoInicio } from "../ui/web/inicio";
+import { api } from "../ui/web/api";
+import { Inicio, lerDaApi, PainelDoInicio, saudacao, situacaoDaSaude, type DadosDoInicio } from "../ui/web/inicio";
 import { achar, botao, expandir, link, texto } from "./apoio/react-estatico";
 
 const vazio: ResumoDoInicio = { rascunhos: { total: 0, novas: 0, atualizadas: 0, comErro: 0, itens: [] }, atividade: [], fontes: [] };
@@ -135,4 +136,39 @@ test("Validar agora chama a ação e Fontes em raw/ sem ingestão mostra nome, �
 
 test("Dado nenhuma fonte solta Quando a tela monta Então diz que tudo em raw/ já foi ingerido", () => {
   expect(montar(dados()).html).toContain("Tudo em raw/ já foi ingerido");
+});
+
+// --- Leitura da API e a tela com hooks ---------------------------------------------------------------------
+
+test("Dado a API respondendo Quando leio uma rota Então devolvo o valor; com falha, a mensagem para a pessoa", async () => {
+  expect(await lerDaApi("/api/x", "padrão", async () => 7)).toEqual({ valor: 7 });
+  expect(await lerDaApi("/api/x", "padrão", async () => { throw new Error("Falha ao falar com o Anvilore."); })).toEqual({ erro: "Falha ao falar com o Anvilore." });
+  expect(await lerDaApi("/api/x", "padrão", async () => { throw "texto"; })).toEqual({ erro: "padrão" });
+});
+
+test("A tela Início monta com o cabeçalho e o tema, ainda sem dados", () => {
+  const html = renderToStaticMarkup(<Inicio tema="claro" alternarTema={() => {}} />);
+  expect(html).toContain("<h1>Início</h1>");
+  expect(html).toContain("Lendo a wiki");
+  expect(html).toContain("◐");
+  expect(renderToStaticMarkup(<Inicio tema="escuro" alternarTema={() => {}} />)).toContain("☼");
+});
+
+test("O cliente da API manda o token da página e transforma falha em erro legível", async () => {
+  const original = { fetch: globalThis.fetch, document: (globalThis as { document?: unknown }).document };
+  const chamadas: string[] = [];
+  (globalThis as { document?: unknown }).document = { querySelector: () => ({ content: "tok en" }) };
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    chamadas.push(`${init?.method} ${url}`);
+    return url.startsWith("/api/ok") ? new Response(JSON.stringify({ a: 1 })) : new Response(JSON.stringify({ mensagens: ["Não deu."] }), { status: 500 });
+  }) as unknown as typeof fetch;
+  try {
+    expect(await api("/api/ok")).toEqual({ a: 1 });
+    expect(await api<{ a: number }>("/api/ok", "POST", { x: 1 })).toEqual({ a: 1 });
+    await expect(api("/api/falha")).rejects.toThrow("Não deu.");
+    expect(chamadas).toEqual(["GET /api/ok?token=tok%20en", "POST /api/ok?token=tok%20en", "GET /api/falha?token=tok%20en"]);
+  } finally {
+    globalThis.fetch = original.fetch;
+    (globalThis as { document?: unknown }).document = original.document;
+  }
 });
