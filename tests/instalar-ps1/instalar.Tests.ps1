@@ -166,6 +166,49 @@ Describe 'AnvIdentidadeDaTag' {
   }
 }
 
+Describe 'AnvTemAssinaturaSsh' {
+  # Dado o conteúdo de uma tag; Quando procuro o bloco de assinatura; Então só o bloco SSH vale (OpenPGP e x509 passariam
+  # pelo gpg da pessoa, com o chaveiro dela, mesmo com gpg.format=ssh).
+  It 'aceita o bloco SSH' {
+    AnvTemAssinaturaSsh "object a`ntype commit`ntag v1`n`nmsg`n-----BEGIN SSH SIGNATURE-----`nU1NIU0lH`n-----END SSH SIGNATURE-----`n" | Should -BeTrue
+  }
+  It 'aceita o bloco SSH com fim de linha do Windows' {
+    AnvTemAssinaturaSsh "msg`r`n-----BEGIN SSH SIGNATURE-----`r`nx`r`n" | Should -BeTrue
+  }
+  It 'recusa assinatura OpenPGP' {
+    AnvTemAssinaturaSsh "msg`n-----BEGIN PGP SIGNATURE-----`nabc`n-----END PGP SIGNATURE-----`n" | Should -BeFalse
+  }
+  It 'recusa assinatura x509' {
+    AnvTemAssinaturaSsh "msg`n-----BEGIN SIGNED MESSAGE-----`nabc`n" | Should -BeFalse
+  }
+  It 'recusa o texto da assinatura escrito no meio da mensagem' {
+    AnvTemAssinaturaSsh "msg -----BEGIN SSH SIGNATURE----- no meio" | Should -BeFalse
+  }
+  It 'recusa tag sem assinatura' { AnvTemAssinaturaSsh "object a`ntype commit`n`nmsg`n" | Should -BeFalse }
+}
+
+Describe 'AnvEscolherPasta (ANVILORE_PASTA)' {
+  AfterEach { Remove-Item Env:ANVILORE_PASTA, Env:ANVILORE_SEM_PERGUNTAS -ErrorAction SilentlyContinue }
+  It 'sem a variável, usa Anvilore dentro do perfil' {
+    AnvEscolherPasta -Perfil $TestDrive | Should -Be (Join-Path $TestDrive 'Anvilore')
+  }
+  It 'usa a pasta pedida, se não existe' {
+    $env:ANVILORE_PASTA = Join-Path $TestDrive 'minha'
+    AnvEscolherPasta -Perfil $TestDrive | Should -Be (Join-Path $TestDrive 'minha')
+  }
+  It 'aceita pasta vazia que já existe' {
+    $env:ANVILORE_PASTA = Join-Path $TestDrive 'vazia'; New-Item -ItemType Directory $env:ANVILORE_PASTA | Out-Null
+    AnvEscolherPasta -Perfil $TestDrive | Should -Be $env:ANVILORE_PASTA
+  }
+  It 'pasta de outra coisa: sem perguntas, para sem mexer' {
+    $env:ANVILORE_PASTA = Join-Path $TestDrive 'ocupada'; New-Item -ItemType Directory $env:ANVILORE_PASTA | Out-Null
+    Set-Content (Join-Path $env:ANVILORE_PASTA 'arquivo.txt') 'meu'
+    $env:ANVILORE_SEM_PERGUNTAS = '1'
+    { AnvEscolherPasta -Perfil $TestDrive } | Should -Throw '*ANV-PARAR:1:*'
+    Get-Content (Join-Path $env:ANVILORE_PASTA 'arquivo.txt') | Should -Be 'meu'
+  }
+}
+
 Describe 'AnvConfirmar' {
   AfterEach { Remove-Item Env:ANVILORE_SEM_PERGUNTAS -ErrorAction SilentlyContinue }
   # Dado ANVILORE_SEM_PERGUNTAS=1 (CI); Quando o instalador pergunta; Então responde o padrão, sem esperar.
@@ -245,6 +288,18 @@ Describe 'AnvResultadoFinal' {
   It 'completo'                { (AnvResultadoFinal -TemAgente $true -DoctorOk $true).Codigo | Should -Be 0 }
   It 'sem agente é parcial'    { (AnvResultadoFinal -TemAgente $false -DoctorOk $false).Codigo | Should -Be 10 }
   It 'doctor reprovou com agente é falha' { (AnvResultadoFinal -TemAgente $true -DoctorOk $false).Codigo | Should -Be 1 }
+  It 'completo com atalho aponta para o atalho' {
+    (AnvResultadoFinal -TemAgente $true -DoctorOk $true -Atalho $true).Linhas -join ' ' | Should -Match 'atalho Anvilore'
+  }
+  It 'completo sem atalho aponta para o agente na pasta' {
+    (AnvResultadoFinal -TemAgente $true -DoctorOk $true -Atalho $false).Linhas -join ' ' | Should -Match 'abra o seu agente'
+  }
+  It 'completo avisa para fechar e abrir o terminal (PATH novo)' {
+    (AnvResultadoFinal -TemAgente $true -DoctorOk $true).Linhas -join ' ' | Should -Match 'Feche e abra o terminal'
+  }
+  It 'sem rg avisa que a busca fica indisponível' {
+    (AnvResultadoFinal -TemAgente $true -DoctorOk $true -SemRg $true).Linhas -join ' ' | Should -Match 'sem o ripgrep'
+  }
   It 'sem agente diz para instalar um e rodar de novo' {
     (AnvResultadoFinal -TemAgente $false -DoctorOk $false).Linhas -join ' ' | Should -Match 'rode o instalador de novo'
   }

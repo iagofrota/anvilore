@@ -42,6 +42,15 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
         'assinada' { GitCmd -C $dir config user.signingkey $chaveBoa.Privada; GitCmd -C $dir tag -s v0.0.1 -m 'prova' HEAD }
         'outra-chave' { GitCmd -C $dir config user.signingkey $chaveOutra.Privada; GitCmd -C $dir tag -s v0.0.1 -m 'prova' HEAD }
         'sem-assinatura' { GitCmd -C $dir tag -a v0.0.1 -m 'prova' HEAD }
+        'pgp-falso' {
+          # Tag cuja "assinatura" é um bloco OpenPGP inventado: sem a defesa, o verify-tag a entregaria ao gpg da pessoa.
+          $sha = (& git -C $dir rev-parse HEAD).Trim()
+          $corpo = "object $sha`ntype commit`ntag v0.0.1`ntagger CI <ci@anvilore.test> 1700000000 +0000`n`nprova`n-----BEGIN PGP SIGNATURE-----`n`niQEzBAABCAAdFiEEfalso`n=abcd`n-----END PGP SIGNATURE-----`n"
+          $arq = Join-Path $script:Base 'tag-pgp.txt'
+          [IO.File]::WriteAllText($arq, $corpo)
+          $obj = (& git -C $dir hash-object -t tag -w $arq).Trim()
+          GitCmd -C $dir update-ref refs/tags/v0.0.1 $obj
+        }
         'nome-trocado' {
           GitCmd -C $dir config user.signingkey $chaveBoa.Privada; GitCmd -C $dir tag -s v0.0.1 -m 'prova' HEAD
           $objeto = (& git -C $dir rev-parse refs/tags/v0.0.1).Trim()
@@ -50,6 +59,10 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       }
       return $dir
     }
+    # gpg de mentira que aprovaria qualquer assinatura OpenPGP (script com #! que o Git for Windows sabe executar).
+    $script:GpgFalso = Join-Path $script:Base 'gpg-falso'
+    New-Item -ItemType Directory $script:GpgFalso -Force | Out-Null
+    [IO.File]::WriteAllText((Join-Path $script:GpgFalso 'gpg'), "#!/bin/sh`necho '[GNUPG:] NEWSIG'`necho '[GNUPG:] GOODSIG ABCDEF0123456789 falso <f@x>'`necho '[GNUPG:] VALIDSIG ABCDEF0123456789 2026-10-29 1 0 4 0 1 8 00 ABCDEF0123456789'`necho '[GNUPG:] TRUST_ULTIMATE 0 pgp'`nexit 0`n")
     $script:Boa = Chave 'boa'
     $script:Outra = Chave 'outra'
     $script:AgenteFalso = Join-Path $script:Base 'agente'
@@ -187,6 +200,21 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
   Context 'assinatura que não confere (cenários 5 e 9)' {
     # Dado uma tag sem assinatura / assinada por outra chave / com nome trocado; Quando o instalador baixa o kit;
     # Então apaga o que baixou, não liga agente nenhum e diz por quê.
+    It 'recusa tag com assinatura OpenPGP falsa, mesmo com um gpg de mentira que aprovaria tudo' {
+      $origem = Origem 'ruim-pgp' 'pgp-falso' $script:Boa $script:Outra
+      # Prova de que o ataque é real: sem a defesa, o git aprova a tag pelo gpg falso (a chave SSH nem é consultada).
+      $antes = $env:Path
+      try {
+        $env:Path = $script:GpgFalso + ';' + $env:Path
+        & git -C $origem -c gpg.format=ssh -c "gpg.ssh.allowedSignersFile=$($script:Boa.Assinantes)" verify-tag refs/tags/v0.0.1 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+      } finally { $env:Path = $antes }
+      $r = Rodar (Perfil 'ruim-pgp') $origem $script:Release ($script:GpgFalso + ';' + $script:PathComAgente)
+      $r.Codigo | Should -Be 3
+      $r.Saida | Should -Match 'assinatura SSH'
+      Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
+      Test-Path (Join-Path $r.Perfil 'Anvilore.novo') | Should -BeFalse
+    }
     foreach ($c in @(@{ N = 'sem assinatura'; M = 'sem-assinatura' }, @{ N = 'outra chave'; M = 'outra-chave' }, @{ N = 'nome da tag trocado'; M = 'nome-trocado' })) {
       It "recusa a tag $($c.N)" -TestCases @($c) {
         param($N, $M)
@@ -210,6 +238,21 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $r.Saida | Should -Match 'chave de assinatura'
       Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
       Test-Path (Join-Path $r.Perfil 'Anvilore.novo') | Should -BeFalse
+    }
+  }
+
+  Context 'versão e pasta pedidas (ANVILORE_VERSAO e ANVILORE_PASTA)' {
+    # Dado uma origem em que a v0.0.2 é falsa (nome trocado) e a v0.0.1 é boa; Quando a pessoa pede a 0.0.1 numa pasta
+    # com espaço; Então instala a 0.0.1 nessa pasta.
+    BeforeAll {
+      $origem = Origem 'duas' 'nome-trocado' $script:Boa $script:Outra
+      $script:P5 = Perfil 'pin'
+      $script:R5 = Rodar $script:P5 $origem $script:Release $script:PathComAgente @{ ANVILORE_VERSAO = '0.0.1'; ANVILORE_PASTA = "$($script:P5)\minha pasta" }
+    }
+    It 'termina completo'               { $script:R5.Codigo | Should -Be 0 }
+    It 'instalou na pasta pedida, na tag pedida' {
+      (& git -C "$($script:P5)\minha pasta" describe --tags --exact-match).Trim() | Should -Be 'v0.0.1'
+      Test-Path (Join-Path $script:P5 'Anvilore') | Should -BeFalse
     }
   }
 

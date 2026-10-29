@@ -42,12 +42,18 @@ describe("instalar.ps1: requisitos do passo a passo", () => {
     ["registro em .anvilore\\instalacao.log", /instalacao\.log/],
     ["confere a assinatura da tag", /verify-tag/],
     ["PortableGit em %LOCALAPPDATA%\\Anvilore\\git", /Anvilore\\git/],
+    ["só vale assinatura SSH", /BEGIN SSH SIGNATURE/],
+    ["gpg e x509 desligados no verify-tag", /gpg\.openpgp\.program=anvilore-sem-gpg[\s\S]*gpg\.x509\.program=anvilore-sem-gpg/],
+    ["versão fixa", /ANVILORE_VERSAO/],
+    ["pasta escolhida", /ANVILORE_PASTA/],
+    ["resposta antecipada sobre o Claude Code", /ANVILORE_INSTALAR_CLAUDE/],
+    ["esperar Enter no fim", /ANVILORE_ESPERAR_ENTER/],
   ])("Dado o instalador, Quando procuro: %s, Então está lá", (_nome, padrao) => {
     expect(codigo).toMatch(padrao);
   });
 
   test("Dado o passo 10 (atalhos), Então é só um ponto de chamada para a U6: sem .lnk, sem WScript.Shell e sem abrir.ps1", () => {
-    expect(codigo).toMatch(/function AnvInstalarAtalhos/);
+    expect(codigo).toMatch(/function AnvCriarAtalho/);
     expect(codigo).not.toMatch(/WScript\.Shell|CreateShortcut|\.lnk/);
     expect(existsSync(join(raiz, "instalador/abrir.ps1"))).toBe(false);
   });

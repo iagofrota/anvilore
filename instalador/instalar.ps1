@@ -13,6 +13,10 @@
 # Variáveis de ambiente:
 #   ANVILORE_SEM_PERGUNTAS=1  responde o padrão de cada pergunta (CI e QA).
 #   ANVILORE_ORIGEM=<url|pasta>  de onde baixar o kit (padrão: o repositório oficial no GitHub). O CI e o QA usam um repositório local.
+#   ANVILORE_VERSAO=<tag>  instala esta tag em vez da última release publicada.
+#   ANVILORE_PASTA=<pasta>  onde instalar (padrão: %USERPROFILE%\Anvilore).
+#   ANVILORE_INSTALAR_CLAUDE=sim|nao  responde de antemão se instala o Claude Code quando não há agente nenhum.
+#   ANVILORE_ESPERAR_ENTER=1  espera Enter antes de terminar (janela que fecha sozinha, para a pessoa ler o resumo).
 #   ANVILORE_MANIFESTO=<arquivo>, ANVILORE_ASSINANTES=<arquivo>  só valem quando o bloco embutido correspondente
 #       está vazio (CI/QA/desenvolvimento). Numa release os blocos vêm preenchidos e estas variáveis são ignoradas.
 #
@@ -374,6 +378,16 @@ function AnvIdentidadeDaTag {
   return $null
 }
 
+# `verify-tag` escolhe o verificador pelo tipo da assinatura que está DENTRO da tag: uma tag OpenPGP ou x509 passaria pelo
+# gpg da pessoa, com o chaveiro dela, mesmo com gpg.format=ssh. Só vale assinatura SSH conferida contra a chave embutida.
+function AnvTemAssinaturaSsh {
+  param([string]$ConteudoDaTag)
+  return [bool]([regex]::IsMatch($ConteudoDaTag, '(?m)^-----BEGIN SSH SIGNATURE-----\r?$'))
+}
+
+# Programas de gpg/x509 que não existem: se alguma assinatura não-SSH chegasse ao git, ele não acharia como aprová-la.
+$script:AnvSemGpg = @('-c', 'gpg.program=anvilore-sem-gpg', '-c', 'gpg.openpgp.program=anvilore-sem-gpg', '-c', 'gpg.x509.program=anvilore-sem-gpg')
+
 # ---------------------------------------------------------------- passos
 
 function AnvGit {
@@ -433,13 +447,16 @@ function AnvVersaoDoBun {
 
 # Devolve $true se instalou o Bun (então é "gerenciado": o atualizador pode atualizá-lo - D9).
 function AnvGarantirBun {
-  param($Manifesto, [string]$Plataforma, [string]$PastaBun, [string]$Temp)
+  param($Manifesto, [string]$Plataforma, [string]$PastaBun, [string]$Temp, [string]$MarcadorBun)
   $dep = AnvDependencia -Manifesto $Manifesto -Nome 'bun' -Plataforma $Plataforma
   if (-not $dep) { AnvParar 4 'O instalador não tem o Bun para este sistema na lista de dependências.' }
   $existente = AnvComando 'bun'
   if ($existente) {
     $v = AnvVersaoDoBun -Exe $existente
-    if ($v -and (AnvCompararVersao $v $dep.versao) -ge 0) { AnvEscrever "Bun $v já instalado."; return $false }
+    if ($v -and (AnvCompararVersao $v $dep.versao) -ge 0) {
+      AnvEscrever "Bun $v já instalado."
+      return [bool](Test-Path -LiteralPath $MarcadorBun)
+    }
   }
   $candidatos = @($dep)
   $baseline = AnvDependencia -Manifesto $Manifesto -Nome 'bun' -Plataforma "$Plataforma-baseline"
@@ -461,6 +478,11 @@ function AnvGarantirBun {
     # O Bun normal exige CPU com AVX2; numa CPU antiga ele nem abre. Aí tenta a versão "baseline".
     if (AnvVersaoDoBun -Exe $destino) {
       AnvTornarDisponivel -Pasta $PastaBun
+      # Lembra que o Bun é nosso mesmo se a instalação parar antes de gravar atualizacao.json (D9).
+      try {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $MarcadorBun) -Force | Out-Null
+        Set-Content -LiteralPath $MarcadorBun -Value 'bun instalado pelo instalador do Anvilore' -Encoding ASCII
+      } catch { }
       return $true
     }
     AnvAviso 'Este Bun não abriu neste computador; tentando a versão para processadores antigos.'
@@ -499,13 +521,15 @@ function AnvEhInstalacao {
 
 function AnvEscolherPasta {
   param([string]$Perfil)
-  $pasta = Join-Path $Perfil 'Anvilore'
+  $pasta = AnvVariavel 'ANVILORE_PASTA'
+  if (-not $pasta) { $pasta = Join-Path $Perfil 'Anvilore' }
+  elseif (-not (Split-Path -Path $pasta -IsAbsolute)) { $pasta = Join-Path (Get-Location).Path $pasta }
   while ($true) {
     if (-not (Test-Path -LiteralPath $pasta)) { return $pasta }
     if (AnvEhInstalacao -Pasta $pasta) { return $pasta }
     if (@(Get-ChildItem -LiteralPath $pasta -Force -ErrorAction SilentlyContinue).Count -eq 0) { return $pasta }
     if ((AnvVariavel 'ANVILORE_SEM_PERGUNTAS') -eq '1') {
-      AnvParar 1 "A pasta $pasta já existe e não é uma instalação do Anvilore. Não mexi nela."
+      AnvParar 1 "A pasta $pasta já existe e não é uma instalação do Anvilore. Escolha outra (ANVILORE_PASTA) ou apague/renomeie essa. Não mexi nela."
     }
     AnvEscrever "A pasta $pasta já existe e não é uma instalação do Anvilore."
     $nome = Read-Host 'Digite outro nome de pasta (dentro da sua pasta de usuário)'
@@ -523,7 +547,8 @@ function AnvBaixarKit {
   }
   $origem = AnvVariavel 'ANVILORE_ORIGEM'
   if (-not $origem) { $origem = $script:AnvOrigemPadrao }
-  $tag = AnvDescobrirTag -Git $Git -Origem $origem
+  $fixa = AnvVariavel 'ANVILORE_VERSAO'
+  $tag = if ($fixa) { 'v' + $fixa.TrimStart('v') } else { AnvDescobrirTag -Git $Git -Origem $origem }
   if (-not $tag) { AnvParar 1 'Não achei nenhuma versão publicada do Anvilore para instalar.' }
   AnvEscrever "Baixando o Anvilore $tag..."
   $staging = Join-Path $Perfil 'Anvilore.novo'
@@ -537,15 +562,19 @@ function AnvBaixarKit {
     AnvParar 1 "Não consegui baixar o Anvilore ($tag). Confira a internet e rode o instalador de novo. $($clone.Saida)"
   }
   $ref = "refs/tags/$tag"
-  $v = AnvExecutar $Git @('-C', $staging, '-c', 'gpg.format=ssh', '-c', "gpg.ssh.allowedSignersFile=$assinFile", 'verify-tag', $ref)
   $razao = $null
-  if ($v.Codigo -ne 0) { $razao = 'a assinatura não confere com a chave do Anvilore' }
+  $v = [pscustomobject]@{ Codigo = 0; Saida = '' }
+  $tipo = AnvExecutar $Git @('-C', $staging, 'cat-file', '-t', $ref)
+  $cab = AnvExecutar $Git @('-C', $staging, 'cat-file', 'tag', $ref)
+  if ($tipo.Saida.Trim() -ne 'tag') { $razao = 'a versão não é uma tag anotada' }
+  elseif (-not (AnvTemAssinaturaSsh -ConteudoDaTag $cab.Saida)) { $razao = 'a tag não tem assinatura SSH' }
   else {
-    $tipo = AnvExecutar $Git @('-C', $staging, 'cat-file', '-t', $ref)
-    $cab = AnvExecutar $Git @('-C', $staging, 'cat-file', 'tag', $ref)
-    $head = AnvExecutar $Git @('-C', $staging, 'rev-parse', 'HEAD')
-    if ($tipo.Saida.Trim() -ne 'tag') { $razao = 'a versão não é uma tag anotada' }
-    else { $razao = AnvIdentidadeDaTag -Cabecalho $cab.Saida -Tag $tag -Commit $head.Saida.Trim() }
+    $v = AnvExecutar $Git (@('-C', $staging, '-c', 'gpg.format=ssh') + $script:AnvSemGpg + @('-c', "gpg.ssh.allowedSignersFile=$assinFile", 'verify-tag', $ref))
+    if ($v.Codigo -ne 0) { $razao = 'a assinatura não confere com a chave do Anvilore' }
+    else {
+      $head = AnvExecutar $Git @('-C', $staging, 'rev-parse', 'HEAD')
+      $razao = AnvIdentidadeDaTag -Cabecalho $cab.Saida -Tag $tag -Commit $head.Saida.Trim()
+    }
   }
   if ($razao) {
     AnvRegistrar "verify-tag recusou $tag : $($v.Saida)"
@@ -566,7 +595,10 @@ function AnvAgentes {
 }
 
 function AnvOferecerClaudeCode {
-  if (-not (AnvConfirmar -Pergunta 'Nenhum agente (Claude Code, Codex, Gemini, Copilot) foi encontrado. Posso instalar o Claude Code pelo instalador oficial da Anthropic?' -Padrao $false)) { return }
+  $resposta = (AnvVariavel 'ANVILORE_INSTALAR_CLAUDE').ToLowerInvariant()
+  if ($resposta -in @('sim', 's', '1')) { }
+  elseif ($resposta -in @('nao', 'não', 'n', '0')) { AnvRegistrar 'Claude Code: não instalado (ANVILORE_INSTALAR_CLAUDE)'; return }
+  elseif (-not (AnvConfirmar -Pergunta 'Nenhum agente (Claude Code, Codex, Gemini, Copilot) foi encontrado. Posso instalar o Claude Code pelo instalador oficial da Anthropic? (O login você faz depois, no próprio Claude Code.)' -Padrao $false)) { return }
   try {
     AnvEscrever 'Instalando o Claude Code...'
     Invoke-RestMethod -Uri 'https://claude.ai/install.ps1' -ErrorAction Stop | Invoke-Expression
@@ -576,9 +608,12 @@ function AnvOferecerClaudeCode {
 
 # Passo 10 - fatia U6. A U6 preenche esta função com o atalho "Anvilore" (Menu Iniciar e Área de Trabalho, via .lnk;
 # em Constrained Language Mode o atalho fica por conta do Inno Setup) apontando para o abrir.ps1. Por enquanto não cria nada.
-function AnvInstalarAtalhos {
+# Contrato (igual ao criar_atalho do instalar.sh): recebe a pasta; devolve $true se o atalho existe ao final e $false se não
+# criou. Nunca derruba a instalação: quem chama só muda a última linha do resumo.
+function AnvCriarAtalho {
   param([string]$Pasta)
-  AnvRegistrar 'passo 10: atalhos ainda não implementados (fatia U6)'
+  AnvRegistrar "atalho: ponto de chamada ainda vazio (fatia U6); nada foi criado para $Pasta"
+  return $false
 }
 
 # Passo 9. Só cria; nunca sobrescreve a escolha da pessoa.
@@ -592,7 +627,7 @@ function AnvGravarAtualizacao {
 }
 
 function AnvResultadoFinal {
-  param([bool]$TemAgente, [bool]$DoctorOk, [string]$Pasta = '', [string]$Versao = '', [bool]$SemRg = $false)
+  param([bool]$TemAgente, [bool]$DoctorOk, [string]$Pasta = '', [string]$Versao = '', [bool]$SemRg = $false, [bool]$Atalho = $false)
   $linhas = @()
   if (-not $TemAgente) {
     $linhas += 'O Anvilore está instalado, mas falta um agente (Claude Code, Codex, Gemini ou Copilot).'
@@ -607,7 +642,8 @@ function AnvResultadoFinal {
   }
   $linhas += "Anvilore $Versao instalado."
   $linhas += "Pasta: $Pasta"
-  $linhas += 'Próximo passo: abra o seu agente (por exemplo o Claude Code) dentro dessa pasta.'
+  $linhas += $(if ($Atalho) { 'Próximo passo: abra o atalho Anvilore no Menu Iniciar.' } else { 'Próximo passo: abra o seu agente (por exemplo o Claude Code) dentro dessa pasta.' })
+  $linhas += 'Feche e abra o terminal e o agente para o PATH novo valer.'
   if ($SemRg) { $linhas += 'Aviso: sem o ripgrep (rg) a busca da skill de consulta fica indisponível até você instalá-lo.' }
   return [pscustomobject]@{ Codigo = 0; Linhas = $linhas }
 }
@@ -653,7 +689,7 @@ function AnvPassos {
     } else { AnvEscrever 'Git encontrado.' }
 
     # 3 · bun   4 · rg
-    $bunGerenciado = AnvGarantirBun -Manifesto $manifesto -Plataforma $plataforma -PastaBun (Join-Path $perfil '.bun\bin') -Temp $temp
+    $bunGerenciado = AnvGarantirBun -Manifesto $manifesto -Plataforma $plataforma -PastaBun (Join-Path $perfil '.bun\bin') -Temp $temp -MarcadorBun (Join-Path $local 'Anvilore\bun-gerenciado.txt')
     $temRg = AnvGarantirRg -Manifesto $manifesto -Plataforma $plataforma -PastaBin (Join-Path $local 'Anvilore\bin') -Temp $temp
     $bun = AnvComando 'bun'
 
@@ -666,6 +702,9 @@ function AnvPassos {
       AnvEscrever "Já existe uma instalação em $pasta. Só vou conferir o que falta; nada da pasta é sobrescrito."
       AnvDefinirLog -Pasta $pasta
       $versao = ''
+      $at = AnvExecutar $bun @('src/cli.ts', 'atualizar') $pasta
+      if ($at.Codigo -eq 0) { AnvEscrever ('Atualização: ' + (($at.Saida -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 1))) }
+      else { AnvAviso ('não atualizei agora (' + (($at.Saida -split "`n" | Select-Object -First 1)) + '). Segui com a versão instalada.') }
       $v = AnvExecutar $git.Exe @('-C', $pasta, 'describe', '--tags', '--exact-match')
       if ($v.Codigo -eq 0) { $versao = $v.Saida.Trim() }
     } else {
@@ -693,13 +732,14 @@ function AnvPassos {
     AnvGravarAtualizacao -Pasta $pasta -BunGerenciado $bunGerenciado
 
     # 10 · atalhos (U6)
-    AnvInstalarAtalhos -Pasta $pasta
+    $atalho = [bool](AnvCriarAtalho -Pasta $pasta)
 
     # 11 · prova final
     $doc = AnvExecutar $bun @('src/cli.ts', 'doctor') $pasta
     foreach ($l in ($doc.Saida -split "`n")) { if ($l.Trim()) { AnvRegistrar "doctor: $l" } }
-    $res = AnvResultadoFinal -TemAgente (@($agentes).Count -gt 0) -DoctorOk ($doc.Codigo -eq 0) -Pasta $pasta -Versao $versao -SemRg (-not $temRg)
+    $res = AnvResultadoFinal -TemAgente (@($agentes).Count -gt 0) -DoctorOk ($doc.Codigo -eq 0) -Pasta $pasta -Versao $versao -SemRg (-not $temRg) -Atalho $atalho
     foreach ($l in $res.Linhas) { AnvEscrever $l }
+    if ((AnvVariavel 'ANVILORE_ESPERAR_ENTER') -eq '1' -and (AnvVariavel 'ANVILORE_SEM_PERGUNTAS') -ne '1') { [void](Read-Host 'Pressione Enter para fechar esta janela') }
     return $res.Codigo
   } finally {
     Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
