@@ -194,6 +194,7 @@ export async function validarCaminhoWiki(wiki: string, caminhoRelativo: string):
 }
 
 export type OpcoesObterNota = {
+  ganchoAntesDeAbrir?: (caminho: string) => Promise<void> | void;
   ganchoAposAbrir?: (caminho: string) => Promise<void> | void;
 };
 
@@ -255,6 +256,10 @@ export async function obterNota(
     if (codigo === "ENOENT") return null;
     if (codigo === "ELOOP" || codigo === "EINVAL") throw new ErroDeCaminhoInvalido();
     throw erro;
+  }
+
+  if (opcoes?.ganchoAntesDeAbrir) {
+    await opcoes.ganchoAntesDeAbrir(caminhoNormalizado);
   }
 
   const flags = comporFlagsAbertura();

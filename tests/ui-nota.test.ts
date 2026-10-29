@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmod, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { comporFlagsAbertura, ErroDeCaminhoInvalido, obterNota, validarCaminhoWiki } from "../src/lib/ui-nota";
 
@@ -206,23 +206,26 @@ describe("ui-nota: obterNota", () => {
       },
     );
 
-    test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    test.skipIf(process.platform === "win32")(
       "recusa nota externa através de symlink intermediário sem tentar abrir o arquivo (realpath prévio)",
       async () => {
         const pastaExterna = join(RAIZ, "fora/pasta-externa");
         await mkdir(pastaExterna, { recursive: true });
         const notaExterna = join(pastaExterna, "nota.md");
         await writeFile(notaExterna, "# Nota Externa\n");
-        await chmod(notaExterna, 0o000);
         await symlink(pastaExterna, join(RAIZ, "wiki/intermediario"));
 
-        try {
-          await expect(obterNota(RAIZ, "intermediario/nota.md")).rejects.toThrow(
-            ErroDeCaminhoInvalido,
-          );
-        } finally {
-          await chmod(notaExterna, 0o644).catch(() => {});
-        }
+        let executouAntesDeAbrir = false;
+        await expect(
+          obterNota(RAIZ, "intermediario/nota.md", process.env, {
+            ganchoAntesDeAbrir: () => {
+              executouAntesDeAbrir = true;
+              throw new Error("abertura iniciada para caminho externo!");
+            },
+          }),
+        ).rejects.toThrow(ErroDeCaminhoInvalido);
+
+        expect(executouAntesDeAbrir).toBe(false);
       },
     );
   });
