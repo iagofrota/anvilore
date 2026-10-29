@@ -619,6 +619,7 @@ export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = e
   }
   const r = exec([
     "-c", "gpg.format=ssh",
+    "-c", "gpg.ssh.program=ssh-keygen",
     "-c", "gpg.program=anvilore-sem-gpg",
     "-c", "gpg.openpgp.program=anvilore-sem-gpg",
     "-c", "gpg.x509.program=anvilore-sem-gpg",

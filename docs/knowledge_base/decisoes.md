@@ -184,8 +184,9 @@ Para a linhagem do método e a argumentação completa das posições de design,
 - A tag candidata é buscada sem tags implícitas e verificada por `git verify-tag` com SSH e o arquivo
   de assinantes do kit instalado. Sem o arquivo de assinantes seguranca/assinantes local, a atualização recusa a candidata;
   não há chave pública real versionada nesta entrega. A chave privada não é usada pelo atualizador.
-  O atualizador aceita exclusivamente assinatura SSH (`-----BEGIN SSH SIGNATURE-----`) e desliga
-  os verificadores OpenPGP/x509 no `git verify-tag`, barrando assinaturas não-SSH aprovadas por programas locais.
+  O atualizador aceita exclusivamente assinatura SSH (`-----BEGIN SSH SIGNATURE-----`), fixa
+  `gpg.ssh.program=ssh-keygen` e desliga os verificadores OpenPGP/x509 no `git verify-tag`,
+  barrando programas aprovadores locais e assinaturas não-SSH.
 - O arquivo seguranca/assinantes usa o formato OpenSSH `allowed_signers`, uma entrada por linha:
   `<principal> [opções] <tipo-da-chave> <chave-pública-base64> [comentário]`. Para as tags Git, a entrada
   deve incluir `namespaces="git"` nas opções e o principal deve corresponder ao e-mail de assinatura Git

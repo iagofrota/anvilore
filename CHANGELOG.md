@@ -11,7 +11,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Security
 
-- O atualizador exige exclusivamente assinatura SSH na tag candidata (`-----BEGIN SSH SIGNATURE-----`) e desabilita programas OpenPGP e x509 (`gpg.program`, `gpg.openpgp.program`, `gpg.x509.program` apontados para comando inexistente no `verify-tag`), impedindo que tags com assinaturas OpenPGP ou x509 passem na verificação mesmo com chaves ou programas locais aprovadores.
+- O atualizador exige exclusivamente assinatura SSH na tag candidata (`-----BEGIN SSH SIGNATURE-----`), fixa `gpg.ssh.program=ssh-keygen` e desabilita programas OpenPGP e x509 (`gpg.program`, `gpg.openpgp.program`, `gpg.x509.program` apontados para comando inexistente no `verify-tag`), impedindo que tags com assinaturas OpenPGP, x509 ou verificadores SSH customizados no `.gitconfig` aprovem tags não confiáveis.
 
 ### Fixed
 
