@@ -96,4 +96,25 @@ exec ${Bun.which("git")} "$@"
   expect(aplica.codigo, aplica.tudo).toBe(0);
   expect(aplica.saida).not.toContain("não atualizei agora");
   expect(pasta(["rev-parse", "HEAD"]).saida.trim()).toBe(novoCommit);
+
+  // RR6: instalação atrasada na troca de chave. A pasta só conhece a chave antiga (seguranca/assinantes local); a versão seguinte
+  // traz a chave nova e é assinada por ela. O instalador novo, com a chave nova embutida, entrega-a ao atualizador.
+  const nova2 = `v${maior}.${menor}.${patch + 2}`;
+  const chaveNova = await criarChave(await mkdtemp(join(pai, "c-")));
+  await writeFile(join(origem, "seguranca/assinantes"), chaveNova.assinantes);
+  ok(["add", "-f", "seguranca/assinantes"]); ok(["commit", "-q", "-m", "troca de chave"]);
+  const commitTrocado = ok(["rev-parse", "HEAD"]);
+  assinar(nova2, chaveNova.chave);
+  const scriptNovo = join(pai, "instalar-novo.sh");
+  await writeFile(scriptNovo, embutirInstalador(await readFile(join(raizDoRepo, "instalador/instalar.sh"), "utf8"), base.manifesto, chaveNova.assinantes), { mode: 0o755 });
+  await mkdir(join(base.pasta, "raw"), { recursive: true });
+  await writeFile(join(base.pasta, "raw/nota.md"), "minha nota\n");
+  const notaAntes = await readFile(join(base.pasta, "raw/nota.md"), "utf8");
+  const atrasada = base.rodar({ ANVILORE_ORIGEM: origem, RELEASE_FALSA: nova2 }, [], scriptNovo);
+  expect(atrasada.codigo, atrasada.tudo).toBe(0);
+  expect(atrasada.saida).not.toContain("não atualizei agora");
+  expect(pasta(["rev-parse", "HEAD"]).saida.trim()).toBe(commitTrocado);
+  expect(pasta(["status", "--porcelain", "--", "seguranca/assinantes"]).saida.trim()).toBe("");
+  expect(await readFile(join(base.pasta, "seguranca/assinantes"), "utf8")).toBe(chaveNova.assinantes);
+  expect(await readFile(join(base.pasta, "raw/nota.md"), "utf8")).toBe(notaAntes);
 }, 300_000);
