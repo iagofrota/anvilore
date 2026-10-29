@@ -6,7 +6,8 @@
 BeforeAll {
   $env:ANVILORE_PS1_SO_FUNCOES = '1'
   $script:Instalador = Join-Path $PSScriptRoot '..\..\instalador\instalar.ps1'
-  . $script:Instalador
+  # Carrega como a pessoa carrega (UTF-8 explícito): dot-source direto leria o arquivo sem BOM como ANSI no 5.1.
+  . ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 -LiteralPath $script:Instalador)))
 }
 
 AfterAll { Remove-Item Env:ANVILORE_PS1_SO_FUNCOES -ErrorAction SilentlyContinue }
@@ -187,6 +188,14 @@ Describe 'registro em .anvilore\instalacao.log' {
     $texto = Get-Content -Raw -Encoding UTF8 (Join-Path $pasta '.anvilore\instalacao.log')
     $texto | Should -Match 'primeira linha'
     $texto | Should -Match 'segunda linha'
+  }
+  It 'não grava usuário sem senha nem token github_pat_ em URL' {
+    $pasta = Join-Path $TestDrive 'Anvilore3'
+    AnvDefinirLog -Pasta $pasta
+    AnvRegistrar 'clone https://ghp_abcdefghijklmnopqrstuvwxyz0123@github.com/x/y.git e github_pat_11ABCDEF_xyz123'
+    $l = Get-Content -Raw -Encoding UTF8 (Join-Path $pasta '.anvilore\instalacao.log')
+    $l | Should -Not -Match 'ghp_abcdefghijklmnop'
+    $l | Should -Not -Match 'github_pat_11ABCDEF'
   }
   It 'não grava segredo conhecido (token em URL)' {
     $pasta = Join-Path $TestDrive 'Anvilore2'

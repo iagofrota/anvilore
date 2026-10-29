@@ -1,4 +1,4 @@
-# Anvilore — instalador para Windows 10/11 x64, sem administrador.
+# Anvilore - instalador para Windows 10/11 x64, sem administrador.
 #
 # Uso (um destes; o 1º é o que o README mostra):
 #   irm https://raw.githubusercontent.com/iagofrota/anvilore/main/instalador/instalar.ps1 | iex
@@ -13,7 +13,7 @@
 # Variáveis de ambiente:
 #   ANVILORE_SEM_PERGUNTAS=1  responde o padrão de cada pergunta (CI e QA).
 #   ANVILORE_ORIGEM=<url|pasta>  de onde baixar o kit (padrão: o repositório oficial no GitHub). O CI e o QA usam um repositório local.
-#   ANVILORE_MANIFESTO=<arquivo>, ANVILORE_ASSINANTES=<arquivo>  SÓ valem quando o bloco embutido correspondente
+#   ANVILORE_MANIFESTO=<arquivo>, ANVILORE_ASSINANTES=<arquivo>  só valem quando o bloco embutido correspondente
 #       está vazio (CI/QA/desenvolvimento). Numa release os blocos vêm preenchidos e estas variáveis são ignoradas.
 #
 # Os blocos "ANVILORE-EMBUTIDO" abaixo são preenchidos pelo build da release (manifesto de dependências e chave pública
@@ -41,8 +41,10 @@ $script:AnvCodigoDeSaida = 1
 
 function AnvRedigir {
   param([string]$Texto)
-  $t = $Texto -replace '://[^/\s:@]+:[^@\s]+@', '://***@'
+  # Qualquer "usuario[:senha]@" depois de ://, e os formatos conhecidos de token do GitHub.
+  $t = $Texto -replace '://[^/\s@]+@', '://***@'
   $t = $t -replace 'gh[pousr]_[A-Za-z0-9]{20,}', '***'
+  $t = $t -replace 'github_pat_[A-Za-z0-9_]+', '***'
   return $t
 }
 
@@ -425,7 +427,7 @@ function AnvVersaoDoBun {
   return $null
 }
 
-# Devolve $true se instalou o Bun (então é "gerenciado": o atualizador pode atualizá-lo — D9).
+# Devolve $true se instalou o Bun (então é "gerenciado": o atualizador pode atualizá-lo - D9).
 function AnvGarantirBun {
   param($Manifesto, [string]$Plataforma, [string]$PastaBun, [string]$Temp)
   $dep = AnvDependencia -Manifesto $Manifesto -Nome 'bun' -Plataforma $Plataforma
@@ -568,7 +570,7 @@ function AnvOferecerClaudeCode {
   } catch { AnvAviso "não consegui instalar o Claude Code: $($_.Exception.Message)" }
 }
 
-# Passo 10 — fatia U6. A U6 preenche esta função com o atalho "Anvilore" (Menu Iniciar e Área de Trabalho, via .lnk;
+# Passo 10 - fatia U6. A U6 preenche esta função com o atalho "Anvilore" (Menu Iniciar e Área de Trabalho, via .lnk;
 # em Constrained Language Mode o atalho fica por conta do Inno Setup) apontando para o abrir.ps1. Por enquanto não cria nada.
 function AnvInstalarAtalhos {
   param([string]$Pasta)
@@ -591,7 +593,7 @@ function AnvResultadoFinal {
   if (-not $TemAgente) {
     $linhas += 'O Anvilore está instalado, mas falta um agente (Claude Code, Codex, Gemini ou Copilot).'
     $linhas += "Pasta: $Pasta"
-    $linhas += 'Instale um agente e rode o instalador de novo — ele só completa o que falta.'
+    $linhas += 'Instale um agente e rode o instalador de novo - ele só completa o que falta.'
     return [pscustomobject]@{ Codigo = 10; Linhas = $linhas }
   }
   if (-not $DoctorOk) {
@@ -634,7 +636,7 @@ function AnvPassos {
     if ((AnvModoLinguagem) -ne 'FullLanguage') { AnvRegistrar "modo de linguagem restrito ($(AnvModoLinguagem)): uso reg.exe" }
 
     # 1 · sistema
-    AnvEscrever "Anvilore — instalação para Windows ($plataforma). Nada aqui pede administrador."
+    AnvEscrever "Anvilore - instalação para Windows ($plataforma). Nada aqui pede administrador."
 
     # 2 · git
     $git = AnvGit
@@ -673,7 +675,7 @@ function AnvPassos {
     if (@($agentes).Count -eq 0) { AnvOferecerClaudeCode; $agentes = AnvAgentes }
     AnvEscrever $(if (@($agentes).Count) { "Agentes encontrados: $($agentes -join ', ')." } else { 'Nenhum agente encontrado.' })
 
-    # 8 · dependências do kit e configuração dos agentes (commit automático ligado, backup no GitHub desligado — D6)
+    # 8 · dependências do kit e configuração dos agentes (commit automático ligado, backup no GitHub desligado - D6)
     $dep = AnvExecutar $bun @('install', '--frozen-lockfile') $pasta
     if ($dep.Codigo -ne 0) { AnvParar 1 "Não consegui instalar as dependências do kit: $($dep.Saida)" }
     $ins = AnvExecutar $bun @('src/cli.ts', 'instalar', '--destino', $pasta, '--auto-commit') $pasta
