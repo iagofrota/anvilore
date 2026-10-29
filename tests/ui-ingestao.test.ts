@@ -328,7 +328,7 @@ test("Dado a interface fechada no meio de uma fase Quando volto Então a convers
   await ingestao.esperar(conversa.id);
 });
 
-test("Dado ids inválidos, arquivos estranhos ou ausentes Quando leio as conversas Então ignoro sem lançar", async () => {
+test("[C25.a–d] Dado ids inválidos, arquivos estranhos ou ausentes Quando leio as conversas Então ignoro sem lançar", async () => {
   const ingestao = servico(new PonteFalsa());
   expect(await ingestao.listar()).toEqual([]);
   mkdirSync(join(raiz, ".anvilore/ui/conversas"), { recursive: true });

@@ -79,6 +79,22 @@ test("Dado servidor MCP registrado no agente, Quando roda doctor, Então mostra 
   expect(consoleCapturado.saida.join("\n")).toContain("MCP de consulta à wiki: opcional — ligado em claude");
 });
 
+test("Dado reversão incompleta, Quando roda doctor, Então mostra a versão e etapa e reprova para facilitar a retomada", async () => {
+  await instalarTudo(); completar();
+  gravar(".anvilore/atualizacao.json", JSON.stringify({ versao: 1, modo: "automatico", canal: "estavel", estado: "reversao-incompleta", versaoInstalada: "0.3.0", etapa: "R3 restaurar cópia" }));
+  expect(await doctor([clone])).toBe(1);
+  expect(consoleCapturado.saida.join("\n")).toContain("Versão do kit:");
+  expect(consoleCapturado.saida.join("\n")).toContain("Atualizador: reversao-incompleta");
+  expect(consoleCapturado.saida.join("\n")).toContain("recuperação pendente: R3 restaurar cópia");
+});
+
+test("Dado uma reversão em que raw/ mudou, Quando roda doctor, Então mostra o alerta em vez de esconder", async () => {
+  await instalarTudo(); completar();
+  gravar(".anvilore/atualizacao.json", JSON.stringify({ versao: 1, modo: "automatico", canal: "estavel", estado: "ocioso", versaoInstalada: "0.3.0", alerta: "ATENÇÃO: raw/ ou wiki/ mudaram durante a atualização e o atualizador não os restaura (raw/a.md mudou)." }));
+  await doctor([clone]);
+  expect(consoleCapturado.saida.join("\n")).toContain("ATENÇÃO: raw/ ou wiki/ mudaram durante a atualização e o atualizador não os restaura (raw/a.md mudou).");
+});
+
 test("Dado fechamento TypeScript atual Quando diagnostico Então a validação no fechamento está ligada", async () => {
   completar();
   expect((await travas())["Validação no fechamento da wiki"]?.ligada).toBe(true);

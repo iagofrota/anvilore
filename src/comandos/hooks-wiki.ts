@@ -1,4 +1,5 @@
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
+import { atualizar } from "../lib/atualizacao";
 import { access, readFile, readdir } from "node:fs/promises";
 import { caminhoWiki, repositorioDaWiki } from "../lib/wiki-repo";
 
@@ -184,6 +185,30 @@ export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise
     if (acao === "watch-paths") {
       console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", watchPaths: [resolve(raiz, "raw")] } })); return 0;
     }
+    if (acao === "atualizar") {
+      let estado: Record<string, unknown> = {};
+      try { estado = JSON.parse(await readFile(resolve(raiz, ".anvilore/atualizacao.json"), "utf8")) as Record<string, unknown>; } catch { return 0; }
+      if (["aplicando", "revertendo", "reversao-incompleta", "migracao-incompleta"].includes(String(estado.estado))) {
+        try { notificar(await atualizar("automatico", { raiz })); }
+        catch (erro) { notificar(`Atualizador: ${(erro as Error).message}`); }
+        return 0;
+      }
+      if (estado.estado === "baixada") {
+        try {
+          const mensagem = await atualizar("automatico", { raiz });
+          if (!/já está atualizado|Atualização ignorada/.test(mensagem)) notificar(mensagem);
+        } catch (erro) { notificar(`Atualizador: ${(erro as Error).message}`); }
+        return 0;
+      }
+      const ultima = typeof estado.verificadoEm === "string" ? Date.parse(estado.verificadoEm) : NaN;
+      if (Number.isFinite(ultima) && Date.now() - ultima < 24 * 60 * 60 * 1000) return 0;
+      const bun = Bun.which("bun");
+      if (bun) {
+        const processo = Bun.spawn([bun, resolve(raiz, "src/cli.ts"), "atualizar", "--verificar"], { cwd: raiz, stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
+        processo.unref();
+      }
+      return 0;
+    }
     if (acao === "sugerir-lint") { const mensagem = await sugerirLint(raiz); if (mensagem) notificar(mensagem); return 0; }
     if (acao === "autocommit") {
       const textoEntrada = await lerEntrada(); const payload = JSON.parse(textoEntrada) as Json;
@@ -215,7 +240,7 @@ export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise
       if (payload.event === "add" && typeof arquivo === "string" && /(?:^|[\\/])raw(?:[\\/]|$)/i.test(arquivo)) notificar(`Novo arquivo em raw/: ${arquivo}. Diga "ingest" para processá-lo.`);
       return 0;
     }
-    console.error("Uso: anvilore hooks-wiki <autocommit|backup|arquivo-raw|contexto|sugerir-lint|watch-paths|proteger-aprovacao|proteger-verified> [raiz]");
+    console.error("Uso: anvilore hooks-wiki <autocommit|backup|arquivo-raw|contexto|sugerir-lint|watch-paths|atualizar|proteger-aprovacao|proteger-verified> [raiz]");
     return 2;
   } catch (erro) { console.error(`hooks-wiki: ${(erro as Error).message}`); return 0; }
 }

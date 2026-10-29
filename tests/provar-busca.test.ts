@@ -44,7 +44,7 @@ test("Dado termos sem a flag obrigatória Quando a guarda executa Então reprova
 test("Dado a wiki temporária Quando leio as páginas Então usa o gitignore real e preserva NFC e NFD em nome e conteúdo", () => {
   const wiki = prepararWiki();
   try {
-    expect(readFileSync(join(wiki.cwd, "wiki/.gitignore"), "utf8")).toBe(readFileSync(join(import.meta.dir, "../wiki/.gitignore"), "utf8"));
+    expect(readFileSync(join(wiki.cwd, "wiki/.gitignore"), "utf8")).toBe(readFileSync(join(import.meta.dir, "../modelos/wiki/gitignore"), "utf8"));
     expect(existsSync(join(wiki.cwd, ".git"))).toBe(true);
     expect(wiki.paginas).toHaveLength(2);
     for (const [i, pagina] of wiki.paginas.entries()) {

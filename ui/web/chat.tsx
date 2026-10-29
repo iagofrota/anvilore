@@ -4,7 +4,8 @@ import { api } from "./api";
 import { type AcoesDaConversa, ConversaDaIngestao, PainelDaIngestao } from "./conversa";
 import { tamanhoLegivel } from "./ingestao";
 
-export type EstadoDaIngestao = { agente: string; areas: string[]; conversas: ResumoDeConversa[] };
+export type EstadoAtualizador = { estado: string; versaoInstalada?: string; atualizadoEm?: string; disponivel?: string; etapa?: string; erro?: string; podeVoltar: boolean; mudancas: string[] };
+export type EstadoDaIngestao = { agente: string; areas: string[]; conversas: ResumoDeConversa[]; atualizador: EstadoAtualizador | null };
 
 type Propriedades = {
   id?: string;

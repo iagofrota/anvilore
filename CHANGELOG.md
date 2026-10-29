@@ -9,8 +9,41 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Fixed
+
+- Ao recriar o índice estrutural sem exemplos, `init` e `instalar` não incluem a área nem a página de exemplo. O manifesto da atualização declara os arquivos e esqueletos pessoais que deixam o rastreio na transição N→N+1.
+
+### Atenção
+
+- **Antes de atualizar um clone antigo, peça ao agente para rodar `bun src/cli.ts migrar-rastreio --puxar`.** Esta
+  versão deixa de rastrear `SCHEMA.md`, `wiki/` e `raw/`, que são seus. O comando copia e confere cada arquivo, tira
+  do índice do kit sem apagar e atualiza o clone devolvendo tudo no lugar. Um `git pull` direto recusa quando você
+  editou um desses arquivos (nada se perde) e apaga os que não foram editados; nesse caso, `bun src/cli.ts instalar`
+  ou `init` os recria a partir de `modelos/`.
+
+### Changed
+
+- `SCHEMA.md`, `wiki/` e `raw/` saíram do rastreio do kit (`.gitignore`); os originais ficam em `modelos/`. Os testes
+  montam o esqueleto a partir de `modelos/`, e o `checar-docs` confere as menções a esses caminhos pelo original.
+- O gate do log no `fechar` não cobra entrada por arquivo da wiki igual, byte a byte, ao original em `modelos/`: o
+  esqueleto que o `instalar` copiou hoje não é edição. `tests/test-esqueleto.sh` passa a conferir o esqueleto em
+  `modelos/` e que o kit ignora `wiki/`, `raw/` e `SCHEMA.md`.
+
 ### Added
 
+- `anvilore atualizar [--verificar | --voltar | --estado]`: verifica releases publicadas, compara SemVer/canal,
+  confere a assinatura SSH com a confiança local — e que o nome assinado da tag é a versão anunciada, sem
+  tag leve nem aninhada — e aplica com estado retomável. Antes do checkout, recusa a versão
+  que deixaria de rastrear arquivos da pessoa sem declarar a migração e a que pede Bun mais novo sem um jeito
+  seguro de atualizá-lo. Guarda com SHA-256 os arquivos editados, apagados e não rastreados da pessoa e tudo o
+  que o `instalar` escreve nas configurações dos agentes; depois do checkout devolve o que é da pessoa e roda
+  `instalar`, `doctor` e o hook da versão ativa em subprocesso. Se `raw/` ou a wiki mudarem, o hook não
+  bloquear ou o `doctor` piorar, desfaz etapa a etapa (R1–R5) e diz o que conferiu, sem prometer o que não
+  mediu. `--voltar` volta para a versão anterior à última atualização bem-sucedida. SessionStart agenda
+  checagem diária em segundo plano e retoma operação interrompida; a interface mostra resumo da versão,
+  permite verificar, atualizar e voltar, e oferece recuperação. A operação real fica recusada até
+  `seguranca/assinantes` conter a chave pública confiável do dono, sempre ancorada no kit já instalado.
+- Primeira automação E2E com Playwright e Chromium: um vault, um servidor e um Claude falso isolados por teste; o fluxo de ingestão, escrita, Revisão e aprovação humana confere também os arquivos gravados.
 - `anvilore versao` mostra a versão do kit e, num clone, a tag e o commit.
 - `anvilore migrar-rastreio` prepara o clone para a próxima versão, que deixa de rastrear os arquivos da pessoa
   (`SCHEMA.md`, índice e log da wiki, esqueleto e exemplo de `wiki/` e `raw/`): copia cada um com SHA-256 para
@@ -91,6 +124,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 ### Fixed
 
 - Os testes do `doctor` isolam agentes, Git, `PATH` e `HOME`; o teste do SDK MCP inicia o Bun atual sem procurar no `PATH`.
+- Texto colado no Chat grava quebras de linha LF mesmo quando o navegador as envia como CRLF.
 - A fronteira de `raw/` vale pelo caminho real, não só pelo texto: o hook bloqueia a escrita que, por um link na
   wiki, cairia em `raw/`, e o `conferir-leitura` recusa fonte que sai de `raw/` por link e página que sai da wiki.
   O caminho é resolvido na ordem do disco (`link/../x` no Linux e no macOS sobe a partir do alvo do link), e destino

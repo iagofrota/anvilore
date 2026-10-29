@@ -30,13 +30,13 @@ describe("hooks da wiki", () => {
     expect(claude.hooks.PostToolUse).toHaveLength(1); expect(claude.hooks.FileChanged).toHaveLength(1);
     expect((claude.hooks.FileChanged![0] as any).matcher).toBeUndefined();
     expect((claude.hooks.FileChanged![0] as any).hooks[0].shell).toBe("bash");
-    expect(claude.hooks.SessionStart!).toHaveLength(2); expect(claude.hooks.SessionEnd!).toHaveLength(1); expect(claude.hooks.Stop!).toHaveLength(1);
+    expect(claude.hooks.SessionStart!).toHaveLength(3); expect(claude.hooks.SessionEnd!).toHaveLength(1); expect(claude.hooks.Stop!).toHaveLength(1);
     expect((claude.hooks.SessionStart![1] as any).hooks[0].command).toContain("watch-paths");
     expect((claude.hooks.SessionStart![1] as any).hooks[0].shell).toBe("bash");
     expect((claude.hooks.Stop![0] as any).hooks[0].shell).toBe("bash");
     expect((claude.hooks.SessionEnd![0] as any).hooks[0]).toMatchObject({ shell: "bash", timeout: 15 });
     const codex = Bun.TOML.parse((await configuracaoDoHook("codex", raiz)).bloco!) as { hooks: Record<string, unknown[]> };
-    expect(codex.hooks.FileChanged).toBeUndefined(); expect(codex.hooks.SessionStart).toHaveLength(1); expect(codex.hooks.SessionEnd).toHaveLength(1);
+    expect(codex.hooks.FileChanged).toBeUndefined(); expect(codex.hooks.SessionStart).toHaveLength(2); expect(codex.hooks.SessionEnd).toHaveLength(1);
     const gemini = (await configuracaoDoHook("gemini", raiz)).json as { hooks: Record<string, unknown[]> };
     expect(gemini.hooks.AfterTool).toHaveLength(1); expect(gemini.hooks.AfterAgent).toHaveLength(1); expect(gemini.hooks.SessionEnd).toHaveLength(1);
     expect(gemini.hooks.FileChanged).toBeUndefined(); expect(gemini.hooks.SessionStart).toBeUndefined();

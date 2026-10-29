@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { LISTA_DO_RASTREIO, PASTA_MODELOS, copiarModelos, destinoDoModelo, ehExemplo, pecasDoModelo, planejarModelos } from "../src/lib/modelos";
+import { LISTA_DO_RASTREIO, PASTA_MODELOS, copiarModelos, destinoDoModelo, ehExemplo, origemNoModelo, pecasDoModelo, planejarModelos } from "../src/lib/modelos";
 
 const raiz = resolve(import.meta.dir, "..");
 let tmp: string;
@@ -19,6 +19,22 @@ test("Dado a pasta modelos/ do kit, Quando listo as peças, Então cobre exatame
   for (const destino of pecas.map(p => p.destino)) {
     expect(LISTA_DO_RASTREIO.some(item => destino === item || destino.startsWith(`${item}/`))).toBe(true);
   }
+});
+
+test("Dado o manifesto da N+1, Quando declaro a migração do rastreio, Então lista exatamente os caminhos relativos seguros do contrato §4b", () => {
+  const manifesto = JSON.parse(readFileSync(join(raiz, "atualizacao/migracoes.json"), "utf8")) as { deixa_de_rastrear: string[] };
+  expect(manifesto.deixa_de_rastrear).toEqual([...LISTA_DO_RASTREIO]);
+  expect(manifesto.deixa_de_rastrear.every(caminho => caminho !== "" && !caminho.startsWith("/") && !caminho.split("/").some(parte => parte === "" || parte === "." || parte === ".."))).toBe(true);
+});
+
+test("Dado um caminho da pessoa, Quando procuro o original, Então acha em modelos/ ou diz que não é da pessoa", () => {
+  expect(origemNoModelo("raw/")).toBe("fontes");
+  expect(origemNoModelo("raw/exemplo/llm-wiki.md")).toBe("fontes/exemplo/llm-wiki.md");
+  expect(origemNoModelo("wiki/.gitignore")).toBe("wiki/gitignore");
+  expect(origemNoModelo("wiki/index.md")).toBe("wiki/index.md");
+  expect(origemNoModelo("SCHEMA.md")).toBe("SCHEMA.md");
+  expect(origemNoModelo("src/cli.ts")).toBeUndefined();
+  expect(origemNoModelo("rawx/a")).toBeUndefined();
 });
 
 test("Dado um caminho em modelos/, Quando mapeio para o destino, Então fontes/ vira raw/ e wiki/gitignore vira wiki/.gitignore", () => {

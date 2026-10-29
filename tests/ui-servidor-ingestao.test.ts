@@ -39,7 +39,40 @@ test("Dado a interface aberta Quando peço o estado da ingestão Então vêm o a
   const { chamar } = await servidor();
   const resposta = await chamar("/api/ingestao");
   expect(resposta.status).toBe(200);
-  expect(await resposta.json()).toEqual({ agente: "Agente falso", areas: ["pessoal", "trabalho"], conversas: [] });
+  expect(await resposta.json()).toEqual({ agente: "Agente falso", areas: ["pessoal", "trabalho"], conversas: [], atualizador: null });
+});
+
+test("Dado uma atualização recente Quando a interface lê o estado Então mostra a versão, o resumo e a opção de voltar", async () => {
+  mkdirSync(join(raiz, ".anvilore"), { recursive: true });
+  writeFileSync(join(raiz, ".anvilore/atualizacao.json"), JSON.stringify({
+    versao: 1, modo: "automatico", canal: "estavel", estado: "ocioso", versaoInstalada: "0.3.1",
+    atualizadoEm: new Date().toISOString(),
+    ultima: { id: "1-aabbccdd00", de: { versao: "0.3.0", commit: "a".repeat(40) }, para: { versao: "0.3.1", commit: "b".repeat(40) } },
+  }));
+  writeFileSync(join(raiz, "CHANGELOG.md"), "## [0.3.1]\n\n- Melhora atualização e reversão.\n- Mantém configurações.\n\n## [0.3.0]\n");
+  const { chamar } = await servidor();
+  const estado = await (await chamar("/api/ingestao")).json() as { atualizador: Record<string, unknown> };
+  expect(estado.atualizador).toMatchObject({ estado: "ocioso", versaoInstalada: "0.3.1", podeVoltar: true, mudancas: ["Melhora atualização e reversão.", "Mantém configurações."] });
+});
+
+test("Dado uma reversão em que raw/ mudou Quando a interface lê o estado Então mostra o alerta e não oferece voltar", async () => {
+  mkdirSync(join(raiz, ".anvilore"), { recursive: true });
+  writeFileSync(join(raiz, ".anvilore/atualizacao.json"), JSON.stringify({
+    versao: 1, modo: "automatico", canal: "estavel", estado: "ocioso", versaoInstalada: "0.3.0",
+    alerta: "ATENÇÃO: raw/ ou wiki/ mudaram durante a atualização e o atualizador não os restaura (raw/a.md mudou).", erro: "prova: o doctor ficou pior",
+  }));
+  const { chamar } = await servidor();
+  const estado = await (await chamar("/api/ingestao")).json() as { atualizador: Record<string, unknown> };
+  expect(estado.atualizador).toMatchObject({ podeVoltar: false });
+  expect(String(estado.atualizador.erro)).toContain("raw/a.md mudou");
+  expect(String(estado.atualizador.erro)).toContain("o doctor ficou pior");
+});
+
+test("Dado ação inválida Quando a interface chama o atualizador Então rejeita o pedido", async () => {
+  const { postar } = await servidor();
+  const resposta = await postar("/api/atualizador", { acao: "desconhecida" });
+  expect(resposta.status).toBe(400);
+  expect(await resposta.json()).toEqual({ mensagens: ["Ação do atualizador inválida."] });
 });
 
 test("Dado um arquivo solto com a área pessoal Quando envio Então o servidor grava em raw/pessoal e devolve a conversa", async () => {
@@ -61,7 +94,21 @@ test("Dado texto colado Quando envio Então vira um .md em raw/<área>", async (
   expect(semNome.fonte).toMatch(/^raw\/trabalho\/texto-colado-\d{8}-\d{6}\.md$/);
 });
 
-test("Dado envio sem token, sem origem, com área inválida, vazio ou grande demais Quando chega Então recuso sem gravar em raw/", async () => {
+test("[C13] Dado texto colado cujo FormData transporta quebras como CRLF Quando envio Então a fonte é gravada com LF", async () => {
+  const { chamar } = await servidor();
+  const colado = await (await chamar("/api/fontes", { method: "POST", body: formulario({ area: "pessoal", texto: "linha 1\nlinha 2\n\nfim\n", nome: "ata" }) })).json() as { fonte: string };
+  expect(new Uint8Array(readFileSync(join(raiz, colado.fonte)))).toEqual(new TextEncoder().encode("linha 1\nlinha 2\n\nfim\n"));
+});
+
+test("[C11] Dado arquivo com CRLF, CR solto e bytes que não são UTF-8 Quando envio Então o arquivo é gravado byte a byte", async () => {
+  const { chamar } = await servidor();
+  const bytes = new Uint8Array([0x23, 0x20, 0x41, 0x0d, 0x0a, 0x42, 0x0d, 0x43, 0xff, 0xfe, 0x00, 0x0d, 0x0a]);
+  const enviado = await (await chamar("/api/fontes", { method: "POST", body: formulario({ area: "pessoal", arquivo: new Blob([bytes]) }, "windows.md") })).json() as { fonte: string };
+  expect(enviado.fonte).toBe("raw/pessoal/windows.md");
+  expect(new Uint8Array(readFileSync(join(raiz, enviado.fonte)))).toEqual(bytes);
+});
+
+test("[C14.a–d] Dado envio sem token, sem origem, com área inválida, vazio ou grande demais Quando chega Então recuso sem gravar em raw/", async () => {
   const { chamar, base } = await servidor();
   expect((await chamar("/api/fontes", { method: "POST", body: formulario({ area: "pessoal", texto: "x" }) }, "errado")).status).toBe(403);
   expect((await fetch(`${base}/api/fontes?token=token-teste`, { method: "POST", body: formulario({ area: "pessoal", texto: "x" }) })).status).toBe(403);
@@ -124,7 +171,7 @@ test("Dado o agente rodando Quando aperto Cancelar Então a ponte cancela", asyn
   expect((await postar(`/api/conversas/${criada.id}/cancelar`)).status).toBe(409);
 });
 
-test("Dado ids desconhecidos, métodos errados ou corpo inválido Quando chamo Então recebo o erro certo", async () => {
+test("[C25.a–d] Dado ids desconhecidos, métodos errados ou corpo inválido Quando chamo Então recebo o erro certo", async () => {
   const { chamar, postar } = await servidor();
   expect((await chamar("/api/conversas/nao-existe")).status).toBe(404);
   expect((await chamar("/api/conversas/..%2f..%2fetc")).status).toBe(404);

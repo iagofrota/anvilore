@@ -1,0 +1,13 @@
+{
+  "deixa_de_rastrear": [
+    "SCHEMA.md",
+    "wiki/index.md",
+    "wiki/log.md",
+    "wiki/.gitignore",
+    "wiki/_meta/.gitkeep",
+    "wiki/log/.gitkeep",
+    "wiki/exemplo",
+    "raw/.gitkeep",
+    "raw/exemplo"
+  ]
+}

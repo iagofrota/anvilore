@@ -158,6 +158,13 @@ type = "command"
 command = ${JSON.stringify(`${comandoEvento(destino, "contexto")}; exit $LASTEXITCODE`)}
 command_windows = ${JSON.stringify(`${comandoEvento(destino, "contexto")}; exit $LASTEXITCODE`)}
 
+[[hooks.SessionStart]]
+
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = ${JSON.stringify(`${comandoEvento(destino, "atualizar")}; exit $LASTEXITCODE`)}
+command_windows = ${JSON.stringify(`${comandoEvento(destino, "atualizar")}; exit $LASTEXITCODE`)}
+
 [[hooks.Stop]]
 
 [[hooks.Stop.hooks]]

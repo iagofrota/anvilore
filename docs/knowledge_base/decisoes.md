@@ -1,5 +1,5 @@
 ---
-generated: 2026-10-27
+generated: 2026-10-28
 ---
 
 # Decisões
@@ -126,6 +126,8 @@ Para a linhagem do método e a argumentação completa das posições de design,
   estaciona os arquivos por `rename` na pasta .anvilore (que o kit ignora), puxa com `--ff-only` e os devolve conferindo
   o SHA-256; se o processo morrer no meio, a execução seguinte devolve antes de qualquer outra coisa. Sem migrar, o
   `git pull` recusa quando há arquivo editado e apaga o que não foi editado, que `instalar` e `init` recriam.
+- Na versão que tira os arquivos do rastreio, o `.gitignore` do kit ignora `/raw/`, `/wiki/` e `/SCHEMA.md`; o
+  `checar-docs` aceita uma menção a esses caminhos quando o original existe em `modelos/` (`origemNoModelo`).
 - O mesmo teste prova que um `git checkout --force` de uma versão antiga sobrescreve em silêncio o `SCHEMA.md` da
   pessoa, já ignorado: quem voltar de versão precisa restaurar a cópia depois do checkout.
 
@@ -173,3 +175,88 @@ Para a linhagem do método e a argumentação completa das posições de design,
 - A trava que sustenta isso: `bun src/cli.ts checar-docs` (links e menções) e
   `bun src/cli.ts checar-release` (revisão por pessoa antes da release). Código em
   `src/comandos/checar-docs.ts` e `src/comandos/checar-release.ts`.
+
+## Atualização automática do kit
+
+- O atualizador exige o arquivo de estado .anvilore/atualizacao.json, `origin` oficial e `HEAD` numa tag cuja versão
+  SemVer corresponde ao estado local (`src/lib/atualizacao.ts`). O comando é `anvilore atualizar`
+  com `--verificar`, `--voltar` e `--estado` (`src/comandos/atualizar.ts`, `src/cli.ts`).
+- A tag candidata é buscada sem tags implícitas e verificada por `git verify-tag` com SSH e o arquivo
+  de assinantes do kit instalado. Sem o arquivo de assinantes seguranca/assinantes local, a atualização recusa a candidata;
+  não há chave pública real versionada nesta entrega. A chave privada não é usada pelo atualizador.
+- O arquivo seguranca/assinantes usa o formato OpenSSH `allowed_signers`, uma entrada por linha:
+  `<principal> [opções] <tipo-da-chave> <chave-pública-base64> [comentário]`. Para as tags Git, a entrada
+  deve incluir `namespaces="git"` nas opções e o principal deve corresponder ao e-mail de assinatura Git
+  (`git config user.email`) usado nas tags. A chave pública aprovada precisa estar no kit já instalado,
+  antes de verificar a candidata. Nunca copie a chave só do checkout/tag candidata, nem use chave privada
+  ou chave local escolhida automaticamente como âncora. Esta entrega não inclui arquivo vazio ou chave
+  fictícia que possa ser confundida com confiança. Se o arquivo faltar, estiver vazio ou `git verify-tag`
+  recusar, `anvilore atualizar` apresenta o caminho e orienta a conferir principal, opção de namespace e
+  chave pública previamente provisionada; a operação é recusada até isso ser configurado.
+- `git verify-tag` prova a assinatura do objeto, não que o nome assinado é o da ref: um espelho poderia publicar
+  a ref v0.3.2 apontando para a tag assinada da v0.3.1. Por isso, depois da assinatura, o atualizador lê o
+  conteúdo assinado (`git cat-file tag`) e exige tag anotada, nome igual ao da release, alvo do tipo commit (sem
+  tag aninhada) e o mesmo commit que a ref resolve. A versão comparada, recusada e aplicada vem desse nome e tem
+  de ser mais nova que a instalada; o commit aplicado é o do objeto assinado, e o que se lê da candidata
+  (migração, `package.json`) é lido desse commit. Qualquer divergência recusa antes da cópia e do checkout.
+  A ref é resolvida uma vez e o mesmo id de objeto passa por `verify-tag`, `cat-file` e pela resolução do
+  commit. O `fetch` usa `+refs/tags/<tag>:refs/tags/<tag>`, para que uma tag trocada por um espelho seja
+  substituída pela do origin (sem o `+` o git recusa sobrescrever a tag local). Esse fetch só roda para uma
+  versão **mais nova que a instalada**, comparada antes de qualquer busca e em toda ação (uma `baixada` obsoleta
+  é descartada); como o nome da candidata é então sempre outro, um espelho não sobrescreve a tag da versão
+  instalada nem a da anterior. Qualquer recusa ou erro depois do fetch, até a verificação terminar, devolve a ref
+  da tag ao que era antes da busca (apaga se não existia): uma tag não confirmada apontando para o commit
+  instalado mudaria o `describe` e o clone deixaria de ser gerenciado. Recusa por
+  assinatura ou identidade não entra em `recusadas`: o objeto não foi confirmado como da release, e marcá-la
+  bloquearia para sempre a tag legítima da mesma versão; o estado fica `recusada` com o erro e com `verificadoEm`,
+  para que o hook de início de sessão só tente de novo depois de 24 h.
+  **Limite:** a falha ao consultar a API de releases também grava `verificadoEm`; sem rede ou com o GitHub fora do
+  ar, a checagem seguinte espera as mesmas 24 h.
+- **Antes do checkout**, nada é mudado se algo destes falhar: o atualizador compara `bun.lock`/`bun.lockb`
+  entre o `HEAD` atual e a tag (erro do `git diff` recusa, nunca vale como "igual"); lê
+  atualizacao/migracoes.json da tag; e **recusa a candidata** que deixaria de rastrear um arquivo da
+  pessoa (`raw/`, `wiki/`, `SCHEMA.md`, anvilore.toml ou um item da lista do rastreio de `src/lib/modelos.ts`) sem
+  declará-lo em `deixa_de_rastrear` — o checkout o apagaria do disco. Também confere o `packageManager`
+  da tag: se pedir Bun mais novo e o Bun for da pessoa, recusa e manda atualizar (`bun upgrade`); se o
+  Bun foi posto pelo Anvilore (`bunGerenciado` no estado), só atualiza por um ponto injetável
+  (`atualizarBun`), que o instalador ainda não fornece — sem ele, recusa dizendo isso. A reversão não
+  rebaixa o Bun.
+- **Cópia** em .anvilore/atualizacao/<id>/, com SHA-256 de cada entrada: (a) o que `git status
+  --porcelain=v2 --no-renames` lista (editado, apagado, renomeado, não rastreado; inclusive em `raw/` e
+  `wiki/`) e os caminhos da migração declarada; (b) tudo o que `instalar` escreve —
+  .claude/settings.json, .claude/skills, .claude/agents, .codex/config.toml, .agents/skills,
+  .gemini/, .github/hooks/anvilore.json, .github/agents, .github/copilot/settings.json e
+  anvilore.toml; (c) o `doctor` e a prova do hook antes de começar; e a medição de `raw/` e da wiki
+  (pelo caminho de `ANVILORE_WIKI`, quando definido). Caminho que passa por link dentro do kit é recusado.
+- Depois do checkout, a migração é devolvida (`devolverTudo` de `src/lib/migracao.ts`) e a cópia (a)
+  volta conferida por hash; o que a pessoa tinha apagado e o checkout recriou sai de novo, só se for
+  exatamente o blob do commit. `instalar`, `doctor --json` e o hook rodam em subprocesso
+  `bun src/cli.ts` da versão ativa no disco: os hooks gerados vêm da versão nova e, na reversão, da antiga.
+  Não executa `git clean`.
+- **Política de preservação de `raw/` e da wiki:** todo arquivo que existia continua presente e com o
+  mesmo SHA-256. Só é aceito arquivo novo que seja peça do esqueleto que `instalar` cria quando falta
+  (o exemplo só se a pasta não existia). O `.git` da wiki fica fora da medição (a migração pode criá-lo
+  e o autocommit o altera). O atualizador **detecta** mudança, não restaura conteúdo de `raw/` ou da
+  wiki que não esteja na cópia (a): nesse caso desfaz o kit, recusa a versão, grava `alerta` no estado
+  (mostrado pelo `doctor` em modo texto — o `doctor --json` não traz o estado do atualizador —, pela
+  interface e por `anvilore atualizar --estado` até a próxima atualização conferida) e a mensagem diz o
+  que mudou, em vez de afirmar que está como antes. **Limite:** a atualização seguinte mede a partir de
+  `raw/` e da wiki como estão; não restaura nem lembra o dano anterior, e ao terminar conferida apaga o
+  alerta mesmo que o arquivo continue alterado.
+- Estado: a operação em curso (`operacao`: tipo, cópia, origem, alvo, para onde voltar) fica separada
+  da última atualização bem-sucedida (`ultima`, usada por `--voltar`, que só age se o `HEAD` for o commit
+  dela). Refs refs/anvilore/anterior e refs/anvilore/operacao guardam os commits. Reversão R1–R5
+  conferida etapa a etapa; falha deixa `reversao-incompleta` com etapa e erro, mantém cópia e refs, e o
+  próximo início retoma antes de consultar releases. Processo morto com `aplicando` é retomado igual.
+  Log em .anvilore/atualizacao.log; trava .anvilore/atualizar.lock com o pid (dono morto = trava
+  abandonada, removida e registrada). `doctor` (modo texto) mostra versão, estado e alerta
+  (`src/comandos/doctor.ts`). SessionStart do Claude e Codex tenta aplicar uma atualização assinada
+  pendente e agenda a checagem seguinte (`hooks/hooks.json`, `src/comandos/instalar.ts`,
+  `src/comandos/hooks-wiki.ts`).
+- Cenários com Git, checkout e tags SSH reais e descartáveis em `tests/atualizar.test.ts`, com o kit de
+  `tests/apoio/kit-atualizavel.ts` (cada tag traz um `src/cli.ts` mínimo que registra qual versão rodou) e
+  a queda real por SIGKILL de `tests/apoio/atualizar-e-morrer.ts`.
+- `anvilore ui` mostra o estado recente, o resumo da versão do changelog, as ações de verificação/aplicação/
+  reversão e o botão de retomada (`src/ui/servidor/servidor.ts`, `ui/web/main.tsx`).
+- A documentação descreve o código atual da fatia U2 e ainda aguarda revisão humana. A primeira
+  operação real depende da chave pública do dono no arquivo seguranca/assinantes.
