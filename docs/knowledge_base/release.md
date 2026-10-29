@@ -359,7 +359,14 @@ recusar as tags novas (chave desconhecida).
 Se alguma máquina não recebeu a versão de transição e a rotação avançou para a chave nova, a atualização
 automática é recusada. O procedimento manual de recuperação para essas instalações é:
 - Baixar o instalador da versão mais recente (dist/instalar.sh ou dist/instalar.ps1), verificar o hash SHA-256 e a assinatura SSH contra a chave pública publicada por canal independente, e reinstalar;
-- Ou atualizar o repositório manualmente (`git pull` / checkout no commit da release) sob supervisão de quem administra para atualizar o arquivo seguranca/assinantes.
+- Ou atualizar o repositório buscando a tag da release e conferindo a assinatura com a chave nova obtida por canal independente **antes** do checkout:
+
+  ```bash
+  git fetch origin refs/tags/vX.Y.Z:refs/tags/vX.Y.Z
+  git -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen -c gpg.ssh.allowedSignersFile=<ARQUIVO-COM-CHAVE-NOVA> verify-tag vX.Y.Z
+  ```
+
+  Se a verificação falhar, **não faça checkout**. Só faça `git checkout vX.Y.Z` se o comando confirmar `Good "git" signature` e sair com 0.
 
 **Chave comprometida**
 

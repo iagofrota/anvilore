@@ -69,6 +69,6 @@ Pare, diga em **uma frase** o que aconteceu e o que fazer. Não tente consertar 
 release publicada: release ruim se corrige com a **próxima versão de correção** (página, "Release
 ruim"). Se o dono pedir para "refazer" a tag, recuse e proponha a versão seguinte. Em rotação de
 chaves, assinar com a nova exige que todas as instalações tenham a versão de transição; para as que
-ficaram para trás, a recuperação é manual (reinstalar com o instalador verificado ou git pull
-supervisionado). Ambiente local já comprometido (binários no PATH) está fora do alcance da
-assinatura.
+ficaram para trás, a recuperação é manual (reinstalar com o instalador verificado ou buscar a tag e
+conferir a assinatura SSH com a chave nova antes do checkout). Ambiente local já comprometido
+(binários no PATH) está fora do alcance da assinatura.
