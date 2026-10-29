@@ -1,5 +1,5 @@
 import { lstat } from "node:fs/promises";
-import { instantaneo, mesmaArvore } from "./vault";
+import { instantaneo, mesmaArvore } from "./arvore";
 
 // Foto de uma pasta do checkout: lista de [caminho, hash] ou `null` quando a pasta não existe (checkout limpo sem raw/ e wiki/).
 export type Foto = [string, string][] | null;
