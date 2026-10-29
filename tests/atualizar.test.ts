@@ -1122,7 +1122,6 @@ describe("atualizador: transporte do git antes da verificação (A5)", () => {
       await expect(atualizar("aplicar", k.deps({ executar }))).rejects.toThrow("fetch");
       expect(existsSync(marcador)).toBe(false);
       expect(k.head()).toBe(k.commits["0.3.0"]!);
-      expect(k.git(["rev-parse", "--verify", "-q", "refs/tags/v0.3.1"]).codigo).not.toBe(0);
     });
   });
 

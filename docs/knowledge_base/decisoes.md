@@ -187,6 +187,8 @@ Para a linhagem do método e a argumentação completa das posições de design,
   O atualizador aceita exclusivamente assinatura SSH (`-----BEGIN SSH SIGNATURE-----`), fixa
   `gpg.ssh.program=ssh-keygen` e desliga os verificadores OpenPGP/x509 no `git verify-tag`,
   barrando programas aprovadores locais e assinaturas não-SSH.
+  O `fetch` (`guardaDeRede` em `src/lib/atualizacao.ts`) só abre o protocolo da origem oficial (`GIT_ALLOW_PROTOCOL`), zera o
+  `credential.helper` e não pergunta senha: a configuração global não abre `ext::` antes de a tag ser autenticada.
 - O arquivo seguranca/assinantes usa o formato OpenSSH `allowed_signers`, uma entrada por linha:
   `<principal> [opções] <tipo-da-chave> <chave-pública-base64> [comentário]`. Para as tags Git, a entrada
   deve incluir `namespaces="git"` nas opções e o principal deve corresponder ao e-mail de assinatura Git

@@ -12,6 +12,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 ### Security
 
 - O atualizador exige exclusivamente assinatura SSH na tag candidata (`-----BEGIN SSH SIGNATURE-----`), fixa `gpg.ssh.program=ssh-keygen` e desabilita programas OpenPGP e x509 (`gpg.program`, `gpg.openpgp.program`, `gpg.x509.program` apontados para comando inexistente no `verify-tag`), impedindo que tags com assinaturas OpenPGP, x509 ou verificadores SSH customizados no `.gitconfig` aprovem tags não confiáveis.
+- O `fetch` do atualizador (e qualquer `ls-remote`, `clone` ou `pull`) roda com `GIT_ALLOW_PROTOCOL` só do protocolo da origem oficial (https; ssh se o clone foi feito por ssh), `credential.helper` zerado, `GIT_ASKPASS` vazio e `GIT_TERMINAL_PROMPT=0`: um `protocol.ext.allow=always` com `url.<ext::programa>.insteadOf` na configuração global não executa código antes da assinatura. A configuração global continua valendo no resto (proxy, por exemplo).
 
 ### Fixed
 
