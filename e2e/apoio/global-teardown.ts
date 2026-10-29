@@ -1,14 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { instantaneo, mesmaArvore } from "./vault";
+import { conferirFoto, fotografar, type Foto } from "./guarda";
 
 export default async function globalTeardown(): Promise<void> {
   const raiz = resolve(process.cwd());
-  const arquivo = join(raiz, "e2e/resultados/checkout-guard.json");
-  const antes = JSON.parse(await readFile(arquivo, "utf8")) as { raw: [string, string][]; wiki: [string, string][] };
-  const rawDepois = await instantaneo(join(raiz, "raw"));
-  const wikiDepois = await instantaneo(join(raiz, "wiki"));
-  if (!mesmaArvore(new Map(antes.raw), rawDepois) || !mesmaArvore(new Map(antes.wiki), wikiDepois)) {
-    throw new Error("Playwright alterou raw/ ou wiki/ do checkout. A guarda global detectou diferença de hashes.");
-  }
+  const antes = JSON.parse(await readFile(join(raiz, "e2e/resultados/checkout-guard.json"), "utf8")) as { raw: Foto; wiki: Foto };
+  const problemas = [
+    conferirFoto("raw", antes.raw, await fotografar(join(raiz, "raw"))),
+    conferirFoto("wiki", antes.wiki, await fotografar(join(raiz, "wiki"))),
+  ].filter((problema): problema is string => problema !== null);
+  if (problemas.length > 0) throw new Error(`Playwright alterou o checkout real. A guarda global detectou: ${problemas.join("; ")}.`);
 }
