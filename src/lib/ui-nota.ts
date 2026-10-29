@@ -213,9 +213,31 @@ export async function obterNota(
     throw new ErroDeCaminhoInvalido();
   }
 
-  const flags = typeof constants.O_NOFOLLOW === "number"
-    ? constants.O_RDONLY | constants.O_NOFOLLOW
-    : "r";
+  const wikiReal = await realpath(wiki);
+  try {
+    const caminhoRealAntes = await realpath(caminhoNormalizado);
+    const relRealAntes = relative(wikiReal, caminhoRealAntes);
+    if (
+      relRealAntes === ".." ||
+      relRealAntes.startsWith("../") ||
+      relRealAntes.startsWith("..\\") ||
+      isAbsolute(relRealAntes) ||
+      !ehCaminhoDeNotaValido(relRealAntes)
+    ) {
+      throw new ErroDeCaminhoInvalido();
+    }
+  } catch (erro) {
+    if (erro instanceof ErroDeCaminhoInvalido) throw erro;
+    const codigo = (erro as NodeJS.ErrnoException).code;
+    if (codigo === "ENOENT") return null;
+    if (codigo === "ELOOP" || codigo === "EINVAL") throw new ErroDeCaminhoInvalido();
+    throw erro;
+  }
+
+  const flags =
+    typeof constants.O_NOFOLLOW === "number" && typeof constants.O_NONBLOCK === "number"
+      ? constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+      : "r";
 
   let fh;
   try {
@@ -229,11 +251,15 @@ export async function obterNota(
 
   let conteudo: string;
   try {
+    const statInicial = await fh.stat();
+    if (!statInicial.isFile()) {
+      throw new ErroDeCaminhoInvalido();
+    }
+
     if (opcoes?.ganchoAposAbrir) {
       await opcoes.ganchoAposAbrir(caminhoNormalizado);
     }
 
-    const wikiReal = await realpath(wiki);
     let caminhoReal: string;
     try {
       caminhoReal = await realpath(caminhoNormalizado);

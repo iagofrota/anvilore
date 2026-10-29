@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ErroDeCaminhoInvalido, obterNota, validarCaminhoWiki } from "../src/lib/ui-nota";
@@ -132,6 +133,45 @@ describe("ui-nota: obterNota", () => {
 
       await expect(promessa).rejects.toThrow(ErroDeCaminhoInvalido);
     });
+
+    test.skipIf(process.platform === "win32")(
+      "recusa leitura através de symlink intermediário para pasta externa com FIFO em menos de 1 s",
+      async () => {
+        const pastaExterna = join(RAIZ, "fora/pasta-externa");
+        await mkdir(pastaExterna, { recursive: true });
+        const fifoExterno = join(pastaExterna, "nota.md");
+        execFileSync("mkfifo", [fifoExterno]);
+        await symlink(pastaExterna, join(RAIZ, "wiki/intermediario"));
+
+        const promessa = Promise.race([
+          obterNota(RAIZ, "intermediario/nota.md"),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("tempo limite excedido (travou na abertura do FIFO)")), 1000),
+          ),
+        ]);
+
+        await expect(promessa).rejects.toThrow(ErroDeCaminhoInvalido);
+      },
+      2000,
+    );
+
+    test.skipIf(process.platform === "win32")(
+      "recusa FIFO interno à wiki sem travar na abertura (não é arquivo regular)",
+      async () => {
+        const fifoInterno = join(RAIZ, "wiki/pessoal/notas/x.md");
+        execFileSync("mkfifo", [fifoInterno]);
+
+        const promessa = Promise.race([
+          obterNota(RAIZ, "pessoal/notas/x.md"),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("tempo limite excedido (travou na abertura do FIFO)")), 1000),
+          ),
+        ]);
+
+        await expect(promessa).rejects.toThrow(ErroDeCaminhoInvalido);
+      },
+      2000,
+    );
   });
 
   describe("extração de metadados, corpo, lacunas, backlinks e grafo", () => {
