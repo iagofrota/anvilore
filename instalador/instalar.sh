@@ -52,6 +52,7 @@ assinantes_embutidas() {
 LOG=""
 TMP_DIR=""
 CLONE_TMP=""
+HOOKS_VAZIO=""
 TEM_TTY=0
 PLATAFORMA=""
 PASTA=""
@@ -63,6 +64,7 @@ RG_FALTA=0
 AVISOS=""
 ULTIMA_SAIDA=""
 MOTIVO=""
+VERIFICADO_COMMIT=""
 
 agora() { date '+%Y-%m-%dT%H:%M:%S%z'; }
 registrar() { [ -n "$LOG" ] && printf '%s %s\n' "$(agora)" "$*" >>"$LOG" 2>/dev/null; return 0; }
@@ -446,34 +448,41 @@ resolver_tag() {
   registrar "tag: $TAG"
 }
 
+# git do staging: enquanto a assinatura não passa, nenhum hook roda (core.hooksPath aponta para uma pasta vazia, vença
+# o que a configuração global da pessoa disser). Filtros de checkout nem chegam a rodar: o clone é --no-checkout.
+git_staging() {
+  git -c "core.hooksPath=$HOOKS_VAZIO" "$@"
+}
+
 # Confere a assinatura da tag no clone $1 com a chave embutida. MOTIVO diz por que recusou.
 verificar_assinatura() {
   local dir="$1" tag="$2" assinantes id tipo conteudo objeto tipo_alvo nome commit_ref cabeca
   assinantes="$TMP_DIR/assinantes"
   assinantes_embutidas >"$assinantes"
-  id=$(git -C "$dir" rev-parse --verify -q "refs/tags/$tag") || { MOTIVO="a tag $tag não existe no repositório baixado."; return 1; }
-  tipo=$(git -C "$dir" cat-file -t "$id" 2>/dev/null)
+  id=$(git_staging -C "$dir" rev-parse --verify -q "refs/tags/$tag") || { MOTIVO="a tag $tag não existe no repositório baixado."; return 1; }
+  tipo=$(git_staging -C "$dir" cat-file -t "$id" 2>/dev/null)
   [ "$tipo" = "tag" ] || { MOTIVO="$tag não é uma tag anotada e assinada (tipo: ${tipo:-desconhecido})."; return 1; }
   # O `verify-tag` escolhe o verificador pelo tipo da assinatura que está na tag (OpenPGP e x509 passariam pelo gpg do
   # usuário, com o chaveiro dele). Só vale assinatura SSH conferida contra a chave embutida: exige o bloco SSH e
   # desliga os programas de gpg/x509.
-  if ! git -C "$dir" cat-file tag "$id" 2>/dev/null | grep -q '^-----BEGIN SSH SIGNATURE-----$'; then
+  if ! git_staging -C "$dir" cat-file tag "$id" 2>/dev/null | grep -q '^-----BEGIN SSH SIGNATURE-----$'; then
     MOTIVO="a tag $tag não tem assinatura SSH."; return 1
   fi
-  if ! rodar git -C "$dir" -c gpg.format=ssh -c gpg.program=false -c gpg.openpgp.program=false -c gpg.x509.program=false \
+  if ! rodar git_staging -C "$dir" -c gpg.format=ssh -c gpg.program=false -c gpg.openpgp.program=false -c gpg.x509.program=false \
       -c "gpg.ssh.allowedSignersFile=$assinantes" verify-tag "$id"; then
     MOTIVO="a assinatura da tag $tag não é do Iago (ou não existe)."; return 1
   fi
   # `verify-tag` prova a assinatura do objeto, não que o nome assinado é o da ref: confere o conteúdo assinado.
-  conteudo=$(git -C "$dir" cat-file tag "$id" 2>/dev/null | awk 'NF == 0 { exit } { print }')
+  conteudo=$(git_staging -C "$dir" cat-file tag "$id" 2>/dev/null | awk 'NF == 0 { exit } { print }')
   objeto=$(printf '%s\n' "$conteudo" | sed -n 's/^object //p' | head -n1)
   tipo_alvo=$(printf '%s\n' "$conteudo" | sed -n 's/^type //p' | head -n1)
   nome=$(printf '%s\n' "$conteudo" | sed -n 's/^tag //p' | head -n1)
   [ "$nome" = "$tag" ] || { MOTIVO="a tag assinada se chama '$nome', não '$tag'."; return 1; }
   [ "$tipo_alvo" = "commit" ] || { MOTIVO="a tag assinada não aponta direto para um commit."; return 1; }
-  commit_ref=$(git -C "$dir" rev-parse "refs/tags/$tag^{commit}" 2>/dev/null)
-  cabeca=$(git -C "$dir" rev-parse HEAD 2>/dev/null)
+  commit_ref=$(git_staging -C "$dir" rev-parse "refs/tags/$tag^{commit}" 2>/dev/null)
+  cabeca=$(git_staging -C "$dir" rev-parse HEAD 2>/dev/null)
   if [ -z "$objeto" ] || [ "$objeto" != "$commit_ref" ] || [ "$objeto" != "$cabeca" ]; then MOTIVO="o código baixado não é o commit que o Iago assinou."; return 1; fi
+  VERIFICADO_COMMIT="$objeto"
   return 0
 }
 
@@ -497,13 +506,22 @@ passo_baixar_kit() {
   CLONE_TMP="$pai/.anvilore-baixando.$$"
   rm -rf "$CLONE_TMP"
   dizer "Baixando o Anvilore $TAG..."
-  if ! rodar git -c advice.detachedHead=false clone --quiet --branch "$TAG" -- "$origem" "$CLONE_TMP"; then
+  HOOKS_VAZIO="$TMP_DIR/sem-hooks"
+  mkdir -p "$HOOKS_VAZIO" || falhar "não consegui criar uma pasta temporária."
+  # --no-checkout: o conteúdo da candidata não é gravado (e nenhum filtro do git, como o do git-lfs, roda sobre ele)
+  # antes de a assinatura passar.
+  if ! rodar git_staging -c advice.detachedHead=false clone --quiet --no-checkout --branch "$TAG" -- "$origem" "$CLONE_TMP"; then
     falhar "não consegui baixar o Anvilore $TAG de $origem."
   fi
   dizer "Conferindo a assinatura da versão..."
   if ! verificar_assinatura "$CLONE_TMP" "$TAG"; then
     rm -rf "$CLONE_TMP"; CLONE_TMP=""
     falhar "assinatura inválida: $MOTIVO Apaguei o que baixei, não liguei nenhum agente e não instalei nada."
+  fi
+  # Só agora, com o commit autenticado (VERIFICADO_COMMIT), grava os arquivos.
+  if ! rodar git -C "$CLONE_TMP" checkout --quiet --force --detach "$VERIFICADO_COMMIT"; then
+    rm -rf "$CLONE_TMP"; CLONE_TMP=""
+    falhar "não consegui gravar os arquivos do Anvilore $TAG. Apaguei o que baixei."
   fi
   gravar_estado_inicial "$CLONE_TMP"
   [ -d "$PASTA" ] && rmdir "$PASTA" 2>/dev/null
