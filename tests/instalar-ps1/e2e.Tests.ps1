@@ -12,8 +12,8 @@ BeforeDiscovery { $script:EhWindows = ($env:OS -eq 'Windows_NT') }
 Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
   BeforeAll {
     $script:Raiz = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-    $script:Instalador = Join-Path $script:Raiz 'instalador\instalar.ps1'
-    $script:Manifesto = Join-Path $PSScriptRoot 'fixtures\dependencias-prova.json'
+    $script:Modelo = Join-Path $script:Raiz 'instalador\instalar.ps1'
+    $script:Manifesto = Join-Path $script:Raiz 'instalador\dependencias.json'
     $script:Base = Join-Path $env:TEMP 'anv e2e'
     Remove-Item $script:Base -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory $script:Base -Force | Out-Null
@@ -66,20 +66,30 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       }
       return ($manter -join ';')
     }
+    # Gera o instalar.ps1 de release com o MESMO mecanismo do build (scripts/embutir-instalador.ts): manifesto e chave embutidos.
+    function script:Embutir($nome, $assinantes, $manifesto) {
+      $m = Join-Path $script:Base "manifesto-$nome.json"
+      [IO.File]::WriteAllText($m, ((Get-Content -Raw -Encoding UTF8 $manifesto) -replace "`r`n", "`n"))
+      $saida = Join-Path $script:Base "instalar-$nome.ps1"
+      $o = & bun (Join-Path $script:Raiz 'scripts\embutir-instalador.ts') --modelo $script:Modelo --manifesto $m --assinantes $assinantes --saida $saida 2>&1 | Out-String
+      if ($LASTEXITCODE -ne 0) { throw "embutir falhou: $o" }
+      return $saida
+    }
     # Roda o instalador em outro processo, com o perfil dado. Devolve @{ Codigo; Saida; Perfil }.
-    function script:Rodar($perfil, $origem, $assinantes, $path, $manifesto) {
+    function script:Rodar($perfil, $origem, $instalador, $path, $extras = @{}) {
       $salvas = @{}
       $novas = @{
         USERPROFILE = $perfil; LOCALAPPDATA = "$perfil\AppData\Local"; APPDATA = "$perfil\AppData\Roaming"
         TEMP = "$perfil\tmp"; TMP = "$perfil\tmp"; HOME = $perfil
-        ANVILORE_SEM_PERGUNTAS = '1'; ANVILORE_ORIGEM = $origem; ANVILORE_ASSINANTES = $assinantes
-        ANVILORE_MANIFESTO = $manifesto; Path = $path; ANVILORE_WIKI = ''
+        ANVILORE_SEM_PERGUNTAS = '1'; ANVILORE_ORIGEM = $origem; ANVILORE_ASSINANTES = ''
+        ANVILORE_MANIFESTO = ''; Path = $path; ANVILORE_WIKI = ''
       }
+      foreach ($k in $extras.Keys) { $novas[$k] = $extras[$k] }
       foreach ($k in $novas.Keys) { $salvas[$k] = [Environment]::GetEnvironmentVariable($k, 'Process') }
       try {
         foreach ($k in $novas.Keys) { [Environment]::SetEnvironmentVariable($k, $(if ($novas[$k]) { $novas[$k] } else { $null }), 'Process') }
         foreach ($d in @("$perfil\tmp", "$perfil\AppData\Local", "$perfil\AppData\Roaming")) { New-Item -ItemType Directory $d -Force | Out-Null }
-        $cmd = "& ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 '$($script:Instalador)'))); exit `$LASTEXITCODE"
+        $cmd = "& ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 '$instalador'))); exit `$LASTEXITCODE"
         $saida = & powershell.exe -NoProfile -NonInteractive -Command $cmd 2>&1 | Out-String
         $codigo = $LASTEXITCODE
       } finally {
@@ -90,6 +100,8 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
     }
     function script:Perfil($nome) { $p = Join-Path $script:Base "perfil $nome"; New-Item -ItemType Directory $p -Force | Out-Null; return $p }
     $script:OrigemBoa = Origem 'boa' 'assinada' $script:Boa $script:Outra
+    # Instalador de release: manifesto real + chave "boa" embutidos.
+    $script:Release = Embutir 'release' $script:Boa.Assinantes $script:Manifesto
     $script:PathComAgente = (PathSem @() $false) + ';' + $script:AgenteFalso
   }
 
@@ -107,7 +119,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $script:P1 = Perfil 'zero'
       $path = (PathSem @('git.exe', 'bun.exe', 'rg.exe', 'bun.cmd') $true) + ';' + $script:AgenteFalso
       (Get-Command git -ErrorAction SilentlyContinue) | Out-Null
-      $script:R1 = Rodar $script:P1 $script:OrigemBoa $script:Boa.Assinantes $path $script:Manifesto
+      $script:R1 = Rodar $script:P1 $script:OrigemBoa $script:Release $path
       $script:Pasta1 = Join-Path $script:P1 'Anvilore'
     }
     It 'termina completo (código 0)'                  { $script:R1.Codigo | Should -Be 0 }
@@ -160,7 +172,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $script:HashAntes = (Get-FileHash (Join-Path $script:Pasta1 'raw\minha-fonte.txt')).Hash
       $script:HeadAntes = (& git -C $script:Pasta1 rev-parse HEAD).Trim()
       $path = $script:PathComAgente
-      $script:R2 = Rodar $script:P1 $script:OrigemBoa $script:Boa.Assinantes $path $script:Manifesto
+      $script:R2 = Rodar $script:P1 $script:OrigemBoa $script:Release $path
     }
     It 'termina completo'                   { $script:R2.Codigo | Should -Be 0 }
     It 'diz que já está instalado'          { $script:R2.Saida | Should -Match 'Já existe uma instalação' }
@@ -179,15 +191,21 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       It "recusa a tag $($c.N)" -TestCases @($c) {
         param($N, $M)
         $origem = Origem "ruim-$M" $M $script:Boa $script:Outra
-        $r = Rodar (Perfil "ruim-$M") $origem $script:Boa.Assinantes $script:PathComAgente $script:Manifesto
+        $r = Rodar (Perfil "ruim-$M") $origem $script:Release $script:PathComAgente
         $r.Codigo | Should -Be 3
         $r.Saida | Should -Match 'conferência de segurança'
         Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
         Test-Path (Join-Path $r.Perfil 'Anvilore.novo') | Should -BeFalse
       }
     }
-    It 'sem chave embutida (nem arquivo de apoio) recusa antes de baixar' {
-      $r = Rodar (Perfil 'sem-chave') $script:OrigemBoa '' $script:PathComAgente $script:Manifesto
+    It 'o arquivo de apoio ANVILORE_ASSINANTES é ignorado quando há chave embutida (a de fora não vale)' {
+      $origem = Origem 'ruim-env' 'outra-chave' $script:Boa $script:Outra
+      $r = Rodar (Perfil 'env-ignorado') $origem $script:Release $script:PathComAgente @{ ANVILORE_ASSINANTES = $script:Outra.Assinantes }
+      $r.Codigo | Should -Be 3
+      Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
+    }
+    It 'o modelo sem chave embutida (nem arquivo de apoio) recusa antes de baixar' {
+      $r = Rodar (Perfil 'sem-chave') $script:OrigemBoa $script:Modelo $script:PathComAgente
       $r.Codigo | Should -Be 3
       $r.Saida | Should -Match 'chave de assinatura'
       Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
@@ -198,7 +216,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
   Context 'sem agente (cenário 3)' {
     # Dado nenhuma CLI de agente no PATH e a oferta recusada (silencioso); Quando termina;
     # Então o kit fica instalado, o código é parcial (10) e a mensagem diz para instalar um agente e rodar de novo.
-    BeforeAll { $script:R3 = Rodar (Perfil 'sem-agente') $script:OrigemBoa $script:Boa.Assinantes (PathSem @() $false) $script:Manifesto }
+    BeforeAll { $script:R3 = Rodar (Perfil 'sem-agente') $script:OrigemBoa $script:Release (PathSem @() $false) }
     It 'sai parcial (10)'            { $script:R3.Codigo | Should -Be 10 }
     It 'o kit ficou instalado'       { Test-Path (Join-Path $script:R3.Perfil 'Anvilore\package.json') | Should -BeTrue }
     It 'diz para instalar um agente' { $script:R3.Saida | Should -Match 'rode o instalador de novo' }
@@ -209,11 +227,12 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
     # Então apaga o arquivo, para com o código 4 e não instala nada.
     BeforeAll {
       $m = Get-Content -Raw -Encoding UTF8 $script:Manifesto | ConvertFrom-Json
-      $m.dependencias.portablegit.'windows-x64'.url = 'https://github.com/oven-sh/bun/releases/download/bun-v1.4.1/SHASUMS256.txt'
-      $script:ManifestoRuim = Join-Path $script:Base 'manifesto-ruim.json'
-      ($m | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $script:ManifestoRuim -Encoding UTF8
+      $m.dependencias.portablegit.plataformas.'windows-x64'.url = 'https://github.com/oven-sh/bun/releases/download/bun-v1.4.1/SHASUMS256.txt'
+      $ruim = Join-Path $script:Base 'dependencias-ruim.json'
+      [IO.File]::WriteAllText($ruim, (($m | ConvertTo-Json -Depth 10) -replace "`r`n", "`n") + "`n")
+      $adulterado = Embutir 'adulterado' $script:Boa.Assinantes $ruim
       $path = (PathSem @('git.exe') $true) + ';' + $script:AgenteFalso
-      $script:R4 = Rodar (Perfil 'adulterado') $script:OrigemBoa $script:Boa.Assinantes $path $script:ManifestoRuim
+      $script:R4 = Rodar (Perfil 'adulterado') $script:OrigemBoa $adulterado $path
     }
     It 'para com o código 4'              { $script:R4.Codigo | Should -Be 4 }
     It 'diz que o arquivo não confere'    { $script:R4.Saida | Should -Match 'não confere' }

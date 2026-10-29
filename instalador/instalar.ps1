@@ -16,20 +16,20 @@
 #   ANVILORE_MANIFESTO=<arquivo>, ANVILORE_ASSINANTES=<arquivo>  só valem quando o bloco embutido correspondente
 #       está vazio (CI/QA/desenvolvimento). Numa release os blocos vêm preenchidos e estas variáveis são ignoradas.
 #
-# Os blocos "ANVILORE-EMBUTIDO" abaixo são preenchidos pelo build da release (manifesto de dependências e chave pública
-# de quem assina as versões). Vazios, o instalador NÃO confia em nada: sem chave, recusa instalar o kit.
+# As regiões "ANVILORE:MANIFESTO" e "ANVILORE:ASSINANTES" abaixo são preenchidas pelo build da release
+# (bun scripts/embutir-instalador.ts --modelo instalador/instalar.ps1): o manifesto de dependências e a chave pública de
+# quem assina as versões. Vazias, o instalador NÃO confia em nada: sem chave, recusa instalar o kit.
 #
 # Cada passo abaixo é o passo de mesmo número do PLANO (§2). O 10 (atalhos) é da fatia U6.
 
-# ANVILORE-EMBUTIDO-INICIO manifesto
+# >>> ANVILORE:MANIFESTO (preenchido na release por scripts/embutir-instalador.ts; não edite)
 $script:AnvManifestoEmbutido = @'
 '@
-# ANVILORE-EMBUTIDO-FIM manifesto
-
-# ANVILORE-EMBUTIDO-INICIO assinantes
+# <<< ANVILORE:MANIFESTO
+# >>> ANVILORE:ASSINANTES (preenchido na release por scripts/embutir-instalador.ts; não edite)
 $script:AnvAssinantesEmbutido = @'
 '@
-# ANVILORE-EMBUTIDO-FIM assinantes
+# <<< ANVILORE:ASSINANTES
 
 $script:AnvOrigemPadrao = 'https://github.com/iagofrota/anvilore.git'
 $script:AnvChaveEnv = 'HKCU:\Environment'
@@ -236,15 +236,18 @@ function AnvLerManifesto {
   try { return ($texto | ConvertFrom-Json) } catch { return $null }
 }
 
-# Esquema provisório do manifesto (a U3 é dona de instalador/dependencias.json): dependencias.<nome>.<plataforma>
-# = { versao, url (https), sha256 (64 hex), executavel? }. Só esta função conhece o esquema.
+# Manifesto (instalador/dependencias.json, formato 1): dependencias.<nome>.versao e dependencias.<nome>.plataformas.<plataforma>
+# = { arquivo, url (https), sha256 (64 hex), formato, executavel, tamanhoMB? }. Devolve a entrada com a versão junto, ou nulo.
 function AnvDependencia {
   param($Manifesto, [string]$Nome, [string]$Plataforma)
   if (-not $Manifesto) { return $null }
-  try { $d = $Manifesto.dependencias.$Nome.$Plataforma } catch { return $null }
-  if (-not $d) { return $null }
-  if (-not $d.versao -or ([string]$d.url) -notmatch '^https://' -or ([string]$d.sha256) -notmatch '^[0-9a-fA-F]{64}$') { return $null }
-  return $d
+  try { $dep = $Manifesto.dependencias.$Nome; $e = $dep.plataformas.$Plataforma } catch { return $null }
+  if (-not $dep -or -not $e -or -not $dep.versao) { return $null }
+  if (([string]$e.url) -notmatch '^https://' -or ([string]$e.sha256) -notmatch '^[0-9a-fA-F]{64}$') { return $null }
+  return [pscustomobject]@{
+    versao = [string]$dep.versao; arquivo = [string]$e.arquivo; url = [string]$e.url; sha256 = [string]$e.sha256
+    formato = [string]$e.formato; executavel = [string]$e.executavel; tamanhoMB = $e.tamanhoMB
+  }
 }
 
 function AnvLinhasDeAssinantes {
@@ -398,7 +401,8 @@ function AnvInstalarPortableGit {
   $dep = AnvDependencia -Manifesto $Manifesto -Nome 'portablegit' -Plataforma $Plataforma
   if (-not $dep) { AnvParar 4 'O instalador não tem o Git portátil para este sistema na lista de dependências.' }
   $arquivo = Join-Path $Temp 'PortableGit.7z.exe'
-  AnvEscrever "Baixando o Git portátil $($dep.versao) (ocupa cerca de 392 MB depois de extraído)..."
+  $mb = if ($dep.tamanhoMB) { $dep.tamanhoMB } else { 392 }
+  AnvEscrever "Baixando o Git portátil $($dep.versao) (ocupa cerca de $mb MB depois de extraído)..."
   $r = AnvBaixarComHash -Dependencia $dep -Destino $arquivo
   if ($r -eq 'falha-download') { AnvParar 4 'Não consegui baixar o Git portátil. Confira a internet e rode o instalador de novo.' }
   if ($r -eq 'hash-diferente') { AnvParar 4 'O Git portátil baixado não confere com o esperado (SHA-256). Apaguei o arquivo e não instalei nada.' }

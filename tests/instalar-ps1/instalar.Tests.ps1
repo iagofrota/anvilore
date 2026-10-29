@@ -58,21 +58,28 @@ Describe 'AnvAdicionarAoPath' {
 }
 
 Describe 'AnvDependencia (adaptador do manifesto)' {
-  BeforeAll { $script:M = Get-Content -Raw -Encoding UTF8 (Join-Path $PSScriptRoot 'fixtures\dependencias-prova.json') | ConvertFrom-Json }
+  BeforeAll { $script:M = Get-Content -Raw -Encoding UTF8 (Join-Path $PSScriptRoot '..\..\instalador\dependencias.json') | ConvertFrom-Json }
   It 'acha a entrada pela plataforma' {
     $d = AnvDependencia -Manifesto $script:M -Nome 'bun' -Plataforma 'windows-x64'
     $d.versao | Should -Be '1.4.1'
     $d.sha256 | Should -Match '^[0-9a-f]{64}$'
+    $d.url | Should -Match '^https://'
   }
-  It 'plataforma sem entrada dá nulo'  { AnvDependencia -Manifesto $script:M -Nome 'rg' -Plataforma 'linux-arm64' | Should -BeNullOrEmpty }
+  It 'o baseline do Bun é uma plataforma própria' {
+    (AnvDependencia -Manifesto $script:M -Nome 'bun' -Plataforma 'windows-x64-baseline').url | Should -Match 'baseline'
+  }
+  It 'traz o PortableGit com o tamanho' {
+    (AnvDependencia -Manifesto $script:M -Nome 'portablegit' -Plataforma 'windows-x64').tamanhoMB | Should -Be 392
+  }
+  It 'plataforma sem entrada dá nulo'  { AnvDependencia -Manifesto $script:M -Nome 'rg' -Plataforma 'macos-x64' | Should -BeNullOrEmpty }
   It 'dependência sem entrada dá nulo' { AnvDependencia -Manifesto $script:M -Nome 'nada' -Plataforma 'windows-x64' | Should -BeNullOrEmpty }
   It 'manifesto nulo dá nulo'          { AnvDependencia -Manifesto $null -Nome 'bun' -Plataforma 'windows-x64' | Should -BeNullOrEmpty }
   It 'entrada sem hash válido é recusada' {
-    $ruim = '{"dependencias":{"bun":{"windows-x64":{"versao":"1.0.0","url":"https://x/y.zip","sha256":"abc"}}}}' | ConvertFrom-Json
+    $ruim = '{"dependencias":{"bun":{"versao":"1.0.0","plataformas":{"windows-x64":{"url":"https://x/y.zip","sha256":"abc"}}}}}' | ConvertFrom-Json
     AnvDependencia -Manifesto $ruim -Nome 'bun' -Plataforma 'windows-x64' | Should -BeNullOrEmpty
   }
   It 'entrada com URL que não é https é recusada' {
-    $ruim = '{"dependencias":{"bun":{"windows-x64":{"versao":"1.0.0","url":"http://x/y.zip","sha256":"52b1f3028b01f43d37fefdf669d034a1ee2e0d96c56bb13c393bdaf169b1af84"}}}}' | ConvertFrom-Json
+    $ruim = '{"dependencias":{"bun":{"versao":"1.0.0","plataformas":{"windows-x64":{"url":"http://x/y.zip","sha256":"52b1f3028b01f43d37fefdf669d034a1ee2e0d96c56bb13c393bdaf169b1af84"}}}}}' | ConvertFrom-Json
     AnvDependencia -Manifesto $ruim -Nome 'bun' -Plataforma 'windows-x64' | Should -BeNullOrEmpty
   }
 }

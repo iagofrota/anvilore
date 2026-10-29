@@ -3,18 +3,13 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { lerEmbutidos } from "../scripts/embutir-instalador";
 
 const raiz = join(import.meta.dir, "..");
 const caminho = join(raiz, "instalador/instalar.ps1");
 const bytes = readFileSync(caminho);
 const texto = bytes.toString("utf8");
 const codigo = texto.split("\n").filter(l => !l.trimStart().startsWith("#")).join("\n");
-
-function bloco(nome: string): string {
-  const m = new RegExp(`# ANVILORE-EMBUTIDO-INICIO ${nome}\\n([\\s\\S]*?)# ANVILORE-EMBUTIDO-FIM ${nome}`).exec(texto);
-  if (!m) throw new Error(`bloco ${nome} ausente`);
-  return m[1]!;
-}
 
 describe("instalar.ps1: forma do arquivo", () => {
   test("Dado o instalador, Quando leio os bytes, Então é UTF-8 sem BOM", () => {
@@ -57,21 +52,19 @@ describe("instalar.ps1: requisitos do passo a passo", () => {
     expect(existsSync(join(raiz, "instalador/abrir.ps1"))).toBe(false);
   });
 
-  test("Dado o instalador sem build de release, Então os blocos embutidos estão vazios: sem chave, nada é confiável", () => {
-    for (const nome of ["manifesto", "assinantes"]) {
-      const interior = bloco(nome).replace(/\$script:\w+\s*=\s*@'\r?\n'@/, "").trim();
-      expect(interior).toBe("");
-    }
+  test("Dado o instalador sem build de release, Então as regiões embutidas estão vazias: sem chave, nada é confiável", () => {
+    expect(lerEmbutidos(texto, "ps1")).toEqual({ manifesto: "", assinantes: "" });
+    expect(texto).toMatch(/# >>> ANVILORE:MANIFESTO[^\n]*\n\$script:AnvManifestoEmbutido = @'\n'@\n# <<< ANVILORE:MANIFESTO/);
+    expect(texto).toMatch(/# >>> ANVILORE:ASSINANTES[^\n]*\n\$script:AnvAssinantesEmbutido = @'\n'@\n# <<< ANVILORE:ASSINANTES/);
   });
 });
 
-describe("instalar.ps1: manifesto de prova usado pelos testes", () => {
-  const m = JSON.parse(readFileSync(join(raiz, "tests/instalar-ps1/fixtures/dependencias-prova.json"), "utf8"));
-  const entradas = Object.entries(m.dependencias).flatMap(([nome, porPlataforma]) =>
-    Object.entries(porPlataforma as Record<string, { url: string; sha256: string; versao: string }>).map(([plataforma, e]) => ({ nome, plataforma, ...e })));
+describe("instalar.ps1: manifesto real", () => {
+  const m = JSON.parse(readFileSync(join(raiz, "instalador/dependencias.json"), "utf8"));
 
-  test("Dado cada entrada, Então tem https e SHA-256 de 64 hex", () => {
-    for (const e of entradas) {
+  test("Dado o manifesto, Então traz PortableGit, Bun (com baseline) e rg para windows-x64", () => {
+    for (const [nome, plataforma] of [["portablegit", "windows-x64"], ["bun", "windows-x64"], ["bun", "windows-x64-baseline"], ["rg", "windows-x64"]] as const) {
+      const e = m.dependencias[nome].plataformas[plataforma];
       expect(e.url).toMatch(/^https:\/\//);
       expect(e.sha256).toMatch(/^[0-9a-f]{64}$/);
     }
@@ -79,7 +72,7 @@ describe("instalar.ps1: manifesto de prova usado pelos testes", () => {
 
   test("Dado o Bun do manifesto, Quando comparo com o packageManager do package.json, Então a versão é a mesma", () => {
     const pm = JSON.parse(readFileSync(join(raiz, "package.json"), "utf8")).packageManager as string;
-    expect(m.dependencias.bun["windows-x64"].versao).toBe(pm.replace(/^bun@/, ""));
+    expect(m.dependencias.bun.versao).toBe(pm.replace(/^bun@/, ""));
   });
 });
 
