@@ -52,6 +52,37 @@ jobs:
         if: always()
         run: bun scripts/rg-temporario-prova.ts --limpar
 
+  instalar-ps1:
+    name: instalar.ps1 (Windows, perfil vazio)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - name: Instalar Pester 5
+        shell: powershell
+        run: |
+          Install-Module Pester -MinimumVersion 5.5 -Force -Scope CurrentUser -SkipPublisherCheck
+      - name: Testes unitários do instalar.ps1 (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          Import-Module Pester -MinimumVersion 5.5
+          $c = New-PesterConfiguration
+          $c.Run.Path = 'tests/instalar-ps1/instalar.Tests.ps1'
+          $c.Run.Exit = $true
+          Invoke-Pester -Configuration $c
+      - name: Prova de ponta a ponta do instalar.ps1 (perfil vazio, tag assinada com chave descartável)
+        shell: powershell
+        run: |
+          Import-Module Pester -MinimumVersion 5.5
+          $c = New-PesterConfiguration
+          $c.Run.Path = 'tests/instalar-ps1/e2e.Tests.ps1'
+          $c.Run.Exit = $true
+          $c.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $c
+
   e2e-chromium:
     name: Playwright Chromium (${{ matrix.execucao }}/5)
     runs-on: ubuntu-latest
