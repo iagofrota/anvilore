@@ -257,6 +257,7 @@ Onde cada coisa fica (Linux):
   direto para um commit e que o `HEAD` baixado é esse commit. Só então faz o `checkout` desse commit. Falhou: apaga o que baixou, não liga agente nenhum
   e diz por quê. O mesmo critério do atualizador (`src/lib/atualizacao.ts`).
 - **Transporte.** `ls-remote` e `clone` rodam em `git_rede`: `GIT_ALLOW_PROTOCOL` só com o protocolo da origem (https; `file` ou `ssh` quando a origem é trocada nos testes), `credential.helper` zerado, `GIT_ASKPASS` vazio e `GIT_TERMINAL_PROMPT=0`. A configuração global não abre `ext::` nem `fd::` antes da assinatura, e o resto dela (proxy, por exemplo) continua valendo.
+- **Reinstalação.** Numa pasta já instalada o script roda o atualizador dela, passando as chaves embutidas em `ANVILORE_ASSINANTES_DO_INSTALADOR` (arquivo temporário, só nessa chamada): o atualizador confere a tag contra elas e não contra o arquivo seguranca/assinantes antigo da pasta, que não conhece uma chave nova. Nada é gravado na pasta por causa disso.
 - **Perguntas.** Respostas vêm de /dev/tty, porque `curl | bash` ocupa a entrada. Sem terminal, ou com
   `ANVILORE_SEM_PERGUNTAS=1`, vale a resposta padrão (instalar pacotes que faltam: sim; instalar o Claude Code:
   não, salvo `ANVILORE_INSTALAR_CLAUDE=sim`). `ANVILORE_ESPERAR_ENTER=1` faz o script esperar Enter no fim, para a

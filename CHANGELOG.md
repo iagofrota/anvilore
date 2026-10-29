@@ -23,6 +23,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   que qualquer `protocol.<nome>.allow` da configuração global, então um `url.<ext::programa>.insteadOf` não executa nada
   antes da assinatura. O `credential.helper` é zerado e não há pergunta de senha nem de terminal nessas chamadas.
 - Rodar o `instalar.sh` numa pasta já instalada passa pelo atualizador do kit, que agora fixa o verificador SSH: um `gpg.ssh.program` aprovador na configuração global não faz a reinstalação aplicar uma tag assinada por chave fora dos assinantes (`tests/instalar-sh-reinstalacao.test.ts`).
+- Ao rodar o `instalar.sh` numa pasta já instalada, ele entrega ao atualizador as chaves de assinatura embutidas nele (`ANVILORE_ASSINANTES_DO_INSTALADOR`, só nessa chamada): uma instalação que ficou para trás na troca de chave passa a receber a versão nova, sem editar o `seguranca/assinantes` da pasta.
 
 ### Fixed
 

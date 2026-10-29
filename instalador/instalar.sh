@@ -675,7 +675,7 @@ criar_atalho() {
 # ---------------------------------------------------------------------------------------------------------------
 
 passo_atualizar_existente() {
-  local primeira
+  local primeira assinantes
   mover_registro "$PASTA"
   dizer "Já existe uma instalação em $PASTA: vou conferir e atualizar, sem sobrescrever nada seu."
   INSTALACAO_NOVA=0
@@ -688,7 +688,12 @@ passo_atualizar_existente() {
     # Escolha da pessoa (ou do atualizador): só mantém o commit automático se o estado diz que está ligado.
     grep -Eq '"autoCommit": *true' "$PASTA/.anvilore/atualizacao.json" || AUTO_COMMIT=0
   fi
-  if rodar bash -c 'cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts atualizar' _ "$PASTA"; then
+  # O atualizador da pasta confere a tag com o seguranca/assinantes que a pasta já tem, e uma instalação que ficou para trás
+  # na troca de chave não conhece a chave nova. Entrega a ela as chaves embutidas deste instalador (só para esta chamada;
+  # não grava nada na pasta): com elas o atualizador confere a tag só contra o que este script traz.
+  assinantes="$TMP_DIR/assinantes-reinstalacao"
+  assinantes_embutidas >"$assinantes" || falhar "não consegui preparar as chaves de assinatura para conferir a atualização."
+  if rodar env "ANVILORE_ASSINANTES_DO_INSTALADOR=$assinantes" bash -c 'cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts atualizar' _ "$PASTA"; then
     dizer "Atualização: $(printf '%s\n' "$ULTIMA_SAIDA" | tail -n1)"
   else
     primeira=$(printf '%s\n' "$ULTIMA_SAIDA" | head -n1)
