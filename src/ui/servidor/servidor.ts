@@ -57,7 +57,7 @@ async function estadoAtualizador(raiz: string) {
       atualizadoEm,
       disponivel: typeof estado.disponivel === "string" ? estado.disponivel : undefined,
       etapa: typeof estado.etapa === "string" ? estado.etapa : undefined,
-      erro: typeof estado.erro === "string" ? estado.erro : undefined,
+      erro: [estado.alerta, estado.erro].filter(texto => typeof texto === "string").join(" ") || undefined,
       podeVoltar: ["ocioso", "baixada", "recusada"].includes(String(estado.estado)) && typeof (estado.ultima as { id?: unknown } | undefined)?.id === "string",
       mudancas,
     };

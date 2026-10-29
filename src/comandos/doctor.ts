@@ -350,6 +350,7 @@ export async function comandoDoctor(args: string[], deps: { ambienteMcp?: Ambien
   if (estadoAtualizador) {
     console.log(`Atualizador: ${String(estadoAtualizador.estado ?? "ocioso")} — modo ${String(estadoAtualizador.modo ?? "desconhecido")}, canal ${String(estadoAtualizador.canal ?? "desconhecido")}${estadoAtualizador.etapa ? `, etapa ${String(estadoAtualizador.etapa)}` : ""}`);
     if (estadoRuim) console.log(`  recuperação pendente: ${String(estadoAtualizador.erro ?? estadoAtualizador.etapa ?? "processo interrompido")}`);
+    if (typeof estadoAtualizador.alerta === "string") console.log(`  ${estadoAtualizador.alerta}`);
   } else console.log("Atualizador: esta instalação ainda não tem estado gerenciado");
   console.log("Travas (o que impede o agente de atravessar a fronteira):");
   for (const trava of travas) for (const texto of linhas(trava)) console.log(texto);
