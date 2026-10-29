@@ -197,6 +197,14 @@ export type OpcoesObterNota = {
   ganchoAposAbrir?: (caminho: string) => Promise<void> | void;
 };
 
+export function comporFlagsAbertura(
+  c: { O_RDONLY?: unknown; O_NOFOLLOW?: unknown; O_NONBLOCK?: unknown } = constants,
+): number | string {
+  return typeof c.O_NOFOLLOW === "number" && typeof c.O_NONBLOCK === "number"
+    ? (c.O_RDONLY as number) | (c.O_NOFOLLOW as number) | (c.O_NONBLOCK as number)
+    : "r";
+}
+
 export async function obterNota(
   raiz: string,
   caminhoRelativo: string,
@@ -234,10 +242,7 @@ export async function obterNota(
     throw erro;
   }
 
-  const flags =
-    typeof constants.O_NOFOLLOW === "number" && typeof constants.O_NONBLOCK === "number"
-      ? constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
-      : "r";
+  const flags = comporFlagsAbertura();
 
   let fh;
   try {

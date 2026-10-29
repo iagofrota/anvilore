@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ErroDeCaminhoInvalido, obterNota, validarCaminhoWiki } from "../src/lib/ui-nota";
+import { comporFlagsAbertura, ErroDeCaminhoInvalido, obterNota, validarCaminhoWiki } from "../src/lib/ui-nota";
 
 const RAIZ = join(import.meta.dir, ".tmp-ui-nota");
 
@@ -43,6 +43,24 @@ describe("ui-nota: obterNota", () => {
       const nota = await obterNota(RAIZ, "pessoal/conceitos/inexistente.md");
       expect(nota).toBeNull();
     });
+
+    test("retorna null para wiki inexistente", async () => {
+      const raizInexistente = join(RAIZ, "pasta-inexistente");
+      const nota = await obterNota(raizInexistente, "pessoal/conceitos/inexistente.md");
+      expect(nota).toBeNull();
+    });
+
+    test.skipIf(process.platform === "win32")(
+      "recusa caminho quando a raiz wiki é um symlink circular (ELOOP)",
+      async () => {
+        const raizLoop = join(RAIZ, "loop-wiki");
+        await mkdir(raizLoop, { recursive: true });
+        await symlink("wiki", join(raizLoop, "wiki"));
+        await expect(obterNota(raizLoop, "pessoal/conceitos/x.md")).rejects.toThrow(
+          ErroDeCaminhoInvalido,
+        );
+      },
+    );
 
     test("recusa caminho com byte nulo ou string vazia", async () => {
       expect(obterNota(RAIZ, "")).rejects.toThrow(ErroDeCaminhoInvalido);
@@ -185,6 +203,26 @@ describe("ui-nota: obterNota", () => {
         await expect(obterNota(RAIZ, "pessoal/notas/link-interno.md")).rejects.toThrow(
           ErroDeCaminhoInvalido,
         );
+      },
+    );
+
+    test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+      "recusa nota externa através de symlink intermediário sem tentar abrir o arquivo (realpath prévio)",
+      async () => {
+        const pastaExterna = join(RAIZ, "fora/pasta-externa");
+        await mkdir(pastaExterna, { recursive: true });
+        const notaExterna = join(pastaExterna, "nota.md");
+        await writeFile(notaExterna, "# Nota Externa\n");
+        await chmod(notaExterna, 0o000);
+        await symlink(pastaExterna, join(RAIZ, "wiki/intermediario"));
+
+        try {
+          await expect(obterNota(RAIZ, "intermediario/nota.md")).rejects.toThrow(
+            ErroDeCaminhoInvalido,
+          );
+        } finally {
+          await chmod(notaExterna, 0o644).catch(() => {});
+        }
       },
     );
   });
@@ -398,6 +436,49 @@ Ligação para [[principal]].
       expect(idsNos).toContain("b/dupe.md");
 
       expect(nota.grafoLocal.nos.length).toBe(3);
+    });
+  });
+
+  describe("composição de flags de abertura (comporFlagsAbertura)", () => {
+    test("combina O_RDONLY, O_NOFOLLOW e O_NONBLOCK quando todos são números", () => {
+      const flags = comporFlagsAbertura({
+        O_RDONLY: 0,
+        O_NOFOLLOW: 0x20000,
+        O_NONBLOCK: 0x800,
+      });
+      expect(flags).toBe(0 | 0x20000 | 0x800);
+    });
+
+    test("preserva O_NOFOLLOW quando O_NONBLOCK não está disponível", () => {
+      const flags = comporFlagsAbertura({
+        O_RDONLY: 0,
+        O_NOFOLLOW: 0x20000,
+      });
+      expect(flags).toBe(0 | 0x20000);
+    });
+
+    test("preserva O_NONBLOCK quando O_NOFOLLOW não está disponível", () => {
+      const flags = comporFlagsAbertura({
+        O_RDONLY: 0,
+        O_NONBLOCK: 0x800,
+      });
+      expect(flags).toBe(0 | 0x800);
+    });
+
+    test("cai para 'r' se nenhuma flag de proteção estiver disponível", () => {
+      const flags = comporFlagsAbertura({
+        O_RDONLY: 0,
+      });
+      expect(flags).toBe("r");
+    });
+
+    test("cai para 'r' se O_RDONLY não for número", () => {
+      const flags = comporFlagsAbertura({
+        O_RDONLY: undefined,
+        O_NOFOLLOW: 0x20000,
+        O_NONBLOCK: 0x800,
+      });
+      expect(flags).toBe("r");
     });
   });
 });

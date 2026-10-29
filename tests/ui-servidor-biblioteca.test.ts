@@ -105,6 +105,26 @@ test("Dado pedidos de /api/nota com caminhos inválidos ou inseguros Então a AP
   expect((await chamar("/api/nota?caminho=inexistente.md")).status).toBe(404);
 });
 
+test("Dado wiki inexistente Quando consulto /api/nota Então a rota responde 404", async () => {
+  const raizSemWiki = mkdtempSync(join(tmpdir(), "anvilore-sem-wiki-"));
+  try {
+    const app = await iniciarServidorUi(raizSemWiki, {
+      portaInicial: 0,
+      token: "token-teste",
+      abrirNavegador: false,
+      ponte: new PonteFalsa(),
+    });
+    servidores.push(app.servidor);
+    const base = `http://127.0.0.1:${app.porta}`;
+    const res = await fetch(`${base}/api/nota?caminho=pessoal/conceitos/x.md&token=token-teste`, {
+      headers: { origin: base },
+    });
+    expect(res.status).toBe(404);
+  } finally {
+    rmSync(raizSemWiki, { recursive: true, force: true });
+  }
+});
+
 test("Dado uma página válida Quando peço /api/nota Então retorna todos os detalhes", async () => {
   writeFileSync(
     join(raiz, "wiki/pessoal/conceitos/padrao-llm.md"),
