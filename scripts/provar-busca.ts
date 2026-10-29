@@ -22,7 +22,7 @@ export function prepararWiki() {
     // rg só respeita .gitignore num repositório Git. Não usar a configuração real da pessoa.
     const git = Bun.spawnSync(["git", "-c", "init.templateDir=", "init", "--quiet", cwd], { stdout: "pipe", stderr: "pipe" });
     if (git.exitCode !== 0) throw new Error(`git init temporário: ${git.stderr.toString()}`);
-    writeFileSync(join(cwd, "wiki/.gitignore"), readFileSync(join(raiz, "wiki/.gitignore")));
+    writeFileSync(join(cwd, "wiki/.gitignore"), readFileSync(join(raiz, "modelos/wiki/gitignore")));
     writeFileSync(join(cwd, "wiki/index.md"), "# Índice de teste\n");
     const paginas = ["wiki/exemplo/concepts/governança-nfc.md", "wiki/exemplo/concepts/tributação-nfd.md".normalize("NFD")];
     for (const [i, pagina] of paginas.entries()) {

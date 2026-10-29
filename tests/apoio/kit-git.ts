@@ -1,11 +1,10 @@
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { pecasDoModelo } from "../../src/lib/modelos";
 
 // Fixture git de verdade para a migração do U1: uma origem bare com a versão N (que ainda rastreia os arquivos da
 // pessoa, como o kit hoje) e, quando pedido, a N+1 (que os tira do rastreio). A pessoa trabalha num clone da N.
 
-const raizDoKit = resolve(import.meta.dir, "../..");
 
 export function git(dir: string, ...args: string[]): { codigo: number; saida: string } {
   const p = Bun.spawnSync(["git", "-C", dir, "-c", "user.name=Teste", "-c", "user.email=t@e", "-c", "commit.gpgsign=false",
@@ -19,8 +18,30 @@ export function gitOk(dir: string, ...args: string[]): string {
   return r.saida.trim();
 }
 
-// O .gitignore da N é o de hoje (do próprio kit); o da N+1 ignora tudo o que é da pessoa.
-export const GITIGNORE_N1 = "raw/\n/wiki/\n/SCHEMA.md\n.anvilore/\nanvilore.toml\n";
+// O .gitignore da N é o que o kit tinha até rastrear os arquivos da pessoa; o da N+1 os ignora.
+export const GITIGNORE_N = `raw/*
+!raw/.gitkeep
+!raw/exemplo/
+/wiki/**
+!/wiki/.gitignore
+!/wiki/index.md
+!/wiki/log.md
+!/wiki/_meta/
+!/wiki/_meta/.gitkeep
+!/wiki/log/
+!/wiki/log/.gitkeep
+!/wiki/exemplo/
+!/wiki/exemplo/sources/
+!/wiki/exemplo/sources/.gitkeep
+!/wiki/exemplo/entities/
+!/wiki/exemplo/entities/.gitkeep
+!/wiki/exemplo/concepts/
+!/wiki/exemplo/concepts/.gitkeep
+!/wiki/exemplo/concepts/area-tematica.md
+.anvilore/
+`;
+// A N+1 é a versão deste repositório: usa o .gitignore real do kit.
+export const GITIGNORE_N1 = readFileSync(join(import.meta.dir, "../../.gitignore"), "utf8");
 
 export async function montarOrigem(tmp: string): Promise<{ origem: string; dev: string }> {
   const origem = join(tmp, "origem.git");
@@ -28,7 +49,7 @@ export async function montarOrigem(tmp: string): Promise<{ origem: string; dev: 
   gitOk(tmp, "init", "-q", "--bare", origem);
   gitOk(tmp, "clone", "-q", origem, dev);
   gitOk(dev, "config", "core.autocrlf", "false");
-  cpSync(join(raizDoKit, ".gitignore"), join(dev, ".gitignore"));
+  writeFileSync(join(dev, ".gitignore"), GITIGNORE_N);
   writeFileSync(join(dev, "codigo.ts"), "export const versao = 'N';\n");
   for (const peca of await pecasDoModelo()) {
     mkdirSync(dirname(join(dev, peca.destino)), { recursive: true });

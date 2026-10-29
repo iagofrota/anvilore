@@ -19,6 +19,7 @@ import * as validar from "../src/comandos/validar";
 import { comandoFechar, fecharWiki } from "../src/comandos/fechar";
 import { executar, subcomandos } from "../src/cli";
 import { comandoInit } from "../src/comandos/init";
+import { esqueletoEm } from "./apoio/esqueleto";
 
 let tmp: string;
 const semLink = process.platform === "win32";
@@ -255,6 +256,17 @@ describe("fechar: gate do log do dia", () => {
     expect((await capturar(() => fecharWiki(join(clone, "wiki")))).valor.ok).toBe(false);
   });
 
+  test("Dado instalação nova com o esqueleto copiado de modelos/ e sem git, Quando fecho no mesmo dia, Então não cobra log pelo exemplo; editado, cobra", async () => {
+    const { wiki: w } = await esqueletoEm(tmp);
+    const limpa = await capturar(() => fecharWiki(w));
+    expect(limpa.valor.ok).toBe(true);
+    expect(limpa.saida).toContain("nenhuma pagina curada alterada hoje");
+    gravar(w, "exemplo/concepts/area-tematica.md", readFileSync(join(w, "exemplo/concepts/area-tematica.md"), "utf8") + "\nEdição de hoje.\n");
+    const r = await capturar(() => fecharWiki(w));
+    expect(r.valor).toEqual({ ok: false, passo: "gate-do-log" });
+    expect(r.saida).toContain(join("exemplo", "concepts", "area-tematica.md"));
+  });
+
   test("Dado esqueleto limpo e página nova ignorada pelo Git Quando fecho Então cobra só a página nova e o log destrava", async () => {
     const clone = clonarEsqueleto();
     const w = join(clone, "wiki");
@@ -463,8 +475,7 @@ describe("fechar: escape explícito do gate", () => {
 
 describe("fechar: a wiki versionada do repositório", () => {
   test("Dado uma cópia da wiki do repositório, Quando fecho com o gate pulado, Então fecha e deixa os arquivos como estavam", async () => {
-    const copia = join(tmp, "wiki");
-    cpSync(join(import.meta.dir, "..", "wiki"), copia, { recursive: true });
+    const copia = (await esqueletoEm(tmp)).wiki;
     const antes = arvore(copia);
     process.env.ANVILORE_PULAR_GATE_LOG = "1";
     const r = await capturar(() => fecharWiki(copia));

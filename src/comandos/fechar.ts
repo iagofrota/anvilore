@@ -5,6 +5,7 @@ import { nomeReservado } from "../lib/reservados";
 import { comandoIndexarLog } from "./indexar-log";
 import { comandoSincronizarIndice } from "./sincronizar-indice";
 import { comandoValidar } from "./validar";
+import { PASTA_MODELOS, origemNoModelo } from "../lib/modelos";
 
 // Ritual de fechamento de uma sessão na wiki: roda tudo numa chamada e cobra o que não é derivável.
 //
@@ -16,7 +17,8 @@ import { comandoValidar } from "./validar";
 //   4. gate do log do dia   página curada alterada hoje exige entrada no log
 //
 // O gate usa mtime para o conteúdo ignorado pelo git, mas dispensa arquivos rastreados iguais ao HEAD:
-// o checkout do esqueleto tem mtime de hoje sem ser uma edição. Sem Git/HEAD, vale só o mtime.
+// o checkout do esqueleto tem mtime de hoje sem ser uma edição; o mesmo vale para o arquivo byte a byte igual ao
+// original em `modelos/`. Sem Git/HEAD, vale só o mtime.
 // Ignora derivados (`index.md`, `log.md`) e diretórios reservados de topo (`_meta/`, `log/`).
 // `ANVILORE_PULAR_GATE_LOG=1` pula só o gate.
 
@@ -101,6 +103,18 @@ async function versionadasSemAlteracao(wiki: string): Promise<Set<string>> {
   return limpas;
 }
 
+// O kit não rastreia mais a wiki: o esqueleto que o `instalar` copiou hoje de `modelos/` tem mtime de hoje sem ser uma
+// edição. Byte a byte igual ao original, não conta.
+async function igualAoModelo(wiki: string, rel: string): Promise<boolean> {
+  const origem = origemNoModelo(`wiki/${rel}`);
+  if (origem === undefined) return false;
+  try {
+    return Buffer.from(await readFile(join(wiki, rel))).equals(Buffer.from(await readFile(join(PASTA_MODELOS, origem))));
+  } catch {
+    return false;
+  }
+}
+
 async function gateDoLog(wiki: string, agora: Date): Promise<boolean> {
   if (process.env.ANVILORE_PULAR_GATE_LOG === "1") {
     console.log("gate pulado por ANVILORE_PULAR_GATE_LOG=1");
@@ -111,7 +125,11 @@ async function gateDoLog(wiki: string, agora: Date): Promise<boolean> {
   const meiaNoite = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()).getTime();
   const recentes = await curadasTocadas(wiki, meiaNoite);
   const limpas = recentes.length ? await versionadasSemAlteracao(wiki) : new Set<string>();
-  const tocadas = recentes.filter(caminho => !limpas.has(caminho.split(sep).join("/")));
+  const tocadas: string[] = [];
+  for (const caminho of recentes) {
+    const rel = caminho.split(sep).join("/");
+    if (!limpas.has(rel) && !(await igualAoModelo(wiki, rel))) tocadas.push(caminho);
+  }
   if (tocadas.length === 0) {
     console.log("nenhuma pagina curada alterada hoje — nada a cobrar");
     console.log("FECHAMENTO: OK");

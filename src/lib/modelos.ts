@@ -23,6 +23,15 @@ export function destinoDoModelo(relModelo: string): string {
   return relModelo;
 }
 
+// O inverso de `destinoDoModelo`: onde mora em `modelos/` o original de um caminho da pessoa (`raw/`, `wiki/`, `SCHEMA.md`).
+export function origemNoModelo(destino: string): string | undefined {
+  const rel = destino.replace(/\/+$/, "");
+  if (rel === "raw" || rel.startsWith("raw/")) return `fontes${rel.slice("raw".length)}`;
+  if (rel === "wiki/.gitignore") return "wiki/gitignore";
+  if (rel === "wiki" || rel.startsWith("wiki/") || rel === "SCHEMA.md") return rel;
+  return undefined;
+}
+
 export function ehExemplo(destino: string): boolean {
   return destino.startsWith("wiki/exemplo/") || destino.startsWith("raw/exemplo/");
 }
@@ -71,19 +80,14 @@ export async function planejarModelos(raiz: string, opcoes: { exemplo: boolean; 
 }
 
 // `wx`: se alguém criou o arquivo entre o plano e a escrita, a escrita falha em vez de sobrescrever.
-export async function escreverPeca(raiz: string, peca: PecaDoModelo, opcoes: { exemplo?: boolean } = {}): Promise<void> {
+export async function escreverPeca(raiz: string, peca: PecaDoModelo): Promise<void> {
   const caminho = join(raiz, peca.destino);
   await mkdir(dirname(caminho), { recursive: true });
-  let conteudo = await readFile(peca.origem, "utf8");
-  if (opcoes.exemplo === false && peca.destino === "wiki/index.md") {
-    const inicioDoExemplo = conteudo.indexOf("\n## Área: exemplo\n");
-    if (inicioDoExemplo >= 0) conteudo = `${conteudo.slice(0, inicioDoExemplo).trimEnd()}\n`;
-  }
-  await writeFile(caminho, conteudo, { flag: "wx" });
+  await writeFile(caminho, await readFile(peca.origem), { flag: "wx" });
 }
 
 export async function copiarModelos(raiz: string, opcoes: { exemplo: boolean; pasta?: string }): Promise<{ criados: string[]; existentes: string[] }> {
   const plano = await planejarModelos(raiz, opcoes);
-  for (const peca of plano.copiar) await escreverPeca(raiz, peca, { exemplo: opcoes.exemplo });
+  for (const peca of plano.copiar) await escreverPeca(raiz, peca);
   return { criados: plano.copiar.map(peca => peca.destino), existentes: plano.existentes };
 }

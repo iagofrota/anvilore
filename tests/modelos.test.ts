@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { LISTA_DO_RASTREIO, PASTA_MODELOS, copiarModelos, destinoDoModelo, ehExemplo, pecasDoModelo, planejarModelos } from "../src/lib/modelos";
+import { LISTA_DO_RASTREIO, PASTA_MODELOS, copiarModelos, destinoDoModelo, ehExemplo, origemNoModelo, pecasDoModelo, planejarModelos } from "../src/lib/modelos";
 
 const raiz = resolve(import.meta.dir, "..");
 let tmp: string;
@@ -19,6 +19,16 @@ test("Dado a pasta modelos/ do kit, Quando listo as peças, Então cobre exatame
   for (const destino of pecas.map(p => p.destino)) {
     expect(LISTA_DO_RASTREIO.some(item => destino === item || destino.startsWith(`${item}/`))).toBe(true);
   }
+});
+
+test("Dado um caminho da pessoa, Quando procuro o original, Então acha em modelos/ ou diz que não é da pessoa", () => {
+  expect(origemNoModelo("raw/")).toBe("fontes");
+  expect(origemNoModelo("raw/exemplo/llm-wiki.md")).toBe("fontes/exemplo/llm-wiki.md");
+  expect(origemNoModelo("wiki/.gitignore")).toBe("wiki/gitignore");
+  expect(origemNoModelo("wiki/index.md")).toBe("wiki/index.md");
+  expect(origemNoModelo("SCHEMA.md")).toBe("SCHEMA.md");
+  expect(origemNoModelo("src/cli.ts")).toBeUndefined();
+  expect(origemNoModelo("rawx/a")).toBeUndefined();
 });
 
 test("Dado um caminho em modelos/, Quando mapeio para o destino, Então fontes/ vira raw/ e wiki/gitignore vira wiki/.gitignore", () => {
@@ -72,9 +82,6 @@ test("Dado wiki/ existente e raw/ ausente, Quando copio com exemplo, Então só 
 test("Dado pedido sem exemplo, Quando copio numa pasta vazia, Então só o estrutural nasce", async () => {
   const r = await copiarModelos(tmp, { exemplo: false });
   expect(r.criados.sort()).toEqual([...ESTRUTURAIS].sort());
-  const indice = readFileSync(join(tmp, "wiki/index.md"), "utf8");
-  expect(indice).not.toContain("## Área: exemplo");
-  expect(indice).not.toContain("[[area-tematica]]");
 });
 
 test("Dado simulação, Quando planejo, Então devolve o que seria criado sem escrever nada", async () => {

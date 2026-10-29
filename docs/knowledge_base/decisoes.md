@@ -126,6 +126,8 @@ Para a linhagem do método e a argumentação completa das posições de design,
   estaciona os arquivos por `rename` na pasta .anvilore (que o kit ignora), puxa com `--ff-only` e os devolve conferindo
   o SHA-256; se o processo morrer no meio, a execução seguinte devolve antes de qualquer outra coisa. Sem migrar, o
   `git pull` recusa quando há arquivo editado e apaga o que não foi editado, que `instalar` e `init` recriam.
+- Na versão que tira os arquivos do rastreio, o `.gitignore` do kit ignora `/raw/`, `/wiki/` e `/SCHEMA.md`; o
+  `checar-docs` aceita uma menção a esses caminhos quando o original existe em `modelos/` (`origemNoModelo`).
 - O mesmo teste prova que um `git checkout --force` de uma versão antiga sobrescreve em silêncio o `SCHEMA.md` da
   pessoa, já ignorado: quem voltar de versão precisa restaurar a cópia depois do checkout.
 

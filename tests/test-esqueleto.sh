@@ -1,72 +1,59 @@
 #!/usr/bin/env bash
-# Verifica o esqueleto de areas versionado, a fronteira do .gitignore, o indice
-# coerente com as paginas versionadas, e o README honesto sobre o proprio clone.
+# Verifica o esqueleto de areas versionado em modelos/, a fronteira do .gitignore, o
+# indice coerente com as paginas do esqueleto, e o README honesto sobre o esqueleto.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 source scripts/lib-anvilore.sh
 
 falhas=0
 
-# A7 — o esqueleto de areas vem versionado no clone.
-for d in wiki/exemplo/sources wiki/exemplo/entities wiki/exemplo/concepts wiki/_meta wiki/log; do
+# A7 — o esqueleto de areas vem versionado em modelos/ (o kit nao rastreia mais wiki/,
+# raw/ nem SCHEMA.md: sao de quem usa, e o `instalar` copia o esqueleto de modelos/).
+for d in modelos/wiki/exemplo/sources modelos/wiki/exemplo/entities modelos/wiki/exemplo/concepts modelos/wiki/_meta modelos/wiki/log; do
   if git ls-files --error-unmatch "$d/.gitkeep" >/dev/null 2>&1; then
     echo "  ok: versionado $d/.gitkeep"
   else
     echo "  FALHA: $d/.gitkeep nao esta versionado"; falhas=$((falhas+1))
   fi
 done
-
-# A7 — conteudo novo dentro de uma area e ignorado pelo git (fica com quem usa).
-# check-ignore tem dentes aqui porque o caminho e nao-rastreado.
-nova="wiki/exemplo/concepts/pagina-de-conteudo-do-usuario.md"
-if git check-ignore -q "$nova"; then
-  echo "  ok: conteudo novo em area e ignorado"
+if git ls-files --error-unmatch modelos/wiki/exemplo/concepts/area-tematica.md >/dev/null 2>&1; then
+  echo "  ok: pagina de exemplo versionada em modelos/"
 else
-  echo "  FALHA: git nao ignora conteudo novo em area ($nova)"; falhas=$((falhas+1))
+  echo "  FALHA: pagina de exemplo nao esta versionada em modelos/"; falhas=$((falhas+1))
 fi
 
-# ...mas a pagina de exemplo do esqueleto e versionada. Instrumento correto para
-# arquivo rastreado e ls-files --error-unmatch — check-ignore nunca reporta
-# rastreado como ignorado, entao nao serviria como asercao.
-if git ls-files --error-unmatch wiki/exemplo/concepts/area-tematica.md >/dev/null 2>&1; then
-  echo "  ok: pagina de exemplo versionada"
-else
-  echo "  FALHA: pagina de exemplo nao esta versionada"; falhas=$((falhas+1))
-fi
-
-# A7 (visibilidade) — o esqueleto versionado tem de aparecer numa busca que
-# respeita o .gitignore, SEM --no-ignore. O ripgrep nao reincluia um arquivo cujo
-# diretorio-avo o `.gitignore` da raiz excluia com wiki/*, entao escondia a pagina
-# que o git rastreia — e quem usa o kit nao a encontrava. (Requer rg; sem ele,
-# nao ha o que checar.)
-if command -v rg >/dev/null 2>&1; then
-  if rg --files wiki/ | grep -qx 'wiki/exemplo/concepts/area-tematica.md'; then
-    echo "  ok: rg --files enxerga a pagina de exemplo versionada"
+# A7 — tudo em wiki/, raw/ e SCHEMA.md e ignorado pelo kit (fica com quem usa).
+# check-ignore --no-index tem dentes aqui mesmo num clone antigo que ainda os tenha.
+for alvo in wiki/index.md wiki/exemplo/concepts/pagina-de-conteudo-do-usuario.md raw/fonte.md SCHEMA.md; do
+  if git check-ignore -q --no-index "$alvo"; then
+    echo "  ok: ignorado $alvo"
   else
-    echo "  FALHA: rg --files nao lista a pagina de exemplo (esqueleto invisivel a busca)"; falhas=$((falhas+1))
+    echo "  FALHA: git nao ignora $alvo"; falhas=$((falhas+1))
   fi
+done
+if [ -z "$(git ls-files -- wiki raw SCHEMA.md)" ]; then
+  echo "  ok: nada de quem usa e rastreado pelo kit"
 else
-  echo "  skip: rg ausente — visibilidade nao checada"
+  echo "  FALHA: o kit ainda rastreia arquivos de quem usa"; falhas=$((falhas+1))
 fi
 
-# A10 — toda pagina de wiki versionada (fora index/log e fora dos reservados) esta
-# listada no indice. Uma pagina versionada fora do indice faz o kit se contradizer:
+# A10 — toda pagina do esqueleto (fora index/log e fora dos reservados) esta
+# listada no indice do esqueleto. Uma pagina fora do indice faz o kit se contradizer:
 # a skill de consulta declara a wiki vazia enquanto ela nao esta.
 while IFS= read -r pag; do
-  case "$pag" in
+  rel="${pag#modelos/}"
+  case "$rel" in
     wiki/index.md|wiki/log.md) continue ;;
   esac
-  # Diretorios reservados nao guardam pagina de wiki, entao nao se espera que
-  # estejam no indice. A lista de reservados tem um dono so — a lib —, e este
-  # teste pergunta a ela em vez de repetir 'wiki/_meta/*|wiki/log/*'.
-  em_dir_reservado wiki "$pag" && continue
+  # A lista de reservados tem um dono so — a lib —, e este teste pergunta a ela.
+  em_dir_reservado wiki "$rel" && continue
   slug="$(basename "$pag" .md)"
-  if grep -q "\[\[$slug\]\]" wiki/index.md || grep -qF "$slug" wiki/index.md; then
-    echo "  ok: indexada $pag"
+  if grep -q "\[\[$slug\]\]" modelos/wiki/index.md || grep -qF "$slug" modelos/wiki/index.md; then
+    echo "  ok: indexada $rel"
   else
-    echo "  FALHA: pagina versionada fora do indice: $pag"; falhas=$((falhas+1))
+    echo "  FALHA: pagina do esqueleto fora do indice: $rel"; falhas=$((falhas+1))
   fi
-done < <(git ls-files -- wiki/ | grep -E '\.md$')
+done < <(git ls-files -- modelos/wiki/ | grep -E '\.md$')
 
 # A11 — o README nao afirma nada falso sobre o esqueleto que vem no clone.
 # As crases sao literais do texto do README, nao expansao de comando (SC2016).

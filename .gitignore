@@ -1,28 +1,9 @@
-# O conteúdo é de quem usa. O repositório carrega só o método.
-# Um nível (`raw/*`), não `raw/**`: o git não desce em diretório excluído
-# por `**`, e `raw/exemplo/` nunca chegaria ao repositório.
-raw/*
-!raw/.gitkeep
-!raw/exemplo/
-
-# O repositório do kit rastreia só o esqueleto. O repositório aninhado em wiki/
-# aplica seu próprio .gitignore e rastreia o conteúdo pessoal.
-/wiki/**
-!/wiki/.gitignore
-!/wiki/index.md
-!/wiki/log.md
-!/wiki/_meta/
-!/wiki/_meta/.gitkeep
-!/wiki/log/
-!/wiki/log/.gitkeep
-!/wiki/exemplo/
-!/wiki/exemplo/sources/
-!/wiki/exemplo/sources/.gitkeep
-!/wiki/exemplo/entities/
-!/wiki/exemplo/entities/.gitkeep
-!/wiki/exemplo/concepts/
-!/wiki/exemplo/concepts/.gitkeep
-!/wiki/exemplo/concepts/area-tematica.md
+# O conteúdo é de quem usa. O repositório carrega só o método: SCHEMA.md, a wiki e raw/ são
+# da pessoa e ficam fora do rastreio. Os originais moram em modelos/, e `instalar`/`init`
+# copiam de lá só o que falta (PLANO §4b; `anvilore migrar-rastreio` faz a passagem).
+/raw/
+/wiki/
+/SCHEMA.md
 
 # O que `anvilore instalar` põe no clone é configuração DAQUELA máquina — qual agente
 # a pessoa usa, quais CLIs ela tem. Versionar isso obrigaria todo mundo a

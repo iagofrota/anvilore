@@ -173,7 +173,7 @@ próximo quando sentir a dor que ele resolve.
 | 04 | escala | índice de busca opcional e automação | backup e manutenção variam por uso |
 
 **Este repositório entrega os níveis 01, 02 e 03, e oferece o índice do nível 04 como opção.** O esqueleto de `wiki/`
-que você acabou de clonar já traz a *forma* das áreas: uma área de exemplo
+que o `instalar` copia de `modelos/` na primeira vez já traz a *forma* das áreas: uma área de exemplo
 neutra (`wiki/exemplo/{sources,entities,concepts}`), os diretórios
 reservados `wiki/_meta/` e `wiki/log/`, e o campo opcional `area`
 documentado no `SCHEMA.md`. Mas a estrutura de áreas é oferecida, não
