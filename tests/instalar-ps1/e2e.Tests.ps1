@@ -30,22 +30,22 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       Set-Content -LiteralPath $assin -Value ("$nome@anvilore.test namespaces=`"git`" $($pub[0]) $($pub[1])`n") -NoNewline -Encoding ASCII
       return @{ Privada = $f; Assinantes = $assin }
     }
-    function script:Git { & git @args 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { throw "git $args falhou ($LASTEXITCODE)" } }
+    function script:GitCmd { & git @args 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { throw "git $args falhou ($LASTEXITCODE)" } }
     # Origem local: clone do checkout atual + tag. modo: assinada | sem-assinatura | outra-chave | nome-trocado
     function script:Origem($nome, $modo, $chaveBoa, $chaveOutra) {
       $dir = Join-Path $script:Base "origem-$nome"
-      Git clone --quiet --no-hardlinks $script:Raiz $dir
-      Git -C $dir config user.email 'ci@anvilore.test'
-      Git -C $dir config user.name 'CI'
-      Git -C $dir config gpg.format ssh
+      GitCmd clone --quiet --no-hardlinks $script:Raiz $dir
+      GitCmd -C $dir config user.email 'ci@anvilore.test'
+      GitCmd -C $dir config user.name 'CI'
+      GitCmd -C $dir config gpg.format ssh
       switch ($modo) {
-        'assinada' { Git -C $dir config user.signingkey $chaveBoa.Privada; Git -C $dir tag -s v0.0.1 -m 'prova' HEAD }
-        'outra-chave' { Git -C $dir config user.signingkey $chaveOutra.Privada; Git -C $dir tag -s v0.0.1 -m 'prova' HEAD }
-        'sem-assinatura' { Git -C $dir tag -a v0.0.1 -m 'prova' HEAD }
+        'assinada' { GitCmd -C $dir config user.signingkey $chaveBoa.Privada; GitCmd -C $dir tag -s v0.0.1 -m 'prova' HEAD }
+        'outra-chave' { GitCmd -C $dir config user.signingkey $chaveOutra.Privada; GitCmd -C $dir tag -s v0.0.1 -m 'prova' HEAD }
+        'sem-assinatura' { GitCmd -C $dir tag -a v0.0.1 -m 'prova' HEAD }
         'nome-trocado' {
-          Git -C $dir config user.signingkey $chaveBoa.Privada; Git -C $dir tag -s v0.0.1 -m 'prova' HEAD
+          GitCmd -C $dir config user.signingkey $chaveBoa.Privada; GitCmd -C $dir tag -s v0.0.1 -m 'prova' HEAD
           $objeto = (& git -C $dir rev-parse refs/tags/v0.0.1).Trim()
-          Git -C $dir update-ref refs/tags/v0.0.2 $objeto
+          GitCmd -C $dir update-ref refs/tags/v0.0.2 $objeto
         }
       }
       return $dir
