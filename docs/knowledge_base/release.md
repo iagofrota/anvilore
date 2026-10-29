@@ -162,7 +162,7 @@ por vez**.
    ```
 
    Os jobs `testes (ubuntu-latest)`, `testes (windows-latest)` e `testes (macos-latest)` precisam estar
-   `completed` com `success` (`.github/workflows/ci.yml`); confira também os cinco `e2e-chromium`.
+   `completed` com `success` (`.github/workflows/ci.yml`); confira também os cinco jobs "Playwright Chromium (1/5)" a "(5/5)" (job `e2e-chromium` do workflow).
    Pendente, ausente ou vermelho: pare.
 8. **Máquina de quem assina.** Confira antes de pedir o "sim":
 

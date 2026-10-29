@@ -40,7 +40,7 @@ mostre só o que decide algo.
      diga quais páginas faltam e pare. Nunca ponha `verified`.
 3. **Entrar na `main`.** Enviar a branch, abrir o PR e mesclar são ações públicas: peça o "sim" de
    cada uma. Depois confira o CI no commit da `main` que vai receber a tag: os três jobs
-   `testes (ubuntu-latest | windows-latest | macos-latest)` e os cinco `e2e-chromium` com
+   `testes (ubuntu-latest | windows-latest | macos-latest)` e os cinco `Playwright Chromium (1/5…5/5)` com
    `completed`/`success` (`gh run list --commit … --json …` e `gh run view … --json jobs`). Pendente,
    ausente ou vermelho → pare e diga qual.
 4. **Assinatura.** Confira `git config --get gpg.format` (tem de ser `ssh`), `user.signingkey`, a
