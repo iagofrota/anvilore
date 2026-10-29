@@ -23,12 +23,15 @@ test.describe("[isolamento] variáveis do runner que apontam para fora do vault"
     const antes = hash(rascunhoDaIsca);
     try {
       await vault.escrever("wiki/pessoal/concepts/protegida.md", paginaGerada("protegida", "Rascunho do vault."));
+      await vault.escrever("wiki/pessoal/index.md", "# Pessoal\n\n- [[segundo-cerebro]]\n- [[protegida]]\n");
       await page.goto(`${app.base}/?token=${encodeURIComponent(app.token)}#/revisao`);
       await expect(page.getByRole("option")).toHaveCount(1);
       await expect(page.getByRole("option")).toContainText("protegida");
       const aprovacao = page.waitForResponse(resposta => resposta.url().includes("/api/aprovar") && resposta.request().method() === "POST");
       await page.getByRole("button", { name: "Aprovar" }).click();
       expect((await aprovacao).status()).toBe(200);
+      // Com a fila vazia a tela valida a wiki; esperar o resultado evita um processo ainda gravando no vault ao limpar.
+      await expect(page.locator(".result-badge")).toContainText("CÓDIGO 0 · PASS");
       expect((await vault.ler("wiki/pessoal/concepts/protegida.md")).toString()).toContain("by: human:teste");
       expect(hash(rascunhoDaIsca)).toBe(antes);
       expect(readFileSync(rascunhoDaIsca, "utf8")).not.toContain("verified:");
@@ -58,6 +61,8 @@ test.describe("[isolamento] encerramento do servidor", () => {
     const pid = leitor!.pid as number;
     expect(Number.isInteger(pid)).toBe(true);
     expect(() => process.kill(pid, 0)).not.toThrow();
+    // Sem a tela aberta não há polling falhando contra o servidor que vai sair.
+    await page.goto("about:blank");
     const saiu = new Promise<void>(resolveSaida => app.processo.once("exit", () => resolveSaida()));
     app.processo.kill("SIGTERM");
     await saiu;

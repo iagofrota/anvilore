@@ -44,7 +44,7 @@ export async function criarVault(): Promise<Vault> {
     remover: async () => {
       const caminho = await realpath(raiz);
       if (!caminho.startsWith(`${tmp}${process.platform === "win32" ? "\\" : "/"}anvilore-e2e-`)) throw new Error(`Recusa limpar fora do vault descartável: ${caminho}`);
-      await rm(caminho, { recursive: true, force: true });
+      await rm(caminho, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       await rm(fora, { recursive: true, force: true });
     },
   };

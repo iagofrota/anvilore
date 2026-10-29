@@ -4,7 +4,7 @@
 // `auth status` usa `auth`; com `--resume`, `escritor`; senão, `leitor`.
 // CLAUDE_FALSO_REGISTRO: arquivo onde cada execução acrescenta uma linha JSON com argv, cwd,
 // variáveis do Anvilore e o que chegou pelo stdin (a ponte deve deixá-lo vazio).
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, watch, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 export type PassoDoFalso =
@@ -44,7 +44,10 @@ if (argv[0] === "auth") {
 const passos = (argv.includes("--resume") ? roteiro.escritor : roteiro.leitor) ?? [];
 function substituirMarcadores(valor: unknown): unknown {
   const pasta = resolve(process.cwd(), ".anvilore/ui/conversas");
-  const nome = existsSync(pasta) ? readdirSync(pasta).find(arquivo => arquivo.endsWith(".json")) : undefined;
+  // A conversa mais recente é a da execução em curso; a primeira da pasta poderia ser uma conversa semeada antes.
+  const nome = existsSync(pasta)
+    ? readdirSync(pasta).filter(arquivo => arquivo.endsWith(".json")).sort((a, b) => statSync(join(pasta, b)).mtimeMs - statSync(join(pasta, a)).mtimeMs)[0]
+    : undefined;
   let fonteAtual = "";
   if (nome) {
     try { fonteAtual = String((JSON.parse(readFileSync(join(pasta, nome), "utf8")) as { fonte?: string }).fonte ?? ""); }

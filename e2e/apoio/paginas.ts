@@ -1,7 +1,7 @@
 export const CONTEUDO_ATUALIZADO = [
   "---", "type: concept", "slug: segundo-cerebro", "title: Segundo cérebro", "tags: [teste]",
   "generated:", "  by: claude-haiku-4-5/2.1.311", "  at: 2026-01-02T00:00:00Z",
-  "verified:", "  - by: human:teste", "    at: 2026-01-01T00:00:00Z", "---", "", "Versão revisada pelo escritor.", "",
+  "verified:", "  - by: human:anterior", "    at: 2026-01-01T00:00:00Z", "---", "", "Versão revisada pelo escritor.", "",
 ].join("\n");
 
 export const CONTEUDO_FONTE_WIKI = [
@@ -22,9 +22,18 @@ export function paginaGerada(slug: string, corpo = `Conteúdo de ${slug}.`, extr
 }
 
 export function paginaAtualizada(slug: string, corpo = `Conteúdo atualizado de ${slug}.`): string {
-  return paginaGerada(slug, corpo, "verified:\n  - by: human:teste\n    at: 2026-01-01T00:00:00Z");
+  return paginaGerada(slug, corpo, "verified:\n  - by: human:anterior\n    at: 2026-01-01T00:00:00Z");
 }
 
 export function paginaInvalida(slug: string): string {
   return `---\ntype: concept\nslug: ${slug}\ntitle: Inválida\ngenerated: ontem\n---\nConteúdo inválido.\n`;
+}
+
+export function verificacoes(texto: string): { by: string; at: string }[] {
+  const bloco = /^verified:\n((?:[ \t].*\n?)*)/m.exec(texto)?.[1] ?? "";
+  return [...bloco.matchAll(/by:\s*(\S+)\s*\n\s*at:\s*(\S+)/g)].map(achado => ({ by: achado[1]!, at: achado[2]! }));
+}
+
+export function geradoEm(texto: string): string {
+  return /^generated:\n(?:[ \t].*\n)*?[ \t]+at:\s*(\S+)/m.exec(texto)?.[1] ?? "";
 }

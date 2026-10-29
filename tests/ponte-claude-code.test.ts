@@ -241,6 +241,32 @@ test("Dado o claude falso esperando um arquivo Quando libero a barreira Então a
   expect(await execucao.fim).toMatchObject({ situacao: "concluida", saidaEstruturada: relatorio });
 });
 
+test("Dado o claude falso cuja barreira já foi liberada Quando executo Então segue sem anunciar espera", async () => {
+  const liberar = join(tmp, "barreiras", "ja-liberada");
+  const pronto = join(tmp, "barreiras", "ja-pronto");
+  mkdirSync(dirname(liberar), { recursive: true });
+  writeFileSync(liberar, "continuar\n");
+  const { ponte } = ponteCom({ leitor: [
+    { esperarArquivo: { caminho: liberar, pronto, sessao: SESSAO } },
+    { linha: resultado({ structured_output: relatorio }) },
+  ] });
+  const execucao = ponte.executar({ papel: "leitor", mensagem: "x", raiz, wiki }, () => {});
+  expect(await execucao.fim).toMatchObject({ situacao: "concluida", saidaEstruturada: relatorio });
+  expect(existsSync(pronto)).toBe(false);
+});
+
+test("Dado o claude falso esperando um arquivo Quando cancelo antes da liberação Então o filho recebe SIGINT e o fim é cancelado", async () => {
+  const liberar = join(tmp, "barreiras", "nunca-liberada");
+  const pronto = join(tmp, "barreiras", "nunca-pronto");
+  mkdirSync(dirname(pronto), { recursive: true });
+  const { ponte } = ponteCom({ leitor: [{ esperarArquivo: { caminho: liberar, pronto, sessao: SESSAO } }, { linha: resultado({ structured_output: relatorio }) }] });
+  const execucao = ponte.executar({ papel: "leitor", mensagem: "x", raiz, wiki }, () => {});
+  await esperarArquivo(pronto);
+  execucao.cancelar();
+  expect(await execucao.fim).toEqual({ situacao: "cancelada", sessao: SESSAO, recusas: [] });
+  expect(existsSync(liberar)).toBe(false);
+});
+
 test("Dado o filho que ignora o SIGINT Quando cancelo e o prazo passa Então ele é encerrado e o fim é cancelado", async () => {
   const { ponte } = ponteCom({ leitor: [{ linha: init() }, { esperarSinal: { sessao: SESSAO, ignorar: true } }] }, { prazoDoSinalMs: 300 });
   const execucao = ponte.executar({ papel: "leitor", mensagem: "x", raiz, wiki }, evento => { if (evento.tipo === "inicio") { execucao.cancelar(); execucao.cancelar(); } });
