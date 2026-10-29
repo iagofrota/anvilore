@@ -49,6 +49,7 @@ Peças que existem hoje no repositório:
 | Por que o projeto é assim? Por que TypeScript no Bun? Por que o humano cura? | [decisoes.md](decisoes.md) |
 | O que protege a wiki hoje? O que não protege? Há risco de vazamento? | [governanca.md](governanca.md) |
 | Funciona em Windows e macOS? O que pode dar errado? | [plataformas.md](plataformas.md) |
+| Como a interface local (`anvilore ui`) é montada? Como acrescento uma tela? | [interface.md](interface.md) |
 | Como rodo os testes? Como entrego uma mudança? Como sai uma release? | [contribuindo.md](contribuindo.md) |
 | Quanto tempo leva a primeira experiência? O que quebrou nos ensaios? A skill de ingestão funciona em outro agente? | [perguntas-frequentes.md](perguntas-frequentes.md) |
 

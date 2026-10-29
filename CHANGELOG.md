@@ -9,6 +9,13 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Added
+
+- Tela Início em `anvilore ui`, agora a tela inicial: atalhos para ingerir e revisar, rascunhos esperando aprovação,
+  atividade recente do log, saúde da wiki (o servidor roda `validar`, `auditar` e `listar-lacunas --consultar`; ninguém
+  precisa rodar comando) e a lista do que está em `raw/` sem ingestão. Revisão e Chat seguem no menu. O menu e o casco
+  comum das telas estão em `ui/web/navegacao.ts` e `ui/web/shell.tsx`; veja `docs/knowledge_base/interface.md`.
+
 ### Fixed
 
 - Ao recriar o índice estrutural sem exemplos, `init` e `instalar` não incluem a área nem a página de exemplo. O manifesto da atualização declara os arquivos e esqueletos pessoais que deixam o rastreio na transição N→N+1.
