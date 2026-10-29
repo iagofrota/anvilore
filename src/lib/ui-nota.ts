@@ -200,9 +200,15 @@ export type OpcoesObterNota = {
 export function comporFlagsAbertura(
   c: { O_RDONLY?: unknown; O_NOFOLLOW?: unknown; O_NONBLOCK?: unknown } = constants,
 ): number | string {
-  return typeof c.O_NOFOLLOW === "number" && typeof c.O_NONBLOCK === "number"
-    ? (c.O_RDONLY as number) | (c.O_NOFOLLOW as number) | (c.O_NONBLOCK as number)
-    : "r";
+  const temProtecao =
+    typeof c.O_NOFOLLOW === "number" || typeof c.O_NONBLOCK === "number";
+  if (typeof c.O_RDONLY !== "number" || !temProtecao) {
+    return "r";
+  }
+  let flags = c.O_RDONLY;
+  if (typeof c.O_NOFOLLOW === "number") flags |= c.O_NOFOLLOW;
+  if (typeof c.O_NONBLOCK === "number") flags |= c.O_NONBLOCK;
+  return flags;
 }
 
 export async function obterNota(
@@ -221,7 +227,16 @@ export async function obterNota(
     throw new ErroDeCaminhoInvalido();
   }
 
-  const wikiReal = await realpath(wiki);
+  let wikiReal: string;
+  try {
+    wikiReal = await realpath(wiki);
+  } catch (erro) {
+    const codigo = (erro as NodeJS.ErrnoException).code;
+    if (codigo === "ENOENT") return null;
+    if (codigo === "ELOOP" || codigo === "EINVAL") throw new ErroDeCaminhoInvalido();
+    throw erro;
+  }
+
   try {
     const caminhoRealAntes = await realpath(caminhoNormalizado);
     const relRealAntes = relative(wikiReal, caminhoRealAntes);

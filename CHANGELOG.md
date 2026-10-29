@@ -22,7 +22,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Security
 
-- Leitura de notas na interface web valida contenção por caminho real e abre com descritor não bloqueante antes da verificação TOCTOU (dev/ino), evitando travamento em FIFOs ou symlinks intermediários.
+- Leitura de notas na interface web valida contenção por caminho real prévio, compõe flags de proteção (O_NOFOLLOW e O_NONBLOCK) de forma independente e trata raiz ausente como inexistência, evitando travamento em FIFOs e vazamentos antes da verificação TOCTOU (dev/ino).
 
 ### Fixed
 
