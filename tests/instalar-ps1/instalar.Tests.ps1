@@ -187,6 +187,38 @@ Describe 'AnvTemAssinaturaSsh' {
   It 'recusa tag sem assinatura' { AnvTemAssinaturaSsh "object a`ntype commit`n`nmsg`n" | Should -BeFalse }
 }
 
+Describe 'argumentos do git para a candidata (A1 e A2)' {
+  BeforeAll { $script:Vazio = 'C:\tmp\sem-hooks'; $script:Ass = 'C:\tmp\assinantes' }
+  It 'A1: o clone é sem checkout' {
+    $a = AnvArgsClone -Origem 'C:\origem' -Tag 'v1.2.3' -Staging 'C:\st' -HooksVazio $script:Vazio
+    $a | Should -Contain '--no-checkout'
+    $a | Should -Contain 'core.autocrlf=false'
+    $a[($a.IndexOf('--branch') + 1)] | Should -Be 'v1.2.3'
+  }
+  It 'A1: todo comando do staging começa com core.hooksPath para a pasta vazia' {
+    $a = AnvArgsStaging -HooksVazio $script:Vazio -Argumentos @('-C', 'C:\st', 'cat-file', '-t', 'x')
+    $a[0] | Should -Be '-c'; $a[1] | Should -Be "core.hooksPath=$($script:Vazio)"
+    $a[-1] | Should -Be 'x'
+  }
+  It 'A1: o clone também desliga os hooks' {
+    (AnvArgsClone -Origem 'o' -Tag 'v1.0.0' -Staging 's' -HooksVazio $script:Vazio)[1] | Should -Be "core.hooksPath=$($script:Vazio)"
+  }
+  It 'A2: o verify-tag fixa o verificador SSH e os programas de gpg/x509' {
+    $a = AnvArgsVerificarTag -Staging 'C:\st' -Ref 'refs/tags/v1.2.3' -Assinantes $script:Ass -HooksVazio $script:Vazio
+    foreach ($o in @('core.hooksPath=' + $script:Vazio, 'gpg.format=ssh', 'gpg.ssh.program=ssh-keygen', 'gpg.program=false', 'gpg.openpgp.program=false', 'gpg.x509.program=false', "gpg.ssh.allowedSignersFile=$($script:Ass)")) {
+      $i = [array]::IndexOf($a, $o)
+      $i | Should -BeGreaterThan 0
+      $a[$i - 1] | Should -Be '-c'
+    }
+    $a[-2] | Should -Be 'verify-tag'
+    $a[-1] | Should -Be 'refs/tags/v1.2.3'
+  }
+  It 'A1: o checkout só vem depois, do commit verificado, forçado e destacado' {
+    $a = AnvArgsCheckout -Staging 'C:\st' -Commit ('a' * 40)
+    ($a -join ' ') | Should -Be "-C C:\st checkout --quiet --force --detach $('a' * 40)"
+  }
+}
+
 Describe 'AnvEscolherPasta (ANVILORE_PASTA)' {
   AfterEach { Remove-Item Env:ANVILORE_PASTA, Env:ANVILORE_SEM_PERGUNTAS -ErrorAction SilentlyContinue }
   It 'sem a variável, usa Anvilore dentro do perfil' {

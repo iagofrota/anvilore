@@ -32,12 +32,18 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
     }
     function script:GitCmd { & git @args 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { throw "git $args falhou ($LASTEXITCODE)" } }
     # Origem local: clone do checkout atual + tag. modo: assinada | sem-assinatura | outra-chave | nome-trocado
-    function script:Origem($nome, $modo, $chaveBoa, $chaveOutra) {
+    function script:Origem($nome, $modo, $chaveBoa, $chaveOutra, [bool]$filtro = $false) {
       $dir = Join-Path $script:Base "origem-$nome"
       GitCmd clone --quiet --no-hardlinks $script:Raiz $dir
       GitCmd -C $dir config user.email 'ci@anvilore.test'
       GitCmd -C $dir config user.name 'CI'
       GitCmd -C $dir config gpg.format ssh
+      if ($filtro) {
+        # Candidata com filtro de checkout em todos os arquivos (como um .gitattributes de git-lfs): o filtro mora na config da pessoa.
+        [IO.File]::WriteAllText((Join-Path $dir '.gitattributes'), "* filter=x`n")
+        GitCmd -C $dir add -f .gitattributes
+        GitCmd -C $dir commit -q -m 'candidata com filtro'
+      }
       switch ($modo) {
         'assinada' { GitCmd -C $dir config user.signingkey $chaveBoa.Privada; GitCmd -C $dir tag -s v0.0.1 -m 'prova' HEAD }
         'outra-chave' { GitCmd -C $dir config user.signingkey $chaveOutra.Privada; GitCmd -C $dir tag -s v0.0.1 -m 'prova' HEAD }
@@ -243,6 +249,86 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $r.Saida | Should -Match 'chave de assinatura'
       Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
       Test-Path (Join-Path $r.Perfil 'Anvilore.novo') | Should -BeFalse
+    }
+  }
+
+  Context 'configuração global do git da pessoa não pode ajudar uma candidata (A1 e A2 da revisão de segurança)' {
+    # A1 - Dado um filtro de checkout (smudge) ou um hook na config global e uma candidata sem assinatura válida;
+    # Quando o instalador baixa; Então recusa (código 3), apaga o staging e NADA da candidata rodou (marcador ausente).
+    # Com tag válida a instalação termina e o filtro só roda depois da autenticação.
+    # A2 - Dado um gpg.ssh.program aprovador na config global e uma tag assinada por chave fora dos assinantes;
+    # Então recusa (código 3).
+    BeforeAll {
+      function script:Fw($caminho) { return ($caminho -replace '\\', '/') }
+      function script:ConfigGlobal($nome, $texto) {
+        $f = Join-Path $script:Base "gitconfig-$nome"
+        [IO.File]::WriteAllText($f, $texto)
+        return $f
+      }
+      function script:ConfigComFiltro($nome) {
+        $m = Join-Path $script:Base "marcador-smudge-$nome"
+        Remove-Item $m -ErrorAction SilentlyContinue
+        $cfg = ConfigGlobal "filtro-$nome" ("[filter `"x`"]`n`tsmudge = `"printf executado >> '$(Fw $m)' && cat`"`n`tclean = cat`n")
+        return @{ Config = $cfg; Marcador = $m }
+      }
+      function script:ConfigComHook($nome) {
+        $m = Join-Path $script:Base "marcador-hook-$nome"
+        Remove-Item $m -ErrorAction SilentlyContinue
+        $pasta = Join-Path $script:Base "hooks-da-pessoa-$nome"
+        New-Item -ItemType Directory $pasta -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $pasta 'reference-transaction'), "#!/bin/sh`nprintf `"`$1 `" >> '$(Fw $m)'`ncat >/dev/null`n")
+        $cfg = ConfigGlobal "hook-$nome" ("[core]`n`thooksPath = $(Fw $pasta)`n")
+        return @{ Config = $cfg; Marcador = $m }
+      }
+    }
+    It 'A1: filtro de checkout global + tag sem assinatura: recusa e o filtro não roda' {
+      $c = ConfigComFiltro 'ruim'
+      $origem = Origem 'a1-filtro-ruim' 'sem-assinatura' $script:Boa $script:Outra $true
+      $r = Rodar (Perfil 'a1-filtro-ruim') $origem $script:Release $script:PathComAgente @{ GIT_CONFIG_GLOBAL = $c.Config }
+      $r.Codigo | Should -Be 3
+      Test-Path $c.Marcador | Should -BeFalse
+      Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
+      Test-Path (Join-Path $r.Perfil 'Anvilore.novo') | Should -BeFalse
+    }
+    It 'A1: o mesmo filtro com tag válida: instala e o filtro só roda depois da autenticação' {
+      $c = ConfigComFiltro 'bom'
+      $origem = Origem 'a1-filtro-bom' 'assinada' $script:Boa $script:Outra $true
+      $r = Rodar (Perfil 'a1-filtro-bom') $origem $script:Release $script:PathComAgente @{ GIT_CONFIG_GLOBAL = $c.Config }
+      $r.Codigo | Should -Be 0
+      Test-Path (Join-Path $r.Perfil 'Anvilore\src\cli.ts') | Should -BeTrue
+      Test-Path $c.Marcador | Should -BeTrue
+      (& git -C (Join-Path $r.Perfil 'Anvilore') rev-parse HEAD).Trim() | Should -Be (& git -C $origem rev-parse 'refs/tags/v0.0.1^{commit}').Trim()
+    }
+    It 'A1: hook reference-transaction em core.hooksPath global + tag sem assinatura: recusa e o hook não roda' {
+      $c = ConfigComHook 'ruim'
+      $origem = Origem 'a1-hook-ruim' 'sem-assinatura' $script:Boa $script:Outra
+      $r = Rodar (Perfil 'a1-hook-ruim') $origem $script:Release $script:PathComAgente @{ GIT_CONFIG_GLOBAL = $c.Config }
+      $r.Codigo | Should -Be 3
+      Test-Path $c.Marcador | Should -BeFalse
+      Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
+    }
+    It 'A1: o mesmo hook com tag válida: a instalação termina' {
+      $c = ConfigComHook 'bom'
+      $r = Rodar (Perfil 'a1-hook-bom') $script:OrigemBoa $script:Release $script:PathComAgente @{ GIT_CONFIG_GLOBAL = $c.Config }
+      $r.Codigo | Should -Be 0
+      Test-Path (Join-Path $r.Perfil 'Anvilore\src\cli.ts') | Should -BeTrue
+    }
+    It 'A2: gpg.ssh.program aprovador global + tag de chave fora dos assinantes: recusa' {
+      $apr = Join-Path $script:Base 'aprova-tudo.sh'
+      [IO.File]::WriteAllText($apr, "#!/bin/sh`ncase `"`$*`" in`n  *find-principals*) echo atacante@exemplo ;;`n  *) echo 'Good `"git`" signature for atacante@exemplo with ED25519 key SHA256:falso' ;;`nesac`nexit 0`n")
+      $cfg = ConfigGlobal 'aprovador' ("[gpg `"ssh`"]`n`tprogram = $(Fw $apr)`n")
+      $origem = Origem 'a2-outra' 'outra-chave' $script:Boa $script:Outra
+      # Prova de que o ataque é real: sem fixar o verificador, o git aprova a tag da chave errada.
+      $antes = $env:GIT_CONFIG_GLOBAL; $eap = $ErrorActionPreference
+      try {
+        $env:GIT_CONFIG_GLOBAL = $cfg; $ErrorActionPreference = 'Continue'
+        $saida = & git -C $origem -c gpg.format=ssh -c "gpg.ssh.allowedSignersFile=$($script:Boa.Assinantes)" verify-tag refs/tags/v0.0.1 2>&1 | Out-String
+        $cod = $LASTEXITCODE
+      } finally { $env:GIT_CONFIG_GLOBAL = $antes; $ErrorActionPreference = $eap }
+      "$cod $saida" | Should -Match '^0 '
+      $r = Rodar (Perfil 'a2-outra') $origem $script:Release $script:PathComAgente @{ GIT_CONFIG_GLOBAL = $cfg }
+      $r.Codigo | Should -Be 3
+      Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
     }
   }
 
