@@ -20,6 +20,10 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   precisa rodar comando) e a lista do que está em `raw/` sem ingestão. Revisão e Chat seguem no menu. O menu e o casco
   comum das telas estão em `ui/web/navegacao.ts` e `ui/web/shell.tsx`; veja `docs/knowledge_base/interface.md`.
 
+### Security
+
+- Leitura de notas na interface web valida contenção por caminho real e abre com descritor não bloqueante antes da verificação TOCTOU (dev/ino), evitando travamento em FIFOs ou symlinks intermediários.
+
 ### Fixed
 
 - Ao recriar o índice estrutural sem exemplos, `init` e `instalar` não incluem a área nem a página de exemplo. O manifesto da atualização declara os arquivos e esqueletos pessoais que deixam o rastreio na transição N→N+1.
