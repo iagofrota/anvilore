@@ -199,9 +199,13 @@ Para a linhagem do método e a argumentação completa das posições de design,
   (migração, `package.json`) é lido desse commit. Qualquer divergência recusa antes da cópia e do checkout.
   A ref é resolvida uma vez e o mesmo id de objeto passa por `verify-tag`, `cat-file` e pela resolução do
   commit. O `fetch` usa `+refs/tags/<tag>:refs/tags/<tag>`, para que uma tag trocada por um espelho seja
-  substituída pela do origin (sem o `+` o git recusa sobrescrever a tag local). Recusa por assinatura ou
-  identidade não entra em `recusadas`: o objeto não foi confirmado como da release, e marcá-la bloquearia para
-  sempre a tag legítima da mesma versão; o estado fica `recusada` com o erro e a próxima checagem tenta de novo.
+  substituída pela do origin (sem o `+` o git recusa sobrescrever a tag local). Esse fetch só roda para uma
+  versão **mais nova que a instalada**, comparada antes de qualquer busca e em toda ação (uma `baixada` obsoleta
+  é descartada); e nunca para uma tag de versão igual ou anterior que aponte para o commit instalado ou para os de
+  refs/anvilore/*. Assim um espelho não sobrescreve a tag da versão instalada nem a da anterior. Recusa por
+  assinatura ou identidade não entra em `recusadas`: o objeto não foi confirmado como da release, e marcá-la
+  bloquearia para sempre a tag legítima da mesma versão; o estado fica `recusada` com o erro e com `verificadoEm`,
+  para que o hook de início de sessão só tente de novo depois de 24 h.
 - **Antes do checkout**, nada é mudado se algo destes falhar: o atualizador compara `bun.lock`/`bun.lockb`
   entre o `HEAD` atual e a tag (erro do `git diff` recusa, nunca vale como "igual"); lê
   atualizacao/migracoes.json da tag; e **recusa a candidata** que deixaria de rastrear um arquivo da
