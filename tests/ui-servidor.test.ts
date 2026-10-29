@@ -49,6 +49,28 @@ test("Dado interface local ativa Quando acesso sem token Então recebe 403", asy
   expect(resposta.status).toBe(403);
 });
 
+test("[C02] Dado a página inicial Quando o navegador a carrega Então a CSP só permite conectar à própria origem", async () => {
+  const app = await servidor();
+  const resposta = await fetch(`http://127.0.0.1:${app.porta}/?token=token-teste`);
+  expect(resposta.status).toBe(200);
+  expect(resposta.headers.get("content-security-policy")).toBe("default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'");
+});
+
+test("[C02.c] Dado rascunho com aprovação válida Quando o Origin é outro alias de loopback ou outra porta Então recebo 403 sem aprovar", async () => {
+  const caminho = "concepts/protegida.md";
+  const texto = "---\ntype: concept\nslug: protegida\ntitle: Protegida\ngenerated:\n  by: agente/teste\n  at: 2026-10-27T10:00:00Z\n---\nTexto.\n";
+  writeFileSync(join(raiz, "wiki", caminho), texto);
+  const app = await servidor();
+  for (const origin of [`http://localhost:${app.porta}`, `http://127.0.0.1:${Number(app.porta) + 1}`, "http://exemplo.test", "null"]) {
+    const resposta = await postAprovar(app, caminho, { origin });
+    expect(resposta.status).toBe(403);
+    expect(await resposta.json()).toEqual({ erro: "Origem recusada." });
+  }
+  expect(readFileSync(join(raiz, "wiki", caminho), "utf8")).toBe(texto);
+  expect((await postAprovar(app, caminho)).status).toBe(200);
+  expect(readFileSync(join(raiz, "wiki", caminho), "utf8")).toContain("verified:");
+});
+
 test("[C02.b] Dado token válido com Host externo Quando acesso a API Então recebe 403", async () => {
   const app = await servidor();
   const resposta = await fetch(`http://127.0.0.1:${app.porta}/api/rascunhos?token=token-teste`, { headers: { host: "exemplo.test" } });

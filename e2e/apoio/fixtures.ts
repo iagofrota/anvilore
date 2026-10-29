@@ -14,7 +14,7 @@ type App = { base: string; url: string; token: string; porta: number; processo: 
 type Agente = { registro: string; invocacoes(papel?: "leitor" | "escritor" | "auth"): Promise<Record<string, unknown>[]>; liberar(nome: string): Promise<void>; pronto(nome: string): Promise<void> };
 type Oraculo = { get<T>(rota: string): Promise<T>; post<T>(rota: string, corpo?: unknown): Promise<{ status: number; body: T }> };
 
-type Fixtures = { vault: Vault; app: App; agente: Agente; oraculo: Oraculo; guardas: void };
+type Fixtures = { vault: Vault; app: App; agente: Agente; oraculo: Oraculo; origensExternas: Set<string>; guardas: void };
 type Options = { roteiro: RoteiroDoFalso; manterVault: boolean; agenteAusente: boolean; ambienteDoRunner: NodeJS.ProcessEnv | undefined };
 
 async function lerRegistro(caminho: string): Promise<Record<string, unknown>[]> {
@@ -133,12 +133,14 @@ export const test = base.extend<Fixtures & Options>({
     await use(oraculo);
     await contexto.dispose();
   },
-  guardas: [async ({ page, app, agente }, use, testInfo) => {
+  // Origens extras que o teste monta de propósito (ex.: página atacante da prova de origem cruzada).
+  origensExternas: async ({}, use) => { await use(new Set<string>()); },
+  guardas: [async ({ page, app, agente, origensExternas }, use, testInfo) => {
     const erros: string[] = [];
     const caminhos: string[] = [];
     page.on("pageerror", erro => erros.push(erro.message));
     page.on("console", msg => { if (msg.type() === "error") erros.push(msg.text()); });
-    page.on("request", req => { const origem = new URL(req.url()).origin; if (!new Set([app.base, app.base.replace("127.0.0.1", "localhost"), app.base.replace("localhost", "127.0.0.1")]).has(origem)) caminhos.push(req.url()); });
+    page.on("request", req => { const origem = new URL(req.url()).origin; if (!new Set([app.base, app.base.replace("127.0.0.1", "localhost"), app.base.replace("localhost", "127.0.0.1"), ...origensExternas]).has(origem)) caminhos.push(req.url()); });
     await use();
     const caminhoTitulo = testInfo.titlePath.join(" ");
     const codigosEsperados = [

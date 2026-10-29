@@ -93,7 +93,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 ### Fixed
 
 - Os testes do `doctor` isolam agentes, Git, `PATH` e `HOME`; o teste do SDK MCP inicia o Bun atual sem procurar no `PATH`.
-- Texto colado no Chat grava quebras de linha LF mesmo quando o navegador as envia como CRLF. A política CSP da interface local aceita conexões apenas para a origem atual e os aliases `localhost`/`127.0.0.1` na mesma porta efêmera.
+- Texto colado no Chat grava quebras de linha LF mesmo quando o navegador as envia como CRLF.
 - A fronteira de `raw/` vale pelo caminho real, não só pelo texto: o hook bloqueia a escrita que, por um link na
   wiki, cairia em `raw/`, e o `conferir-leitura` recusa fonte que sai de `raw/` por link e página que sai da wiki.
   O caminho é resolvido na ordem do disco (`link/../x` no Linux e no macOS sobe a partir do alvo do link), e destino

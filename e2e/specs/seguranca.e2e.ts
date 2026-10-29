@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { existsSync } from "node:fs";
 import { readdir, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
@@ -18,19 +20,33 @@ test("[C02] Dado uma sessão local Quando o token falta ou é inválido Então o
   await expect(page.getByText("Acesso recusado", { exact: true })).toBeVisible();
 });
 
-test("[C02] Dado um rascunho pendente Quando o navegador envia POST no-cors de outra origem Então o servidor recusa sem aprovar", async ({ page, app, oraculo, vault }) => {
-  await vault.escrever("wiki/pessoal/concepts/protegida.md", paginaGerada("protegida", "Sem aprovação."));
-  const localHostUrl = `http://localhost:${app.porta}/?token=${encodeURIComponent(app.token)}`;
-  await page.goto(localHostUrl);
-  const resultado = await page.evaluate(async porta => {
-    const resposta = await fetch(`http://127.0.0.1:${porta}/api/aprovar?token=${encodeURIComponent(new URL(location.href).searchParams.get("token")!)}`, {
-      method: "POST", mode: "no-cors", headers: { "content-type": "text/plain" }, body: "{}",
-    });
-    return { type: resposta.type, status: resposta.status };
-  }, app.porta);
-  expect(resultado).toEqual({ type: "opaque", status: 0 });
-  expect((await oraculo.get<{ caminho: string }[]>("/api/rascunhos")).map(item => item.caminho)).toContain("pessoal/concepts/protegida.md");
-  expect((await vault.ler("wiki/pessoal/concepts/protegida.md")).toString()).not.toContain("verified:");
+test("[C02] Dado um rascunho pendente Quando uma página de outra origem envia POST no-cors com aprovação válida Então o servidor responde 403 e só a origem da sessão aprova", async ({ page, app, oraculo, vault, origensExternas }) => {
+  const caminho = "wiki/pessoal/concepts/protegida.md";
+  await vault.escrever(caminho, paginaGerada("protegida", "Sem aprovação."));
+  const item = (await oraculo.get<{ caminho: string; versao: string }[]>("/api/rascunhos")).find(rascunho => rascunho.caminho === "pessoal/concepts/protegida.md")!;
+  expect(item.versao).toMatch(/^[a-f0-9]{64}$/);
+  // Página atacante em outra porta: o Origin enviado pelo navegador é diferente de `app.base`, sem alterar a CSP do produto.
+  const atacante = createServer((_pedido, resposta) => { resposta.setHeader("content-type", "text/html; charset=utf-8"); resposta.end("<!doctype html><title>atacante</title>"); });
+  await new Promise<void>(resolvePorta => atacante.listen(0, "127.0.0.1", resolvePorta));
+  const origemAtacante = `http://127.0.0.1:${(atacante.address() as AddressInfo).port}`;
+  expect(origemAtacante).not.toBe(app.base);
+  origensExternas.add(origemAtacante);
+  try {
+    await page.goto(origemAtacante);
+    const recusa = page.waitForResponse(resposta => resposta.url().includes("/api/aprovar") && resposta.request().method() === "POST");
+    const visto = await page.evaluate(async ({ base, token, corpo }) => {
+      const resposta = await fetch(`${base}/api/aprovar?token=${encodeURIComponent(token)}`, { method: "POST", mode: "no-cors", headers: { "content-type": "text/plain" }, body: JSON.stringify(corpo) });
+      return { tipo: resposta.type, status: resposta.status, origem: location.origin };
+    }, { base: app.base, token: app.token, corpo: { caminho: item.caminho, versao: item.versao } });
+    expect(visto).toEqual({ tipo: "opaque", status: 0, origem: origemAtacante });
+    const resposta = await recusa;
+    expect(resposta.status()).toBe(403);
+  } finally { await new Promise(resolveFim => atacante.close(resolveFim)); }
+  expect((await vault.ler(caminho)).toString()).not.toContain("verified:");
+  // Controle positivo: a mesma carga, com o Origin da sessão, é válida e aprova.
+  const controle = await oraculo.post<{ codigo: number }>("/api/aprovar", { caminho: item.caminho, versao: item.versao });
+  expect(controle.status).toBe(200);
+  expect((await vault.ler(caminho)).toString()).toContain("verified:");
 });
 
 for (const variante of ["raw", "area"] as const) {

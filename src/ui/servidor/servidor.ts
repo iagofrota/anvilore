@@ -169,7 +169,7 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
               const arquivo = await readFile(caminho);
               const tipo = caminho.endsWith(".html") ? "text/html; charset=utf-8" : caminho.endsWith(".css") ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8";
               const conteudo = tipo.startsWith("text/html") ? arquivo.toString().replaceAll("__ANVILORE_TOKEN__", token) : arquivo;
-              return respostaSegura(conteudo, { headers: { "content-type": tipo, "cache-control": "no-store", "content-security-policy": `default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' http://localhost:${url.port} http://127.0.0.1:${url.port}` } });
+              return respostaSegura(conteudo, { headers: { "content-type": tipo, "cache-control": "no-store", "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'" } });
             } catch (erro) {
               const codigo = (erro as NodeJS.ErrnoException).code;
               if (codigo === "ENOENT" || codigo === "EISDIR") return respostaSegura("Não encontrado", { status: 404 });
