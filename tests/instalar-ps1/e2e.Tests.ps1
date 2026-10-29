@@ -30,7 +30,11 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       Set-Content -LiteralPath $assin -Value ("$nome@anvilore.test namespaces=`"git`" $($pub[0]) $($pub[1])`n") -NoNewline -Encoding ASCII
       return @{ Privada = $f; Assinantes = $assin }
     }
-    function script:GitCmd { & git @args 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { throw "git $args falhou ($LASTEXITCODE)" } }
+    function script:GitCmd {
+      $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'   # avisos do git vão para o stderr e não são erro
+      try { & git @args 2>&1 | Out-Null; $cod = $LASTEXITCODE } finally { $ErrorActionPreference = $eap }
+      if ($cod -ne 0) { throw "git $args falhou ($cod)" }
+    }
     # Origem local: clone do checkout atual + tag. modo: assinada | sem-assinatura | outra-chave | nome-trocado
     function script:Origem($nome, $modo, $chaveBoa, $chaveOutra, [bool]$filtro = $false) {
       $dir = Join-Path $script:Base "origem-$nome"
@@ -276,7 +280,8 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
         Remove-Item $m -ErrorAction SilentlyContinue
         $pasta = Join-Path $script:Base "hooks-da-pessoa-$nome"
         New-Item -ItemType Directory $pasta -Force | Out-Null
-        [IO.File]::WriteAllText((Join-Path $pasta 'reference-transaction'), "#!/bin/sh`nprintf `"`$1 `" >> '$(Fw $m)'`ncat >/dev/null`n")
+        [IO.File]::WriteAllText((Join-Path $pasta 'reference-transaction'), "#!/bin/sh`nprintf `"ref-`$1 `" >> '$(Fw $m)'`ncat >/dev/null`n")
+        [IO.File]::WriteAllText((Join-Path $pasta 'post-checkout'), "#!/bin/sh`nprintf 'post-checkout ' >> '$(Fw $m)'`n")
         $cfg = ConfigGlobal "hook-$nome" ("[core]`n`thooksPath = $(Fw $pasta)`n")
         return @{ Config = $cfg; Marcador = $m }
       }
@@ -312,9 +317,11 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $r = Rodar (Perfil 'a1-hook-bom') $script:OrigemBoa $script:Release $script:PathComAgente @{ GIT_CONFIG_GLOBAL = $c.Config }
       $r.Codigo | Should -Be 0
       Test-Path (Join-Path $r.Perfil 'Anvilore\src\cli.ts') | Should -BeTrue
+      # O hook funciona neste runner: depois da autenticação ele roda (isso dá sentido a "não rodou" no teste da candidata ruim).
+      Test-Path $c.Marcador | Should -BeTrue
     }
     It 'A2: gpg.ssh.program aprovador global + tag de chave fora dos assinantes: recusa' {
-      $apr = Join-Path $script:Base 'aprova-tudo.sh'
+      $apr = Join-Path $script:Base 'aprova-tudo'
       [IO.File]::WriteAllText($apr, "#!/bin/sh`ncase `"`$*`" in`n  *find-principals*) echo atacante@exemplo ;;`n  *) echo 'Good `"git`" signature for atacante@exemplo with ED25519 key SHA256:falso' ;;`nesac`nexit 0`n")
       $cfg = ConfigGlobal 'aprovador' ("[gpg `"ssh`"]`n`tprogram = $(Fw $apr)`n")
       $origem = Origem 'a2-outra' 'outra-chave' $script:Boa $script:Outra
