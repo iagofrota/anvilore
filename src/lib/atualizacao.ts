@@ -640,23 +640,6 @@ export function identidadeDaTag(raiz: string, tag: string, exec: Exec = execPadr
   if (!parsearSemVer(versao)) return `o nome assinado ${tag} não é uma versão SemVer; recusada.`;
   return { versao, commit: objeto };
 }
-// Tags que o fetch forçado nunca pode sobrescrever: as do commit instalado e as dos commits guardados em refs/anvilore/*
-// cujo nome não é uma versão mais nova que a instalada. Uma tag de versão mais nova que aponte para esses commits só
-// pode ter sido trocada (por um espelho, numa busca anterior); protegê-la bloquearia para sempre a tag legítima.
-function tagsProtegidas(raiz: string, exec: Exec, atual: string): Set<string> {
-  const nomes = new Set<string>();
-  for (const ref of ["HEAD", REF_ANTERIOR, REF_OPERACAO]) {
-    const commit = exec(["rev-parse", "--verify", "-q", `${ref}^{commit}`], raiz);
-    if (commit.codigo !== 0 || !COMMIT.test(commit.saida.trim())) continue;
-    const r = exec(["tag", "--points-at", commit.saida.trim()], raiz);
-    if (r.codigo !== 0) throw erro("git tag --points-at", r.saida.trim());
-    for (const nome of r.saida.split("\n").map(l => l.trim()).filter(Boolean)) {
-      const versao = nome.startsWith("v") ? nome.slice(1) : nome;
-      if (!parsearSemVer(versao) || compararSemVer(versao, atual) <= 0) nomes.add(nome);
-    }
-  }
-  return nomes;
-}
 function oficial(raiz: string, exec: Exec) {
   const rem = exec(["remote", "get-url", "origin"], raiz).saida.trim();
   const ok = ["https://github.com/iagofrota/anvilore.git", "git@github.com:iagofrota/anvilore.git", "ssh://git@github.com/iagofrota/anvilore.git"].includes(rem);
@@ -932,20 +915,32 @@ export async function atualizar(acao: "verificar" | "voltar" | "estado" | "autom
     if (decision === "ignorar" && acao !== "aplicar") return `Atualização ignorada pela política atual (${state.modo}, canal ${state.canal}).`;
     // `+`: se um espelho já trocou esta tag localmente, a do origin a substitui (sem isso o git recusa com "would
     // clobber existing tag" e a release legítima nunca entraria). A troca não dá confiança: tudo é verificado abaixo.
-    const protegidas = tagsProtegidas(raiz, exec, atual);
-    if (protegidas.has(release.tag)) throw erro("tag protegida", `${release.tag} aponta para a versão instalada ou para uma versão guardada para voltar; não a busco de novo. Nada foi mudado.`);
-    const fetch = exec(["fetch", "--no-tags", "origin", `+refs/tags/${release.tag}:refs/tags/${release.tag}`], raiz);
-    if (fetch.codigo) throw erro("fetch", fetch.saida.trim());
-    const ref = exec(["rev-parse", "--verify", "-q", `refs/tags/${release.tag}`], raiz), objeto = ref.saida.trim();
-    const assinada = ref.codigo !== 0 || !COMMIT.test(objeto) ? `a tag ${release.tag} não existe depois do fetch; recusada.`
-      : verificarAssinaturaTag(raiz, release.tag, exec, objeto) ?? identidadeDaTag(raiz, release.tag, exec, objeto);
+    // A ref da tag antes do fetch: qualquer recusa ou erro até a verificação terminar a devolve como estava (apaga se
+    // não existia). Uma tag não confirmada que ficasse apontando para o HEAD instalado mudaria o `describe` e o clone
+    // deixaria de ser reconhecido como gerenciado.
+    const refTag = `refs/tags/${release.tag}`, anteriorDaRef = exec(["rev-parse", "--verify", "-q", refTag], raiz);
+    const oidAnterior = anteriorDaRef.codigo === 0 && COMMIT.test(anteriorDaRef.saida.trim()) ? anteriorDaRef.saida.trim() : undefined;
+    const devolverRef = async () => {
+      const agora = exec(["rev-parse", "--verify", "-q", refTag], raiz);
+      if (agora.codigo === 0 && agora.saida.trim() === oidAnterior) return;
+      const r = oidAnterior ? exec(["update-ref", refTag, oidAnterior], raiz) : agora.codigo === 0 ? exec(["update-ref", "-d", refTag], raiz) : { codigo: 0, saida: "" };
+      await log(raiz, r.codigo === 0 ? `ref ${refTag} devolvida ao estado anterior à busca` : `aviso: não devolvi ${refTag}: ${r.saida.trim()}`);
+    };
+    const fetch = exec(["fetch", "--no-tags", "origin", `+${refTag}:${refTag}`], raiz);
+    if (fetch.codigo) { await devolverRef(); throw erro("fetch", fetch.saida.trim()); }
+    const ref = exec(["rev-parse", "--verify", "-q", refTag], raiz), objeto = ref.saida.trim();
+    let assinada: ReturnType<typeof identidadeDaTag>;
+    try {
+      assinada = ref.codigo !== 0 || !COMMIT.test(objeto) ? `a tag ${release.tag} não existe depois do fetch; recusada.`
+        : verificarAssinaturaTag(raiz, release.tag, exec, objeto) ?? identidadeDaTag(raiz, release.tag, exec, objeto);
+    } catch (e) { await devolverRef(); throw e; }
     const bad = typeof assinada === "string" ? assinada
       : assinada.versao !== release.versao ? `a release anuncia ${release.versao}, mas a tag assinada é ${assinada.versao}; recusada.`
       : compararSemVer(assinada.versao, atual) <= 0 ? `a tag assinada ${release.tag} não é mais nova que a ${atual} instalada; recusada.`
       : undefined;
     // Sem `recusadas`: o objeto não foi confirmado como da release (assinatura ou identidade), então um espelho que
     // o sirva uma vez não pode bloquear para sempre a tag legítima da mesma versão. A próxima checagem tenta de novo.
-    if (bad || typeof assinada === "string") { state.estado = "recusada"; state.erro = bad; state.verificadoEm = new Date().toISOString(); await gravarEstado(raiz, state); await log(raiz, `tag recusada tag=${release.tag}: ${bad}`); throw new Error(bad); }
+    if (bad || typeof assinada === "string") { await devolverRef(); state.estado = "recusada"; state.erro = bad; state.verificadoEm = new Date().toISOString(); await gravarEstado(raiz, state); await log(raiz, `tag recusada tag=${release.tag}: ${bad}`); throw new Error(bad); }
     const confirmada = { tag: release.tag, versao: assinada.versao, commit: assinada.commit };
     if (acao === "verificar" || (acao === "automatico" && state.estado !== "baixada")) {
       state.estado = "baixada"; state.disponivel = release.versao; state.tagDisponivel = release.tag; state.verificadoEm = new Date().toISOString();
