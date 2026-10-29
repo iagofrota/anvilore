@@ -28,6 +28,7 @@ const stdin = await Bun.stdin.text();
 if (process.env.CLAUDE_FALSO_REGISTRO) {
   appendFileSync(process.env.CLAUDE_FALSO_REGISTRO, JSON.stringify({
     argv,
+    pid: process.pid,
     cwd: process.cwd(),
     stdin,
     ANVILORE_WIKI: process.env.ANVILORE_WIKI,

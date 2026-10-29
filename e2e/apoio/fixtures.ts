@@ -8,13 +8,14 @@ import { expect, request, test as base, type APIRequestContext, type Page, type 
 import type { RoteiroDoFalso } from "../../tests/apoio/claude-falso";
 import { criarVault, type Vault } from "./vault";
 import { roteiroPadrao } from "./roteiros";
+import { ambienteHermetico } from "./ambiente";
 
 type App = { base: string; url: string; token: string; porta: number; processo: ChildProcessByStdio<null, Readable, Readable>; log(): string };
 type Agente = { registro: string; invocacoes(papel?: "leitor" | "escritor" | "auth"): Promise<Record<string, unknown>[]>; liberar(nome: string): Promise<void>; pronto(nome: string): Promise<void> };
 type Oraculo = { get<T>(rota: string): Promise<T>; post<T>(rota: string, corpo?: unknown): Promise<{ status: number; body: T }> };
 
 type Fixtures = { vault: Vault; app: App; agente: Agente; oraculo: Oraculo; guardas: void };
-type Options = { roteiro: RoteiroDoFalso; manterVault: boolean; agenteAusente: boolean };
+type Options = { roteiro: RoteiroDoFalso; manterVault: boolean; agenteAusente: boolean; ambienteDoRunner: NodeJS.ProcessEnv | undefined };
 
 async function lerRegistro(caminho: string): Promise<Record<string, unknown>[]> {
   try { return (await readFile(caminho, "utf8")).split("\n").filter(Boolean).map(linha => JSON.parse(linha) as Record<string, unknown>); }
@@ -39,9 +40,11 @@ async function iniciar(processo: ChildProcessByStdio<null, Readable, Readable>):
 }
 
 async function encerrar(processo: ChildProcessByStdio<null, Readable, Readable>): Promise<void> {
-  if (processo.exitCode !== null || processo.killed) return;
+  if (processo.exitCode !== null || processo.signalCode !== null) return;
   await new Promise<void>(resolveSaida => {
-    processo.once("exit", () => resolveSaida());
+    // SIGKILL de reserva só para o PID que este fixture criou; o encerramento normal cancela o agente antes de sair.
+    const reserva = setTimeout(() => processo.kill("SIGKILL"), 10_000);
+    processo.once("exit", () => { clearTimeout(reserva); resolveSaida(); });
     processo.kill("SIGTERM");
   });
 }
@@ -50,6 +53,8 @@ export const test = base.extend<Fixtures & Options>({
   roteiro: [roteiroPadrao(), { option: true }],
   manterVault: [process.env.E2E_MANTER === "1", { option: true }],
   agenteAusente: [false, { option: true }],
+  // Só a contraprova de isolamento troca isto: simula um runner com ANVILORE_WIKI etc. exportados.
+  ambienteDoRunner: [undefined, { option: true }],
   vault: async ({ manterVault }, use, testInfo) => {
     const vault = await criarVault();
     await use(vault);
@@ -91,12 +96,12 @@ export const test = base.extend<Fixtures & Options>({
     };
     await use(agente);
   },
-  app: async ({ vault, agente, agenteAusente }, use) => {
+  app: async ({ vault, agente, agenteAusente, ambienteDoRunner }, use) => {
     const token = randomBytes(24).toString("base64url");
     const configPath = join(vault.raiz, ".anvilore/e2e/servidor.json");
     const config = { raiz: vault.raiz, token, agente: agenteAusente ? { tipo: "ausente" } : { tipo: "falso", roteiro: join(vault.raiz, ".anvilore/e2e/roteiro.json"), registro: agente.registro } };
     await writeFile(configPath, JSON.stringify(config));
-    const env = { ...process.env, HOME: join(vault.raiz, ".home"), TMPDIR: process.env.TMPDIR };
+    const env = ambienteHermetico(ambienteDoRunner ?? process.env, join(vault.raiz, ".home"));
     const processo = spawn("bun", [resolve("e2e/apoio/servidor.ts"), configPath], { cwd: process.cwd(), env, stdio: ["ignore", "pipe", "pipe"] });
     let stderr = "";
     processo.stderr.on("data", bloco => { stderr += bloco.toString(); });

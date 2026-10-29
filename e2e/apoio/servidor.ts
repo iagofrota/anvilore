@@ -3,12 +3,16 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { iniciarServidorUi } from "../../src/ui/servidor/servidor";
 import { PonteClaudeCode } from "../../src/lib/ponte-claude-code";
+import { variaveisProibidas } from "./ambiente";
 
 type Config = {
   raiz: string;
   token: string;
   agente: { tipo: "falso"; roteiro: string; registro: string } | { tipo: "ausente" };
 };
+
+const herdadas = variaveisProibidas(process.env);
+if (herdadas.length > 0) throw new Error(`O servidor de teste recusa subir com variáveis que apontam para fora do vault: ${herdadas.join(", ")}.`);
 
 const configPath = process.argv[2];
 if (!configPath) throw new Error("Uso interno: servidor.ts <config.json>");
