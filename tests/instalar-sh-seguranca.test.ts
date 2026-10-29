@@ -153,3 +153,49 @@ test.skipIf(!linux)("A5: Dado o mesmo ext:: e versão fixa em ANVILORE_VERSAO, Q
   expect(await existe(c.pasta)).toBe(false);
   expect(semSobras(c)).not.toContain("baixando");
 });
+
+// git falso no PATH que registra argv e ambiente de cada chamada e repassa para o git real.
+async function gitQueRegistra(c: Cenario, semRede = false) {
+  const corte = semRede ? `case " $* " in *" clone "*) exit 1 ;; esac\n` : "";
+  const log = join(c.pai, "git-rede.log");
+  await c.comando("git", `#!/bin/sh\nprintf '%s|PROTO=%s|ASK=%s|PROMPT=%s\\n' "$*" "\${GIT_ALLOW_PROTOCOL-<sem>}" "\${GIT_ASKPASS-<sem>}" "\${GIT_TERMINAL_PROMPT-<sem>}" >> "${log}"\n${corte}exec ${Bun.which("git")} "$@"\n`);
+  return async (verbo: string) => (await readFile(log, "utf8")).split("\n").filter(l => l.includes(` ${verbo} `));
+}
+const GUARDA_ARGV = ["core.hooksPath=", "credential.helper=", "core.askPass="];
+
+test.skipIf(!linux)("A5: Dado a descoberta da tag e o clone, Quando o instalador os chama, Então ambos levam a mesma guarda de transporte", async () => {
+  const c = await novo();
+  const chamadas = await gitQueRegistra(c);
+  const r = c.rodar();
+  expect(r.codigo, r.tudo).toBe(0);
+  for (const verbo of ["ls-remote", "clone"]) {
+    const linhas = await chamadas(verbo);
+    expect(linhas.length, verbo).toBe(1);
+    for (const parte of GUARDA_ARGV) expect(linhas[0], `${verbo} ${parte}`).toContain(parte);
+    expect(linhas[0], verbo).toContain("|PROTO=file|");
+    expect(linhas[0], verbo).toContain("|ASK=|");
+    expect(linhas[0], verbo).toContain("|PROMPT=0");
+  }
+});
+
+test.skipIf(!linux)("A5: Dado a origem oficial (https), Quando o instalador baixa, Então a lista de protocolos é só https", async () => {
+  const c = await novo();
+  const chamadas = await gitQueRegistra(c, true);
+  // O git falso recusa o clone sem tocar na rede: só interessa o argv e o ambiente da chamada.
+  const r = c.rodar({ ANVILORE_ORIGEM: "", ANVILORE_VERSAO: "v0.3.0" });
+  expect(r.codigo).toBe(1);
+  const linhas = await chamadas("clone");
+  expect(linhas.length).toBe(1);
+  expect(linhas[0]).toContain("|PROTO=https|");
+});
+
+test.skipIf(!linux)("A5: Dado o GIT_ALLOW_PROTOCOL da pessoa com ext, Quando o instalador chama o git de rede, Então a lista é a do instalador e a variável não vaza para o resto", async () => {
+  const c = await novo();
+  const chamadas = await gitQueRegistra(c);
+  const r = c.rodar({ GIT_ALLOW_PROTOCOL: "ext:fd:file" });
+  expect(r.codigo, r.tudo).toBe(0);
+  expect((await chamadas("ls-remote"))[0]).toContain("|PROTO=file|");
+  const log = (await readFile(join(c.pai, "git-rede.log"), "utf8")).split("\n").filter(l => l && !l.includes(" ls-remote ") && !l.includes(" clone "));
+  expect(log.length).toBeGreaterThan(0);
+  for (const l of log) expect(l, l).not.toContain("PROTO=file|");
+});
