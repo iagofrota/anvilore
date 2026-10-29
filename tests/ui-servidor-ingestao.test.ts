@@ -46,7 +46,8 @@ test("Dado uma atualização recente Quando a interface lê o estado Então most
   mkdirSync(join(raiz, ".anvilore"), { recursive: true });
   writeFileSync(join(raiz, ".anvilore/atualizacao.json"), JSON.stringify({
     versao: 1, modo: "automatico", canal: "estavel", estado: "ocioso", versaoInstalada: "0.3.1",
-    atualizadoEm: new Date().toISOString(), id: "1-aabbccdd00", anterior: "commit-anterior",
+    atualizadoEm: new Date().toISOString(),
+    ultima: { id: "1-aabbccdd00", de: { versao: "0.3.0", commit: "a".repeat(40) }, para: { versao: "0.3.1", commit: "b".repeat(40) } },
   }));
   writeFileSync(join(raiz, "CHANGELOG.md"), "## [0.3.1]\n\n- Melhora atualização e reversão.\n- Mantém configurações.\n\n## [0.3.0]\n");
   const { chamar } = await servidor();

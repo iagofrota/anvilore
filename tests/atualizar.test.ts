@@ -1,7 +1,11 @@
-import { describe, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
-import { compararSemVer, comandoAtualizar, decidirPolitica, parsearSemVer, selecionarRelease } from "../src/lib/atualizacao";
+import { afterAll, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { atualizar, compararSemVer, comandoAtualizar, decidirPolitica, parsearSemVer, selecionarRelease } from "../src/lib/atualizacao";
 import { capturarConsole } from "./apoio/console";
+import { arvore, criarChave, criarKit, type Kit, type Versao } from "./apoio/kit-atualizavel";
 
 describe("atualizador: SemVer e canal", () => {
   test("Dado versões SemVer válidas e inválidas, Quando analiso, Então recusa forma inválida sem normalizar", () => {
@@ -45,130 +49,6 @@ test("Dado opção desconhecida, Quando invoca o comando atualizar, Então mostr
     expect(c.erros.join("\n")).toContain("Uso: anvilore atualizar");
   } finally { c.restaurar(); }
 });
-
-import { atualizar } from "../src/lib/atualizacao";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-const diagnosticoLimpo = { travas: [{ nome: "raw", ligada: true }], prerequisitos: [], avisos: [] };
-async function raizGerenciada() {
-  const raiz = await mkdtemp(join(tmpdir(), "anvilore-atualizar-"));
-  await mkdir(join(raiz, ".anvilore"), { recursive: true });
-  await mkdir(join(raiz, "seguranca"), { recursive: true });
-  await writeFile(join(raiz, "package.json"), JSON.stringify({ version: "0.3.0" }));
-  await writeFile(join(raiz, ".anvilore/atualizacao.json"), JSON.stringify({ versao: 1, modo: "automatico", canal: "estavel", estado: "ocioso", versaoInstalada: "0.3.0" }));
-  return raiz;
-}
-function gitSimulado(opcoes: { verify?: number; hook?: boolean; head?: string; checkoutFalha?: boolean } = {}) {
-  let head = opcoes.head ?? "commit-anterior";
-  const chamadas: string[][] = [];
-  return {
-    chamadas,
-    executar: (args: string[], _cwd: string) => {
-      chamadas.push(args);
-      if (args[0] === "remote") return { codigo: 0, saida: "https://github.com/iagofrota/anvilore.git" };
-      if (args[0] === "describe") return { codigo: 0, saida: head === "commit-anterior" ? "v0.3.0" : "v0.3.1" };
-      if (args[0] === "rev-parse") return { codigo: 0, saida: head };
-      if (args[0] === "fetch" || args[0] === "update-ref" || args[0] === "diff" || args[0] === "status") return { codigo: 0, saida: "" };
-      if (args.includes("verify-tag")) return { codigo: opcoes.verify ?? 0, saida: "bad signature" };
-      if (args[0] === "show") return { codigo: 128, saida: "path not found" };
-      if (args[0] === "checkout") {
-        if (opcoes.checkoutFalha && args.at(-1) === "v0.3.1") return { codigo: 1, saida: "checkout falhou" };
-        head = args.at(-1) === "v0.3.1" ? "commit-novo" : "commit-anterior";
-        return { codigo: 0, saida: "" };
-      }
-      return { codigo: 0, saida: "" };
-    },
-    head: () => head,
-  };
-}
-const releasesPatch = async () => [{ tag_name: "v0.3.1", draft: false, prerelease: false }];
-
-test("Dado versão candidata inválida, Quando verifica, Então não consulta assinatura nem aplica", async () => {
-  const raiz = await raizGerenciada();
-  const git = gitSimulado();
-  try {
-    const msg = await atualizar("verificar", { raiz, executar: git.executar, releases: async () => [{ tag_name: "v0.03.1", draft: false, prerelease: false }] });
-    expect(msg).toContain("já está atualizado");
-    expect(git.chamadas.some(c => c.includes("verify-tag"))).toBe(false);
-  } finally { await rm(raiz, { recursive: true, force: true }); }
-});
-
-test("Dado o clone sem chave pública local, Quando verifica tag candidata, Então recusa sem tentar checkout", async () => {
-  const raiz = await raizGerenciada();
-  const git = gitSimulado();
-  try {
-    await expect(atualizar("verificar", { raiz, executar: git.executar, releases: releasesPatch })).rejects.toThrow("seguranca/assinantes ausente");
-    expect(git.chamadas.some(c => c[0] === "checkout")).toBe(false);
-    expect(JSON.parse(await readFile(join(raiz, ".anvilore/atualizacao.json"), "utf8")).estado).toBe("recusada");
-  } finally { await rm(raiz, { recursive: true, force: true }); }
-});
-
-test("Dado assinatura SSH inválida, Quando verifica, Então marca release recusada e não aplica", async () => {
-  const raiz = await raizGerenciada();
-  const git = gitSimulado({ verify: 1 });
-  try {
-    await writeFile(join(raiz, "seguranca/assinantes"), "fixture de chave descartável\n");
-    await expect(atualizar("verificar", { raiz, executar: git.executar, releases: releasesPatch })).rejects.toThrow("assinatura inválida");
-    expect(git.chamadas.some(c => c[0] === "checkout")).toBe(false);
-    expect(git.chamadas.some(c => c.includes("verify-tag"))).toBe(true);
-  } finally { await rm(raiz, { recursive: true, force: true }); }
-});
-
-test("Dado duas sessões concorrentes, Quando verificam ao mesmo tempo, Então apenas uma obtém a trava", async () => {
-  const raiz = await raizGerenciada();
-  const git = gitSimulado();
-  let liberar!: (releases: { tag_name: string; draft: boolean; prerelease: boolean }[]) => void;
-  let iniciou!: () => void;
-  const aguardando = new Promise<{ tag_name: string; draft: boolean; prerelease: boolean }[]>(resolve => { liberar = resolve; });
-  const pronta = new Promise<void>(resolve => { iniciou = resolve; });
-  const primeira = atualizar("verificar", { raiz, executar: git.executar, releases: async () => { iniciou(); return aguardando; } });
-  try {
-    await pronta;
-    await expect(atualizar("verificar", { raiz, executar: git.executar, releases: releasesPatch })).rejects.toThrow("atualização já em andamento");
-    liberar([]);
-    await primeira;
-  } finally { liberar([]); await rm(raiz, { recursive: true, force: true }); }
-});
-
-test("Dado atualização concluída, Quando solicita voltar, Então volta ao commit anterior e restaura configuração dos agentes", async () => {
-  const raiz = await raizGerenciada();
-  const git = gitSimulado();
-  const settings = join(raiz, ".claude/settings.json");
-  await mkdir(join(raiz, ".claude"), { recursive: true });
-  await writeFile(settings, '{"hooks":{"old":true}}\n');
-  await writeFile(join(raiz, "anvilore.toml"), "[hooks]\nauto_commit = true\ngithub_backup = true\n");
-  await writeFile(join(raiz, "seguranca/assinantes"), "fixture de chave descartável\n");
-  const deps = { raiz, executar: git.executar, releases: releasesPatch, diagnosticar: async () => diagnosticoLimpo, provarHook: async () => true, instalar: async () => 0 };
-  try {
-    expect(await atualizar("aplicar", deps)).toContain("Atualizado para 0.3.1");
-    expect(JSON.parse(await readFile(join(raiz, ".anvilore/atualizacao.json"), "utf8"))).toMatchObject({ autoCommit: true, githubBackup: true, alvos: ["claude"] });
-    await writeFile(settings, '{"hooks":{"new":true}}\n');
-    expect(await atualizar("voltar", deps)).toContain("Voltou para 0.3.0");
-    expect(git.head()).toBe("commit-anterior");
-    expect(await readFile(settings, "utf8")).toBe('{"hooks":{"old":true}}\n');
-  } finally { await rm(raiz, { recursive: true, force: true }); }
-});
-
-test("Dado doctor que ganha um pré-requisito ausente, Quando a atualização termina, Então reverte sem afirmar saúde igual", async () => {
-  const raiz = await raizGerenciada();
-  const git = gitSimulado();
-  await writeFile(join(raiz, "seguranca/assinantes"), "fixture de chave descartável\n");
-  let leituras = 0;
-  const deps = {
-    raiz, executar: git.executar, releases: releasesPatch,
-    diagnosticar: async () => ++leituras === 2 ? { ...diagnosticoLimpo, prerequisitos: [{ nome: "git", presente: false }] } : diagnosticoLimpo,
-    provarHook: async () => true, instalar: async () => 0,
-  };
-  try {
-    await expect(atualizar("aplicar", deps)).rejects.toThrow("atualização falhou e foi desfeita");
-    expect(leituras).toBe(3);
-    expect(git.head()).toBe("commit-anterior");
-    expect(JSON.parse(await readFile(join(raiz, ".anvilore/atualizacao.json"), "utf8")).estado).toBe("ocioso");
-  } finally { await rm(raiz, { recursive: true, force: true }); }
-});
-
 test("Dado allow_signers ausente, vazio ou inválido, Quando verifica uma tag, Então recusa e orienta a configuração", async () => {
   if (!Bun.which("git")) return;
   const raiz = await mkdtemp(join(tmpdir(), "anvilore-signers-invalidos-"));
@@ -283,100 +163,348 @@ test("Dado SCHEMA.md ignorado preservado na migração, Quando checkout --force 
   } finally { await rm(raiz, { recursive: true, force: true }); }
 });
 
-test("Dado atualização que migra SCHEMA.md e depois volta, Quando checkout antigo o sobrescreve, Então a cópia U2 restaura o arquivo da pessoa", async () => {
-  const raiz = await raizGerenciada();
-  const comandoGit = (args: string[]) => Bun.spawnSync(["git", "-C", raiz, ...args], { stdout: "pipe", stderr: "pipe" });
-  expect(comandoGit(["init", "-q"]).exitCode).toBe(0);
-  expect(comandoGit(["config", "user.name", "Teste Anvilore"]).exitCode).toBe(0);
-  expect(comandoGit(["config", "user.email", "teste@localhost"]).exitCode).toBe(0);
-  await writeFile(join(raiz, "SCHEMA.md"), "modelo da tag\n");
-  expect(comandoGit(["add", "SCHEMA.md"]).exitCode).toBe(0);
-  expect(comandoGit(["commit", "-qm", "versão anterior"]).exitCode).toBe(0);
-  await writeFile(join(raiz, "SCHEMA.md"), "contrato pessoal\n");
-  await writeFile(join(raiz, "seguranca/assinantes"), "fixture de chave descartável\n");
-  const base = gitSimulado();
-  let head = "commit-anterior";
-  const executar = (args: string[], cwd: string) => {
-    if (args[0] === "rev-parse") return { codigo: 0, saida: head };
-    if (args[0] === "describe") return { codigo: 0, saida: head === "commit-anterior" ? "v0.3.0" : "v0.3.1" };
-    if (args[0] === "show" && args[1] === "v0.3.1:atualizacao/migracoes.json") return { codigo: 0, saida: JSON.stringify({ deixa_de_rastrear: ["SCHEMA.md"] }) };
-    if (args[0] === "checkout" && args.at(-1) === "commit-anterior") {
-      head = "commit-anterior";
-      writeFileSync(join(raiz, "SCHEMA.md"), "modelo da tag\n");
-      return { codigo: 0, saida: "" };
-    }
-    const resultado = base.executar(args, cwd);
-    if (args[0] === "checkout" && args.at(-1) === "v0.3.1") head = "commit-novo";
-    return resultado;
-  };
-  const deps = { raiz, executar, releases: releasesPatch, diagnosticar: async () => diagnosticoLimpo, provarHook: async () => true, instalar: async () => 0 };
-  try {
-    expect(await atualizar("aplicar", deps)).toContain("Atualizado para 0.3.1");
-    expect(await readFile(join(raiz, "SCHEMA.md"), "utf8")).toBe("contrato pessoal\n");
-    expect(await atualizar("voltar", deps)).toContain("Voltou para 0.3.0");
-    expect(head).toBe("commit-anterior");
-    expect(await readFile(join(raiz, "SCHEMA.md"), "utf8")).toBe("contrato pessoal\n");
-  } finally { await rm(raiz, { recursive: true, force: true }); }
-});
+// ---------------------------------------------------------------------------------------------------------------
+// Cenários com Git, checkout e tags SSH reais (tests/apoio/kit-atualizavel.ts). Só rede e, quando dito, instalar,
+// doctor e hook são simulados; nos demais, rodam em subprocesso pelo src/cli.ts da versão ativa no disco.
+// ---------------------------------------------------------------------------------------------------------------
 
-test("Dado falha em R1 e estado reversao-incompleta, Quando a causa some, Então retoma antes de buscar release nova", async () => {
-  const raiz = await raizGerenciada();
-  const git = gitSimulado();
-  await writeFile(join(raiz, "seguranca/assinantes"), "fixture de chave descartável\n");
-  let falharVolta = true, chamadasHook = 0;
-  const executar = (args: string[], cwd: string) => {
-    if (falharVolta && args[0] === "checkout" && args.at(-1) === "commit-anterior") return { codigo: 1, saida: "R1 indisponível" };
-    return git.executar(args, cwd);
-  };
-  let consultas = 0;
-  const deps = { raiz, executar, releases: async () => { consultas++; return [{ tag_name: "v0.3.1", draft: false, prerelease: false }]; }, diagnosticar: async () => diagnosticoLimpo, provarHook: async () => chamadasHook++ !== 1, instalar: async () => 0 };
-  try {
-    await expect(atualizar("aplicar", deps)).rejects.toThrow("reversão incompleta");
-    expect(JSON.parse(await readFile(join(raiz, ".anvilore/atualizacao.json"), "utf8")).estado).toBe("reversao-incompleta");
-    falharVolta = false;
-    const mensagem = await atualizar("aplicar", { ...deps, releases: async () => { consultas++; return []; } });
-    expect(mensagem).toContain("Recuperação concluída");
-    expect(consultas).toBe(1);
-    expect(JSON.parse(await readFile(join(raiz, ".anvilore/atualizacao.json"), "utf8")).estado).toBe("ocioso");
-  } finally { await rm(raiz, { recursive: true, force: true }); }
-});
-
-for (const etapa of ["R1 checkout", "R2 dependências", "R3 restaurar cópia", "R4 instalar configurações", "R5 doctor e proteção raw"]) {
-  test(`Dado falha em ${etapa}, Quando a atualização precisa voltar, Então persiste reversao-incompleta com a etapa e mantém a cópia`, async () => {
-    const raiz = await raizGerenciada();
-    const git = gitSimulado();
-    await writeFile(join(raiz, "seguranca/assinantes"), "fixture de chave descartável\n");
-    await mkdir(join(raiz, ".claude"), { recursive: true });
-    await writeFile(join(raiz, ".claude/settings.json"), '{"hooks":{"before":true}}\n');
-    let installs = 0, hooks = 0, dependencias = 0, negarR1 = etapa === "R1 checkout";
-    const executar = (args: string[], cwd: string) => {
-      if (etapa === "R1 checkout" && negarR1 && args[0] === "checkout" && args.at(-1) === "commit-anterior") return { codigo: 1, saida: "erro R1" };
-      if (etapa === "R2 dependências" && args[0] === "diff" && args.includes("--quiet")) return { codigo: 1, saida: "bun.lock mudou" };
-      return git.executar(args, cwd);
-    };
-    const deps = {
-      raiz, executar, releases: releasesPatch, diagnosticar: async () => diagnosticoLimpo,
-      provarHook: async () => ++hooks === 1 || etapa !== "R5 doctor e proteção raw",
-      instalar: async () => {
-        installs++;
-        if (installs === 1) {
-          if (etapa === "R3 restaurar cópia") {
-            const state = JSON.parse(await readFile(join(raiz, ".anvilore/atualizacao.json"), "utf8"));
-            await writeFile(join(raiz, ".anvilore/atualizacao", state.id, "arquivos/.claude/settings.json"), "cópia adulterada\n");
-          }
-          return 4;
-        }
-        return etapa === "R4 instalar configurações" ? 4 : 0;
-      },
-      instalarDependencias: async () => ++dependencias === 1 ? 0 : etapa === "R2 dependências" ? 1 : 0,
-    };
-    try {
-      await expect(atualizar("aplicar", deps)).rejects.toThrow("reversão incompleta");
-      const state = JSON.parse(await readFile(join(raiz, ".anvilore/atualizacao.json"), "utf8"));
-      expect(state.estado).toBe("reversao-incompleta");
-      expect(state.etapa).toBe(etapa);
-      expect(await readFile(join(raiz, ".anvilore/atualizacao", state.id, "manifesto.json"), "utf8")).toContain('"id"');
-      if (etapa !== "R1 checkout") negarR1 = false;
-    } finally { await rm(raiz, { recursive: true, force: true }); }
-  });
+const temFerramentas = Boolean(Bun.which("git") && Bun.which("ssh-keygen"));
+const real = temFerramentas ? test : test.skip;
+const CONFIG = [".claude", ".codex", ".agents", ".gemini", ".github", "anvilore.toml"];
+const kits: Kit[] = [];
+afterAll(async () => { for (const kit of kits) await kit.limpar(); });
+async function kit(versoes: Versao[], opcoes?: Parameters<typeof criarKit>[1]) {
+  const k = await criarKit(versoes, opcoes); kits.push(k); return k;
 }
+const tres: Versao[] = [
+  { versao: "0.3.0", arquivos: { "pessoal.txt": "modelo antigo\n" } },
+  { versao: "0.3.1", arquivos: { "pessoal.txt": "modelo novo\n" } },
+  { versao: "0.3.2", cli: { doctorRuim: true, hookNovo: true } },
+];
+async function comConfigInicial(k: Kit) {
+  expect(k.rodarCli(["instalar", "--alvo", "claude,codex"])).toBe(0);
+  await mkdir(join(k.raiz, ".claude/skills/minha"), { recursive: true });
+  await writeFile(join(k.raiz, ".claude/skills/minha/SKILL.md"), "skill pessoal\n");
+  await symlink("../../skills/ingest", join(k.raiz, ".claude/skills/ingest"));
+  await writeFile(join(k.raiz, ".claude/agents/pessoal.md"), "agente da pessoa\n");
+  await writeFile(join(k.raiz, "anvilore.toml"), "[hooks]\nauto_commit = true\n");
+  await writeFile(join(k.raiz, ".anvilore/chamadas.log"), "");
+}
+
+describe("atualizador com Git real: aplicar", () => {
+  real("Dado bun.lock diferente na candidata, Quando aplico, Então instalo as dependências uma vez e rodo o instalar da versão nova em subprocesso", async () => {
+    const k = await kit(tres.slice(0, 2));
+    await comConfigInicial(k);
+    const msg = await atualizar("aplicar", k.deps());
+    expect(msg).toContain("Atualizado para 0.3.1");
+    expect(k.dependencias()).toBe(1);
+    expect(k.head()).toBe(k.commits["0.3.1"]!);
+    expect(await k.chamadas()).toContain(`0.3.1 instalar --alvo claude,codex --destino ${k.raiz} --auto-commit`);
+    expect(await readFile(join(k.raiz, ".codex/config.toml"), "utf8")).toBe("# hook gerado pela 0.3.1\n");
+    const estado = await k.estado();
+    expect(estado).toMatchObject({ estado: "ocioso", versaoInstalada: "0.3.1", ultima: { de: { versao: "0.3.0", commit: k.commits["0.3.0"] }, para: { versao: "0.3.1" } } });
+    expect(estado.operacao).toBeUndefined();
+    expect(k.ok(["rev-parse", "refs/anvilore/anterior"])).toBe(k.commits["0.3.0"]!);
+  });
+
+  real("Dado git diff que falha ao comparar o bun.lock, Quando aplico, Então recuso sem checkout em vez de supor lockfile igual", async () => {
+    const k = await kit(tres.slice(0, 2));
+    const deps = k.deps();
+    const executar = (args: string[], cwd: string) => args[0] === "diff" && args[1] === "--quiet" ? { codigo: 128, saida: "fatal: objeto ilegível" } : deps.executar!(args, cwd);
+    await expect(atualizar("aplicar", { ...deps, executar })).rejects.toThrow("git diff");
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+    expect(k.dependencias()).toBe(0);
+  });
+
+  real("Dado arquivos rastreados editado (nome com espaço), renomeado e apagado pela pessoa, Quando aplico, Então o conteúdo dela fica e o apagado continua apagado", async () => {
+    const k = await kit([
+      { versao: "0.3.0", arquivos: { "notas pessoais.txt": "modelo\n", "apagar.txt": "modelo\n", "velho.txt": "texto velho\n" } },
+      { versao: "0.3.1", arquivos: { "notas pessoais.txt": "modelo novo\n", "apagar.txt": "modelo novo\n", "velho.txt": "texto novo\n" } },
+    ]);
+    await writeFile(join(k.raiz, "notas pessoais.txt"), "minhas notas\n");
+    await rm(join(k.raiz, "apagar.txt"));
+    k.ok(["mv", "velho.txt", "novo.txt"]);
+    await atualizar("aplicar", k.deps());
+    expect(k.head()).toBe(k.commits["0.3.1"]!);
+    expect(await readFile(join(k.raiz, "notas pessoais.txt"), "utf8")).toBe("minhas notas\n");
+    expect(await readFile(join(k.raiz, "novo.txt"), "utf8")).toBe("texto velho\n");
+    expect(existsSync(join(k.raiz, "apagar.txt"))).toBe(false);
+    expect(existsSync(join(k.raiz, "velho.txt"))).toBe(false);
+  });
+
+  real("Dado raw/ alterado pelo instalar da versão nova, Quando aplico, Então desfaço, recuso a versão e não afirmo que raw/ ficou como antes", async () => {
+    const k = await kit([{ versao: "0.3.0" }, { versao: "0.3.1", cli: { corromperRaw: true } }]);
+    await mkdir(join(k.raiz, "raw/sub"), { recursive: true });
+    await writeFile(join(k.raiz, "raw/evidencia.md"), "original\n");
+    await writeFile(join(k.raiz, "raw/sub/outra.md"), "outra\n");
+    const falha = atualizar("aplicar", k.deps());
+    await expect(falha).rejects.toThrow("atualização falhou e foi desfeita");
+    await expect(falha).rejects.toThrow("raw/evidencia.md mudou");
+    await expect(falha).rejects.toThrow("ATENÇÃO");
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+    const estado = await k.estado();
+    expect(estado).toMatchObject({ estado: "ocioso", versaoInstalada: "0.3.0", recusadas: ["0.3.1"] });
+    expect(estado.alerta).toContain("raw/evidencia.md mudou");
+    expect(estado.ultima).toBeUndefined();
+  });
+
+  real("Dado a wiki em ANVILORE_WIKI fora da pasta, Quando o instalar cria só o .git e a peça do esqueleto que faltava, Então a atualização passa", async () => {
+    const k = await kit([{ versao: "0.3.0" }, { versao: "0.3.1", cli: { mexerNaWiki: "esqueleto" } }]);
+    const wiki = join(k.pai, "wiki-externa");
+    await mkdir(wiki);
+    await writeFile(join(wiki, "pagina.md"), "minha página\n");
+    const anterior = process.env.ANVILORE_WIKI;
+    process.env.ANVILORE_WIKI = wiki;
+    try {
+      expect(await atualizar("aplicar", k.deps())).toContain("Atualizado para 0.3.1");
+      expect(await readFile(join(wiki, "pagina.md"), "utf8")).toBe("minha página\n");
+      expect(existsSync(join(wiki, "index.md"))).toBe(true);
+    } finally { if (anterior === undefined) delete process.env.ANVILORE_WIKI; else process.env.ANVILORE_WIKI = anterior; }
+  });
+
+  real("Dado a wiki em ANVILORE_WIKI fora da pasta, Quando o instalar reescreve uma página, Então a medição pega pelo caminho real da wiki e desfaz", async () => {
+    const k = await kit([{ versao: "0.3.0" }, { versao: "0.3.1", cli: { mexerNaWiki: "pagina" } }]);
+    const wiki = join(k.pai, "wiki-externa");
+    await mkdir(wiki);
+    await writeFile(join(wiki, "pagina.md"), "minha página\n");
+    const anterior = process.env.ANVILORE_WIKI;
+    process.env.ANVILORE_WIKI = wiki;
+    try {
+      await expect(atualizar("aplicar", k.deps())).rejects.toThrow("wiki/pagina.md mudou");
+      expect(k.head()).toBe(k.commits["0.3.0"]!);
+    } finally { if (anterior === undefined) delete process.env.ANVILORE_WIKI; else process.env.ANVILORE_WIKI = anterior; }
+  });
+
+  real("Dado a candidata que deixa de rastrear raw/ sem declarar a migração, Quando aplico, Então recuso antes do checkout e o arquivo continua no disco", async () => {
+    const k = await kit([{ versao: "0.3.0", arquivos: { "raw/exemplo/nota.md": "nota da pessoa\n" } }, { versao: "0.3.1", arquivos: { "raw/exemplo/nota.md": null } }]);
+    await expect(atualizar("aplicar", k.deps())).rejects.toThrow("deixaria de rastrear arquivos que são seus (raw/exemplo/nota.md)");
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+    expect(await readFile(join(k.raiz, "raw/exemplo/nota.md"), "utf8")).toBe("nota da pessoa\n");
+    expect(await k.estado()).toMatchObject({ estado: "recusada", recusadas: ["0.3.1"] });
+  });
+
+  real("Dado a candidata que declara a migração, Quando aplico e depois volto, Então SCHEMA.md e raw/exemplo da pessoa continuam com o conteúdo dela", async () => {
+    const k = await kit([
+      { versao: "0.3.0", arquivos: { "SCHEMA.md": "modelo do kit\n", "raw/exemplo/nota.md": "modelo de nota\n" } },
+      { versao: "0.3.1", arquivos: { "SCHEMA.md": null, "raw/exemplo/nota.md": null, "atualizacao/migracoes.json": JSON.stringify({ deixa_de_rastrear: ["SCHEMA.md", "raw/exemplo"] }), ".gitignore": `${"SCHEMA.md\n"}.anvilore/\n.claude/\n.codex/\nraw/\nwiki/\nanvilore.toml\n` } },
+    ], { alvos: [] });
+    await writeFile(join(k.raiz, "SCHEMA.md"), "contrato da pessoa\n");
+    expect(await atualizar("aplicar", k.deps())).toContain("Atualizado para 0.3.1");
+    expect(k.ok(["ls-files", "SCHEMA.md", "raw/exemplo"])).toBe("");
+    expect(await readFile(join(k.raiz, "SCHEMA.md"), "utf8")).toBe("contrato da pessoa\n");
+    expect(await readFile(join(k.raiz, "raw/exemplo/nota.md"), "utf8")).toBe("modelo de nota\n");
+    expect(await atualizar("voltar", k.deps())).toContain("Voltou para 0.3.0");
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+    expect(await readFile(join(k.raiz, "SCHEMA.md"), "utf8")).toBe("contrato da pessoa\n");
+  });
+
+  real("Dado .claude como link para fora da pasta, Quando aplico, Então recuso antes de mexer e nada fora é tocado", async () => {
+    const k = await kit(tres.slice(0, 2));
+    const fora = join(k.pai, "fora");
+    await mkdir(join(fora, "agents"), { recursive: true });
+    await writeFile(join(fora, "settings.json"), "de fora\n");
+    await symlink(fora, join(k.raiz, ".claude"));
+    await expect(atualizar("aplicar", k.deps())).rejects.toThrow("caminho inseguro");
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+    expect(await readFile(join(fora, "settings.json"), "utf8")).toBe("de fora\n");
+  });
+});
+
+describe("atualizador com Git real: Bun exigido pela versão nova (D9)", () => {
+  const versoes: Versao[] = [{ versao: "0.3.0", packageManager: "bun@1.4.1" }, { versao: "0.3.1", packageManager: "bun@9.9.9" }];
+  real("Dado Bun da pessoa mais velho que o pedido, Quando aplico, Então recuso sem mudar nada e digo como atualizar", async () => {
+    const k = await kit(versoes);
+    await expect(atualizar("aplicar", k.deps())).rejects.toThrow("bun upgrade");
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+    expect(existsSync(join(k.raiz, ".anvilore/atualizacao"))).toBe(false);
+  });
+  real("Dado Bun instalado pelo Anvilore e nenhum atualizador do Bun neste kit, Quando aplico, Então recuso dizendo que depende do instalador", async () => {
+    const k = await kit(versoes, { estado: { bunGerenciado: true } });
+    await expect(atualizar("aplicar", k.deps())).rejects.toThrow("fatia dos instaladores");
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+  });
+  real("Dado Bun instalado pelo Anvilore e o ponto de atualização do Bun, Quando aplico, Então atualizo o Bun e confiro a versão depois", async () => {
+    const k = await kit(versoes, { estado: { bunGerenciado: true } });
+    let bun = "1.4.1"; const pedidos: string[] = [];
+    const msg = await atualizar("aplicar", k.deps({ versaoBun: async () => bun, atualizarBun: async (_r, minima) => { pedidos.push(minima); bun = minima; return 0; } }));
+    expect(msg).toContain("Atualizado para 0.3.1");
+    expect(pedidos).toEqual(["9.9.9"]);
+  });
+});
+
+describe("atualizador com Git real: voltar, três tags e interrupção", () => {
+  real("Dado skills e configurações pessoais, Quando aplico e depois volto, Então a árvore (b) volta igual por SHA-256 e o instalar da 0.3.0 roda na volta", async () => {
+    const k = await kit(tres.slice(0, 2));
+    await comConfigInicial(k);
+    const antes = await arvore(k.raiz, CONFIG);
+    await atualizar("aplicar", k.deps());
+    expect(await arvore(k.raiz, CONFIG)).not.toEqual(antes);
+    expect(await atualizar("voltar", k.deps())).toContain("Voltou para 0.3.0");
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+    expect(await arvore(k.raiz, CONFIG)).toEqual(antes);
+    expect((await k.chamadas()).filter(l => l.includes(" instalar ")).map(l => l.split(" ")[0])).toEqual(["0.3.1", "0.3.0"]);
+    const estado = await k.estado();
+    expect(estado).toMatchObject({ estado: "ocioso", versaoInstalada: "0.3.0", recusadas: ["0.3.1"] });
+    expect(estado.ultima).toBeUndefined();
+    expect(k.git(["rev-parse", "--verify", "-q", "refs/anvilore/anterior"]).codigo).not.toBe(0);
+    expect(await readFile(join(k.raiz, "pessoal.txt"), "utf8")).toBe("modelo antigo\n");
+  });
+
+  real("Dado três tags, Quando a 0.3.1 dá certo, a 0.3.2 piora o doctor com hook novo e é desfeita, e depois peço para voltar, Então volto à 0.3.0 com a cópia da primeira", async () => {
+    const k = await kit(tres);
+    await comConfigInicial(k);
+    const antesDaPrimeira = await arvore(k.raiz, CONFIG);
+    k.publicar(["v0.3.1"]);
+    await atualizar("aplicar", k.deps());
+    const depoisDaPrimeira = await arvore(k.raiz, CONFIG);
+    const ultima = (await k.estado()).ultima;
+    k.publicar(["v0.3.1", "v0.3.2"]);
+    await expect(atualizar("aplicar", k.deps())).rejects.toThrow("o doctor ficou pior");
+    expect(k.head()).toBe(k.commits["0.3.1"]!);
+    expect(await arvore(k.raiz, CONFIG)).toEqual(depoisDaPrimeira);
+    expect(await readFile(join(k.raiz, ".claude/settings.json"), "utf8")).not.toContain("subcomando-novo");
+    expect(await k.estado()).toMatchObject({ estado: "ocioso", versaoInstalada: "0.3.1", recusadas: ["0.3.2"], ultima });
+    expect(await atualizar("voltar", k.deps())).toContain("Voltou para 0.3.0");
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+    expect(await arvore(k.raiz, CONFIG)).toEqual(antesDaPrimeira);
+    expect((await k.estado()).recusadas.sort()).toEqual(["0.3.1", "0.3.2"]);
+  });
+
+  real("Dado o processo morto (SIGKILL) no meio do instalar, Quando a próxima sessão começa, Então a trava abandonada sai, a reversão é retomada e nenhuma release é consultada", async () => {
+    const k = await kit(tres.slice(0, 2));
+    await comConfigInicial(k);
+    const antes = await arvore(k.raiz, CONFIG);
+    const morto = Bun.spawnSync([process.execPath, join(import.meta.dir, "apoio/atualizar-e-morrer.ts"), k.raiz, "v0.3.1"], { stdout: "pipe", stderr: "pipe" });
+    expect(morto.signalCode).toBe("SIGKILL");
+    expect(await k.estado()).toMatchObject({ estado: "aplicando", etapa: "instalar" });
+    expect(existsSync(join(k.raiz, ".anvilore/atualizar.lock"))).toBe(true);
+    expect(k.head()).toBe(k.commits["0.3.1"]!);
+    let consultas = 0;
+    const msg = await atualizar("automatico", k.deps({ releases: async () => { consultas++; return []; } }));
+    expect(msg).toContain("Recuperação concluída: voltei para 0.3.0");
+    expect(consultas).toBe(0);
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+    expect(await arvore(k.raiz, CONFIG)).toEqual(antes);
+    expect(existsSync(join(k.raiz, ".anvilore/atualizar.lock"))).toBe(false);
+    expect(await k.estado()).toMatchObject({ estado: "ocioso", versaoInstalada: "0.3.0", recusadas: ["0.3.1"] });
+    expect(await readFile(join(k.raiz, ".anvilore/atualizacao.log"), "utf8")).toContain("trava abandonada removida");
+  });
+
+  real("Dado a cópia (b) adulterada com caminho para fora da pasta, Quando volto, Então recuso antes do checkout e nada fora é escrito", async () => {
+    const k = await kit(tres.slice(0, 2));
+    await comConfigInicial(k);
+    await atualizar("aplicar", k.deps());
+    const id = (await k.estado()).ultima.id;
+    const manifesto = join(k.raiz, ".anvilore/atualizacao", id, "manifesto.json");
+    const copia = JSON.parse(await readFile(manifesto, "utf8"));
+    copia.config[0].entradas.push({ path: "../fora.txt", tipo: "arquivo", sha256: "0".repeat(64) });
+    await writeFile(manifesto, JSON.stringify(copia));
+    await expect(atualizar("voltar", k.deps())).rejects.toThrow("cópia inválida");
+    expect(existsSync(join(k.pai, "fora.txt"))).toBe(false);
+    expect(k.head()).toBe(k.commits["0.3.1"]!);
+    expect(await k.estado()).toMatchObject({ estado: "ocioso", versaoInstalada: "0.3.1" });
+  });
+});
+
+describe("atualizador com Git real: reversão que falha (R1–R5)", () => {
+  for (const etapa of ["R1 checkout", "R2 dependências", "R3 restaurar cópia", "R4 instalar configurações", "R5 doctor e proteção raw"]) {
+    real(`Dado falha em ${etapa}, Quando a atualização precisa voltar, Então fica reversao-incompleta com a etapa, mantém cópia e ref, e retoma quando a causa some`, async () => {
+      const k = await kit(tres.slice(0, 2));
+      await comConfigInicial(k);
+      let causa = true, instalacoes = 0, provas = 0, dependencias = 0;
+      const base = k.deps();
+      const executar = (args: string[], cwd: string) => causa && etapa.startsWith("R1") && args[0] === "checkout" && args.at(-1) === k.commits["0.3.0"] ? { codigo: 1, saida: "erro R1" } : base.executar!(args, cwd);
+      const deps = k.deps({
+        executar,
+        instalar: async () => {
+          if (++instalacoes === 1) {
+            if (etapa.startsWith("R3")) {
+              const op = (await k.estado()).operacao;
+              await writeFile(join(k.raiz, ".anvilore/atualizacao", op.id, "config/.codex/config.toml"), "cópia adulterada\n");
+            }
+            return 4;
+          }
+          return causa && etapa.startsWith("R4") ? 4 : 0;
+        },
+        provarHook: async () => ++provas === 1 || !(causa && etapa.startsWith("R5")),
+        diagnosticar: async () => ({ travas: [{ nome: "raw", ligada: true }], prerequisitos: [], avisos: [] }),
+        instalarDependencias: async () => ++dependencias === 1 || !(causa && etapa.startsWith("R2")) ? 0 : 1,
+      });
+      const falha = atualizar("aplicar", deps);
+      await expect(falha).rejects.toThrow("reversão incompleta");
+      await expect(falha).rejects.toThrow(`etapa: ${etapa}`);
+      if (etapa.startsWith("R5")) await expect(falha).rejects.toThrow("A proteção de raw/ pode estar desligada");
+      await expect(falha).rejects.not.toThrow("foi desfeita");
+      const estado = await k.estado();
+      expect(estado).toMatchObject({ estado: "reversao-incompleta", etapa });
+      expect(existsSync(join(k.raiz, ".anvilore/atualizacao", estado.operacao.id, "manifesto.json"))).toBe(true);
+      expect(k.ok(["rev-parse", "refs/anvilore/operacao"])).toBe(k.commits["0.3.0"]!);
+      if (etapa.startsWith("R3")) return; // a cópia adulterada não volta sozinha: continua pendente, sem apagar nada.
+      causa = false;
+      let consultas = 0;
+      expect(await atualizar("aplicar", { ...deps, releases: async () => { consultas++; return []; } })).toContain("Recuperação concluída");
+      expect(consultas).toBe(0);
+      expect(k.head()).toBe(k.commits["0.3.0"]!);
+      expect(await k.estado()).toMatchObject({ estado: "ocioso", versaoInstalada: "0.3.0", recusadas: ["0.3.1"] });
+    });
+  }
+});
+
+describe("atualizador com Git real: confiança, trava e estado", () => {
+  real("Dado o kit instalado sem seguranca/assinantes, Quando verifico, Então recuso a candidata sem checkout", async () => {
+    const k = await kit(tres.slice(0, 2));
+    await rm(join(k.raiz, "seguranca/assinantes"));
+    await expect(atualizar("verificar", k.deps())).rejects.toThrow("seguranca/assinantes ausente");
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+    expect((await k.estado()).estado).toBe("recusada");
+  });
+
+  real("Dado a candidata assinada por chave que o kit instalado não conhece, Quando verifico, Então recuso", async () => {
+    const k = await kit(tres.slice(0, 2));
+    await mkdir(join(k.pai, "outra"));
+    const outra = await criarChave(join(k.pai, "outra"));
+    await writeFile(join(k.raiz, "seguranca/assinantes"), outra.assinantes);
+    await expect(atualizar("verificar", k.deps())).rejects.toThrow("git verify-tag recusou a tag v0.3.1");
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+  });
+
+  real("Dado versão candidata com SemVer inválido, Quando verifico, Então não consulta assinatura nem aplica", async () => {
+    const k = await kit(tres.slice(0, 2));
+    k.publicar(["v0.03.1"]);
+    expect(await atualizar("verificar", k.deps())).toContain("já está atualizado");
+  });
+
+  real("Dado duas sessões no mesmo processo, Quando verificam ao mesmo tempo, Então apenas uma obtém a trava", async () => {
+    const k = await kit(tres.slice(0, 2));
+    let liberar!: (r: { tag_name: string; draft: boolean; prerelease: boolean }[]) => void, iniciou!: () => void;
+    const aguardando = new Promise<{ tag_name: string; draft: boolean; prerelease: boolean }[]>(r => { liberar = r; });
+    const pronta = new Promise<void>(r => { iniciou = r; });
+    const primeira = atualizar("verificar", k.deps({ releases: async () => { iniciou(); return aguardando; } }));
+    await pronta;
+    await expect(atualizar("verificar", k.deps())).rejects.toThrow("atualização já em andamento");
+    liberar([]);
+    await primeira;
+  });
+
+  real("Dado trava de outro processo vivo, Quando aplico, Então recuso sem mexer", async () => {
+    const k = await kit(tres.slice(0, 2));
+    await writeFile(join(k.raiz, ".anvilore/atualizar.lock"), `${process.ppid}\n`);
+    await expect(atualizar("aplicar", k.deps())).rejects.toThrow("atualização já em andamento");
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+  });
+
+  real("Dado estado com id de cópia que sai da pasta, Quando aplico, Então recuso o estado sem montar caminho com ele", async () => {
+    const k = await kit(tres.slice(0, 2));
+    const ponto = { versao: "0.3.0", commit: k.commits["0.3.0"] };
+    await k.mudarEstado({ estado: "reversao-incompleta", operacao: { tipo: "aplicar", id: "../../fora", copiaConfig: "../../fora", origem: ponto, alvo: ponto, volta: ponto, lockMudou: false } });
+    await expect(atualizar("aplicar", k.deps())).rejects.toThrow("estado inválido");
+  });
+
+  real("Dado voltar pedido quando HEAD não é a versão da última atualização, Quando volto, Então recuso sem misturar cópia e ref", async () => {
+    const k = await kit(tres.slice(0, 2));
+    await atualizar("aplicar", k.deps());
+    await k.mudarEstado({ ultima: { ...(await k.estado()).ultima, para: { versao: "0.3.1", commit: k.commits["0.3.0"] } } });
+    await expect(atualizar("voltar", k.deps())).rejects.toThrow("versão anterior indisponível");
+    expect(k.head()).toBe(k.commits["0.3.1"]!);
+  });
+});
