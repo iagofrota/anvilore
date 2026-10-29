@@ -122,12 +122,12 @@ test("[I5-09] Dado os temas claro e escuro Quando alterno Então o Início conti
   await expect(page.getByRole("region", { name: "Saúde da wiki" })).toContainText(/Falta aprovar|Há problemas|Pede atenção|Tudo certo/);
   await guardarEvidencias(page, "inicio");
   const cor = (seletor: string, propriedade: string) => page.locator(seletor).first().evaluate((el, p) => getComputedStyle(el).getPropertyValue(p), propriedade);
-  const fundoClaro = await cor(".card", "background-color");
-  const textoClaro = await cor(".card h3", "color");
+  const fundoClaro = await cor(".home-card", "background-color");
+  const textoClaro = await cor(".home-card h3", "color");
   await page.getByRole("button", { name: "Alternar tema claro ou escuro" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "escuro");
-  const fundoEscuro = await cor(".card", "background-color");
-  const textoEscuro = await cor(".card h3", "color");
+  const fundoEscuro = await cor(".home-card", "background-color");
+  const textoEscuro = await cor(".home-card h3", "color");
   expect(fundoEscuro).not.toBe(fundoClaro);
   expect(textoEscuro).not.toBe(textoClaro);
   const luz = (rgb: string) => { const [r, g, b] = rgb.match(/\d+/g)!.map(Number) as [number, number, number]; return 0.2126 * r + 0.7152 * g + 0.0722 * b; };

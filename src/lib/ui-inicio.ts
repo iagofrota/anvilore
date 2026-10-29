@@ -4,7 +4,7 @@ import { auditarWiki } from "../comandos/auditar";
 import { listarLacunas } from "../comandos/listar-lacunas";
 import { validarWiki } from "../comandos/validar";
 import { lerFrontmatter } from "./frontmatter";
-import { paginasMarkdown } from "./paginas";
+import { caminhoPathlib, paginasMarkdown } from "./paginas";
 import { listarFilaRascunhos } from "./ui-fila";
 import { caminhoWiki } from "./wiki-repo";
 
@@ -120,7 +120,7 @@ export async function saudeDaWiki(wiki: string): Promise<SaudeDaWiki> {
     const resultado = await auditarWiki(wiki);
     auditoria = resultado.erro !== undefined
       ? { total: 0, resumo: [], erro: resultado.erro }
-      : { total: resultado.achados.length, resumo: resultado.achados.slice(0, LIMITE_DA_AUDITORIA) };
+      : { total: resultado.achados.length, resumo: resultado.achados.slice(0, LIMITE_DA_AUDITORIA).map(linha => linha.replaceAll(`${caminhoPathlib(wiki)}/`, "")) };
   } catch (erro) { auditoria = { total: 0, resumo: [], erro: erro instanceof Error ? erro.message : String(erro) }; }
 
   let abertas: string[] = [];

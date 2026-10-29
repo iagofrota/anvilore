@@ -145,7 +145,8 @@ test("Dado página fora do índice Quando consulto a saúde Então a auditoria r
   escrever("index.md", "# Índice\n\n- [[a]]\n");
   const saude = await saudeDaWiki(wiki);
   expect(saude.auditoria.total).toBeGreaterThan(0);
-  expect(saude.auditoria.resumo.join(" ")).toContain("b.md");
+  expect(saude.auditoria.resumo.join(" ")).toContain("pessoal/concepts/b.md");
+  expect(saude.auditoria.resumo.join(" ")).not.toContain(raiz);
   expect(saude.validar.outrosErros.length).toBeGreaterThan(0);
 });
 

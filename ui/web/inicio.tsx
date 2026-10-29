@@ -67,25 +67,25 @@ export function PainelDoInicio({ dados, saude, saudeCarregando, erro, aoValidar,
 
 function CartaoParaRevisar({ rascunhos }: { rascunhos: ResumoDoInicio["rascunhos"] }) {
   const restantes = rascunhos.total - rascunhos.itens.length;
-  return <section className="card" aria-label="Para revisar">
-    <header className="card-head"><h3>Para revisar</h3><span className="count">{rascunhos.total}</span></header>
-    {rascunhos.total === 0 ? <p className="card-empty">Nenhuma página espera aprovação.</p> : <>
+  return <section className="home-card" aria-label="Para revisar">
+    <header className="home-card-head"><h3>Para revisar</h3><span className="count">{rascunhos.total}</span></header>
+    {rascunhos.total === 0 ? <p className="home-card-empty">Nenhuma página espera aprovação.</p> : <>
       <ul className="plain-list">
         {rascunhos.itens.map(item => <li key={item.caminho}>
           <a href="#/revisao"><strong>{item.titulo}</strong></a>
           <span className="item-meta">{item.tipo || "página"} · {item.status === "nova" ? "nova" : item.status === "atualizada" ? "atualizada" : "com erro"}</span>
         </li>)}
       </ul>
-      {restantes > 0 && <p className="card-note">e mais {restantes} na Revisão</p>}
-      <a className="card-link" href="#/revisao">Abrir revisão</a>
+      {restantes > 0 && <p className="home-card-note">e mais {restantes} na Revisão</p>}
+      <a className="home-card-link" href="#/revisao">Abrir revisão</a>
     </>}
   </section>;
 }
 
 function CartaoDeAtividade({ atividade }: { atividade: ResumoDoInicio["atividade"] }) {
-  return <section className="card" aria-label="Atividade recente">
-    <header className="card-head"><h3>Atividade recente</h3><code>wiki/log/</code></header>
-    {atividade.length === 0 ? <p className="card-empty">Nada registrado ainda.</p> : <ul className="plain-list">
+  return <section className="home-card" aria-label="Atividade recente">
+    <header className="home-card-head"><h3>Atividade recente</h3><code>wiki/log/</code></header>
+    {atividade.length === 0 ? <p className="home-card-empty">Nada registrado ainda.</p> : <ul className="plain-list">
       {atividade.map((entrada, n) => <li key={`${entrada.arquivo}-${n}`}>
         <span className="mono item-date">{entrada.data}</span><span className="tag">{entrada.tipo}</span><span className="grow">{entrada.resumo}</span>
       </li>)}
@@ -97,22 +97,22 @@ const TITULO_DA_SAUDE: Record<SituacaoDaSaude, string> = { ok: "Tudo certo", por
 
 function CartaoDeSaude({ saude, carregando, aoValidar }: { saude: SaudeDaWiki | null; carregando: boolean; aoValidar: () => void }) {
   const situacao = saude ? situacaoDaSaude(saude) : undefined;
-  return <section className="card" aria-label="Saúde da wiki">
-    <header className="card-head">
+  return <section className="home-card" aria-label="Saúde da wiki">
+    <header className="home-card-head">
       <h3>Saúde da wiki</h3>
       {situacao && <span className={`result-badge ${situacao === "ok" ? "pass" : situacao === "portao" || situacao === "atencao" ? "warn" : "fail"}`}>{TITULO_DA_SAUDE[situacao]}</span>}
     </header>
-    {!saude ? <p className="card-empty">{carregando ? "Conferindo a wiki…" : "Ainda não conferida."}</p> : <>
-      {situacao === "ok" && <p className="card-note">A validação passou e a auditoria não achou nada.</p>}
-      {saude.validar.semAprovacao > 0 && <p className="card-note">Falta aprovar {plural(saude.validar.semAprovacao, "página", "páginas")}. O validador reprova enquanto houver página gerada sem aprovação humana. Isso é o portão funcionando.</p>}
+    {!saude ? <p className="home-card-empty">{carregando ? "Conferindo a wiki…" : "Ainda não conferida."}</p> : <>
+      {situacao === "ok" && <p className="home-card-note">A validação passou e a auditoria não achou nada.</p>}
+      {saude.validar.semAprovacao > 0 && <p className="home-card-note">Falta aprovar {plural(saude.validar.semAprovacao, "página", "páginas")}. O validador reprova enquanto houver página gerada sem aprovação humana. Isso é o portão funcionando.</p>}
       {saude.validar.outrosErros.length > 0 && <>
-        <p className="card-note">A validação encontrou problemas:</p>
+        <p className="home-card-note">A validação encontrou problemas:</p>
         <ul className="plain-list problems">{saude.validar.outrosErros.slice(0, 5).map(erro => <li key={erro}>{erro}</li>)}</ul>
-        {saude.validar.outrosErros.length > 5 && <p className="card-note">e mais {saude.validar.outrosErros.length - 5}</p>}
+        {saude.validar.outrosErros.length > 5 && <p className="home-card-note">e mais {saude.validar.outrosErros.length - 5}</p>}
       </>}
-      {saude.auditoria.erro !== undefined && <p className="card-note">A auditoria não rodou: {saude.auditoria.erro}</p>}
+      {saude.auditoria.erro !== undefined && <p className="home-card-note">A auditoria não rodou: {saude.auditoria.erro}</p>}
       {saude.auditoria.total > 0 && <>
-        <p className="card-note">A auditoria achou {plural(saude.auditoria.total, "ponto", "pontos")} de estrutura:</p>
+        <p className="home-card-note">A auditoria achou {plural(saude.auditoria.total, "ponto", "pontos")} de estrutura:</p>
         <ul className="plain-list problems">{saude.auditoria.resumo.map(linha => <li key={linha}>{linha.replace(/^- /, "")}</li>)}</ul>
       </>}
       <dl className="health-counters">
@@ -128,9 +128,9 @@ function CartaoDeSaude({ saude, carregando, aoValidar }: { saude: SaudeDaWiki | 
 }
 
 function CartaoDeFontes({ fontes }: { fontes: ResumoDoInicio["fontes"] }) {
-  return <section className="card" aria-label="Em raw/, sem ingestão">
-    <header className="card-head"><h3>Em raw/, sem ingestão</h3><span className="count">{fontes.length}</span></header>
-    {fontes.length === 0 ? <p className="card-empty">Tudo em raw/ já foi ingerido.</p> : <ul className="plain-list">
+  return <section className="home-card" aria-label="Em raw/, sem ingestão">
+    <header className="home-card-head"><h3>Em raw/, sem ingestão</h3><span className="count">{fontes.length}</span></header>
+    {fontes.length === 0 ? <p className="home-card-empty">Tudo em raw/ já foi ingerido.</p> : <ul className="plain-list">
       {fontes.map(fonte => <li key={fonte.caminho}>
         <code className="grow">{fonte.caminho}</code><span className="item-meta">{tamanhoLegivel(fonte.bytes)}</span>
         {fonte.conversa && <a href={`#/chat/${fonte.conversa}`}>Continuar</a>}
