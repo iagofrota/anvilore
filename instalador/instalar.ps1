@@ -405,8 +405,9 @@ function AnvArgsCheckout {
 
 function AnvArgsVerificarTag {
   param([string]$Staging, [string]$Ref, [string]$Assinantes, [string]$HooksVazio)
-  # false: um programa que sempre falha, para o caso de uma assinatura OpenPGP/x509 chegar ao git.
-  return AnvArgsStaging -HooksVazio $HooksVazio -Argumentos @('-C', $Staging, '-c', 'gpg.format=ssh', '-c', 'gpg.program=false', '-c', 'gpg.openpgp.program=false', '-c', 'gpg.x509.program=false', '-c', "gpg.ssh.allowedSignersFile=$Assinantes", 'verify-tag', $Ref)
+  # gpg.ssh.program fixo: um verificador SSH da configuração global da pessoa poderia aprovar uma assinatura de chave que não
+  # é a embutida. false: programa que sempre falha, para o caso de uma assinatura OpenPGP/x509 chegar ao git.
+  return AnvArgsStaging -HooksVazio $HooksVazio -Argumentos @('-C', $Staging, '-c', 'gpg.format=ssh', '-c', 'gpg.ssh.program=ssh-keygen', '-c', 'gpg.program=false', '-c', 'gpg.openpgp.program=false', '-c', 'gpg.x509.program=false', '-c', "gpg.ssh.allowedSignersFile=$Assinantes", 'verify-tag', $Ref)
 }
 
 # ---------------------------------------------------------------- passos

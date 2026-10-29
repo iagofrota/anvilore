@@ -44,6 +44,7 @@ describe("instalar.ps1: requisitos do passo a passo", () => {
     ["PortableGit em %LOCALAPPDATA%\\Anvilore\\git", /Anvilore\\git/],
     ["clone sem checkout (A1)", /--no-checkout/],
     ["hooks desligados no staging (A1)", /core\.hooksPath=/],
+    ["verificador SSH fixo (A2)", /gpg\.ssh\.program=ssh-keygen/],
     ["só vale assinatura SSH", /BEGIN SSH SIGNATURE/],
     ["gpg e x509 desligados no verify-tag", /gpg\.openpgp\.program=false[\s\S]*gpg\.x509\.program=false/],
     ["versão fixa", /ANVILORE_VERSAO/],
