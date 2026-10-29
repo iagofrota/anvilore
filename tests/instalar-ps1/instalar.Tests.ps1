@@ -205,7 +205,7 @@ Describe 'argumentos do git para a candidata (A1 e A2)' {
   }
   It 'A2: o verify-tag fixa o verificador SSH e os programas de gpg/x509' {
     $a = AnvArgsVerificarTag -Staging 'C:\st' -Ref 'refs/tags/v1.2.3' -Assinantes $script:Ass -HooksVazio $script:Vazio
-    foreach ($o in @('core.hooksPath=' + $script:Vazio, 'gpg.format=ssh', 'gpg.ssh.program=ssh-keygen', 'gpg.program=false', 'gpg.openpgp.program=false', 'gpg.x509.program=false', "gpg.ssh.allowedSignersFile=$($script:Ass)")) {
+    foreach ($o in @("core.hooksPath=$($script:Vazio)", 'gpg.format=ssh', 'gpg.ssh.program=ssh-keygen', 'gpg.program=false', 'gpg.openpgp.program=false', 'gpg.x509.program=false', "gpg.ssh.allowedSignersFile=$($script:Ass)")) {
       $i = [array]::IndexOf($a, $o)
       $i | Should -BeGreaterThan 0
       $a[$i - 1] | Should -Be '-c'
