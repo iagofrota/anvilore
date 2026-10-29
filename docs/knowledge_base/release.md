@@ -391,7 +391,7 @@ Os dois caminhos seguros de recuperação são:
    anvilore atualizar
    ```
 
-   O atualizador lê seguranca/assinantes da pasta instalada para autenticar a tag da release e, ao aplicar a versão nova, substitui o arquivo pelo versionado no commit da tag (`src/lib/atualizacao.ts`). Ele executa a migração de rastreio e preserva integralmente os dados pessoais (`raw/`, `wiki/`).
+   O atualizador lê seguranca/assinantes da pasta instalada para autenticar a tag da release (`src/lib/atualizacao.ts`). Como o atualizador guarda qualquer arquivo modificado da árvore antes do checkout (`listarModificados`) e o restaura logo após (`restaurarPessoais`), a modificação local em seguranca/assinantes é **preservada** após a atualização (o arquivo fica com a chave adicionada). Como a tag da nova versão já contém a chave oficial versionada, quem administra pode restaurar a cópia limpa do commit com `git checkout seguranca/assinantes` após a atualização terminar com sucesso.
 
 **Chave comprometida**
 
