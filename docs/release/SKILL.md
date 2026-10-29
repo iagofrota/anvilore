@@ -17,8 +17,9 @@ mostre só o que decide algo.
 
 ## Proibido, sempre
 
-- Gerar, escolher ou trocar chave real; imprimir chave privada (a impressão digital da **pública** pode).
+- Gerar, escolher ou trocar chave real; imprimir chave privada (a impressão digital da **pública** pode; a chave pública é versionada em `seguranca/assinantes`, a privada nunca).
 - Forçar o envio de tag (`--force`, `+`), mover, reapontar ou apagar tag já publicada.
+- Publicar enquanto houver achado de segurança ALTO ou MÉDIO aberto nos instaladores ou no atualizador, com revisão de outro modelo registrada.
 - Escrever `verified` em página da KB (só pessoa, depois de ler).
 - Mudar workflow (`.github/workflows/`).
 - Criar tag, enviar tag, criar ou editar release, mesclar PR ou enviar branch **sem o "sim" explícito
@@ -36,6 +37,8 @@ mostre só o que decide algo.
    - Bun mínimo: `git diff vANTERIOR HEAD -- package.json | rg "^[+-].*packageManager"`; mudou → avise o dono
      e registre em "Atenção" no CHANGELOG;
    - `bun run checar`, `bun src/cli.ts checar-docs`, `bun src/cli.ts checar-release X.Y.Z`;
+   - checklist de segurança: nenhum achado de segurança ALTO ou MÉDIO aberto nos instaladores ou no atualizador, com revisão de outro modelo registrada;
+   - instaladores (quando U3/U4 entrarem na `main`): embutir instalador (`bun scripts/embutir-instalador.ts`), conferir com `--conferir`, gerar `sha256` e assinar com `ssh-keygen -Y sign -n file`;
    - **`checar-release` reprovando por falta de `verified` é esperado** até o dono revisar as páginas:
      diga quais páginas faltam e pare. Nunca ponha `verified`.
 3. **Entrar na `main`.** Enviar a branch, abrir o PR e mesclar são ações públicas: peça o "sim" de
@@ -56,13 +59,16 @@ mostre só o que decide algo.
       `git cat-file -t` e `verify-tag` com o arquivo da **versão anterior** (página, Ação 1). Se a
       conferência falhar, apague só a tag **local** e pare;
    2. enviar a tag: `git push origin refs/tags/vX.Y.Z` (nunca `--force`) e conferir com `ls-remote`;
-   3. criar a release: `gh release create vX.Y.Z --verify-tag --title "Anvilore X.Y.Z" --notes-file …`,
-      com `--prerelease` se a versão tem sufixo e `--latest=false` se é correção de linha antiga.
+   3. criar a release: `gh release create vX.Y.Z ...` anexando os instaladores, hashes e assinaturas SSH (quando U3/U4 entrarem na `main`), com `--prerelease` se a versão tem sufixo e `--latest=false` se é correção de linha antiga.
 6. **Depois.** `gh release view vX.Y.Z --json tagName,isDraft,isPrerelease,url` e o trecho do
-   `selecionarRelease` da página. Relate em uma frase: o que o kit instalado vai enxergar.
+   `selecionarRelease` da página (com `releases/latest` e canal estável para versão estável, ou `/releases?per_page=100` e canal teste para pré-release). Relate em uma frase: o que o kit instalado vai enxergar.
 
 ## Quando algo dá errado
 
 Pare, diga em **uma frase** o que aconteceu e o que fazer. Não tente consertar sozinho uma tag ou
 release publicada: release ruim se corrige com a **próxima versão de correção** (página, "Release
-ruim"). Se o dono pedir para "refazer" a tag, recuse e proponha a versão seguinte.
+ruim"). Se o dono pedir para "refazer" a tag, recuse e proponha a versão seguinte. Em rotação de
+chaves, assinar com a nova exige que todas as instalações tenham a versão de transição; para as que
+ficaram para trás, a recuperação é manual (reinstalar com o instalador verificado ou git pull
+supervisionado). Ambiente local já comprometido (binários no PATH) está fora do alcance da
+assinatura.

@@ -14,12 +14,15 @@ aceitar a versão, e a ordem segura para entregá-la.
 1. **A chave pública de assinatura entra numa versão antes** da primeira versão que se espera ver aceita
    pelo atualizador. Sem ela, todo kit instalado recusa tudo.
 2. Prepara-se a versão: CHANGELOG, `package.json`, migração, Bun, `checar`, `checar-docs`,
-   `checar-release`, CI verde nos três sistemas.
+   `checar-release`, CI verde nos três sistemas, checklist de segurança da cadeia de confiança e
+   conferência e assinatura dos instaladores.
 3. A tag é **anotada e assinada com SSH**, no commit que passou no CI, e conferida com o arquivo de
    assinantes da versão **anterior** antes de sair da máquina.
-4. Três ações públicas, cada uma só com o **"sim" explícito do dono**, uma de cada vez: criar a tag,
+4. Os instaladores gerados têm o manifesto e a chave pública embutidos e conferidos; os instaladores,
+   seus hashes SHA-256 e suas assinaturas SSH (`ssh-keygen -Y sign -n file`) são publicados como assets da release.
+5. Três ações públicas, cada uma só com o **"sim" explícito do dono**, uma de cada vez: criar a tag,
    enviar a tag, criar a release no GitHub.
-5. Release ruim nunca se corrige mexendo na tag: publica-se a próxima versão de correção.
+6. Release ruim nunca se corrige mexendo na tag: publica-se a próxima versão de correção.
 
 ## O que o kit instalado exige de uma release
 
@@ -52,7 +55,7 @@ Duas consequências práticas:
 ## Pré-requisitos (uma vez)
 
 Os valores entre `<...>` são marcadores. **Escolher a chave e o e-mail de assinatura é decisão do
-dono**; nenhuma chave real fica escrita em arquivo versionado nem nesta página.
+dono**; a chave **privada** nunca sai da máquina, não entra no repositório e nunca fica escrita em arquivo versionado nem nesta página; já a chave **pública** é versionada em seguranca/assinantes para que o kit instalado possa verificar as tags.
 
 ### 1. Chave SSH de assinatura
 
@@ -68,15 +71,15 @@ atualizador **não usa a privada**: só a pública, no kit (`docs/knowledge_base
 
 ### 2. Chave pública em seguranca/assinantes
 
-O arquivo usa o formato OpenSSH `allowed_signers`: `<principal> namespaces="git" <tipo> <chave-pública>`.
+O arquivo usa o formato OpenSSH `allowed_signers`: `<principal> namespaces="git,file" <tipo> <chave-pública>`.
 Na raiz do kit:
 
 ```bash
 mkdir -p seguranca
-printf '%s namespaces="git" %s\n' "<EMAIL-DE-ASSINATURA>" "$(cut -d' ' -f1,2 <CAMINHO-DA-CHAVE-PRIVADA>.pub)" >> seguranca/assinantes
+printf '%s namespaces="git,file" %s\n' "<EMAIL-DE-ASSINATURA>" "$(cut -d' ' -f1,2 <CAMINHO-DA-CHAVE-PRIVADA>.pub)" >> seguranca/assinantes
 ```
 
-A decisão do projeto é que o principal seja **igual ao e-mail de assinatura do Git**. No ensaio (Git
+O formato aceita os namespaces `git` (para tags do Git) e `file` (para assinatura dos arquivos dos instaladores), separados por vírgula. A decisão do projeto é que o principal seja **igual ao e-mail de assinatura do Git**. No ensaio (Git
 2.43, OpenSSH 9.6) o `verify-tag` aceitou também uma tag cujo e-mail de tagger difere do principal;
 isso é comportamento daquela versão do Git, não uma garantia: mantenha os dois iguais.
 
@@ -111,6 +114,12 @@ existe nela). Portanto:
    confiável (`verificarAssinaturaTag`; cenário em `tests/atualizar.test.ts`).
 
 Sem seguranca/assinantes (ausente, vazio ou ilegível), o kit recusa toda candidata e diz o motivo.
+
+**Segurança no bootstrap do instalador:** conferir apenas a tag Git não autentica o instalador
+executado por quem instala pela primeira vez. Para fechar a cadeia de confiança antes da primeira execução:
+1. A chave pública embutida no instalador gerado precisa ser idêntica a seguranca/assinantes (conferida por `bun scripts/embutir-instalador.ts --conferir <script>`).
+2. Cada instalador gerado (dist/instalar.sh e dist/instalar.ps1) deve ter seu SHA-256 e sua assinatura SSH (`ssh-keygen -Y sign -n file`) publicados junto da release.
+3. Quem baixa o instalador confere o hash e a assinatura (`ssh-keygen -Y verify`) contra a chave pública obtida por canal independente (como o README oficial ou perfil do mantenedor) antes de executá-lo.
 
 ## Passo a passo de cada release
 
@@ -154,7 +163,40 @@ por vez**.
    `checar-release` reprova enquanto houver página da KB sem `verified: AAAA-MM-DD`. **Só uma pessoa
    põe esse campo, depois de ler a página** (`docs/knowledge_base/contribuindo.md`); agente nenhum o
    escreve, e a reprovação não se contorna. Esta própria página nasce sem `verified`.
-7. **CI verde nos três sistemas, no commit que vai receber a tag** (o commit já deve estar na `main`):
+7. **Checklist de bloqueio da cadeia de confiança.** Não publicar enquanto houver achado de
+   segurança ALTO ou MÉDIO aberto nos instaladores ou no atualizador, com revisão de outro modelo
+   registrada. Não publique se houver vulnerabilidades em aberto na cadeia (como execução de
+   filtros antes da verificação da tag ou configuração global interferindo no verificador).
+8. **Gerar e conferir os instaladores (quando U3/U4 entrarem na main).**
+   Gere os scripts com manifesto e assinantes embutidos:
+
+   ```bash
+   bun scripts/embutir-instalador.ts --modelo instalador/instalar.sh --assinantes seguranca/assinantes --saida dist/instalar.sh
+   bun scripts/embutir-instalador.ts --conferir dist/instalar.sh --assinantes seguranca/assinantes
+   bun scripts/embutir-instalador.ts --modelo instalador/instalar.ps1 --assinantes seguranca/assinantes --saida dist/instalar.ps1
+   bun scripts/embutir-instalador.ts --conferir dist/instalar.ps1 --assinantes seguranca/assinantes
+   ```
+
+   O `--conferir` confirma que a chave embutida e o manifesto batem exatamente com seguranca/assinantes e instalador/dependencias.json. (Nota: este passo passa a valer quando as branches U3 e U4 forem mescladas na `main`).
+9. **Assinar e gerar hashes dos instaladores.**
+   Gere o hash SHA-256 e a assinatura SSH (`ssh-keygen -Y sign -n file`) de cada instalador gerado:
+
+   ```bash
+   sha256sum dist/instalar.sh > dist/instalar.sh.sha256
+   ssh-keygen -Y sign -f <CAMINHO-DA-CHAVE-PRIVADA> -n file dist/instalar.sh
+   sha256sum dist/instalar.ps1 > dist/instalar.ps1.sha256
+   ssh-keygen -Y sign -f <CAMINHO-DA-CHAVE-PRIVADA> -n file dist/instalar.ps1
+   ```
+
+   Confira localmente as assinaturas antes de prosseguir:
+
+   ```bash
+   ssh-keygen -Y verify -f seguranca/assinantes -I "<EMAIL-DE-ASSINATURA>" -n file -s dist/instalar.sh.sig < dist/instalar.sh
+   ssh-keygen -Y verify -f seguranca/assinantes -I "<EMAIL-DE-ASSINATURA>" -n file -s dist/instalar.ps1.sig < dist/instalar.ps1
+   ```
+
+   Ambos devem retornar `Good "file" signature` e sair com 0.
+10. **CI verde nos três sistemas, no commit que vai receber a tag** (o commit já deve estar na `main`):
 
    ```bash
    gh run list --commit <COMMIT> --workflow ci --json databaseId,status,conclusion
@@ -164,7 +206,7 @@ por vez**.
    Os jobs `testes (ubuntu-latest)`, `testes (windows-latest)` e `testes (macos-latest)` precisam estar
    `completed` com `success` (`.github/workflows/ci.yml`); confira também os cinco jobs "Playwright Chromium (1/5)" a "(5/5)" (job `e2e-chromium` do workflow).
    Pendente, ausente ou vermelho: pare.
-8. **Máquina de quem assina.** Confira antes de pedir o "sim":
+11. **Máquina de quem assina.** Confira antes de pedir o "sim":
 
    ```bash
    git config --get gpg.format
@@ -178,7 +220,7 @@ por vez**.
    0: prova que a chave **já está** em `vANTERIOR` (veja "A ordem que faz a confiança fechar").
 
 Antes de passar ao publicar, o resumo ao dono diz: versão, commit, o que mudou, resultado das
-conferências, os três jobs do CI e a impressão digital da chave.
+conferências, checklist de segurança, conferência dos instaladores e assinaturas, os três jobs do CI e a impressão digital da chave.
 
 ### Publicar (cada ação com o "sim" do dono)
 
@@ -213,11 +255,11 @@ O `ls-remote` mostra dois ids: o da tag e, com `^{}`, o do commit da release. Os
 diferentes (tag anotada) e o segundo tem de ser `<COMMIT>`. O CI roda `checar-release` na tag
 (`.github/workflows/ci.yml`, última etapa do job `testes`).
 
-**Ação 3 — criar a release no GitHub.** As notas saem da seção do CHANGELOG:
+**Ação 3 — criar a release no GitHub.** As notas saem da seção do CHANGELOG. Quando U3/U4 entrarem na `main`, envie também os instaladores gerados com seus hashes e assinaturas SSH como assets:
 
 ```bash
 awk -v v="X.Y.Z" '$0 ~ "^## \\[" v "\\]" {f=1; next} /^## /{f=0} f' CHANGELOG.md > <ARQUIVO-DE-NOTAS>
-gh release create vX.Y.Z --verify-tag --title "Anvilore X.Y.Z" --notes-file <ARQUIVO-DE-NOTAS>
+gh release create vX.Y.Z dist/instalar.sh dist/instalar.sh.sha256 dist/instalar.sh.sig dist/instalar.ps1 dist/instalar.ps1.sha256 dist/instalar.ps1.sig --verify-tag --title "Anvilore X.Y.Z" --notes-file <ARQUIVO-DE-NOTAS>
 ```
 
 - Versão com sufixo (`-rc.1`): acrescente `--prerelease`. **Nunca** publique versão com sufixo sem
@@ -228,18 +270,46 @@ gh release create vX.Y.Z --verify-tag --title "Anvilore X.Y.Z" --notes-file <ARQ
   versão (`gh release create --help`); numa correção de uma linha antiga, use `--latest=false` para não
   tirar o posto da versão mais nova.
 
+**Como quem instala confere o instalador antes de executar** (canal independente):
+Quem faz o primeiro download obtém a chave pública por canal independente (README oficial do repositório ou perfil do mantenedor) e grava em um arquivo local `assinantes` (ex.: `echo "<EMAIL-DO-MANTENEDOR> namespaces=\"file\" <CHAVE-PUBLICA>" > assinantes` ou sem a opção de namespace).
+A pessoa confere o hash SHA-256 e a assinatura SSH antes de rodar:
+
+No Linux:
+```bash
+sha256sum -c instalar.sh.sha256
+ssh-keygen -Y verify -f assinantes -I "<EMAIL-DO-MANTENEDOR>" -n file -s instalar.sh.sig < instalar.sh
+```
+
+No Windows (PowerShell):
+```powershell
+Get-FileHash .\instalar.ps1 -Algorithm SHA256
+ssh-keygen -Y verify -f assinantes -I "<EMAIL-DO-MANTENEDOR>" -n file -s .\instalar.ps1.sig (Get-Content .\instalar.ps1 -Raw)
+```
+
+A saída `Good "file" signature` confirma que o instalador está autêntico e íntegro.
+
 ### Depois de publicar
+
+Para uma release estável:
 
 ```bash
 gh release view vX.Y.Z --json tagName,isDraft,isPrerelease,url
 gh api repos/iagofrota/anvilore/releases/latest | bun -e 'import { selecionarRelease } from "./src/lib/atualizacao"; const r = JSON.parse(await Bun.stdin.text()); console.log(JSON.stringify(selecionarRelease("<VERSAO-ANTERIOR>", [r], "estavel")))'
 ```
 
-A primeira confere o que o GitHub tem (`isDraft` e `isPrerelease` falsos numa estável). A segunda roda o
-**mesmo `selecionarRelease` do kit** sobre a resposta que o kit receberá e deve mostrar a tag nova. Para
-provar o caminho inteiro (busca da tag, assinatura, identidade, migração e aplicação) em uma máquina
-descartável, siga os cenários de `tests/atualizar.test.ts`, que usam Git, tags SSH e checkout reais
-(`tests/apoio/kit-atualizavel.ts`).
+Para uma pré-release (ex.: `vX.Y.Z-rc.1`):
+
+```bash
+gh release view vX.Y.Z --json tagName,isDraft,isPrerelease,url
+gh api "repos/iagofrota/anvilore/releases?per_page=100" | bun -e 'import { selecionarRelease } from "./src/lib/atualizacao"; const r = JSON.parse(await Bun.stdin.text()); console.log(JSON.stringify(selecionarRelease("<VERSAO-ANTERIOR>", r, "teste")))'
+```
+
+A primeira consulta confere o estado no GitHub (`isDraft` falso, e `isPrerelease` falso na estável ou verdadeiro na RC).
+A segunda roda o **mesmo `selecionarRelease` do kit** sobre a resposta real da API:
+- Para versão estável, consulta a rota releases/latest (ou via `gh api repos/iagofrota/anvilore/releases/latest`) e o canal `"estavel"`;
+- Para pré-release (RC), consulta a lista de releases (/releases com `per_page=100`, via `gh api "repos/iagofrota/anvilore/releases?per_page=100"`) e o canal `"teste"`. A rota latest e o canal estável ignoram versões com sufixo ou marcadas como pré-release (`src/lib/atualizacao.ts`), portanto checar releases/latest numa RC não confirmaria a versão candidata.
+
+A saída JSON deve mostrar a tag e versão novas. Para provar o caminho inteiro (busca da tag, assinatura, identidade, migração e aplicação) em uma máquina descartável, siga os cenários de `tests/atualizar.test.ts`, que usam Git, tags SSH e checkout reais (`tests/apoio/kit-atualizavel.ts`).
 
 ## Release ruim
 
@@ -278,12 +348,18 @@ já está instalado, então toda troca atravessa duas versões.
    antiga**.
 2. Publique uma versão **assinada pela chave antiga** que contenha as duas linhas. As máquinas a
    aceitam, e passam a ter as duas chaves.
-3. Quando a maioria tiver essa versão, passe a assinar com a nova (`git config user.signingkey`
-   para a nova).
+3. Só passe a assinar com a nova chave (`git config user.signingkey` para a nova) quando **todas as
+   instalações-alvo** tiverem atualizado para a versão de transição.
 4. Numa versão posterior, assinada pela nova, remova a linha antiga.
 
-Passar ao passo 3 sem que a versão do passo 2 esteja nas máquinas faz o kit recusar as tags novas
-(chave desconhecida).
+Passar ao passo 3 sem que a versão do passo 2 esteja em todas as instalações faz quem ficou para trás
+recusar as tags novas (chave desconhecida).
+
+**Recuperação de instalações que ficaram para trás:**
+Se alguma máquina não recebeu a versão de transição e a rotação avançou para a chave nova, a atualização
+automática é recusada. O procedimento manual de recuperação para essas instalações é:
+- Baixar o instalador da versão mais recente (dist/instalar.sh ou dist/instalar.ps1), verificar o hash SHA-256 e a assinatura SSH contra a chave pública publicada por canal independente, e reinstalar;
+- Ou atualizar o repositório manualmente (`git pull` / checkout no commit da release) sob supervisão de quem administra para atualizar o arquivo seguranca/assinantes.
 
 **Chave comprometida**
 
@@ -307,6 +383,10 @@ Por isso: tenha a rotação feita **antes** de precisar, e guarde a privada com 
 
 ## Limites conhecidos
 
+- A assinatura e a verificação SSH não protegem um computador cujo ambiente local já esteja
+  comprometido (por exemplo, se binários como `git` ou `ssh-keygen` resolvidos pelo `PATH` tiverem sido
+  adulterados ou interceptados). A cadeia de confiança garante a integridade e autenticidade da versão
+  distribuída a partir do repositório, assumindo a integridade do ambiente e das ferramentas locais.
 - O ensaio provou assinatura, verificação e atualizador reais contra um espelho Git local e chaves de
   teste, com **Git 2.43 e OpenSSH 9.6**. Não foram testadas outras versões de Git ou de OpenSSH.
 - `git push` da tag e `gh release create` **não foram ensaiados** (exigem o GitHub real); os flags
