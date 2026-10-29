@@ -68,6 +68,43 @@ describe("instalar.ps1: requisitos do passo a passo", () => {
   });
 });
 
+// Corpo de uma função do .ps1 (até a próxima `function` no início da linha).
+const funcao = (nome: string) => new RegExp(`\\nfunction ${nome} \\{[\\s\\S]*?(?=\\nfunction |$)`).exec(codigo)?.[0] ?? "";
+
+describe("instalar.ps1: transporte do git antes da assinatura (A5) e chaves da reinstalação (RR6)", () => {
+  test("Dado a descoberta da tag e o clone, Quando leio o código, Então os dois passam pelo git de rede com a guarda (e nunca pelo AnvExecutar direto)", () => {
+    for (const nome of ["AnvDescobrirTag", "AnvBaixarKit"]) {
+      const corpo = funcao(nome);
+      expect(corpo, nome).not.toBe("");
+      expect(corpo, nome).toContain("AnvExecutarRede");
+      expect(corpo, nome).not.toMatch(/AnvExecutar \$Git[^\n]*(ls-remote|AnvArgsClone)/);
+    }
+    expect(funcao("AnvDescobrirTag")).toContain("AnvArgsLsRemote");
+  });
+
+  test("Dado os argumentos de rede, Então zeram o helper de credencial e o askpass, e o ambiente restringe o protocolo", () => {
+    expect(funcao("AnvArgsRede")).toMatch(/credential\.helper=/);
+    expect(funcao("AnvArgsRede")).toMatch(/core\.askPass=/);
+    expect(funcao("AnvAmbienteRede")).toMatch(/GIT_ALLOW_PROTOCOL/);
+    expect(funcao("AnvAmbienteRede")).toMatch(/GIT_TERMINAL_PROMPT/);
+    expect(funcao("AnvAmbienteRede")).toMatch(/GIT_ASKPASS/);
+  });
+
+  test("Dado o ambiente da chamada de rede, Quando ela termina, Então o valor anterior é devolvido (nada vaza para o resto da instalação)", () => {
+    const corpo = funcao("AnvExecutarComAmbiente");
+    expect(corpo).toMatch(/finally/);
+    expect(corpo).toMatch(/Remove-Item/);
+  });
+
+  test("Dado uma pasta já instalada, Quando o instalador roda o atualizador dela, Então entrega as chaves embutidas só nessa chamada", () => {
+    expect(codigo).toMatch(/ANVILORE_ASSINANTES_DO_INSTALADOR/);
+    const trecho = /\$jaInstalado\) \{[\s\S]*?\} else \{/.exec(codigo)?.[0] ?? "";
+    expect(trecho).toContain("AnvExecutarComAmbiente");
+    expect(trecho).toContain("ANVILORE_ASSINANTES_DO_INSTALADOR");
+    expect(trecho).toMatch(/'atualizar'/);
+  });
+});
+
 describe("instalar.ps1: manifesto real", () => {
   const m = JSON.parse(readFileSync(join(raiz, "instalador/dependencias.json"), "utf8"));
 

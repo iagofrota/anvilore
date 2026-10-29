@@ -40,6 +40,8 @@ $script:AnvChaveEnv = 'HKCU:\Environment'
 $script:AnvLogPendente = @()
 $script:AnvArquivoLog = $null
 $script:AnvCodigoDeSaida = 1
+$script:AnvRecusaTransporte = $false
+$script:AnvMensagemTransporte = 'O Git deste computador está configurado para abrir um tipo de conexão que o instalador não aceita (por segurança, só uso a conexão segura com o GitHub). Não instalei nada.'
 
 # ---------------------------------------------------------------- registro e perguntas
 
@@ -321,6 +323,30 @@ function AnvExecutar {
   return [pscustomobject]@{ Codigo = $codigo; Saida = $texto }
 }
 
+# Roda o programa com variáveis de ambiente só durante a chamada; ao terminar, cada uma volta ao valor que tinha (ou deixa de
+# existir). `Env:` e não [Environment]:: porque também funciona no Constrained Language Mode.
+function AnvExecutarComAmbiente {
+  param([string]$Exe, [string[]]$Argumentos = @(), [string]$Pasta = '', $Ambiente = @{})
+  $antes = @{}
+  foreach ($k in @($Ambiente.Keys)) {
+    $item = Get-Item -LiteralPath "Env:$k" -ErrorAction SilentlyContinue
+    $antes[$k] = if ($item) { [string]$item.Value } else { $null }
+    Set-Item -LiteralPath "Env:$k" -Value ([string]$Ambiente[$k])
+  }
+  try { return (AnvExecutar -Exe $Exe -Argumentos $Argumentos -Pasta $Pasta) }
+  finally {
+    foreach ($k in @($antes.Keys)) {
+      if ($null -eq $antes[$k]) { Remove-Item -LiteralPath "Env:$k" -ErrorAction SilentlyContinue }
+      else { Set-Item -LiteralPath "Env:$k" -Value $antes[$k] }
+    }
+  }
+}
+
+function AnvExecutarRede {
+  param([string]$Exe, [string[]]$Argumentos, [string]$Origem)
+  return (AnvExecutarComAmbiente -Exe $Exe -Argumentos $Argumentos -Ambiente (AnvAmbienteRede -Origem $Origem))
+}
+
 function AnvAcharExecutavel {
   param([string]$Pasta, [string]$Nome)
   $f = Get-ChildItem -LiteralPath $Pasta -Recurse -Filter $Nome -File -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -350,15 +376,15 @@ function AnvEscolherTag {
 }
 
 function AnvDescobrirTag {
-  param([string]$Git, [string]$Origem)
+  param([string]$Git, [string]$Origem, [string]$HooksVazio)
   if ($Origem -eq $script:AnvOrigemPadrao) {
     try {
       $r = Invoke-RestMethod -Uri 'https://api.github.com/repos/iagofrota/anvilore/releases/latest' -Headers @{ 'User-Agent' = 'anvilore-instalador' } -ErrorAction Stop
       if ($r.tag_name -match '^v\d+\.\d+\.\d+$') { return [string]$r.tag_name }
     } catch { AnvRegistrar "API de releases indisponível: $($_.Exception.Message)" }
   }
-  $r = AnvExecutar $Git @('ls-remote', '--tags', $Origem)
-  if ($r.Codigo -ne 0) { return $null }
+  $r = AnvExecutarRede -Exe $Git -Argumentos (AnvArgsLsRemote -Origem $Origem -HooksVazio $HooksVazio) -Origem $Origem
+  if ($r.Codigo -ne 0) { if (AnvRecusouTransporte $r.Saida) { $script:AnvRecusaTransporte = $true }; return $null }
   return (AnvEscolherTag -Linhas ($r.Saida -split "`n"))
 }
 
@@ -392,9 +418,45 @@ function AnvArgsStaging {
   return @('-c', "core.hooksPath=$HooksVazio") + $Argumentos
 }
 
+# git que fala com a rede ANTES de a assinatura passar (ls-remote e clone). Além dos hooks desligados, o helper de credencial
+# e o askpass da configuração da pessoa ficam zerados: nenhum programa dela roda aqui. O protocolo é limitado pelo ambiente
+# (AnvAmbienteRede). Os argumentos vêm antes do verbo (`clone`, `ls-remote`).
+function AnvArgsRede {
+  param([string]$HooksVazio, [string[]]$Argumentos)
+  return AnvArgsStaging -HooksVazio $HooksVazio -Argumentos (@('-c', 'credential.helper=', '-c', 'core.askPass=') + $Argumentos)
+}
+
+function AnvArgsLsRemote {
+  param([string]$Origem, [string]$HooksVazio)
+  return AnvArgsRede -HooksVazio $HooksVazio -Argumentos @('ls-remote', '--tags', '--', $Origem)
+}
+
 function AnvArgsClone {
   param([string]$Origem, [string]$Tag, [string]$Staging, [string]$HooksVazio)
-  return AnvArgsStaging -HooksVazio $HooksVazio -Argumentos @('clone', '--quiet', '--no-checkout', '-c', 'core.autocrlf=false', '-c', 'advice.detachedHead=false', '--branch', $Tag, '--', $Origem, $Staging)
+  return AnvArgsRede -HooksVazio $HooksVazio -Argumentos @('clone', '--quiet', '--no-checkout', '-c', 'core.autocrlf=false', '-c', 'advice.detachedHead=false', '--branch', $Tag, '--', $Origem, $Staging)
+}
+
+# Só o protocolo que a origem realmente usa: https na oficial (e em qualquer https); `file` para o caminho local que os testes
+# usam; ssh só se a origem é ssh. ext::, fd::, git:// e http:// nunca entram: caem em https, que não os abre.
+function AnvProtocolosDaOrigem {
+  param([string]$Origem)
+  if ($Origem -match '^ssh://') { return 'ssh' }
+  if ($Origem -match '^file://' -or $Origem -match '^[A-Za-z]:[\\/]' -or $Origem -match '^\\\\' -or $Origem -match '^/') { return 'file' }
+  return 'https'
+}
+
+# GIT_ALLOW_PROTOCOL vence qualquer protocol.<nome>.allow da configuração da pessoa (inclusive um protocol.ext.allow=always,
+# que deixaria um url.<ext::programa>.insteadOf executar código). Sem prompt de terminal. GIT_ASKPASS aponta para `false`
+# porque no Windows uma variável vazia deixa de existir e o askpass da pessoa voltaria a valer.
+function AnvAmbienteRede {
+  param([string]$Origem)
+  return [ordered]@{ GIT_ALLOW_PROTOCOL = (AnvProtocolosDaOrigem -Origem $Origem); GIT_TERMINAL_PROMPT = '0'; GIT_ASKPASS = 'false' }
+}
+
+# O git recusa o transporte com "transport 'ext' not allowed".
+function AnvRecusouTransporte {
+  param([string]$Saida)
+  return ($Saida -match "transport '[^']*' not allowed")
 }
 
 # Só agora, com o commit autenticado, os arquivos da candidata são gravados.
@@ -570,7 +632,11 @@ function AnvBaixarKit {
   $origem = AnvVariavel 'ANVILORE_ORIGEM'
   if (-not $origem) { $origem = $script:AnvOrigemPadrao }
   $fixa = AnvVariavel 'ANVILORE_VERSAO'
-  $tag = if ($fixa) { 'v' + $fixa.TrimStart('v') } else { AnvDescobrirTag -Git $Git -Origem $origem }
+  $semHooks = Join-Path $Temp 'sem-hooks'
+  New-Item -ItemType Directory -Path $semHooks -Force | Out-Null
+  $script:AnvRecusaTransporte = $false
+  $tag = if ($fixa) { 'v' + $fixa.TrimStart('v') } else { AnvDescobrirTag -Git $Git -Origem $origem -HooksVazio $semHooks }
+  if (-not $tag -and $script:AnvRecusaTransporte) { AnvParar 3 $script:AnvMensagemTransporte }
   if (-not $tag) { AnvParar 1 'Não achei nenhuma versão publicada do Anvilore para instalar.' }
   AnvEscrever "Baixando o Anvilore $tag..."
   $staging = Join-Path $Perfil 'Anvilore.novo'
@@ -578,11 +644,10 @@ function AnvBaixarKit {
   $assinFile = Join-Path $Temp 'assinantes'
   Set-Content -LiteralPath $assinFile -Value $assinantes -NoNewline -Encoding ASCII
   $env:GIT_TERMINAL_PROMPT = '0'
-  $semHooks = Join-Path $Temp 'sem-hooks'
-  New-Item -ItemType Directory -Path $semHooks -Force | Out-Null
-  $clone = AnvExecutar $Git (AnvArgsClone -Origem $origem -Tag $tag -Staging $staging -HooksVazio $semHooks)
+  $clone = AnvExecutarRede -Exe $Git -Argumentos (AnvArgsClone -Origem $origem -Tag $tag -Staging $staging -HooksVazio $semHooks) -Origem $origem
   if ($clone.Codigo -ne 0) {
     Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+    if (AnvRecusouTransporte $clone.Saida) { AnvParar 3 $script:AnvMensagemTransporte }
     AnvParar 1 "Não consegui baixar o Anvilore ($tag). Confira a internet e rode o instalador de novo. $($clone.Saida)"
   }
   $ref = "refs/tags/$tag"
@@ -737,7 +802,14 @@ function AnvPassos {
       AnvEscrever "Já existe uma instalação em $pasta. Só vou conferir o que falta; nada da pasta é sobrescrito."
       AnvDefinirLog -Pasta $pasta
       $versao = ''
-      $at = AnvExecutar $bun @('src/cli.ts', 'atualizar') $pasta
+      # O atualizador da pasta confere a tag com o seguranca/assinantes que a pasta já tem, e uma instalação que ficou para trás
+      # na troca de chave não conhece a chave nova. Entrega a ele as chaves embutidas deste instalador, só nesta chamada:
+      # com elas o atualizador confere a tag só contra o que este instalador traz. Nada é gravado na pasta por causa disso.
+      $assinantes = AnvAssinantes
+      if (-not $assinantes) { AnvParar 3 'Este instalador não traz a chave de assinatura do Anvilore, então não consigo conferir a atualização. Por segurança, não mexi em nada. Baixe o instalador oficial de novo.' }
+      $assinReinstalacao = Join-Path $temp 'assinantes-reinstalacao'
+      Set-Content -LiteralPath $assinReinstalacao -Value $assinantes -NoNewline -Encoding ASCII
+      $at = AnvExecutarComAmbiente -Exe $bun -Argumentos @('src/cli.ts', 'atualizar') -Pasta $pasta -Ambiente @{ ANVILORE_ASSINANTES_DO_INSTALADOR = $assinReinstalacao }
       if ($at.Codigo -eq 0) { AnvEscrever ('Atualização: ' + (($at.Saida -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 1))) }
       else { AnvAviso ('não atualizei agora (' + (($at.Saida -split "`n" | Select-Object -First 1)) + '). Segui com a versão instalada.') }
       $v = AnvExecutar $git.Exe @('-C', $pasta, 'describe', '--tags', '--exact-match')

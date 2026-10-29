@@ -208,6 +208,32 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
     }
   }
 
+  Context 'reinstalar entrega as chaves embutidas ao atualizador (RR6)' {
+    # Dado uma pasta instalada cujo atualizador só conhece o seguranca/assinantes dela (que pode estar atrasado na troca de
+    # chave); Quando o instalador roda de novo; Então o `atualizar` da pasta recebe ANVILORE_ASSINANTES_DO_INSTALADOR apontando
+    # para um arquivo com as chaves embutidas no instalador. O comportamento do atualizador com essa variável é provado
+    # em tests/atualizar.test.ts; aqui prova-se o encanamento no Windows, trocando o `atualizar` da pasta por um que só registra.
+    BeforeAll {
+      $script:PastaRR6 = Join-Path $script:P1 'Anvilore'
+      $script:RegistroRR6 = 'C:\anv-cfg-rr6.json'
+      Remove-Item $script:RegistroRR6 -ErrorAction SilentlyContinue
+      $cli = Join-Path $script:PastaRR6 'src\cli.ts'
+      $linhas = [IO.File]::ReadAllLines($cli)
+      $gancho = 'if (process.argv[2] === "atualizar") { const v = process.env.ANVILORE_ASSINANTES_DO_INSTALADOR ?? ""; await Bun.write("C:/anv-cfg-rr6.json", JSON.stringify({ variavel: v, conteudo: v ? await Bun.file(v).text() : "" })); process.exit(0); }'
+      [IO.File]::WriteAllLines($cli, @($linhas[0], $gancho) + $linhas[1..($linhas.Count - 1)])
+      $script:R2b = Rodar $script:P1 $script:OrigemBoa $script:Release $script:PathComAgente
+    }
+    It 'termina completo'                       { $script:R2b.Codigo | Should -Be 0 }
+    It 'o atualizador da pasta foi chamado com a variável' {
+      Test-Path $script:RegistroRR6 | Should -BeTrue
+      (Get-Content -Raw -Encoding UTF8 $script:RegistroRR6 | ConvertFrom-Json).variavel | Should -Not -BeNullOrEmpty
+    }
+    It 'o arquivo entregue tem as chaves embutidas no instalador' {
+      $j = Get-Content -Raw -Encoding UTF8 $script:RegistroRR6 | ConvertFrom-Json
+      $j.conteudo.Trim() | Should -Be ((Get-Content -Raw -Encoding ASCII $script:Boa.Assinantes).Trim())
+    }
+  }
+
   Context 'assinatura que não confere (cenários 5 e 9)' {
     # Dado uma tag sem assinatura / assinada por outra chave / com nome trocado; Quando o instalador baixa o kit;
     # Então apaga o que baixou, não liga agente nenhum e diz por quê.
@@ -341,6 +367,47 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $r = Rodar (Perfil 'a2-outra') $origem $script:Release $script:PathComAgente @{ GIT_CONFIG_GLOBAL = $cfg }
       $r.Codigo | Should -Be 3
       Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
+    }
+  }
+
+  Context 'transporte do git da pessoa não pode rodar programa antes da assinatura (A5)' {
+    # Dado protocol.ext.allow=always e um insteadOf da origem para ext:: (um helper que grava um marcador) na config global;
+    # Quando o instalador descobre a tag (sem versão fixa) ou baixa a versão fixa; Então recusa (código 3), o helper não roda
+    # e nada é instalado.
+    BeforeAll {
+      $script:CfgA5 = 'C:\anv-cfg-a5'
+      Remove-Item $script:CfgA5 -Recurse -Force -ErrorAction SilentlyContinue
+      New-Item -ItemType Directory $script:CfgA5 -Force | Out-Null
+      function script:ConfigExt($nome, $origem) {
+        $m = Join-Path $script:CfgA5 "marcador-ext-$nome"
+        Remove-Item $m -ErrorAction SilentlyContinue
+        $h = Join-Path $script:CfgA5 "helper-ext-$nome.sh"
+        [IO.File]::WriteAllText($h, "#!/bin/sh`nprintf executado >> '$($m -replace '\\', '/')'`nexit 1`n")
+        $barraH = $h -replace '\\', '/'
+        $origemEsc = $origem -replace '\\', '\\'
+        $f = Join-Path $script:CfgA5 "gitconfig-ext-$nome"
+        [IO.File]::WriteAllText($f, "[protocol `"ext`"]`n`tallow = always`n[url `"ext::sh $barraH`"]`n`tinsteadOf = $origemEsc`n")
+        Write-Host "----- config global de teste ($f):`n$(Get-Content -Raw $f)-----"
+        return @{ Config = $f; Marcador = $m }
+      }
+    }
+    It 'A5: sem versão fixa (ls-remote): recusa e o helper não roda' {
+      $origem = Origem 'a5-ls' 'assinada' $script:Boa $script:Outra
+      $c = ConfigExt 'ls' $origem
+      $r = Rodar (Perfil 'a5-ls') $origem $script:Release $script:PathComAgente @{ GIT_CONFIG_GLOBAL = $c.Config }
+      $r.Codigo | Should -Be 3
+      Test-Path $c.Marcador | Should -BeFalse
+      Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
+      Test-Path (Join-Path $r.Perfil 'Anvilore.novo') | Should -BeFalse
+    }
+    It 'A5: com ANVILORE_VERSAO (clone): recusa e o helper não roda' {
+      $origem = Origem 'a5-clone' 'assinada' $script:Boa $script:Outra
+      $c = ConfigExt 'clone' $origem
+      $r = Rodar (Perfil 'a5-clone') $origem $script:Release $script:PathComAgente @{ GIT_CONFIG_GLOBAL = $c.Config; ANVILORE_VERSAO = '0.0.1' }
+      $r.Codigo | Should -Be 3
+      Test-Path $c.Marcador | Should -BeFalse
+      Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
+      Test-Path (Join-Path $r.Perfil 'Anvilore.novo') | Should -BeFalse
     }
   }
 

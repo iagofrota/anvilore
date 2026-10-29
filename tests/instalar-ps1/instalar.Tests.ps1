@@ -374,3 +374,56 @@ Describe 'PATH e variáveis do usuário no registro' -Skip:($env:OS -ne 'Windows
   }
   It 'detecta o modo de linguagem' { AnvModoLinguagem | Should -Be 'FullLanguage' }
 }
+
+Describe 'transporte do git antes da assinatura (A5)' {
+  # Dado uma chamada de rede do git (ls-remote ou clone) antes de a tag ser autenticada; Quando os argumentos e o ambiente são
+  # montados; Então só o protocolo da origem é aceito (GIT_ALLOW_PROTOCOL vence qualquer protocol.<nome>.allow da config da pessoa),
+  # o helper de credencial e o askpass ficam zerados e não há prompt de terminal.
+  BeforeAll { $script:Vazio = 'C:\tmp\sem-hooks' }
+  It 'AnvProtocolosDaOrigem: a origem oficial e qualquer https usam só https' {
+    AnvProtocolosDaOrigem -Origem $script:AnvOrigemPadrao | Should -Be 'https'
+    AnvProtocolosDaOrigem -Origem 'https://exemplo.com/x.git' | Should -Be 'https'
+  }
+  It 'AnvProtocolosDaOrigem: caminho local do teste usa só file' {
+    AnvProtocolosDaOrigem -Origem 'C:\anv\origem' | Should -Be 'file'
+    AnvProtocolosDaOrigem -Origem 'C:/anv/origem' | Should -Be 'file'
+    AnvProtocolosDaOrigem -Origem '\\servidor\pasta' | Should -Be 'file'
+    AnvProtocolosDaOrigem -Origem 'file:///C:/anv/origem' | Should -Be 'file'
+  }
+  It 'AnvProtocolosDaOrigem: ssh só quando a origem é ssh' { AnvProtocolosDaOrigem -Origem 'ssh://git@github.com/a/b.git' | Should -Be 'ssh' }
+  It 'AnvProtocolosDaOrigem: ext, fd, git e http nunca entram (cai em https, que o git não confunde com eles)' {
+    foreach ($o in @('ext::sh -c x', 'fd::3', 'git://exemplo/x.git', 'http://exemplo/x.git', '')) { AnvProtocolosDaOrigem -Origem $o | Should -Be 'https' }
+  }
+  It 'AnvAmbienteRede: protocolo da origem, sem prompt e sem askpass' {
+    $a = AnvAmbienteRede -Origem 'C:\anv\origem'
+    $a['GIT_ALLOW_PROTOCOL'] | Should -Be 'file'
+    $a['GIT_TERMINAL_PROMPT'] | Should -Be '0'
+    $a['GIT_ASKPASS'] | Should -Be 'false'
+  }
+  It 'AnvArgsClone: leva o helper de credencial e o askpass zerados, depois do core.hooksPath' {
+    $a = AnvArgsClone -Origem 'o' -Tag 'v1.0.0' -Staging 's' -HooksVazio $script:Vazio
+    $a[0] | Should -Be '-c'; $a[1] | Should -Be "core.hooksPath=$($script:Vazio)"
+    foreach ($o in @('credential.helper=', 'core.askPass=')) {
+      $i = [array]::IndexOf($a, $o)
+      $i | Should -BeGreaterThan 0
+      $a[$i - 1] | Should -Be '-c'
+      $i | Should -BeLessThan ([array]::IndexOf($a, 'clone'))
+    }
+  }
+  It 'AnvArgsLsRemote: mesma guarda do clone, com a origem no fim' {
+    $a = AnvArgsLsRemote -Origem 'C:\anv\origem' -HooksVazio $script:Vazio
+    $a[1] | Should -Be "core.hooksPath=$($script:Vazio)"
+    ($a -contains 'credential.helper=') | Should -BeTrue
+    ($a -contains 'core.askPass=') | Should -BeTrue
+    $a[-1] | Should -Be 'C:\anv\origem'
+    $a | Should -Contain 'ls-remote'
+  }
+  It 'AnvExecutarComAmbiente: o programa vê o ambiente e, depois, o valor anterior volta (e o que não existia some)' {
+    $env:ANV_TESTE_A = 'antes'; Remove-Item Env:ANV_TESTE_B -ErrorAction SilentlyContinue
+    $r = AnvExecutarComAmbiente -Exe 'cmd.exe' -Argumentos @('/c', 'echo %ANV_TESTE_A%-%ANV_TESTE_B%') -Ambiente @{ ANV_TESTE_A = 'dentro'; ANV_TESTE_B = 'novo' }
+    $r.Saida.Trim() | Should -Be 'dentro-novo'
+    $env:ANV_TESTE_A | Should -Be 'antes'
+    (Test-Path Env:ANV_TESTE_B) | Should -BeFalse
+    Remove-Item Env:ANV_TESTE_A -ErrorAction SilentlyContinue
+  }
+}

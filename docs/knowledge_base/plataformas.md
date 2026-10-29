@@ -317,6 +317,7 @@ O passo 10 (atalhos) é da fatia U6: o script só tem `AnvCriarAtalho`, que não
   `checkout --force --detach` do commit verificado. O `verify-tag` fixa `gpg.format=ssh`, `gpg.ssh.program=ssh-keygen`,
   `gpg.program=false`, `gpg.openpgp.program=false` e `gpg.x509.program=false`: um `gpg.ssh.program` aprovador no
   `.gitconfig` não aprova mais a tag de uma chave que não é a embutida. Continua pelo `PATH` (A3, backlog).
+  O transporte (A5) também é fixado: `ls-remote` e `clone` rodam com `GIT_ALLOW_PROTOCOL` só do protocolo da origem, helper de credencial e askpass zerados e sem prompt (o ambiente volta ao valor anterior ao fim da chamada); numa pasta já instalada o instalador passa as chaves embutidas ao atualizador em `ANVILORE_ASSINANTES_DO_INSTALADOR`.
 - **Manifesto e chave.** Vêm embutidos pela release (`bun scripts/embutir-instalador.ts --modelo instalador/instalar.ps1`,
   e `--conferir` prova que a cópia é igual aos arquivos). O `instalar.ps1` do repositório é só o modelo: sem chave embutida
   ele **recusa instalar** (código 3). `ANVILORE_MANIFESTO` e `ANVILORE_ASSINANTES` (arquivos) só valem com a região
