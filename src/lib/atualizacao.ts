@@ -721,7 +721,7 @@ async function aplicar(raiz: string, estado: Estado, release: { tag: string; ver
     estado.erro = motivo(e); await gravarEstado(raiz, estado);
     throw e;
   }
-  estado.operacao = op; estado.estado = "aplicando"; delete estado.erro; delete estado.alerta;
+  estado.operacao = op; estado.estado = "aplicando"; delete estado.erro;
   if (op.migracoes) {
     estado.etapa = "migração"; await gravarEstado(raiz, estado);
     const m = await migrarRastreio(raiz, { listaDoRastreio: op.migracoes });
@@ -788,7 +788,8 @@ async function aplicar(raiz: string, estado: Estado, release: { tag: string; ver
   try { guardarRef(raiz, exec, REF_ANTERIOR, op.origem.commit); } catch (e) { await log(raiz, `aviso: ${motivo(e)}`); }
   await apagarRef(raiz, exec, REF_OPERACAO);
   estado.estado = "ocioso"; estado.versaoInstalada = op.alvo.versao; estado.atualizadoEm = new Date().toISOString();
-  delete estado.operacao; delete estado.etapa; delete estado.erro; delete estado.disponivel; delete estado.tagDisponivel;
+  // O alerta de raw/wiki alterados fica visível (doctor, interface, --estado) até uma atualização terminar conferida.
+  delete estado.operacao; delete estado.etapa; delete estado.erro; delete estado.alerta; delete estado.disponivel; delete estado.tagDisponivel;
   await gravarEstado(raiz, estado);
   return `Atualizado para ${op.alvo.versao}. Conferi raw/, wiki/ e os arquivos guardados: estão como antes.`;
 }
@@ -805,7 +806,7 @@ async function voltar(raiz: string, estado: Estado, exec: Exec, deps: Dependenci
   await guardarCopia(raiz, id, pessoais, anterior.doctor, anterior.hook);
   estado.operacao = { tipo: "voltar", id, copiaConfig: u.id, origem: u.para, alvo: u.de, volta: u.de, lockMudou: arquivosDiferem(raiz, exec, head, u.de.commit, ["bun.lock", "bun.lockb"]) };
   guardarRef(raiz, exec, REF_OPERACAO, u.de.commit);
-  delete estado.erro; delete estado.alerta;
+  delete estado.erro;
   const frase = await reverter(raiz, estado, exec, deps);
   await concluirReversao(raiz, estado, exec);
   return `Voltou para ${u.de.versao}; a ${u.para.versao} fica recusada. ${frase}`;
@@ -826,7 +827,7 @@ export async function atualizar(acao: "verificar" | "voltar" | "estado" | "autom
     const git = exec(["rev-parse", "HEAD"], raiz);
     const mig = await situacaoDaMigracao(raiz, (args) => exec(args, raiz));
     return [`Estado: ${s.estado}`, `Versão: ${s.versaoInstalada ?? "desconhecida"}`, `HEAD: ${git.codigo === 0 ? git.saida.trim() : "indisponível"}`,
-      ...(s.etapa ? [`Etapa: ${s.etapa}`] : []), ...(s.ultima ? [`Pode voltar para: ${s.ultima.de.versao}`] : []),
+      ...(s.etapa ? [`Etapa: ${s.etapa}`] : []), ...(s.erro ? [`Último erro: ${s.erro}`] : []), ...(s.alerta ? [s.alerta] : []), ...(s.ultima ? [`Pode voltar para: ${s.ultima.de.versao}`] : []),
       ...(mig.pendentes.length ? [`Migração pendente: ${mig.pendentes.map(m => m.id).join(", ")}`] : [])].join("\n");
   }
   return await comTrava(raiz, async () => {

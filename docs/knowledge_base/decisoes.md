@@ -216,8 +216,9 @@ Para a linhagem do método e a argumentação completa das posições de design,
   mesmo SHA-256. Só é aceito arquivo novo que seja peça do esqueleto que `instalar` cria quando falta
   (o exemplo só se a pasta não existia). O `.git` da wiki fica fora da medição (a migração pode criá-lo
   e o autocommit o altera). O atualizador **detecta** mudança, não restaura conteúdo de `raw/` ou da
-  wiki que não esteja na cópia (a): nesse caso desfaz o kit, recusa a versão, grava `alerta` no estado e
-  a mensagem diz o que mudou, em vez de afirmar que está como antes.
+  wiki que não esteja na cópia (a): nesse caso desfaz o kit, recusa a versão, grava `alerta` no estado
+  (mostrado pelo `doctor`, pela interface e por `anvilore atualizar --estado` até a próxima atualização
+  conferida) e a mensagem diz o que mudou, em vez de afirmar que está como antes.
 - Estado: a operação em curso (`operacao`: tipo, cópia, origem, alvo, para onde voltar) fica separada
   da última atualização bem-sucedida (`ultima`, usada por `--voltar`, que só age se o `HEAD` for o commit
   dela). Refs refs/anvilore/anterior e refs/anvilore/operacao guardam os commits. Reversão R1–R5

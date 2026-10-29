@@ -246,6 +246,7 @@ describe("atualizador com Git real: aplicar", () => {
     expect(estado).toMatchObject({ estado: "ocioso", versaoInstalada: "0.3.0", recusadas: ["0.3.1"] });
     expect(estado.alerta).toContain("raw/evidencia.md mudou");
     expect(estado.ultima).toBeUndefined();
+    expect(await atualizar("estado", k.deps())).toContain("ATENÇÃO: raw/ ou wiki/ mudaram");
   });
 
   real("Dado a wiki em ANVILORE_WIKI fora da pasta, Quando o instalar cria só o .git e a peça do esqueleto que faltava, Então a atualização passa", async () => {
