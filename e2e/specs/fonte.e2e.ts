@@ -1,4 +1,5 @@
 import { test, expect } from "../apoio/fixtures";
+import { aguardarAreas, escolherArquivo } from "../apoio/acoes";
 import { FONTE } from "../../tests/apoio/ingestao-exemplo";
 
 test("[C12] Dado que raw já contém um arquivo com o nome escolhido Quando envio outro Então o original fica intacto e a fonte ganha sufixo", async ({ page, app, vault }) => {
@@ -6,7 +7,7 @@ test("[C12] Dado que raw já contém um arquivo com o nome escolhido Quando envi
   await vault.escrever("raw/pessoal/llm-wiki.md", original);
   await page.goto(app.url);
   const upload = page.waitForResponse(resposta => resposta.url().includes("/api/fontes") && resposta.request().method() === "POST");
-  await page.locator('input[type="file"]').setInputFiles({ name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
+  await escolherArquivo(page, { name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
   await page.getByRole("button", { name: "Ingerir", exact: true }).click();
   const conversa = await (await upload).json() as { fonte: string };
   expect(conversa.fonte).toBe("raw/pessoal/llm-wiki-2.md");
@@ -18,6 +19,7 @@ test("[C12] Dado que raw já contém um arquivo com o nome escolhido Quando envi
 
 test("[C13] Dado texto no Chat Quando envio Então ele vira fonte Markdown datada em raw e inicia leitura", async ({ page, app, agente, oraculo, vault }) => {
   await page.goto(app.url);
+  await aguardarAreas(page);
   await page.getByLabel("Texto da fonte").fill(FONTE);
   const envio = page.waitForResponse(resposta => resposta.url().includes("/api/fontes") && resposta.request().method() === "POST");
   await page.getByRole("button", { name: "Ingerir", exact: true }).click();
@@ -33,7 +35,7 @@ test("[C11] Dado um arquivo com CRLF, CR solto e bytes que não são UTF-8 Quand
   const bytes = Buffer.from([0x23, 0x20, 0x41, 0x0d, 0x0a, 0x42, 0x0d, 0x43, 0xff, 0xfe, 0x00, 0x0d, 0x0a]);
   await page.goto(app.url);
   const envio = page.waitForResponse(resposta => resposta.url().includes("/api/fontes") && resposta.request().method() === "POST");
-  await page.locator('input[type="file"]').setInputFiles({ name: "windows.md", mimeType: "text/markdown", buffer: bytes });
+  await escolherArquivo(page, { name: "windows.md", mimeType: "text/markdown", buffer: bytes });
   await page.getByRole("button", { name: "Ingerir", exact: true }).click();
   const conversa = await (await envio).json() as { id: string; fonte: string };
   expect(conversa.fonte).toBe("raw/pessoal/windows.md");

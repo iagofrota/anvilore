@@ -5,6 +5,7 @@ import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, expect } from "../apoio/fixtures";
+import { escolherArquivo } from "../apoio/acoes";
 import { paginaGerada } from "../apoio/paginas";
 import { roteiroComLeitorParado } from "../apoio/roteiros";
 import { FONTE } from "../../tests/apoio/ingestao-exemplo";
@@ -54,7 +55,7 @@ test.describe("[isolamento] encerramento do servidor", () => {
   test.use({ roteiro: roteiroComLeitorParado("encerrar") });
   test("Dado o leitor rodando Quando o servidor recebe SIGTERM Então o processo do agente deixa de existir", async ({ page, app, agente, vault }) => {
     await page.goto(app.url);
-    await page.locator('input[type="file"]').setInputFiles({ name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
+    await escolherArquivo(page, { name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
     await page.getByRole("button", { name: "Ingerir", exact: true }).click();
     await agente.pronto("encerrar");
     const [leitor] = await agente.invocacoes("leitor");

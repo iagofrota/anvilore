@@ -263,7 +263,11 @@ test("Dado o claude falso esperando um arquivo Quando cancelo antes da liberaç�
   const execucao = ponte.executar({ papel: "leitor", mensagem: "x", raiz, wiki }, () => {});
   await esperarArquivo(pronto);
   execucao.cancelar();
-  expect(await execucao.fim).toEqual({ situacao: "cancelada", sessao: SESSAO, recusas: [] });
+  const fim = await execucao.fim;
+  expect(fim).toMatchObject({ situacao: "cancelada", recusas: [] });
+  // No Windows `kill("SIGINT")` encerra o filho sem entregar o sinal: o falso não chega a responder `aborted_streaming`,
+  // então a sessão só vem no POSIX. O cancelamento em si (fim `cancelada`, sem liberar a barreira) vale nos dois.
+  if (process.platform !== "win32") expect(fim).toMatchObject({ sessao: SESSAO });
   expect(existsSync(liberar)).toBe(false);
 });
 
