@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ErroDeCaminhoInvalido, obterNota } from "../src/lib/ui-nota";
+import { ErroDeCaminhoInvalido, obterNota, validarCaminhoWiki } from "../src/lib/ui-nota";
 
 const RAIZ = join(import.meta.dir, ".tmp-ui-nota");
 
@@ -86,6 +86,51 @@ describe("ui-nota: obterNota", () => {
     test("recusa arquivos que não terminam com .md", async () => {
       await writeFile(join(RAIZ, "wiki/pessoal/conceitos/arquivo.txt"), "texto\n");
       expect(obterNota(RAIZ, "pessoal/conceitos/arquivo.txt")).rejects.toThrow(ErroDeCaminhoInvalido);
+    });
+
+    test("validarCaminhoWiki resolve e retorna o caminho real validado (realpath)", async () => {
+      await writeFile(join(RAIZ, "wiki/pessoal/conceitos/real.md"), "# Real\n");
+      const caminhoReal = await realpath(join(RAIZ, "wiki/pessoal/conceitos/real.md"));
+      const resolvido = await validarCaminhoWiki(join(RAIZ, "wiki"), "pessoal/conceitos/real.md");
+      expect(resolvido).toBe(caminhoReal);
+    });
+
+    test("TOCTOU: recusa leitura se o arquivo for trocado por symlink para fora da wiki após a abertura", async () => {
+      await writeFile(join(RAIZ, "fora/segredo-toctou.md"), "# Segredo Externo\n");
+      await writeFile(join(RAIZ, "wiki/pessoal/conceitos/vitima.md"), "# Original\n");
+
+      const promessa = obterNota(
+        RAIZ,
+        "pessoal/conceitos/vitima.md",
+        process.env,
+        {
+          ganchoAposAbrir: async (caminho) => {
+            await rm(caminho);
+            await symlink(join(RAIZ, "fora/segredo-toctou.md"), caminho);
+          },
+        },
+      );
+
+      await expect(promessa).rejects.toThrow(ErroDeCaminhoInvalido);
+    });
+
+    test("TOCTOU: recusa leitura se o arquivo for substituído por outro após a abertura (verificação dev/ino)", async () => {
+      await writeFile(join(RAIZ, "wiki/pessoal/conceitos/substituto.md"), "# Substituto\n");
+      await writeFile(join(RAIZ, "wiki/pessoal/conceitos/alvo.md"), "# Alvo Original\n");
+
+      const promessa = obterNota(
+        RAIZ,
+        "pessoal/conceitos/alvo.md",
+        process.env,
+        {
+          ganchoAposAbrir: async (caminho) => {
+            await rm(caminho);
+            await writeFile(caminho, "# Arquivo Novo Com Outro Inode\n");
+          },
+        },
+      );
+
+      await expect(promessa).rejects.toThrow(ErroDeCaminhoInvalido);
     });
   });
 

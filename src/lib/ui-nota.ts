@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { readdir, readFile, realpath, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { lerFrontmatter, linhasDe } from "./frontmatter";
 import { estadoAprovacaoHumana } from "./okf";
@@ -174,9 +175,10 @@ export async function validarCaminhoWiki(wiki: string, caminhoRelativo: string):
   if (rel === ".." || rel.startsWith("../") || rel.startsWith("..\\") || isAbsolute(rel)) {
     throw new ErroDeCaminhoInvalido();
   }
+  let caminhoReal: string;
   try {
     await stat(caminhoNormalizado);
-    const caminhoReal = await realpath(caminhoNormalizado);
+    caminhoReal = await realpath(caminhoNormalizado);
     const wikiReal = await realpath(wiki);
     const relReal = relative(wikiReal, caminhoReal);
     if (relReal === ".." || relReal.startsWith("../") || relReal.startsWith("..\\") || isAbsolute(relReal)) {
@@ -188,23 +190,83 @@ export async function validarCaminhoWiki(wiki: string, caminhoRelativo: string):
     if (codigo === "ENOENT") return caminhoNormalizado;
     throw erro;
   }
-  return caminhoNormalizado;
+  return caminhoReal;
 }
+
+export type OpcoesObterNota = {
+  ganchoAposAbrir?: (caminho: string) => Promise<void> | void;
+};
 
 export async function obterNota(
   raiz: string,
   caminhoRelativo: string,
   ambiente: Record<string, string | undefined> = process.env,
+  opcoes?: OpcoesObterNota,
 ): Promise<DetalhesDaNota | null> {
   const wiki = caminhoWiki(raiz, ambiente);
-  const caminhoAbsoluto = await validarCaminhoWiki(wiki, caminhoRelativo);
+  if (!ehCaminhoDeNotaValido(caminhoRelativo)) {
+    throw new ErroDeCaminhoInvalido();
+  }
+  const caminhoNormalizado = resolve(wiki, caminhoRelativo);
+  const rel = relative(wiki, caminhoNormalizado);
+  if (rel === ".." || rel.startsWith("../") || rel.startsWith("..\\") || isAbsolute(rel)) {
+    throw new ErroDeCaminhoInvalido();
+  }
+
+  const flags = typeof constants.O_NOFOLLOW === "number"
+    ? constants.O_RDONLY | constants.O_NOFOLLOW
+    : "r";
+
+  let fh;
+  try {
+    fh = await open(caminhoNormalizado, flags);
+  } catch (erro) {
+    const codigo = (erro as NodeJS.ErrnoException).code;
+    if (codigo === "ENOENT") return null;
+    if (codigo === "ELOOP" || codigo === "EINVAL") throw new ErroDeCaminhoInvalido();
+    throw erro;
+  }
 
   let conteudo: string;
   try {
-    conteudo = await readFile(caminhoAbsoluto, "utf8");
-  } catch (erro) {
-    if ((erro as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw erro;
+    if (opcoes?.ganchoAposAbrir) {
+      await opcoes.ganchoAposAbrir(caminhoNormalizado);
+    }
+
+    const wikiReal = await realpath(wiki);
+    let caminhoReal: string;
+    try {
+      caminhoReal = await realpath(caminhoNormalizado);
+    } catch {
+      throw new ErroDeCaminhoInvalido();
+    }
+
+    const relReal = relative(wikiReal, caminhoReal);
+    if (relReal === ".." || relReal.startsWith("../") || relReal.startsWith("..\\") || isAbsolute(relReal)) {
+      throw new ErroDeCaminhoInvalido();
+    }
+    if (!ehCaminhoDeNotaValido(relReal)) {
+      throw new ErroDeCaminhoInvalido();
+    }
+
+    let statFh;
+    let statReal;
+    try {
+      [statFh, statReal] = await Promise.all([
+        fh.stat({ bigint: true }),
+        stat(caminhoReal, { bigint: true }),
+      ]);
+    } catch {
+      throw new ErroDeCaminhoInvalido();
+    }
+
+    if (statFh.dev !== statReal.dev || statFh.ino !== statReal.ino || !statFh.isFile()) {
+      throw new ErroDeCaminhoInvalido();
+    }
+
+    conteudo = await fh.readFile("utf8");
+  } finally {
+    await fh.close();
   }
 
   const slug = basename(caminhoRelativo, ".md");
