@@ -267,7 +267,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $script:Cfg = 'C:\anv-cfg'
       Remove-Item $script:Cfg -Recurse -Force -ErrorAction SilentlyContinue
       New-Item -ItemType Directory $script:Cfg -Force | Out-Null
-      function script:Fw($caminho) { return ($caminho -replace '\\', '/') }
+      function script:BarraNormal($caminho) { return ($caminho -replace '\\', '/') }
       function script:ConfigGlobal($nome, $texto) {
         $f = Join-Path $script:Cfg "gitconfig-$nome"
         [IO.File]::WriteAllText($f, $texto)
@@ -277,7 +277,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       function script:ConfigComFiltro($nome) {
         $m = Join-Path $script:Cfg "marcador-smudge-$nome"
         Remove-Item $m -ErrorAction SilentlyContinue
-        $cfg = ConfigGlobal "filtro-$nome" ("[filter `"x`"]`n`tsmudge = `"printf executado >> '$(Fw $m)' && cat`"`n`tclean = cat`n")
+        $cfg = ConfigGlobal "filtro-$nome" ("[filter `"x`"]`n`tsmudge = `"printf executado >> '$(BarraNormal $m)' && cat`"`n`tclean = cat`n")
         return @{ Config = $cfg; Marcador = $m }
       }
       function script:ConfigComHook($nome) {
@@ -285,9 +285,9 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
         Remove-Item $m -ErrorAction SilentlyContinue
         $pasta = Join-Path $script:Cfg "hooks-da-pessoa-$nome"
         New-Item -ItemType Directory $pasta -Force | Out-Null
-        [IO.File]::WriteAllText((Join-Path $pasta 'reference-transaction'), "#!/bin/sh`nprintf `"ref-`$1 `" >> '$(Fw $m)'`ncat >/dev/null`n")
-        [IO.File]::WriteAllText((Join-Path $pasta 'post-checkout'), "#!/bin/sh`nprintf 'post-checkout ' >> '$(Fw $m)'`n")
-        $cfg = ConfigGlobal "hook-$nome" ("[core]`n`thooksPath = $(Fw $pasta)`n")
+        [IO.File]::WriteAllText((Join-Path $pasta 'reference-transaction'), "#!/bin/sh`nprintf `"ref-`$1 `" >> '$(BarraNormal $m)'`ncat >/dev/null`n")
+        [IO.File]::WriteAllText((Join-Path $pasta 'post-checkout'), "#!/bin/sh`nprintf 'post-checkout ' >> '$(BarraNormal $m)'`n")
+        $cfg = ConfigGlobal "hook-$nome" ("[core]`n`thooksPath = $(BarraNormal $pasta)`n")
         return @{ Config = $cfg; Marcador = $m }
       }
     }
@@ -328,7 +328,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
     It 'A2: gpg.ssh.program aprovador global + tag de chave fora dos assinantes: recusa' {
       $apr = Join-Path $script:Cfg 'aprova-tudo'
       [IO.File]::WriteAllText($apr, "#!/bin/sh`ncase `"`$*`" in`n  *find-principals*) echo atacante@exemplo ;;`n  *) echo 'Good `"git`" signature for atacante@exemplo with ED25519 key SHA256:falso' ;;`nesac`nexit 0`n")
-      $cfg = ConfigGlobal 'aprovador' ("[gpg `"ssh`"]`n`tprogram = $(Fw $apr)`n")
+      $cfg = ConfigGlobal 'aprovador' ("[gpg `"ssh`"]`n`tprogram = $(BarraNormal $apr)`n")
       $origem = Origem 'a2-outra' 'outra-chave' $script:Boa $script:Outra
       # Prova de que o ataque é real: sem fixar o verificador, o git aprova a tag da chave errada.
       $antes = $env:GIT_CONFIG_GLOBAL; $eap = $ErrorActionPreference
