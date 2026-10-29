@@ -109,6 +109,21 @@ test.skipIf(!linux)("Dado tag sem assinatura (leve ou anotada), Quando instalo, 
   expect(await existe(c.pasta)).toBe(false);
 });
 
+test.skipIf(!linux)("Dado tag com assinatura de outro tipo (OpenPGP), Quando instalo, Então recusa sem chamar o gpg do usuário", async () => {
+  const c = await novo();
+  const commit = c.kit.commits["0.3.0"]!;
+  const texto = `object ${commit}\ntype commit\ntag v0.3.0\ntagger Teste <teste@localhost> 1700000000 +0000\n\nv0.3.0\n-----BEGIN PGP SIGNATURE-----\n\niQEzBAABCAAdFiEEfalsa\n-----END PGP SIGNATURE-----\n`;
+  const objeto = Bun.spawnSync(["git", "-C", c.kit.raiz, "hash-object", "-t", "tag", "-w", "--stdin"], { stdin: Buffer.from(texto), stdout: "pipe", stderr: "pipe" }).stdout.toString().trim();
+  expect(objeto).toMatch(/^[0-9a-f]{40}/);
+  c.kit.ok(["update-ref", "refs/tags/v0.3.0", objeto]);
+  // Um gpg que aprovaria tudo: se o instalador o chamasse, a tag passaria.
+  await c.comando("gpg", "#!/bin/sh\necho '[GNUPG:] GOODSIG 0 falso' >&2\nexit 0\n");
+  const r = c.rodar();
+  expect(r.codigo).toBe(1);
+  expect(r.erro).toContain("não tem assinatura SSH");
+  expect(await existe(c.pasta)).toBe(false);
+});
+
 test.skipIf(!linux)("Dado a ref v0.3.1 apontando para a tag assinada da v0.3.0, Quando instalo essa versão, Então recusa (o nome assinado é outro)", async () => {
   const c = await novo();
   const objeto = c.kit.ok(["rev-parse", "refs/tags/v0.3.0"]);

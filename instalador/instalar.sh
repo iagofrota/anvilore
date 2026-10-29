@@ -448,7 +448,14 @@ verificar_assinatura() {
   id=$(git -C "$dir" rev-parse --verify -q "refs/tags/$tag") || { MOTIVO="a tag $tag não existe no repositório baixado."; return 1; }
   tipo=$(git -C "$dir" cat-file -t "$id" 2>/dev/null)
   [ "$tipo" = "tag" ] || { MOTIVO="$tag não é uma tag anotada e assinada (tipo: ${tipo:-desconhecido})."; return 1; }
-  if ! rodar git -C "$dir" -c gpg.format=ssh -c "gpg.ssh.allowedSignersFile=$assinantes" verify-tag "$id"; then
+  # O `verify-tag` escolhe o verificador pelo tipo da assinatura que está na tag (OpenPGP e x509 passariam pelo gpg do
+  # usuário, com o chaveiro dele). Só vale assinatura SSH conferida contra a chave embutida: exige o bloco SSH e
+  # desliga os programas de gpg/x509.
+  if ! git -C "$dir" cat-file tag "$id" 2>/dev/null | grep -q '^-----BEGIN SSH SIGNATURE-----$'; then
+    MOTIVO="a tag $tag não tem assinatura SSH."; return 1
+  fi
+  if ! rodar git -C "$dir" -c gpg.format=ssh -c gpg.program=false -c gpg.openpgp.program=false -c gpg.x509.program=false \
+      -c "gpg.ssh.allowedSignersFile=$assinantes" verify-tag "$id"; then
     MOTIVO="a assinatura da tag $tag não é do Iago (ou não existe)."; return 1
   fi
   # `verify-tag` prova a assinatura do objeto, não que o nome assinado é o da ref: confere o conteúdo assinado.
