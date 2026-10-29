@@ -1143,3 +1143,67 @@ describe("atualizador: transporte do git antes da verificação (A5)", () => {
     expect(local.env).toBe(base);
   });
 });
+
+// RR6: o instalador entrega o arquivo de chaves confiáveis da própria execução (ANVILORE_ASSINANTES_DO_INSTALADOR). Numa pasta
+// que ficou para trás na troca de chave, ele vale no lugar do seguranca/assinantes local, e só ele.
+describe("atualizador: assinantes confiáveis vindos do instalador (RR6)", () => {
+  const VAR = "ANVILORE_ASSINANTES_DO_INSTALADOR";
+  async function comVariavel(valor: string | undefined, corpo: () => Promise<void>) {
+    const antes = process.env[VAR];
+    if (valor === undefined) delete process.env[VAR]; else process.env[VAR] = valor;
+    try { await corpo(); } finally { if (antes === undefined) delete process.env[VAR]; else process.env[VAR] = antes; }
+  }
+  // Pasta instalada na 0.3.0 com assinantes só da chave antiga (a do kit); a 0.3.1 traz a chave nova nos assinantes dela.
+  async function pastaAtrasada(assinarComNova: boolean) {
+    const nova = await criarChave(await mkdtemp(join(tmpdir(), "anvilore-chave-nova-")));
+    const k = await kit([{ versao: "0.3.0" }, { versao: "0.3.1", arquivos: { "seguranca/assinantes": nova.assinantes } }]);
+    k.ok(["-c", "gpg.format=ssh", "-c", `user.signingkey=${assinarComNova ? nova.chave : k.chave}`, "tag", "-f", "-s", "v0.3.1", k.commits["0.3.1"]!, "-m", "v0.3.1"]);
+    const arquivoNovo = join(k.pai, "assinantes-do-instalador");
+    await writeFile(arquivoNovo, nova.assinantes);
+    return { k, nova, arquivoNovo };
+  }
+  const intacta = (k: Kit) => expect(k.head()).toBe(k.commits["0.3.0"]!);
+
+  real("Dado assinantes locais só da chave antiga e tag da chave nova, Quando o instalador passa o arquivo com a nova, Então aplica e seguranca/assinantes fica limpo e igual ao da tag", async () => {
+    const { k, arquivoNovo } = await pastaAtrasada(true);
+    await comVariavel(arquivoNovo, async () => {
+      expect(await atualizar("aplicar", k.deps())).toContain("Atualizado para 0.3.1");
+    });
+    expect(k.head()).toBe(k.commits["0.3.1"]!);
+    expect(k.git(["status", "--porcelain", "--", "seguranca/assinantes"]).saida.trim()).toBe("");
+    expect(await readFile(join(k.raiz, "seguranca/assinantes"), "utf8")).toBe(k.ok(["show", "v0.3.1:seguranca/assinantes"]) + "\n");
+  });
+
+  real("Dado a mesma pasta atrasada, Quando não há a variável, Então recusa a tag da chave nova (o arquivo local é só o antigo)", async () => {
+    const { k } = await pastaAtrasada(true);
+    await comVariavel(undefined, async () => {
+      await expect(atualizar("aplicar", k.deps())).rejects.toThrow("git verify-tag recusou a tag v0.3.1");
+    });
+    intacta(k);
+  });
+
+  real("Dado o arquivo do instalador só com a chave nova, Quando a tag é da chave ANTIGA, Então recusa: os dois arquivos não se somam", async () => {
+    const { k, arquivoNovo } = await pastaAtrasada(false);
+    await comVariavel(arquivoNovo, async () => {
+      await expect(atualizar("aplicar", k.deps())).rejects.toThrow("git verify-tag recusou a tag v0.3.1");
+    });
+    intacta(k);
+  });
+
+  for (const [caso, preparar] of [
+    ["ausente", async (k: Kit) => join(k.pai, "nao-existe")],
+    ["vazio", async (k: Kit) => { const p = join(k.pai, "vazio"); await writeFile(p, ""); return p; }],
+    ["ilegível (é uma pasta)", async (k: Kit) => { const p = join(k.pai, "pasta"); await mkdir(p); return p; }],
+    ["com o nome em branco", async () => ""],
+  ] as const) {
+    real(`Dado o arquivo do instalador ${caso} e tag da chave ANTIGA (que o arquivo local aceitaria), Quando aplico, Então recusa com mensagem simples e não cai no arquivo local`, async () => {
+      const { k } = await pastaAtrasada(false);
+      const caminho = await preparar(k);
+      await comVariavel(caminho, async () => {
+        await expect(atualizar("aplicar", k.deps())).rejects.toThrow("o instalador não entregou as chaves confiáveis");
+      });
+      intacta(k);
+      expect((await k.estado()).estado).toBe("recusada");
+    });
+  }
+});
