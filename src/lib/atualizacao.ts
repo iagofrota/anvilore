@@ -290,8 +290,8 @@ function diferencasDados(antes: Dados, depois: Dados): string[] {
 }
 const resumir = (lista: string[]) => lista.length > 8 ? `${lista.slice(0, 8).join(", ")} e mais ${lista.length - 8}` : lista.join(", ");
 
-// No Windows, junção só guarda caminho absoluto: o Node resolve um alvo relativo contra a pasta do PROCESSO, não a
-// do link. Por isso só alvo absoluto (o que o `instalar` cria) volta como junção; link de pasta relativo volta como
+// No Windows, junção só guarda caminho absoluto: no Bun do CI (windows-latest, PR #28) o alvo relativo de uma junção
+// foi resolvido contra a pasta do PROCESSO, não a do link. Por isso só alvo absoluto (o que o `instalar` cria) volta como junção; link de pasta relativo volta como
 // link simbólico de pasta, com o mesmo texto de alvo. Fora do Windows o tipo não importa.
 export function tipoDeLink(alvo: string, alvoPasta: boolean, plataforma: NodeJS.Platform = process.platform): "junction" | "dir" | "file" | undefined {
   if (plataforma !== "win32") return undefined;
@@ -640,6 +640,23 @@ export function identidadeDaTag(raiz: string, tag: string, exec: Exec = execPadr
   if (!parsearSemVer(versao)) return `o nome assinado ${tag} não é uma versão SemVer; recusada.`;
   return { versao, commit: objeto };
 }
+// Tags que o fetch forçado nunca pode sobrescrever: as do commit instalado e as dos commits guardados em refs/anvilore/*
+// cujo nome não é uma versão mais nova que a instalada. Uma tag de versão mais nova que aponte para esses commits só
+// pode ter sido trocada (por um espelho, numa busca anterior); protegê-la bloquearia para sempre a tag legítima.
+function tagsProtegidas(raiz: string, exec: Exec, atual: string): Set<string> {
+  const nomes = new Set<string>();
+  for (const ref of ["HEAD", REF_ANTERIOR, REF_OPERACAO]) {
+    const commit = exec(["rev-parse", "--verify", "-q", `${ref}^{commit}`], raiz);
+    if (commit.codigo !== 0 || !COMMIT.test(commit.saida.trim())) continue;
+    const r = exec(["tag", "--points-at", commit.saida.trim()], raiz);
+    if (r.codigo !== 0) throw erro("git tag --points-at", r.saida.trim());
+    for (const nome of r.saida.split("\n").map(l => l.trim()).filter(Boolean)) {
+      const versao = nome.startsWith("v") ? nome.slice(1) : nome;
+      if (!parsearSemVer(versao) || compararSemVer(versao, atual) <= 0) nomes.add(nome);
+    }
+  }
+  return nomes;
+}
 function oficial(raiz: string, exec: Exec) {
   const rem = exec(["remote", "get-url", "origin"], raiz).saida.trim();
   const ok = ["https://github.com/iagofrota/anvilore.git", "git@github.com:iagofrota/anvilore.git", "ssh://git@github.com/iagofrota/anvilore.git"].includes(rem);
@@ -902,12 +919,21 @@ export async function atualizar(acao: "verificar" | "voltar" | "estado" | "autom
     const release = state.estado === "baixada" && state.tagDisponivel
       ? releases.flatMap(r => (r.tag_name.startsWith("v") ? r.tag_name.slice(1) : r.tag_name) === state.disponivel ? [{ tag: r.tag_name.startsWith("v") ? r.tag_name : `v${r.tag_name}`, versao: state.disponivel!, url: r.html_url }] : [])[0]
       : selecionarRelease(atual, releases, state.canal);
-    if (!release) { state.verificadoEm = new Date().toISOString(); await gravarEstado(raiz, state); return `Anvilore ${atual} já está atualizado.`; }
+    // Antes de qualquer fetch e em toda ação: só uma versão MAIS NOVA que a instalada é candidata. Uma "baixada"
+    // obsoleta (versão igual ou anterior) é descartada; buscar a tag dela deixaria um espelho sobrescrever a tag
+    // local da versão instalada ou da anterior, e o clone deixaria de ser reconhecido como gerenciado.
+    if (!release || compararSemVer(release.versao, atual) <= 0) {
+      if (state.estado === "baixada") { state.estado = "ocioso"; delete state.disponivel; delete state.tagDisponivel; }
+      state.verificadoEm = new Date().toISOString(); await gravarEstado(raiz, state);
+      return `Anvilore ${atual} já está atualizado.`;
+    }
     if ((state.recusadas ?? []).includes(release.versao)) return `Anvilore ${release.versao} já foi recusada; aguardando outra release.`;
     const decision = decidirPolitica(atual, release.versao, state.modo, state.canal);
     if (decision === "ignorar" && acao !== "aplicar") return `Atualização ignorada pela política atual (${state.modo}, canal ${state.canal}).`;
     // `+`: se um espelho já trocou esta tag localmente, a do origin a substitui (sem isso o git recusa com "would
     // clobber existing tag" e a release legítima nunca entraria). A troca não dá confiança: tudo é verificado abaixo.
+    const protegidas = tagsProtegidas(raiz, exec, atual);
+    if (protegidas.has(release.tag)) throw erro("tag protegida", `${release.tag} aponta para a versão instalada ou para uma versão guardada para voltar; não a busco de novo. Nada foi mudado.`);
     const fetch = exec(["fetch", "--no-tags", "origin", `+refs/tags/${release.tag}:refs/tags/${release.tag}`], raiz);
     if (fetch.codigo) throw erro("fetch", fetch.saida.trim());
     const ref = exec(["rev-parse", "--verify", "-q", `refs/tags/${release.tag}`], raiz), objeto = ref.saida.trim();
@@ -919,7 +945,7 @@ export async function atualizar(acao: "verificar" | "voltar" | "estado" | "autom
       : undefined;
     // Sem `recusadas`: o objeto não foi confirmado como da release (assinatura ou identidade), então um espelho que
     // o sirva uma vez não pode bloquear para sempre a tag legítima da mesma versão. A próxima checagem tenta de novo.
-    if (bad || typeof assinada === "string") { state.estado = "recusada"; state.erro = bad; await gravarEstado(raiz, state); await log(raiz, `tag recusada tag=${release.tag}: ${bad}`); throw new Error(bad); }
+    if (bad || typeof assinada === "string") { state.estado = "recusada"; state.erro = bad; state.verificadoEm = new Date().toISOString(); await gravarEstado(raiz, state); await log(raiz, `tag recusada tag=${release.tag}: ${bad}`); throw new Error(bad); }
     const confirmada = { tag: release.tag, versao: assinada.versao, commit: assinada.commit };
     if (acao === "verificar" || (acao === "automatico" && state.estado !== "baixada")) {
       state.estado = "baixada"; state.disponivel = release.versao; state.tagDisponivel = release.tag; state.verificadoEm = new Date().toISOString();

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { atualizar, compararSemVer, comandoAtualizar, decidirPolitica, parsearSemVer, selecionarRelease, tipoDeLink } from "../src/lib/atualizacao";
 import { capturarConsole } from "./apoio/console";
-import { arvore, criarChave, criarKit, type Kit, type Versao } from "./apoio/kit-atualizavel";
+import { arvore, criarChave, criarKit, gitReal, type Kit, type Versao } from "./apoio/kit-atualizavel";
 
 describe("atualizador: SemVer e canal", () => {
   test("Dado versões SemVer válidas e inválidas, Quando analiso, Então recusa forma inválida sem normalizar", () => {
@@ -475,6 +475,7 @@ describe("atualizador com Git real: confiança, trava e estado", () => {
     expect(k.head()).toBe(k.commits["0.3.0"]!);
     expect(await k.estado()).toMatchObject({ estado: "recusada" });
     expect((await k.estado()).recusadas ?? []).not.toContain("0.3.1");
+    expect(Date.now() - Date.parse((await k.estado()).verificadoEm)).toBeLessThan(60_000);
   });
 
   real("Dado versão candidata com SemVer inválido, Quando verifico, Então não consulta assinatura nem aplica", async () => {
@@ -622,6 +623,8 @@ describe("atualizador com Git real: o nome assinado da tag é a versão anunciad
     expect(estado.operacao).toBeUndefined();
     expect(estado.ultima).toBeUndefined();
     expect(existsSync(join(k.raiz, ".anvilore/atualizacao"))).toBe(false);
+    // A recusa conta como checagem: o hook (1×/24h) não tenta de novo a cada início de sessão.
+    expect(Date.now() - Date.parse(estado.verificadoEm)).toBeLessThan(60_000);
   }
 
   real("Dado a ref v0.3.2 apontando para a tag assinada da v0.3.1, Quando aplico, Então recuso antes de qualquer cópia ou checkout", async () => {
@@ -703,4 +706,48 @@ describe("atualizador: links na cópia (b) e no Windows", () => {
     expect((await lstat(join(k.raiz, ".claude/skills/ingest"))).isSymbolicLink()).toBe(true);
     expect(await readlink(join(k.raiz, ".claude/skills/ingest"))).toBe(antes);
   });
+});
+
+describe("atualizador com Git real: tags que não são candidatas nunca são buscadas", () => {
+  real("Dado a tag local da candidata 0.3.2 envenenada apontando para o commit instalado, Quando o origin traz a legítima, Então a proteção não a bloqueia e a versão aplica", async () => {
+    const k = await kit([...tres.slice(0, 2), { versao: "0.3.2" }]);
+    const espelho = join(k.pai, "espelho.git");
+    expect(Bun.spawnSync(["git", "clone", "-q", "--bare", k.raiz, espelho]).exitCode).toBe(0);
+    k.ok(["update-ref", "refs/tags/v0.3.2", k.commits["0.3.0"]!]);
+    const executar = (args: string[]) => args[0] === "fetch" ? k.git(["-c", `url.${espelho}.insteadOf=https://github.com/iagofrota/anvilore.git`, ...args]) : k.git(args);
+    k.publicar(["v0.3.2"]);
+    expect(await atualizar("aplicar", k.deps({ executar }))).toContain("Atualizado para 0.3.2");
+    expect(k.ok(["describe", "--tags", "--exact-match", "HEAD"])).toBe("v0.3.2");
+    expect(k.ok(["rev-parse", "refs/tags/v0.3.0"])).not.toBe(k.commits["0.3.2"]!);
+  });
+
+  for (const disponivel of ["0.3.1", "0.3.0"]) {
+    real(`Dado 0.3.1 instalada, baixada obsoleta da ${disponivel} e um espelho que troca as tags, Quando aplico, Então não busco nada, as tags locais ficam e a próxima execução é normal`, async () => {
+      const k = await kit(tres.slice(0, 2));
+      await atualizar("aplicar", k.deps());
+      const tags = { "v0.3.0": k.ok(["rev-parse", "refs/tags/v0.3.0"]), "v0.3.1": k.ok(["rev-parse", "refs/tags/v0.3.1"]) };
+      const espelho = join(k.pai, "espelho.git");
+      expect(Bun.spawnSync(["git", "clone", "-q", "--bare", k.raiz, espelho]).exitCode).toBe(0);
+      const noEspelho = gitReal(espelho);
+      expect(noEspelho(["update-ref", "refs/tags/v0.3.0", tags["v0.3.1"]]).codigo).toBe(0);
+      expect(noEspelho(["update-ref", "refs/tags/v0.3.1", tags["v0.3.0"]]).codigo).toBe(0);
+      const fetches: string[][] = [];
+      const executar = (args: string[]) => {
+        if (args[0] === "fetch") { fetches.push(args); return k.git(["-c", `url.${espelho}.insteadOf=https://github.com/iagofrota/anvilore.git`, ...args]); }
+        return k.git(args);
+      };
+      await k.mudarEstado({ estado: "baixada", disponivel, tagDisponivel: `v${disponivel}` });
+      k.publicar(["v0.3.1", "v0.3.0"]);
+      expect(await atualizar("aplicar", k.deps({ executar }))).toContain("0.3.1 já está atualizado");
+      expect(fetches).toEqual([]);
+      expect(k.ok(["rev-parse", "refs/tags/v0.3.0"])).toBe(tags["v0.3.0"]);
+      expect(k.ok(["rev-parse", "refs/tags/v0.3.1"])).toBe(tags["v0.3.1"]);
+      expect(k.ok(["describe", "--tags", "--exact-match", "HEAD"])).toBe("v0.3.1");
+      const estado = await k.estado();
+      expect(estado.estado).toBe("ocioso");
+      expect(estado.disponivel).toBeUndefined();
+      expect(await atualizar("verificar", k.deps({ executar }))).toContain("0.3.1 já está atualizado");
+      expect(await atualizar("voltar", k.deps({ executar }))).toContain("Voltou para 0.3.0");
+    });
+  }
 });
