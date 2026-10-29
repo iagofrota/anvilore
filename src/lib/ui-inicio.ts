@@ -2,7 +2,7 @@ import { lstat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { auditarWiki } from "../comandos/auditar";
 import { listarLacunas } from "../comandos/listar-lacunas";
-import { validarWiki } from "../comandos/validar";
+import { validarWiki, type ResultadoValidacao } from "../comandos/validar";
 import { lerFrontmatter } from "./frontmatter";
 import { caminhoPathlib, paginasMarkdown } from "./paginas";
 import { listarFilaRascunhos } from "./ui-fila";
@@ -111,8 +111,8 @@ export async function fontesSemIngestao(raiz: string, wiki: string, conversas: R
 
 // Roda os mesmos comandos do terminal (`validar`, `auditar`, `listar-lacunas --consultar`) dentro do servidor.
 // Nenhum deles escreve; falha de um não derruba os outros.
-export async function saudeDaWiki(wiki: string): Promise<SaudeDaWiki> {
-  const validacao = await validarWiki(wiki).catch((erro: Error) => ({ ok: false, erros: [erro.message], avisos: [], paginas: 0, gaps: 0, contradicoes: 0, vencidas: 0, geradasAposVerificacao: 0 }));
+export async function saudeDaWiki(wiki: string, validada?: ResultadoValidacao): Promise<SaudeDaWiki> {
+  const validacao = validada ?? await validarWiki(wiki).catch((erro: Error) => ({ ok: false, erros: [erro.message], avisos: [], paginas: 0, gaps: 0, contradicoes: 0, vencidas: 0, geradasAposVerificacao: 0 }));
   const semAprovacao = validacao.erros.filter(erro => erro.startsWith(SEM_APROVACAO));
 
   let auditoria: SaudeDaWiki["auditoria"];
@@ -136,9 +136,9 @@ export async function saudeDaWiki(wiki: string): Promise<SaudeDaWiki> {
 }
 
 // O que a tela mostra de imediato. A saúde fica de fora de propósito: é a parte lenta e a tela a pede à parte.
-export async function resumoDoInicio(raiz: string, conversasAbertas: ReadonlyMap<string, string> = new Map(), ambiente: Record<string, string | undefined> = process.env): Promise<ResumoDoInicio> {
+export async function resumoDoInicio(raiz: string, conversasAbertas: ReadonlyMap<string, string> = new Map(), ambiente: Record<string, string | undefined> = process.env, validada?: ResultadoValidacao): Promise<ResumoDoInicio> {
   const wiki = caminhoWiki(raiz, ambiente);
-  const fila = await listarFilaRascunhos(raiz, ambiente);
+  const fila = await listarFilaRascunhos(raiz, ambiente, validada);
   return {
     rascunhos: {
       total: fila.length,

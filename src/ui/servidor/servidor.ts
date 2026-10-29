@@ -7,6 +7,7 @@ import type { PonteDeAgente } from "../../lib/ponte-agente";
 import { PonteClaudeCode } from "../../lib/ponte-claude-code";
 import { indexarCopias, listarFilaRascunhos } from "../../lib/ui-fila";
 import { areasDaWiki } from "../../lib/ui-fonte";
+import { validarWiki, type ResultadoValidacao } from "../../comandos/validar";
 import { resumoDoInicio, saudeDaWiki } from "../../lib/ui-inicio";
 import { ErroDeIngestao, IngestaoNaInterface } from "../../lib/ui-ingestao";
 import { caminhoWiki } from "../../lib/wiki-repo";
@@ -27,6 +28,10 @@ type OpcoesServidor = {
 const LIMITE_DO_ENVIO = 32 * 1024 * 1024;
 // Conversas que ainda esperam algo da pessoa ou do agente: a Início oferece continuar.
 const CONVERSA_PENDENTE = ["rodando", "esperando", "pronta"];
+// O Início pede /api/inicio e /api/saude juntos, e `validarWiki` lê a wiki inteira de forma síncrona. O /api/inicio guarda
+// a validação que fez e o /api/saude seguinte a consome (uma vez, e só se tiver segundos de vida); qualquer outro pedido
+// valida de novo. Por isso "Validar agora", a Revisão e uma volta ao Início sempre veem a wiki como ela está.
+const VALIDACAO_DO_INICIO_VALE_MS = 5_000;
 const ROTA_DA_CONVERSA = /^\/api\/conversas\/([a-z0-9-]+)(?:\/(ler|seguir|cancelar))?$/;
 
 function localHost(request: Request): boolean {
@@ -147,6 +152,7 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
   const token = opcoes.token ?? randomBytes(32).toString("base64url");
   const portaInicial = opcoes.portaInicial ?? 4173;
   const ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
+  let validacaoDoInicio: { em: number; resultado: ResultadoValidacao } | undefined;
   let servidor: Servidor | undefined;
   let ultimoErro: unknown;
 
@@ -188,9 +194,15 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
           if (url.pathname === "/api/inicio" && request.method === "GET") {
             const conversas = (await ingestao.listar()).filter(c => CONVERSA_PENDENTE.includes(c.situacao));
             const abertas = new Map(conversas.map(c => [c.fonte, c.id]));
-            return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas, ...await resumoDoInicio(raiz, abertas) });
+            const validada = await validarWiki(wiki);
+            validacaoDoInicio = { em: Date.now(), resultado: validada };
+            return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas, ...await resumoDoInicio(raiz, abertas, process.env, validada) });
           }
-          if (url.pathname === "/api/saude" && request.method === "GET") return json(await saudeDaWiki(wiki));
+          if (url.pathname === "/api/saude" && request.method === "GET") {
+            const guardada = validacaoDoInicio && Date.now() - validacaoDoInicio.em < VALIDACAO_DO_INICIO_VALE_MS ? validacaoDoInicio.resultado : undefined;
+            validacaoDoInicio = undefined;
+            return json(await saudeDaWiki(wiki, guardada));
+          }
           if (url.pathname === "/api/ingestao" && request.method === "GET") {
             return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas: await ingestao.listar(), atualizador: await estadoAtualizador(raiz) });
           }

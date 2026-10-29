@@ -4,7 +4,7 @@ import { stat } from "node:fs/promises";
 import { basename, join, relative, resolve, sep } from "node:path";
 import { lerFrontmatter } from "./frontmatter";
 import { caminhoWiki } from "./wiki-repo";
-import { validarWiki } from "../comandos/validar";
+import { validarWiki, type ResultadoValidacao } from "../comandos/validar";
 import { estadoAprovacaoHumana, timestampValido } from "./okf";
 
 export type Rascunho = {
@@ -48,10 +48,11 @@ function erroGlobal(erro: string): boolean {
   return erro.startsWith("página fora do índice:") || erro.startsWith("wikilink quebrado");
 }
 
-export async function listarFilaRascunhos(raiz: string, ambiente: Record<string, string | undefined> = process.env): Promise<Rascunho[]> {
+// `validada` deixa quem já validou a wiki (a tela Início) reaproveitar o resultado em vez de lê-la de novo.
+export async function listarFilaRascunhos(raiz: string, ambiente: Record<string, string | undefined> = process.env, validada?: ResultadoValidacao): Promise<Rascunho[]> {
   const wiki = caminhoWiki(raiz, ambiente);
   const arquivos = await listarMarkdown(wiki);
-  const validacao = await validarWiki(wiki);
+  const validacao = validada ?? await validarWiki(wiki);
   const fila: Rascunho[] = [];
   for (const caminho of arquivos) {
     if (basename(caminho) === "index.md" || caminho === "log.md" || caminho.startsWith("log/") || caminho.startsWith("_meta/")) continue;

@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as modulo from "../src/comandos/validar";
 import { iniciarServidorUi } from "../src/ui/servidor/servidor";
 import { PonteFalsa } from "./apoio/ponte-falsa";
 
@@ -76,4 +77,50 @@ test("Dado o Início Quando envio POST ou rota desconhecida Então 404, sem roda
   const { chamar } = await servidor();
   expect((await chamar("/api/inicio", { method: "POST" })).status).toBe(404);
   expect((await chamar("/api/saude", { method: "POST" })).status).toBe(404);
+});
+
+// --- Uma validação por carga do Início -----------------------------------------------------------------------
+// `validarWiki` lê todos os .md de forma síncrona: abrir o Início (inicio + saude) não pode pagá-la duas vezes.
+
+test("Dado o Início abrindo Quando a tela pede /api/inicio e /api/saude Então a wiki é validada uma vez só", async () => {
+  writeFileSync(join(raiz, "wiki/pessoal/concepts/novo.md"), rascunho("novo"));
+  const espiao = spyOn(modulo, "validarWiki");
+  try {
+    const { chamar } = await servidor();
+    const inicio = await (await chamar("/api/inicio")).json() as { rascunhos: { total: number } };
+    const saude = await (await chamar("/api/saude")).json() as { validar: { semAprovacao: number } };
+    expect(espiao).toHaveBeenCalledTimes(1);
+    expect(inicio.rascunhos.total).toBe(1);
+    expect(saude.validar.semAprovacao).toBe(1);
+  } finally { espiao.mockRestore(); }
+});
+
+test("Dado Validar agora ou a Revisão Quando a tela pede de novo Então a validação é refeita e vê a wiki como está", async () => {
+  writeFileSync(join(raiz, "wiki/pessoal/concepts/novo.md"), rascunho("novo"));
+  const espiao = spyOn(modulo, "validarWiki");
+  try {
+    const { chamar } = await servidor();
+    await chamar("/api/inicio");
+    await chamar("/api/saude");
+    expect(espiao).toHaveBeenCalledTimes(1);
+    writeFileSync(join(raiz, "wiki/pessoal/concepts/outro.md"), rascunho("outro"));
+    const saude = await (await chamar("/api/saude")).json() as { validar: { semAprovacao: number } };
+    expect(saude.validar.semAprovacao).toBe(2);
+    expect(espiao).toHaveBeenCalledTimes(2);
+    await chamar("/api/rascunhos");
+    expect(espiao).toHaveBeenCalledTimes(3);
+    await chamar("/api/inicio");
+    expect(espiao).toHaveBeenCalledTimes(4);
+  } finally { espiao.mockRestore(); }
+});
+
+test("Dado a saúde pedida antes do Início Quando o Início chega Então nada fica velho: cada um valida a wiki atual", async () => {
+  const espiao = spyOn(modulo, "validarWiki");
+  try {
+    const { chamar } = await servidor();
+    await chamar("/api/saude");
+    writeFileSync(join(raiz, "wiki/pessoal/concepts/novo.md"), rascunho("novo"));
+    const inicio = await (await chamar("/api/inicio")).json() as { rascunhos: { total: number } };
+    expect(inicio.rascunhos.total).toBe(1);
+  } finally { espiao.mockRestore(); }
 });
