@@ -121,3 +121,35 @@ exit 0
   expect(r.erro).toContain("a assinatura da tag v0.3.0 não é do Iago");
   expect(await existe(c.pasta)).toBe(false);
 });
+
+// Correção A5 (re-revisão 2): a configuração global do git da pessoa não pode abrir um transporte que execute programa
+// (`ext::`) nas chamadas de rede feitas antes de a assinatura da tag passar (ls-remote e clone).
+async function helperExtComMarcador(c: Cenario) {
+  const marcador = join(c.pai, "marcador-ext");
+  const helper = join(c.pai, "helper-ext.sh");
+  await writeFile(helper, `#!/bin/sh\nprintf executado >> "${marcador}"\nexit 1\n`, { mode: 0o755 });
+  global(c, "protocol.ext.allow", "always");
+  global(c, `url.ext::${helper}.insteadOf`, c.kit.raiz);
+  return marcador;
+}
+
+test.skipIf(!linux)("A5: Dado protocol.ext.allow=always e um insteadOf para ext:: na config global, Quando descubro a última versão, Então recusa sem rodar o helper", async () => {
+  const c = await novo();
+  const marcador = await helperExtComMarcador(c);
+  const r = c.rodar();
+  expect(r.codigo, r.tudo).toBe(1);
+  expect(await existe(marcador)).toBe(false);
+  expect(await existe(c.pasta)).toBe(false);
+  expect(semSobras(c)).not.toContain("baixando");
+});
+
+test.skipIf(!linux)("A5: Dado o mesmo ext:: e versão fixa em ANVILORE_VERSAO, Quando baixo o kit, Então recusa sem rodar o helper", async () => {
+  const c = await novo();
+  const marcador = await helperExtComMarcador(c);
+  const r = c.rodar({ ANVILORE_VERSAO: "v0.3.0" });
+  expect(r.codigo, r.tudo).toBe(1);
+  expect(r.erro).toContain("não consegui baixar o Anvilore v0.3.0");
+  expect(await existe(marcador)).toBe(false);
+  expect(await existe(c.pasta)).toBe(false);
+  expect(semSobras(c)).not.toContain("baixando");
+});
