@@ -9,6 +9,7 @@ import { indexarCopias, listarFilaRascunhos } from "../../lib/ui-fila";
 import { areasDaWiki } from "../../lib/ui-fonte";
 import { ErroDeIngestao, IngestaoNaInterface } from "../../lib/ui-ingestao";
 import { caminhoWiki } from "../../lib/wiki-repo";
+import { atualizar } from "../../lib/atualizacao";
 
 type Servidor = ReturnType<typeof Bun.serve>;
 type OpcoesServidor = {
@@ -34,6 +35,33 @@ function localHost(request: Request): boolean {
 
 function json(dados: unknown, status = 200): Response {
   return respostaSegura(JSON.stringify(dados), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
+}
+
+async function estadoAtualizador(raiz: string) {
+  try {
+    const estado = JSON.parse(await readFile(join(raiz, ".anvilore/atualizacao.json"), "utf8")) as Record<string, unknown>;
+    const atualizadoEm = typeof estado.atualizadoEm === "string" ? estado.atualizadoEm : undefined;
+    let mudancas: string[] = [];
+    if (atualizadoEm && Date.now() - Date.parse(atualizadoEm) < 60 * 60 * 1000 && typeof estado.versaoInstalada === "string") {
+      const changelog = await readFile(join(raiz, "CHANGELOG.md"), "utf8").catch(() => "");
+      const escape = estado.versaoInstalada.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const inicio = changelog.search(new RegExp(`^## \\[v?${escape}\\](?:\\s|$)`, "m"));
+      if (inicio >= 0) {
+        const secao = changelog.slice(inicio).split(/\n(?=## )/, 1)[0] ?? "";
+        mudancas = secao.split("\n").slice(1).filter(linha => /^- /.test(linha)).slice(0, 3).map(linha => linha.slice(2).replace(/`/g, ""));
+      }
+    }
+    return {
+      estado: typeof estado.estado === "string" ? estado.estado : "ocioso",
+      versaoInstalada: typeof estado.versaoInstalada === "string" ? estado.versaoInstalada : undefined,
+      atualizadoEm,
+      disponivel: typeof estado.disponivel === "string" ? estado.disponivel : undefined,
+      etapa: typeof estado.etapa === "string" ? estado.etapa : undefined,
+      erro: typeof estado.erro === "string" ? estado.erro : undefined,
+      podeVoltar: ["ocioso", "baixada", "recusada"].includes(String(estado.estado)) && typeof (estado.ultima as { id?: unknown } | undefined)?.id === "string",
+      mudancas,
+    };
+  } catch { return null; }
 }
 
 function respostaSegura(body?: BodyInit | null, init: ResponseInit = {}): Response {
@@ -154,7 +182,16 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
           }
           if (url.pathname === "/api/validar" && request.method === "POST") return json(await validar(raiz, wiki));
           if (url.pathname === "/api/ingestao" && request.method === "GET") {
-            return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas: await ingestao.listar() });
+            return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas: await ingestao.listar(), atualizador: await estadoAtualizador(raiz) });
+          }
+          if (url.pathname === "/api/atualizador" && request.method === "POST") {
+            let corpo: { acao?: unknown };
+            try { corpo = await request.json() as { acao?: unknown }; } catch { return json({ mensagens: ["Pedido inválido."] }, 400); }
+            if (!["verificar", "aplicar", "voltar", "automatico"].includes(String(corpo.acao))) return json({ mensagens: ["Ação do atualizador inválida."] }, 400);
+            try {
+              const mensagem = await atualizar(corpo.acao as "verificar" | "aplicar" | "voltar" | "automatico", { raiz });
+              return json({ mensagem, atualizador: await estadoAtualizador(raiz) });
+            } catch (erro) { return json({ mensagens: [(erro as Error).message], atualizador: await estadoAtualizador(raiz) }, 409); }
           }
           if (url.pathname === "/api/fontes" && request.method === "POST") return receberFonte(request, ingestao, new Date());
           const daConversa = ROTA_DA_CONVERSA.exec(url.pathname);

@@ -1,4 +1,5 @@
 import { iniciarServidorUi } from "../ui/servidor/servidor";
+import { comandoHooksWiki } from "./hooks-wiki";
 
 type AppUi = Awaited<ReturnType<typeof iniciarServidorUi>>;
 
@@ -30,6 +31,8 @@ export async function comandoUi(
     return 2;
   }
   const raiz = process.env.ANVILORE_DESTINO ?? process.cwd();
+  // No início da UI, aplica estado retomável; se não houver versão pronta, a checagem fica destacada.
+  await comandoHooksWiki(["atualizar", raiz]);
   let app: AppUi;
   try { app = await iniciar(raiz); }
   catch (erro) { console.error(`Não foi possível abrir a interface: ${(erro as Error).message}`); return 1; }

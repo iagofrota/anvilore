@@ -31,6 +31,13 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Added
 
+- `anvilore atualizar [--verificar | --voltar | --estado]`: verifica releases publicadas, compara SemVer/canal,
+  confere a assinatura SSH com a confiança local, guarda os arquivos pessoais e configurações dos agentes, aplica
+  com estado retomável e tenta reverter se a prova do hook ou o `doctor` piorar. SessionStart agenda checagem
+  diária em segundo plano; a interface mostra resumo da versão, permite verificar, atualizar e voltar, e oferece
+  recuperação de etapas incompletas. A operação real fica recusada até `seguranca/assinantes` conter a chave
+  pública confiável do dono. A recusa identifica arquivo ausente/vazio ou falha em `git verify-tag` e orienta
+  a configuração do formato OpenSSH `allowed_signers`, sempre ancorada no kit já instalado.
 - `anvilore versao` mostra a versão do kit e, num clone, a tag e o commit.
 - `anvilore migrar-rastreio` prepara o clone para a próxima versão, que deixa de rastrear os arquivos da pessoa
   (`SCHEMA.md`, índice e log da wiki, esqueleto e exemplo de `wiki/` e `raw/`): copia cada um com SHA-256 para
