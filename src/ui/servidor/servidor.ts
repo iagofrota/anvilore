@@ -98,7 +98,8 @@ async function receberFonte(request: Request, ingestao: IngestaoNaInterface, ago
     const nome = dados.get("nome");
     const carimbo = isoComOffset(agora).slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
     const base = typeof nome === "string" && nome.trim() ? nome.trim() : `texto-colado-${carimbo}`;
-    fonte = { nome: /\.[a-z0-9]+$/i.test(base) ? base : `${base}.md`, conteudo: new TextEncoder().encode(texto) };
+    // Textarea/FormData pode transportar quebras LF como CRLF; arquivos enviados mantêm os bytes originais.
+    fonte = { nome: /\.[a-z0-9]+$/i.test(base) ? base : `${base}.md`, conteudo: new TextEncoder().encode(texto.replace(/\r\n/g, "\n")) };
   } else return json({ mensagens: ["Solte um arquivo ou cole um texto."] }, 400);
   try { return json(await ingestao.criar({ area: typeof area === "string" ? area : "", ...fonte }), 201); }
   catch (erro) { return erroDaIngestao(erro); }

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import type { EventoDoAgente } from "../src/lib/ponte-agente";
 import { argumentosDoPapel, interpretarLinha, PonteClaudeCode, regraDeEdicao, regrasDeLeitura } from "../src/lib/ponte-claude-code";
 import { esquemaRelatorioLeitor } from "../src/lib/relatorio-leitor";
@@ -33,6 +33,19 @@ function ponteCom(roteiro: RoteiroDoFalso, extra: { prazoDoSinalMs?: number } = 
   });
   const execucoes = () => existsSync(registro) ? readFileSync(registro, "utf8").trim().split("\n").map(linha => JSON.parse(linha) as { argv: string[]; cwd: string; stdin: string; ANVILORE_WIKI?: string; ANVILORE_SEM_AUTOCOMMIT?: string }) : [];
   return { ponte, execucoes };
+}
+
+function esperarArquivo(caminho: string): Promise<void> {
+  if (existsSync(caminho)) return Promise.resolve();
+  return new Promise(resolveEspera => {
+    const watcher = watch(dirname(caminho), (_evento, nome) => {
+      if ((!nome || nome.toString() === caminho.split(/[\\/]/).at(-1)) && existsSync(caminho)) {
+        watcher.close();
+        resolveEspera();
+      }
+    });
+    if (existsSync(caminho)) { watcher.close(); resolveEspera(); }
+  });
 }
 
 // Os itens de uma flag de lista vão separados, como na prova da ponte, até a próxima flag.
@@ -212,6 +225,46 @@ test("Dado o agente rodando Quando cancelo Então o filho recebe SIGINT e o fim 
   const { ponte } = ponteCom({ leitor: [{ linha: init() }, { esperarSinal: { sessao: SESSAO } }] });
   const execucao = ponte.executar({ papel: "leitor", mensagem: "x", raiz, wiki }, evento => { if (evento.tipo === "inicio") execucao.cancelar(); });
   expect(await execucao.fim).toEqual({ situacao: "cancelada", sessao: SESSAO, recusas: [] });
+});
+
+test("Dado o claude falso esperando um arquivo Quando libero a barreira Então a execução continua sem espera por tempo", async () => {
+  const liberar = join(tmp, "barreiras", "liberar");
+  const pronto = join(tmp, "barreiras", "pronto");
+  mkdirSync(dirname(pronto), { recursive: true });
+  const { ponte } = ponteCom({ leitor: [
+    { esperarArquivo: { caminho: liberar, pronto, sessao: SESSAO } },
+    { linha: resultado({ structured_output: relatorio }) },
+  ] });
+  const execucao = ponte.executar({ papel: "leitor", mensagem: "x", raiz, wiki }, () => {});
+  await esperarArquivo(pronto);
+  writeFileSync(liberar, "continuar\n");
+  expect(await execucao.fim).toMatchObject({ situacao: "concluida", saidaEstruturada: relatorio });
+});
+
+test("Dado o claude falso cuja barreira já foi liberada Quando executo Então segue sem anunciar espera", async () => {
+  const liberar = join(tmp, "barreiras", "ja-liberada");
+  const pronto = join(tmp, "barreiras", "ja-pronto");
+  mkdirSync(dirname(liberar), { recursive: true });
+  writeFileSync(liberar, "continuar\n");
+  const { ponte } = ponteCom({ leitor: [
+    { esperarArquivo: { caminho: liberar, pronto, sessao: SESSAO } },
+    { linha: resultado({ structured_output: relatorio }) },
+  ] });
+  const execucao = ponte.executar({ papel: "leitor", mensagem: "x", raiz, wiki }, () => {});
+  expect(await execucao.fim).toMatchObject({ situacao: "concluida", saidaEstruturada: relatorio });
+  expect(existsSync(pronto)).toBe(false);
+});
+
+test("Dado o claude falso esperando um arquivo Quando cancelo antes da liberação Então o filho recebe SIGINT e o fim é cancelado", async () => {
+  const liberar = join(tmp, "barreiras", "nunca-liberada");
+  const pronto = join(tmp, "barreiras", "nunca-pronto");
+  mkdirSync(dirname(pronto), { recursive: true });
+  const { ponte } = ponteCom({ leitor: [{ esperarArquivo: { caminho: liberar, pronto, sessao: SESSAO } }, { linha: resultado({ structured_output: relatorio }) }] });
+  const execucao = ponte.executar({ papel: "leitor", mensagem: "x", raiz, wiki }, () => {});
+  await esperarArquivo(pronto);
+  execucao.cancelar();
+  expect(await execucao.fim).toEqual({ situacao: "cancelada", sessao: SESSAO, recusas: [] });
+  expect(existsSync(liberar)).toBe(false);
 });
 
 test("Dado o filho que ignora o SIGINT Quando cancelo e o prazo passa Então ele é encerrado e o fim é cancelado", async () => {
