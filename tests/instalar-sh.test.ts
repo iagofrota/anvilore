@@ -270,7 +270,8 @@ test.skipIf(!linux)("R1: Dado o atualizador antigo da pasta (devolve 2 com 'Uso:
   expect(c.kit.git(["-C", c.pasta, "rev-parse", "HEAD"]).saida.trim()).toBe(cabeca);
   expect({ nota: await hashDe(join(c.pasta, "raw/nota.md")), agentes: await hashDe(join(c.pasta, "AGENTS.md")) }).toEqual(antes);
   // Parou ali: só o atualizador foi chamado (nem instalar nem doctor rodaram depois).
-  expect((await c.chamadas()).slice(chamadasAntes)).toEqual([]);
+  const novas = (await c.chamadas()).slice(chamadasAntes);
+  expect(novas.map(l => l.split(" ")[0])).toEqual(["atualizar"]);
 });
 
 test.skipIf(!linux)("Dado uma primeira instalação interrompida na configuração, Quando rodo de novo, Então termina como instalação nova (áreas e commit automático) e não a recusa", async () => {

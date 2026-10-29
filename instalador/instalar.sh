@@ -675,7 +675,7 @@ criar_atalho() {
 # ---------------------------------------------------------------------------------------------------------------
 
 passo_atualizar_existente() {
-  local primeira assinantes
+  local primeira assinantes codigo
   mover_registro "$PASTA"
   dizer "Já existe uma instalação em $PASTA: vou conferir e atualizar, sem sobrescrever nada seu."
   INSTALACAO_NOVA=0
@@ -689,13 +689,20 @@ passo_atualizar_existente() {
     grep -Eq '"autoCommit": *true' "$PASTA/.anvilore/atualizacao.json" || AUTO_COMMIT=0
   fi
   # O atualizador da pasta confere a tag com o seguranca/assinantes que a pasta já tem, e uma instalação que ficou para trás
-  # na troca de chave não conhece a chave nova. Entrega a ela as chaves embutidas deste instalador (só para esta chamada;
-  # não grava nada na pasta): com elas o atualizador confere a tag só contra o que este script traz.
+  # na troca de chave não conhece a chave nova. Entrega a ela as chaves embutidas deste instalador pela opção
+  # --assinantes-do-instalador (só nesta chamada; não grava nada na pasta e não passa por variável de ambiente, que um
+  # `atualizar` manual ou agendado herdaria sem querer): com elas o atualizador confere a tag só contra o que este script traz.
   assinantes="$TMP_DIR/assinantes-reinstalacao"
   assinantes_embutidas >"$assinantes" || falhar "não consegui preparar as chaves de assinatura para conferir a atualização."
-  if rodar env "ANVILORE_ASSINANTES_DO_INSTALADOR=$assinantes" bash -c 'cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts atualizar' _ "$PASTA"; then
+  if rodar bash -c 'cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts atualizar --assinantes-do-instalador "$2"' _ "$PASTA" "$assinantes"; then
     dizer "Atualização: $(printf '%s\n' "$ULTIMA_SAIDA" | tail -n1)"
   else
+    codigo=$?
+    # Código 2 = uso inválido: o atualizador da pasta é de uma versão que não conhece a opção. Não esconde o erro nem segue
+    # como se tivesse conferido (nada foi mudado).
+    if [ "$codigo" -eq 2 ]; then
+      falhar "A pasta tem uma versão antiga do Anvilore que não sabe receber as chaves do instalador; nada foi mudado. Peça ao seu agente para atualizar o Anvilore dessa pasta pelo comando de atualização dela e rode este instalador de novo."
+    fi
     primeira=$(printf '%s\n' "$ULTIMA_SAIDA" | head -n1)
     avisar "não atualizei agora (${primeira:-sem detalhes}). Segui com a versão instalada."
   fi
