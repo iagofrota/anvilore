@@ -246,6 +246,7 @@ describe("atualizador com Git real: aplicar", () => {
     expect(estado).toMatchObject({ estado: "ocioso", versaoInstalada: "0.3.0", recusadas: ["0.3.1"] });
     expect(estado.alerta).toContain("raw/evidencia.md mudou");
     expect(estado.ultima).toBeUndefined();
+    expect(await atualizar("estado", k.deps())).toContain("ATENÇÃO: raw/ ou wiki/ mudaram");
   });
 
   real("Dado a wiki em ANVILORE_WIKI fora da pasta, Quando o instalar cria só o .git e a peça do esqueleto que faltava, Então a atualização passa", async () => {
@@ -506,5 +507,57 @@ describe("atualizador com Git real: confiança, trava e estado", () => {
     await k.mudarEstado({ ultima: { ...(await k.estado()).ultima, para: { versao: "0.3.1", commit: k.commits["0.3.0"] } } });
     await expect(atualizar("voltar", k.deps())).rejects.toThrow("versão anterior indisponível");
     expect(k.head()).toBe(k.commits["0.3.1"]!);
+  });
+});
+
+describe("atualizador com Git real: verificar, automático e estado", () => {
+  real("Dado uma correção publicada, Quando a sessão verifica e depois abre de novo, Então a primeira só baixa e a segunda aplica", async () => {
+    const k = await kit(tres.slice(0, 2));
+    expect(await atualizar("verificar", k.deps())).toContain("Versão 0.3.1 conferida e aguardando a próxima sessão");
+    expect(await k.estado()).toMatchObject({ estado: "baixada", disponivel: "0.3.1", tagDisponivel: "v0.3.1" });
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+    expect(await atualizar("automatico", k.deps())).toContain("Atualizado para 0.3.1");
+    expect(k.head()).toBe(k.commits["0.3.1"]!);
+  });
+
+  real("Dado uma versão menor publicada, Quando a sessão começa, Então nada é aplicado até a pessoa confirmar", async () => {
+    const k = await kit([{ versao: "0.3.0" }, { versao: "0.4.0" }]);
+    expect(await atualizar("verificar", k.deps())).toContain("pede confirmação: 0.4.0");
+    expect(await atualizar("automatico", k.deps())).toContain("0.4.0 aguardando confirmação");
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+    expect(await atualizar("aplicar", k.deps())).toContain("Atualizado para 0.4.0");
+  });
+
+  real("Dado HEAD numa tag diferente da versão gravada, Quando verifico, Então recuso como clone não gerenciado", async () => {
+    const k = await kit(tres.slice(0, 2));
+    await k.mudarEstado({ versaoInstalada: "0.3.1" });
+    await expect(atualizar("verificar", k.deps())).rejects.toThrow("não corresponde à versão instalada");
+  });
+
+  real("Dado uma atualização aplicada, Quando peço o estado, Então mostra versão, HEAD e para onde dá para voltar", async () => {
+    const k = await kit(tres.slice(0, 2));
+    await atualizar("aplicar", k.deps());
+    const texto = await atualizar("estado", k.deps());
+    expect(texto).toContain("Estado: ocioso");
+    expect(texto).toContain(`HEAD: ${k.commits["0.3.1"]}`);
+    expect(texto).toContain("Pode voltar para: 0.3.0");
+    const c = capturarConsole();
+    try { expect(await comandoAtualizar(["--estado"], k.deps())).toBe(0); } finally { c.restaurar(); }
+    expect(await atualizar("estado", { raiz: await mkdtemp(join(k.pai, "solta-")) })).toContain("instalação não gerenciada");
+  });
+
+  real("Dado migracao-incompleta gravada, Quando a próxima sessão começa, Então refaz a migração antes de consultar releases", async () => {
+    const k = await kit([{ versao: "0.3.0", arquivos: { "SCHEMA.md": "modelo\n" } }, { versao: "0.3.1" }]);
+    await writeFile(join(k.raiz, "SCHEMA.md"), "contrato da pessoa\n");
+    const ponto = { versao: "0.3.0", commit: k.commits["0.3.0"] };
+    await k.mudarEstado({ estado: "migracao-incompleta", operacao: { tipo: "aplicar", id: "1-aabbccdd00", copiaConfig: "1-aabbccdd00", origem: ponto, alvo: { versao: "0.3.1", commit: k.commits["0.3.1"] }, volta: ponto, lockMudou: false, migracoes: ["SCHEMA.md"] } });
+    let consultas = 0;
+    expect(await atualizar("automatico", k.deps({ releases: async () => { consultas++; return []; } }))).toContain("Migração recuperada");
+    expect(consultas).toBe(0);
+    expect(k.ok(["ls-files", "SCHEMA.md"])).toBe("");
+    expect(await readFile(join(k.raiz, "SCHEMA.md"), "utf8")).toBe("contrato da pessoa\n");
+    const estado = await k.estado();
+    expect(estado.estado).toBe("ocioso");
+    expect(estado.operacao).toBeUndefined();
   });
 });

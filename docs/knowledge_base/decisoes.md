@@ -193,16 +193,47 @@ Para a linhagem do método e a argumentação completa das posições de design,
   fictícia que possa ser confundida com confiança. Se o arquivo faltar, estiver vazio ou `git verify-tag`
   recusar, `anvilore atualizar` apresenta o caminho e orienta a conferir principal, opção de namespace e
   chave pública previamente provisionada; a operação é recusada até isso ser configurado.
-- Antes do checkout, o atualizador guarda arquivos rastreados modificados, caminhos declarados por
-  atualizacao/migracoes.json, configurações dos agentes e hashes de `raw/` e `wiki/` em
-  `.anvilore/atualizacao/<id>/`. Usa `migrarRastreio` e `devolverTudo` de `src/lib/migracao.ts` para
-  restaurar arquivos pessoais após checkout forçado. Não executa `git clean`.
-- Estado e log são gravados nos arquivos .anvilore/atualizacao.json e
-  .anvilore/atualizacao.log; a trava fica em .anvilore/atualizar.lock. Falha de reversão deixa
-  `reversao-incompleta` para retomada; `doctor` mostra versão e estado
+- **Antes do checkout**, nada é mudado se algo destes falhar: o atualizador compara `bun.lock`/`bun.lockb`
+  entre o `HEAD` atual e a tag (erro do `git diff` recusa, nunca vale como "igual"); lê
+  atualizacao/migracoes.json da tag; e **recusa a candidata** que deixaria de rastrear um arquivo da
+  pessoa (`raw/`, `wiki/`, `SCHEMA.md`, anvilore.toml ou um item da lista do rastreio de `src/lib/modelos.ts`) sem
+  declará-lo em `deixa_de_rastrear` — o checkout o apagaria do disco. Também confere o `packageManager`
+  da tag: se pedir Bun mais novo e o Bun for da pessoa, recusa e manda atualizar (`bun upgrade`); se o
+  Bun foi posto pelo Anvilore (`bunGerenciado` no estado), só atualiza por um ponto injetável
+  (`atualizarBun`), que o instalador ainda não fornece — sem ele, recusa dizendo isso. A reversão não
+  rebaixa o Bun.
+- **Cópia** em .anvilore/atualizacao/<id>/, com SHA-256 de cada entrada: (a) o que `git status
+  --porcelain=v2 --no-renames` lista (editado, apagado, renomeado, não rastreado; inclusive em `raw/` e
+  `wiki/`) e os caminhos da migração declarada; (b) tudo o que `instalar` escreve —
+  .claude/settings.json, .claude/skills, .claude/agents, .codex/config.toml, .agents/skills,
+  .gemini/, .github/hooks/anvilore.json, .github/agents, .github/copilot/settings.json e
+  anvilore.toml; (c) o `doctor` e a prova do hook antes de começar; e a medição de `raw/` e da wiki
+  (pelo caminho de `ANVILORE_WIKI`, quando definido). Caminho que passa por link dentro do kit é recusado.
+- Depois do checkout, a migração é devolvida (`devolverTudo` de `src/lib/migracao.ts`) e a cópia (a)
+  volta conferida por hash; o que a pessoa tinha apagado e o checkout recriou sai de novo, só se for
+  exatamente o blob do commit. `instalar`, `doctor --json` e o hook rodam em subprocesso
+  `bun src/cli.ts` da versão ativa no disco: os hooks gerados vêm da versão nova e, na reversão, da antiga.
+  Não executa `git clean`.
+- **Política de preservação de `raw/` e da wiki:** todo arquivo que existia continua presente e com o
+  mesmo SHA-256. Só é aceito arquivo novo que seja peça do esqueleto que `instalar` cria quando falta
+  (o exemplo só se a pasta não existia). O `.git` da wiki fica fora da medição (a migração pode criá-lo
+  e o autocommit o altera). O atualizador **detecta** mudança, não restaura conteúdo de `raw/` ou da
+  wiki que não esteja na cópia (a): nesse caso desfaz o kit, recusa a versão, grava `alerta` no estado
+  (mostrado pelo `doctor`, pela interface e por `anvilore atualizar --estado` até a próxima atualização
+  conferida) e a mensagem diz o que mudou, em vez de afirmar que está como antes.
+- Estado: a operação em curso (`operacao`: tipo, cópia, origem, alvo, para onde voltar) fica separada
+  da última atualização bem-sucedida (`ultima`, usada por `--voltar`, que só age se o `HEAD` for o commit
+  dela). Refs refs/anvilore/anterior e refs/anvilore/operacao guardam os commits. Reversão R1–R5
+  conferida etapa a etapa; falha deixa `reversao-incompleta` com etapa e erro, mantém cópia e refs, e o
+  próximo início retoma antes de consultar releases. Processo morto com `aplicando` é retomado igual.
+  Log em .anvilore/atualizacao.log; trava .anvilore/atualizar.lock com o pid (dono morto = trava
+  abandonada, removida e registrada). `doctor` mostra versão, estado e alerta
   (`src/comandos/doctor.ts`). SessionStart do Claude e Codex tenta aplicar uma atualização assinada
   pendente e agenda a checagem seguinte (`hooks/hooks.json`, `src/comandos/instalar.ts`,
   `src/comandos/hooks-wiki.ts`).
+- Cenários com Git, checkout e tags SSH reais e descartáveis em `tests/atualizar.test.ts`, com o kit de
+  `tests/apoio/kit-atualizavel.ts` (cada tag traz um `src/cli.ts` mínimo que registra qual versão rodou) e
+  a queda real por SIGKILL de `tests/apoio/atualizar-e-morrer.ts`.
 - `anvilore ui` mostra o estado recente, o resumo da versão do changelog, as ações de verificação/aplicação/
   reversão e o botão de retomada (`src/ui/servidor/servidor.ts`, `ui/web/main.tsx`).
 - A documentação descreve o código atual da fatia U2 e ainda aguarda revisão humana. A primeira

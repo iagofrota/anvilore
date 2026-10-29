@@ -88,6 +88,13 @@ test("Dado reversão incompleta, Quando roda doctor, Então mostra a versão e e
   expect(consoleCapturado.saida.join("\n")).toContain("recuperação pendente: R3 restaurar cópia");
 });
 
+test("Dado uma reversão em que raw/ mudou, Quando roda doctor, Então mostra o alerta em vez de esconder", async () => {
+  await instalarTudo(); completar();
+  gravar(".anvilore/atualizacao.json", JSON.stringify({ versao: 1, modo: "automatico", canal: "estavel", estado: "ocioso", versaoInstalada: "0.3.0", alerta: "ATENÇÃO: raw/ ou wiki/ mudaram durante a atualização e o atualizador não os restaura (raw/a.md mudou)." }));
+  await doctor([clone]);
+  expect(consoleCapturado.saida.join("\n")).toContain("ATENÇÃO: raw/ ou wiki/ mudaram durante a atualização e o atualizador não os restaura (raw/a.md mudou).");
+});
+
 test("Dado fechamento TypeScript atual Quando diagnostico Então a validação no fechamento está ligada", async () => {
   completar();
   expect((await travas())["Validação no fechamento da wiki"]?.ligada).toBe(true);

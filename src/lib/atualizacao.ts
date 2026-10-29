@@ -49,7 +49,8 @@ type Estado = {
   recusadas?: string[]; alvos?: Alvo[]; autoCommit?: boolean; githubBackup?: boolean; bunGerenciado?: boolean;
   operacao?: Operacao; ultima?: Ultima; atualizadoEm?: string; verificadoEm?: string;
 };
-type Entrada = { path: string; tipo: "arquivo" | "link" | "dir" | "ausente"; sha256?: string; link?: string; modo?: number };
+// `alvoPasta`: o link aponta para pasta; no Windows ele volta como junção, como o `instalar` cria (plataformas.md).
+type Entrada = { path: string; tipo: "arquivo" | "link" | "dir" | "ausente"; sha256?: string; link?: string; modo?: number; alvoPasta?: boolean };
 type Dados = { arquivos: Record<string, string>; pastas: { raw: boolean; wiki: boolean } };
 type Copia = {
   versao: 2; id: string; criadaEm: string; pessoais: Entrada[]; config: { raiz: string; entradas: Entrada[] }[];
@@ -228,7 +229,10 @@ async function medirArvore(base: string, rel: string, saida: Entrada[], topo = t
   const abs = noDisco(base, rel);
   let st;
   try { st = await lstat(abs); } catch (e) { if (topo && ausente(e)) return; throw e; }
-  if (st.isSymbolicLink()) { const alvo = await readlink(abs); saida.push({ path: rel, tipo: "link", link: alvo, sha256: hash(alvo) }); }
+  if (st.isSymbolicLink()) {
+    const alvo = await readlink(abs), alvoPasta = await stat(abs).then(x => x.isDirectory(), () => false);
+    saida.push({ path: rel, tipo: "link", link: alvo, sha256: hash(alvo), ...(alvoPasta ? { alvoPasta } : {}) });
+  }
   else if (st.isDirectory()) {
     saida.push({ path: rel, tipo: "dir" });
     for (const nome of (await readdir(abs)).sort()) await medirArvore(base, `${rel}/${nome}`, saida, false);
@@ -286,6 +290,7 @@ function diferencasDados(antes: Dados, depois: Dados): string[] {
 }
 const resumir = (lista: string[]) => lista.length > 8 ? `${lista.slice(0, 8).join(", ")} e mais ${lista.length - 8}` : lista.join(", ");
 
+const criarLink = (e: Entrada, alvo: string, destino: string) => symlink(alvo, destino, process.platform === "win32" && e.alvoPasta ? "junction" : undefined);
 async function escreverAtomico(destino: string, dados: Uint8Array, modo?: number) {
   const tmp = `${destino}.anvilore-${process.pid}.tmp`;
   await writeFile(tmp, dados, { mode: modo ?? 0o644 });
@@ -300,7 +305,7 @@ async function copiarEntradas(raiz: string, destinoBase: string, entradas: Entra
     if (e.tipo === "ausente") continue;
     if (e.tipo === "dir") { await mkdir(alvo, { recursive: true }); continue; }
     await mkdir(dirname(alvo), { recursive: true });
-    if (e.tipo === "link") { await symlink(e.link!, alvo); continue; }
+    if (e.tipo === "link") { await criarLink(e, e.link!, alvo); continue; }
     const dados = await readFile(noDisco(raiz, e.path));
     if (hash(dados) !== e.sha256) throw erro("cópia de segurança", `${e.path} mudou durante a cópia`);
     await writeFile(alvo, dados, { mode: 0o600 });
@@ -384,7 +389,7 @@ async function escreverEntrada(raiz: string, e: Entrada, conteudo: Uint8Array | 
   if (e.tipo === "link") {
     if (atual?.isSymbolicLink() && await readlink(abs) === conteudo) return;
     if (atual) await rm(abs, { force: true });
-    await symlink(conteudo as string, abs); return;
+    await criarLink(e, conteudo as string, abs); return;
   }
   if (atual?.isFile() && hash(await readFile(abs)) === e.sha256) { if (e.modo !== undefined) await chmod(abs, e.modo); return; }
   if (atual?.isSymbolicLink()) await rm(abs, { force: true });
@@ -716,7 +721,7 @@ async function aplicar(raiz: string, estado: Estado, release: { tag: string; ver
     estado.erro = motivo(e); await gravarEstado(raiz, estado);
     throw e;
   }
-  estado.operacao = op; estado.estado = "aplicando"; delete estado.erro; delete estado.alerta;
+  estado.operacao = op; estado.estado = "aplicando"; delete estado.erro;
   if (op.migracoes) {
     estado.etapa = "migração"; await gravarEstado(raiz, estado);
     const m = await migrarRastreio(raiz, { listaDoRastreio: op.migracoes });
@@ -783,7 +788,8 @@ async function aplicar(raiz: string, estado: Estado, release: { tag: string; ver
   try { guardarRef(raiz, exec, REF_ANTERIOR, op.origem.commit); } catch (e) { await log(raiz, `aviso: ${motivo(e)}`); }
   await apagarRef(raiz, exec, REF_OPERACAO);
   estado.estado = "ocioso"; estado.versaoInstalada = op.alvo.versao; estado.atualizadoEm = new Date().toISOString();
-  delete estado.operacao; delete estado.etapa; delete estado.erro; delete estado.disponivel; delete estado.tagDisponivel;
+  // O alerta de raw/wiki alterados fica visível (doctor, interface, --estado) até uma atualização terminar conferida.
+  delete estado.operacao; delete estado.etapa; delete estado.erro; delete estado.alerta; delete estado.disponivel; delete estado.tagDisponivel;
   await gravarEstado(raiz, estado);
   return `Atualizado para ${op.alvo.versao}. Conferi raw/, wiki/ e os arquivos guardados: estão como antes.`;
 }
@@ -800,7 +806,7 @@ async function voltar(raiz: string, estado: Estado, exec: Exec, deps: Dependenci
   await guardarCopia(raiz, id, pessoais, anterior.doctor, anterior.hook);
   estado.operacao = { tipo: "voltar", id, copiaConfig: u.id, origem: u.para, alvo: u.de, volta: u.de, lockMudou: arquivosDiferem(raiz, exec, head, u.de.commit, ["bun.lock", "bun.lockb"]) };
   guardarRef(raiz, exec, REF_OPERACAO, u.de.commit);
-  delete estado.erro; delete estado.alerta;
+  delete estado.erro;
   const frase = await reverter(raiz, estado, exec, deps);
   await concluirReversao(raiz, estado, exec);
   return `Voltou para ${u.de.versao}; a ${u.para.versao} fica recusada. ${frase}`;
@@ -821,7 +827,7 @@ export async function atualizar(acao: "verificar" | "voltar" | "estado" | "autom
     const git = exec(["rev-parse", "HEAD"], raiz);
     const mig = await situacaoDaMigracao(raiz, (args) => exec(args, raiz));
     return [`Estado: ${s.estado}`, `Versão: ${s.versaoInstalada ?? "desconhecida"}`, `HEAD: ${git.codigo === 0 ? git.saida.trim() : "indisponível"}`,
-      ...(s.etapa ? [`Etapa: ${s.etapa}`] : []), ...(s.ultima ? [`Pode voltar para: ${s.ultima.de.versao}`] : []),
+      ...(s.etapa ? [`Etapa: ${s.etapa}`] : []), ...(s.erro ? [`Último erro: ${s.erro}`] : []), ...(s.alerta ? [s.alerta] : []), ...(s.ultima ? [`Pode voltar para: ${s.ultima.de.versao}`] : []),
       ...(mig.pendentes.length ? [`Migração pendente: ${mig.pendentes.map(m => m.id).join(", ")}`] : [])].join("\n");
   }
   return await comTrava(raiz, async () => {

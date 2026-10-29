@@ -55,6 +55,19 @@ test("Dado uma atualização recente Quando a interface lê o estado Então most
   expect(estado.atualizador).toMatchObject({ estado: "ocioso", versaoInstalada: "0.3.1", podeVoltar: true, mudancas: ["Melhora atualização e reversão.", "Mantém configurações."] });
 });
 
+test("Dado uma reversão em que raw/ mudou Quando a interface lê o estado Então mostra o alerta e não oferece voltar", async () => {
+  mkdirSync(join(raiz, ".anvilore"), { recursive: true });
+  writeFileSync(join(raiz, ".anvilore/atualizacao.json"), JSON.stringify({
+    versao: 1, modo: "automatico", canal: "estavel", estado: "ocioso", versaoInstalada: "0.3.0",
+    alerta: "ATENÇÃO: raw/ ou wiki/ mudaram durante a atualização e o atualizador não os restaura (raw/a.md mudou).", erro: "prova: o doctor ficou pior",
+  }));
+  const { chamar } = await servidor();
+  const estado = await (await chamar("/api/ingestao")).json() as { atualizador: Record<string, unknown> };
+  expect(estado.atualizador).toMatchObject({ podeVoltar: false });
+  expect(String(estado.atualizador.erro)).toContain("raw/a.md mudou");
+  expect(String(estado.atualizador.erro)).toContain("o doctor ficou pior");
+});
+
 test("Dado ação inválida Quando a interface chama o atualizador Então rejeita o pedido", async () => {
   const { postar } = await servidor();
   const resposta = await postar("/api/atualizador", { acao: "desconhecida" });
