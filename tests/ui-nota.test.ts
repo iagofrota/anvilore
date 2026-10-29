@@ -233,24 +233,71 @@ Sem relações.
       expect(nota.backlinks[0]!.titulo).toBe("Segundo Cérebro");
       expect(nota.backlinks[0]!.contexto).toContain("delega ao agente a parte da síntese");
 
-      // Grafo local (nó atual + rag + segundo-cerebro)
+      // Grafo local (nó atual + rag + segundo-cerebro indexados por caminho)
       const idsNos = nota.grafoLocal.nos.map((n) => n.id);
-      expect(idsNos).toContain("padrao-llm-wiki");
-      expect(idsNos).toContain("rag");
-      expect(idsNos).toContain("segundo-cerebro");
-      expect(idsNos).not.toContain("outra");
+      expect(idsNos).toContain("pessoal/conceitos/padrao-llm-wiki.md");
+      expect(idsNos).toContain("pessoal/conceitos/rag.md");
+      expect(idsNos).toContain("pessoal/notas/segundo-cerebro.md");
+      expect(idsNos).not.toContain("outra.md");
 
-      const noAtual = nota.grafoLocal.nos.find((n) => n.id === "padrao-llm-wiki");
+      const noAtual = nota.grafoLocal.nos.find((n) => n.id === "pessoal/conceitos/padrao-llm-wiki.md");
       expect(noAtual?.atual).toBe(true);
 
       // Arestas: padrao-llm-wiki -> rag, padrao-llm-wiki -> segundo-cerebro, segundo-cerebro -> padrao-llm-wiki
       expect(nota.grafoLocal.arestas).toEqual(
         expect.arrayContaining([
-          { de: "padrao-llm-wiki", para: "rag" },
-          { de: "padrao-llm-wiki", para: "segundo-cerebro" },
-          { de: "segundo-cerebro", para: "padrao-llm-wiki" },
+          { de: "pessoal/conceitos/padrao-llm-wiki.md", para: "pessoal/conceitos/rag.md" },
+          { de: "pessoal/conceitos/padrao-llm-wiki.md", para: "pessoal/notas/segundo-cerebro.md" },
+          { de: "pessoal/notas/segundo-cerebro.md", para: "pessoal/conceitos/padrao-llm-wiki.md" },
         ]),
       );
+    });
+
+    test("grafo local não colapsa notas com mesmo slug (basename) em diretórios diferentes", async () => {
+      await writeFile(
+        join(RAIZ, "wiki/principal.md"),
+        `---
+title: Nota Principal
+---
+# Principal
+Texto da principal.
+`,
+      );
+
+      await mkdir(join(RAIZ, "wiki/a"), { recursive: true });
+      await mkdir(join(RAIZ, "wiki/b"), { recursive: true });
+      await writeFile(
+        join(RAIZ, "wiki/a/dupe.md"),
+        `---
+title: Título A
+---
+Ligação para [[principal]].
+`,
+      );
+      await writeFile(
+        join(RAIZ, "wiki/b/dupe.md"),
+        `---
+title: Título B
+---
+Ligação para [[principal]].
+`,
+      );
+
+      const nota = await obterNota(RAIZ, "principal.md");
+      expect(nota).not.toBeNull();
+      if (!nota) return;
+
+      const rotulosNos = nota.grafoLocal.nos.map((n) => n.rotulo);
+      expect(rotulosNos).toContain("Nota Principal");
+      expect(rotulosNos).toContain("Título A");
+      expect(rotulosNos).toContain("Título B");
+
+      const idsNos = nota.grafoLocal.nos.map((n) => n.id);
+      expect(idsNos).toContain("principal.md");
+      expect(idsNos).toContain("a/dupe.md");
+      expect(idsNos).toContain("b/dupe.md");
+
+      expect(nota.grafoLocal.nos.length).toBe(3);
     });
   });
 });

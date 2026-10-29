@@ -306,15 +306,22 @@ export async function obterNota(
   // Varrer wiki para coletar backlinks e montar o grafo local
   const todosArquivos = await listarMarkdown(wiki);
   const backlinks: Backlink[] = [];
-  const mapaDeMetadados = new Map<string, { titulo: string; tipo: string; caminho: string }>();
-  mapaDeMetadados.set(slug, { titulo, tipo, caminho: caminhoRelativo });
+  const mapaDeMetadados = new Map<string, { titulo: string; tipo: string; slug: string }>();
+  mapaDeMetadados.set(caminhoRelativo, { titulo, tipo, slug });
 
-  const mapaConexoes = new Map<string, Set<string>>();
-  mapaConexoes.set(slug, saidasSet);
+  const mapaSlugParaCaminhos = new Map<string, string[]>();
+  mapaSlugParaCaminhos.set(slug, [caminhoRelativo]);
+
+  const mapaLinksPorArquivo = new Map<string, string[]>();
+  mapaLinksPorArquivo.set(caminhoRelativo, saidas);
 
   for (const arq of todosArquivos) {
     if (arq === caminhoRelativo) continue;
     const s = basename(arq, ".md");
+    const caminhosComSlug = mapaSlugParaCaminhos.get(s) ?? [];
+    caminhosComSlug.push(arq);
+    mapaSlugParaCaminhos.set(s, caminhosComSlug);
+
     try {
       const c = await readFile(join(wiki, arq), "utf8");
       let fm: Record<string, unknown> | null = null;
@@ -325,10 +332,10 @@ export async function obterNota(
       }
       const t = fm && typeof fm.title === "string" ? fm.title.trim() : s;
       const tp = fm && typeof fm.type === "string" ? fm.type.trim() : "";
-      mapaDeMetadados.set(s, { titulo: t, tipo: tp, caminho: arq });
+      mapaDeMetadados.set(arq, { titulo: t, tipo: tp, slug: s });
 
       const linksDeste = extrairWikilinks(c);
-      mapaConexoes.set(s, new Set(linksDeste));
+      mapaLinksPorArquivo.set(arq, linksDeste);
 
       if (linksDeste.includes(slug)) {
         backlinks.push({
@@ -344,10 +351,33 @@ export async function obterNota(
     }
   }
 
-  // Grafo local: nó atual + vizinhos diretos (saídas + entradas)
-  const vizinhos = new Set<string>([slug]);
-  for (const s of saidas) vizinhos.add(s);
-  for (const b of backlinks) vizinhos.add(b.slug);
+  // Grafo local: nó atual + vizinhos diretos (saídas + entradas) indexados pelo caminho relativo
+  const vizinhos = new Set<string>([caminhoRelativo]);
+  for (const s of saidas) {
+    const destinos = mapaSlugParaCaminhos.get(s);
+    if (destinos && destinos.length > 0) {
+      for (const d of destinos) vizinhos.add(d);
+    } else {
+      vizinhos.add(s);
+    }
+  }
+  for (const b of backlinks) {
+    vizinhos.add(b.caminho);
+  }
+
+  const mapaConexoes = new Map<string, Set<string>>();
+  for (const [origem, links] of mapaLinksPorArquivo) {
+    const destinosDoArquivo = new Set<string>();
+    for (const s of links) {
+      const destinos = mapaSlugParaCaminhos.get(s);
+      if (destinos && destinos.length > 0) {
+        for (const d of destinos) destinosDoArquivo.add(d);
+      } else {
+        destinosDoArquivo.add(s);
+      }
+    }
+    mapaConexoes.set(origem, destinosDoArquivo);
+  }
 
   const nos: NoDoGrafo[] = [];
   for (const id of vizinhos) {
@@ -356,7 +386,7 @@ export async function obterNota(
       id,
       rotulo: meta?.titulo ?? id,
       tipo: meta?.tipo ?? "",
-      atual: id === slug,
+      atual: id === caminhoRelativo,
     });
   }
 
