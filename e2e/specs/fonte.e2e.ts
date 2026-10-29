@@ -28,3 +28,16 @@ test("[C13] Dado texto no Chat Quando envio Então ele vira fonte Markdown datad
   expect(await oraculo.get<{ fonte: string; situacao: string }>(`/api/conversas/${conversa.id}`)).toMatchObject({ fonte: conversa.fonte, situacao: "esperando" });
   expect(await agente.invocacoes("leitor")).toHaveLength(1);
 });
+
+test("[C11] Dado um arquivo com CRLF, CR solto e bytes que não são UTF-8 Quando envio pela tela Então raw guarda exatamente os bytes escolhidos", async ({ page, app, oraculo, vault }) => {
+  const bytes = Buffer.from([0x23, 0x20, 0x41, 0x0d, 0x0a, 0x42, 0x0d, 0x43, 0xff, 0xfe, 0x00, 0x0d, 0x0a]);
+  await page.goto(app.url);
+  const envio = page.waitForResponse(resposta => resposta.url().includes("/api/fontes") && resposta.request().method() === "POST");
+  await page.locator('input[type="file"]').setInputFiles({ name: "windows.md", mimeType: "text/markdown", buffer: bytes });
+  await page.getByRole("button", { name: "Ingerir", exact: true }).click();
+  const conversa = await (await envio).json() as { id: string; fonte: string };
+  expect(conversa.fonte).toBe("raw/pessoal/windows.md");
+  expect(await vault.ler(conversa.fonte)).toEqual(bytes);
+  await expect.poll(async () => (await oraculo.get<{ situacao: string }>(`/api/conversas/${conversa.id}`)).situacao).not.toBe("rodando");
+  expect(await vault.ler(conversa.fonte)).toEqual(bytes);
+});

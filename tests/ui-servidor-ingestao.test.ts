@@ -61,6 +61,20 @@ test("Dado texto colado Quando envio Então vira um .md em raw/<área>", async (
   expect(semNome.fonte).toMatch(/^raw\/trabalho\/texto-colado-\d{8}-\d{6}\.md$/);
 });
 
+test("[C13] Dado texto colado cujo FormData transporta quebras como CRLF Quando envio Então a fonte é gravada com LF", async () => {
+  const { chamar } = await servidor();
+  const colado = await (await chamar("/api/fontes", { method: "POST", body: formulario({ area: "pessoal", texto: "linha 1\nlinha 2\n\nfim\n", nome: "ata" }) })).json() as { fonte: string };
+  expect(new Uint8Array(readFileSync(join(raiz, colado.fonte)))).toEqual(new TextEncoder().encode("linha 1\nlinha 2\n\nfim\n"));
+});
+
+test("[C11] Dado arquivo com CRLF, CR solto e bytes que não são UTF-8 Quando envio Então o arquivo é gravado byte a byte", async () => {
+  const { chamar } = await servidor();
+  const bytes = new Uint8Array([0x23, 0x20, 0x41, 0x0d, 0x0a, 0x42, 0x0d, 0x43, 0xff, 0xfe, 0x00, 0x0d, 0x0a]);
+  const enviado = await (await chamar("/api/fontes", { method: "POST", body: formulario({ area: "pessoal", arquivo: new Blob([bytes]) }, "windows.md") })).json() as { fonte: string };
+  expect(enviado.fonte).toBe("raw/pessoal/windows.md");
+  expect(new Uint8Array(readFileSync(join(raiz, enviado.fonte)))).toEqual(bytes);
+});
+
 test("[C14.a–d] Dado envio sem token, sem origem, com área inválida, vazio ou grande demais Quando chega Então recuso sem gravar em raw/", async () => {
   const { chamar, base } = await servidor();
   expect((await chamar("/api/fontes", { method: "POST", body: formulario({ area: "pessoal", texto: "x" }) }, "errado")).status).toBe(403);
