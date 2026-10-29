@@ -614,8 +614,8 @@ export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = e
   }
   if (tamanho === 0) return `seguranca/assinantes vazio; tag candidata recusada. Configure no kit instalado (antes da atualização) uma linha OpenSSH allowed_signers com principal igual ao e-mail de assinatura Git, opção namespaces="git" e chave pública SSH aprovada; veja docs/knowledge_base/decisoes.md.`;
   const cat = exec(["cat-file", "tag", objeto], raiz);
-  if (cat.codigo === 0 && !cat.saida.split(/\r?\n/).includes("-----BEGIN SSH SIGNATURE-----")) {
-    return `git verify-tag recusou a tag ${tag}: a tag não tem assinatura SSH. O Anvilore só aceita tags com assinatura SSH conferida por seguranca/assinantes.`;
+  if (cat.codigo !== 0 || !cat.saida.split(/\r?\n/).includes("-----BEGIN SSH SIGNATURE-----")) {
+    return `git verify-tag recusou a tag ${tag}: a tag não tem assinatura SSH. Confira o formato de seguranca/assinantes, o principal (e-mail de assinatura Git) e a chave pública ancorada no kit instalado antes da atualização.`;
   }
   const r = exec([
     "-c", "gpg.format=ssh",
