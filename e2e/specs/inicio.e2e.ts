@@ -57,7 +57,7 @@ test("[I5-04] Dado entradas em wiki/log Quando abro o Início Então a atividade
 
 test("[I5-05] Dado página gerada sem aprovação Quando a saúde roda Então o portão aparece como aviso e Validar agora confere de novo", async ({ page, app, oraculo, vault }) => {
   await vault.escrever("wiki/pessoal/concepts/nova.md", paginaGerada("nova"));
-  const primeira = page.waitForResponse(resposta => resposta.url().includes("/api/saude") && resposta.request().method() === "GET");
+  const primeira = page.waitForResponse(resposta => resposta.url().includes("/api/inicio") && resposta.request().method() === "GET");
   await page.goto(app.url);
   expect((await primeira).status()).toBe(200);
   const cartao = page.getByRole("region", { name: "Saúde da wiki" });
@@ -136,4 +136,19 @@ test("[I5-09] Dado os temas claro e escuro Quando alterno Então o Início conti
   expect(luz(textoEscuro)).toBeGreaterThan(150);
   await expect(page.getByRole("region", { name: "Para revisar" })).toBeVisible();
   await guardarEvidencias(page, "inicio");
+});
+
+test("[I5-10] Dado a carga do Início Quando a tela abre Então pede /api/inicio uma vez e não pede /api/saude, que só Validar agora usa", async ({ page, app, vault }) => {
+  await vault.escrever("wiki/pessoal/concepts/nova.md", paginaGerada("nova"));
+  const pedidos: string[] = [];
+  page.on("request", req => { const url = new URL(req.url()); if (url.pathname.startsWith("/api/")) pedidos.push(url.pathname); });
+  await page.goto(app.url);
+  await expect(page.getByRole("region", { name: "Saúde da wiki" })).toContainText("Falta aprovar 1 página");
+  await expect(page.getByRole("button", { name: "Validar agora" })).toBeEnabled();
+  expect(pedidos.filter(rota => rota === "/api/inicio")).toHaveLength(1);
+  expect(pedidos.filter(rota => rota === "/api/saude")).toHaveLength(0);
+  await vault.escrever("wiki/pessoal/concepts/outra.md", paginaGerada("outra"));
+  await page.getByRole("button", { name: "Validar agora" }).click();
+  await expect(contador(page, "Sem aprovação")).toHaveText("2");
+  expect(pedidos.filter(rota => rota === "/api/saude")).toHaveLength(1);
 });

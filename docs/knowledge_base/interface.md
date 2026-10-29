@@ -30,8 +30,11 @@ Endereço vazio ou desconhecido abre o Início (`lerRota` em `ui/web/navegacao.t
   `original_file` (`fontesSemIngestao`). Link simbólico em `raw/` não é seguido. Se há uma conversa de ingestão aberta
   para o arquivo, a linha oferece **Continuar**.
 
-A tela abre primeiro com `GET /api/inicio` (rápido) e pede `GET /api/saude` (varre a wiki toda) à parte; **Validar
-agora** repete só a saúde. As duas rotas exigem o token e o Host local, como as demais (`src/ui/servidor/servidor.ts`).
+A tela abre com um único `GET /api/inicio`, que traz tudo, inclusive a saúde (campo `saude`, com a mesma forma de
+`GET /api/saude`). O servidor valida a wiki uma vez por pedido e não guarda nada: `validarWiki` lê a wiki inteira de
+forma síncrona, então a carga a paga uma vez só, e cada carga vê a wiki como ela está. **Validar agora** chama
+`GET /api/saude`, que valida na hora. As duas rotas exigem o token e o Host local, como as demais
+(`src/ui/servidor/servidor.ts`).
 
 ## Como acrescentar uma tela (Nota, Biblioteca, Onboarding)
 
@@ -49,4 +52,5 @@ agora** repete só a saúde. As duas rotas exigem o token e o Host local, como a
 - O Início foi testado com o Claude Code falso e com Chromium. Não há prova em navegador no Windows nem no macOS.
 - **Ingerir** uma fonte que já está em `raw/` ainda não tem botão no Início: o Chat só cria a conversa a partir
   de um arquivo ou texto enviado. Hoje a lista só informa e leva à conversa aberta.
-- A saúde varre a wiki inteira a cada pedido; em wiki muito grande ela demora, e a tela mostra "Conferindo a wiki…".
+- A validação varre a wiki inteira a cada carga do Início e a cada **Validar agora**, de forma síncrona no servidor; em
+  wiki muito grande ela demora e bloqueia o servidor enquanto roda. A tela mostra "Lendo a wiki…" até chegar.

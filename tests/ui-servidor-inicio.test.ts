@@ -80,28 +80,31 @@ test("Dado o Início Quando envio POST ou rota desconhecida Então 404, sem roda
 });
 
 // --- Uma validação por carga do Início -----------------------------------------------------------------------
-// `validarWiki` lê todos os .md de forma síncrona: abrir o Início (inicio + saude) não pode pagá-la duas vezes.
+// `validarWiki` lê todos os .md de forma síncrona: abrir o Início não pode pagá-la duas vezes. Sem cache no servidor:
+// o /api/inicio valida uma vez e traz a saúde no mesmo JSON; /api/saude ("Validar agora") valida sempre na hora.
 
-test("Dado o Início abrindo Quando a tela pede /api/inicio e /api/saude Então a wiki é validada uma vez só", async () => {
+type RespostaDoInicio = { rascunhos: { total: number }; saude: { validar: { ok: boolean; semAprovacao: number }; lacunas: { total: number }; auditoria: { total: number } } };
+
+test("Dado o Início abrindo Quando a tela pede /api/inicio Então a wiki é validada uma vez só e a saúde vem no mesmo JSON", async () => {
   writeFileSync(join(raiz, "wiki/pessoal/concepts/novo.md"), rascunho("novo"));
   const espiao = spyOn(modulo, "validarWiki");
   try {
     const { chamar } = await servidor();
-    const inicio = await (await chamar("/api/inicio")).json() as { rascunhos: { total: number } };
-    const saude = await (await chamar("/api/saude")).json() as { validar: { semAprovacao: number } };
+    const inicio = await (await chamar("/api/inicio")).json() as RespostaDoInicio;
     expect(espiao).toHaveBeenCalledTimes(1);
     expect(inicio.rascunhos.total).toBe(1);
-    expect(saude.validar.semAprovacao).toBe(1);
+    expect(inicio.saude.validar).toMatchObject({ ok: false, semAprovacao: 1 });
+    const avulsa = await (await chamar("/api/saude")).json();
+    expect(inicio.saude).toEqual(avulsa);
   } finally { espiao.mockRestore(); }
 });
 
-test("Dado Validar agora ou a Revisão Quando a tela pede de novo Então a validação é refeita e vê a wiki como está", async () => {
+test("Dado /api/inicio e /api/saude sem cache no servidor Quando a wiki muda entre eles Então cada pedido valida a wiki como está", async () => {
   writeFileSync(join(raiz, "wiki/pessoal/concepts/novo.md"), rascunho("novo"));
   const espiao = spyOn(modulo, "validarWiki");
   try {
     const { chamar } = await servidor();
     await chamar("/api/inicio");
-    await chamar("/api/saude");
     expect(espiao).toHaveBeenCalledTimes(1);
     writeFileSync(join(raiz, "wiki/pessoal/concepts/outro.md"), rascunho("outro"));
     const saude = await (await chamar("/api/saude")).json() as { validar: { semAprovacao: number } };
@@ -109,18 +112,25 @@ test("Dado Validar agora ou a Revisão Quando a tela pede de novo Então a valid
     expect(espiao).toHaveBeenCalledTimes(2);
     await chamar("/api/rascunhos");
     expect(espiao).toHaveBeenCalledTimes(3);
-    await chamar("/api/inicio");
+    const volta = await (await chamar("/api/inicio")).json() as RespostaDoInicio;
     expect(espiao).toHaveBeenCalledTimes(4);
+    expect(volta.rascunhos.total).toBe(2);
   } finally { espiao.mockRestore(); }
 });
 
-test("Dado a saúde pedida antes do Início Quando o Início chega Então nada fica velho: cada um valida a wiki atual", async () => {
-  const espiao = spyOn(modulo, "validarWiki");
-  try {
-    const { chamar } = await servidor();
-    await chamar("/api/saude");
-    writeFileSync(join(raiz, "wiki/pessoal/concepts/novo.md"), rascunho("novo"));
-    const inicio = await (await chamar("/api/inicio")).json() as { rascunhos: { total: number } };
-    expect(inicio.rascunhos.total).toBe(1);
-  } finally { espiao.mockRestore(); }
+test("Dado inicio e saude pedidos em paralelo Quando um rascunho nasce depois Então um novo /api/saude vê o rascunho, sem resto velho", async () => {
+  const { chamar } = await servidor();
+  await Promise.all([chamar("/api/inicio"), chamar("/api/saude")]);
+  writeFileSync(join(raiz, "wiki/pessoal/concepts/novo.md"), rascunho("novo"));
+  const saude = await (await chamar("/api/saude")).json() as { validar: { semAprovacao: number } };
+  expect(saude.validar.semAprovacao).toBe(1);
+});
+
+test("Dado duas abas abrindo o Início Quando a wiki muda entre elas Então cada uma vê a wiki do seu momento", async () => {
+  const { chamar } = await servidor();
+  const primeira = await (await chamar("/api/inicio")).json() as RespostaDoInicio;
+  writeFileSync(join(raiz, "wiki/pessoal/concepts/novo.md"), rascunho("novo"));
+  const segunda = await (await chamar("/api/inicio")).json() as RespostaDoInicio;
+  expect([primeira.saude.validar.semAprovacao, segunda.saude.validar.semAprovacao]).toEqual([0, 1]);
+  expect([primeira.rascunhos.total, segunda.rascunhos.total]).toEqual([0, 1]);
 });

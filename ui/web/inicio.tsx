@@ -4,7 +4,7 @@ import type { ResumoDoInicio, SaudeDaWiki } from "../../src/lib/ui-inicio";
 import { api } from "./api";
 import { tamanhoLegivel } from "./ingestao";
 
-export type DadosDoInicio = ResumoDoInicio & { agente: string; areas: string[]; conversas: ResumoDeConversa[] };
+export type DadosDoInicio = ResumoDoInicio & { agente: string; areas: string[]; conversas: ResumoDeConversa[]; saude: SaudeDaWiki };
 export type SituacaoDaSaude = "ok" | "portao" | "atencao" | "problema";
 
 export function saudacao(hora: number): string {
@@ -149,29 +149,34 @@ export async function lerDaApi<T>(rota: string, falha: string, chamar: (rota: st
   catch (motivo) { return { erro: motivo instanceof Error ? motivo.message : falha }; }
 }
 
+// A carga pede só /api/inicio: a saúde vem dentro dele, validada uma vez junto com os rascunhos.
+export const carregarInicio = (chamar?: (rota: string) => Promise<DadosDoInicio>) => lerDaApi<DadosDoInicio>("/api/inicio", "Não foi possível ler a wiki.", chamar);
+// "Validar agora": /api/saude sempre valida a wiki na hora.
+export const conferirSaudeAgora = (chamar?: (rota: string) => Promise<SaudeDaWiki>) => lerDaApi<SaudeDaWiki>("/api/saude", "Não foi possível conferir a saúde da wiki.", chamar);
+
 export function Inicio({ tema, alternarTema }: PropriedadesDaTela) {
   const [dados, setDados] = useState<DadosDoInicio | null>(null);
   const [saude, setSaude] = useState<SaudeDaWiki | null>(null);
   const [saudeCarregando, setSaudeCarregando] = useState(true);
   const [erro, setErro] = useState("");
 
-  // A saúde é a parte lenta (varre a wiki toda): a tela aparece primeiro e ela chega depois.
-  const conferirSaude = useCallback(async () => {
+  const validarAgora = useCallback(async () => {
     setSaudeCarregando(true);
-    const leitura = await lerDaApi<SaudeDaWiki>("/api/saude", "Não foi possível conferir a saúde da wiki.");
-    if (leitura.erro !== undefined) setErro(leitura.erro); else setSaude(leitura.valor);
+    const leitura = await conferirSaudeAgora();
+    if (leitura.erro !== undefined) setErro(leitura.erro); else { setSaude(leitura.valor); setErro(""); }
     setSaudeCarregando(false);
   }, []);
 
   useEffect(() => {
     let ativo = true;
-    void lerDaApi<DadosDoInicio>("/api/inicio", "Não foi possível ler a wiki.").then(leitura => {
+    void carregarInicio().then(leitura => {
       if (!ativo) return;
-      if (leitura.erro !== undefined) setErro(leitura.erro); else setDados(leitura.valor);
+      if (leitura.erro !== undefined) setErro(leitura.erro);
+      else { setDados(leitura.valor); setSaude(leitura.valor.saude); }
+      setSaudeCarregando(false);
     });
-    void conferirSaude();
     return () => { ativo = false; };
-  }, [conferirSaude]);
+  }, []);
 
   return <main className="main">
     <header className="topbar">
@@ -181,6 +186,6 @@ export function Inicio({ tema, alternarTema }: PropriedadesDaTela) {
         <button className="icon-button" title="Alternar tema" aria-label="Alternar tema claro ou escuro" onClick={alternarTema}>{tema === "claro" ? "◐" : "☼"}</button>
       </div>
     </header>
-    <PainelDoInicio dados={dados} saude={saude} saudeCarregando={saudeCarregando} erro={erro} aoValidar={() => void conferirSaude()} />
+    <PainelDoInicio dados={dados} saude={saude} saudeCarregando={saudeCarregando} erro={erro} aoValidar={() => void validarAgora()} />
   </main>;
 }

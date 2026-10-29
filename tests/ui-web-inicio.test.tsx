@@ -3,12 +3,13 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ResumoDoInicio, SaudeDaWiki } from "../src/lib/ui-inicio";
 import { api } from "../ui/web/api";
-import { Inicio, lerDaApi, PainelDoInicio, saudacao, situacaoDaSaude, type DadosDoInicio } from "../ui/web/inicio";
+import { carregarInicio, conferirSaudeAgora, Inicio, lerDaApi, PainelDoInicio, saudacao, situacaoDaSaude, type DadosDoInicio } from "../ui/web/inicio";
 import { achar, botao, expandir, link, texto } from "./apoio/react-estatico";
 
 const vazio: ResumoDoInicio = { rascunhos: { total: 0, novas: 0, atualizadas: 0, comErro: 0, itens: [] }, atividade: [], fontes: [] };
-const dados = (extra: Partial<DadosDoInicio> = {}): DadosDoInicio => ({ agente: "Claude Code", areas: ["pessoal"], conversas: [], ...vazio, ...extra });
 const saudeOk: SaudeDaWiki = { validar: { ok: true, semAprovacao: 0, outrosErros: [], avisos: [], paginas: 4 }, vencidas: 0, lacunas: { total: 0, contradicoes: 0, abertas: [] }, auditoria: { total: 0, resumo: [] } };
+
+const dados = (extra: Partial<DadosDoInicio> = {}): DadosDoInicio => ({ agente: "Claude Code", areas: ["pessoal"], conversas: [], ...vazio, saude: saudeOk, ...extra });
 
 function montar(d: DadosDoInicio | null, saude: SaudeDaWiki | null = null, extra: { saudeCarregando?: boolean; erro?: string } = {}) {
   const chamadas: string[] = [];
@@ -171,4 +172,26 @@ test("O cliente da API manda o token da página e transforma falha em erro legí
     globalThis.fetch = original.fetch;
     (globalThis as { document?: unknown }).document = original.document;
   }
+});
+
+test("Dado a carga do Início Quando a tela abre Então pede só /api/inicio, e a saúde vem dentro dele", async () => {
+  const pedidos: string[] = [];
+  const chamar = async (rota: string) => { pedidos.push(rota); return dados() as never; };
+  const aberto = await carregarInicio(chamar);
+  expect(pedidos).toEqual(["/api/inicio"]);
+  expect(aberto.erro).toBeUndefined();
+  expect(aberto.valor?.saude).toEqual(saudeOk);
+});
+
+test("Dado Validar agora Quando a pessoa aperta Então pede /api/saude, que valida na hora", async () => {
+  const pedidos: string[] = [];
+  const leitura = await conferirSaudeAgora(async rota => { pedidos.push(rota); return saudeOk as never; });
+  expect(pedidos).toEqual(["/api/saude"]);
+  expect(leitura.valor).toEqual(saudeOk);
+});
+
+test("Dado falha na carga ou na conferência Quando leio Então a mensagem chega à tela sem lançar", async () => {
+  const falha = async () => { throw new Error("Falha ao falar com o Anvilore."); };
+  expect((await carregarInicio(falha)).erro).toBe("Falha ao falar com o Anvilore.");
+  expect((await conferirSaudeAgora(falha)).erro).toBe("Falha ao falar com o Anvilore.");
 });
