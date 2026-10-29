@@ -1,5 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { lerFrontmatter } from "./frontmatter";
 import { estadoAprovacaoHumana } from "./okf";
 import { caminhoWiki } from "./wiki-repo";
@@ -39,6 +39,26 @@ export type ResumoDaBiblioteca = {
   tags: string[];
 };
 
+export function ehCaminhoDeNotaValido(caminhoRelativo: string): boolean {
+  if (!caminhoRelativo || typeof caminhoRelativo !== "string" || caminhoRelativo.includes("\0")) {
+    return false;
+  }
+  if (isAbsolute(caminhoRelativo)) {
+    return false;
+  }
+  if (!caminhoRelativo.endsWith(".md")) {
+    return false;
+  }
+  const partes = caminhoRelativo.split(/[/\\]/);
+  for (const parte of partes) {
+    if (parte.startsWith(".")) return false;
+    if (parte === "_meta" || parte === "log") return false;
+  }
+  const nomeArquivo = partes[partes.length - 1];
+  if (nomeArquivo === "log.md" || nomeArquivo === "index.md") return false;
+  return true;
+}
+
 const WIKILINK = /\[\[([^\]\n]+)\]\]/g;
 
 async function listarMarkdown(diretorio: string, prefixo = ""): Promise<string[]> {
@@ -55,8 +75,7 @@ async function listarMarkdown(diretorio: string, prefixo = ""): Promise<string[]
     if (entrada.isDirectory()) {
       if (entrada.name === "_meta" || entrada.name === "log" || entrada.name.startsWith(".")) continue;
       arquivos.push(...(await listarMarkdown(diretorio, caminho)));
-    } else if (entrada.isFile() && entrada.name.endsWith(".md") && !entrada.name.startsWith(".")) {
-      if (basename(caminho) === "index.md" || caminho === "log.md" || caminho.startsWith("log/")) continue;
+    } else if (entrada.isFile() && ehCaminhoDeNotaValido(caminho)) {
       arquivos.push(caminho);
     }
   }

@@ -47,6 +47,34 @@ describe("ui-nota: obterNota", () => {
       expect(obterNota(RAIZ, "")).rejects.toThrow(ErroDeCaminhoInvalido);
       expect(obterNota(RAIZ, "pessoal/\0teste.md")).rejects.toThrow(ErroDeCaminhoInvalido);
     });
+
+    test("recusa arquivos ocultos, de configuração ou fora de markdown (.git, .env, .oculta.md)", async () => {
+      await mkdir(join(RAIZ, "wiki/.git"), { recursive: true });
+      await writeFile(join(RAIZ, "wiki/.git/config"), "url = https://token-secreto@github.com/repo.git\n");
+      await writeFile(join(RAIZ, "wiki/.env"), "SECRET=chave-privada\n");
+      await writeFile(join(RAIZ, "wiki/pessoal/.oculta.md"), "# Oculta\n");
+
+      expect(obterNota(RAIZ, ".git/config")).rejects.toThrow(ErroDeCaminhoInvalido);
+      expect(obterNota(RAIZ, ".env")).rejects.toThrow(ErroDeCaminhoInvalido);
+      expect(obterNota(RAIZ, "pessoal/.oculta.md")).rejects.toThrow(ErroDeCaminhoInvalido);
+    });
+
+    test("recusa caminhos reservados da wiki (_meta, log, log.md, index.md)", async () => {
+      await mkdir(join(RAIZ, "wiki/_meta"), { recursive: true });
+      await mkdir(join(RAIZ, "wiki/log"), { recursive: true });
+      await writeFile(join(RAIZ, "wiki/_meta/x.md"), "# Meta\n");
+      await writeFile(join(RAIZ, "wiki/log/log-2026-10-29.md"), "# Log\n");
+      await writeFile(join(RAIZ, "wiki/log.md"), "# Índice de log\n");
+
+      expect(obterNota(RAIZ, "_meta/x.md")).rejects.toThrow(ErroDeCaminhoInvalido);
+      expect(obterNota(RAIZ, "log/log-2026-10-29.md")).rejects.toThrow(ErroDeCaminhoInvalido);
+      expect(obterNota(RAIZ, "log.md")).rejects.toThrow(ErroDeCaminhoInvalido);
+    });
+
+    test("recusa arquivos que não terminam com .md", async () => {
+      await writeFile(join(RAIZ, "wiki/pessoal/conceitos/arquivo.txt"), "texto\n");
+      expect(obterNota(RAIZ, "pessoal/conceitos/arquivo.txt")).rejects.toThrow(ErroDeCaminhoInvalido);
+    });
   });
 
   describe("extração de metadados, corpo, lacunas, backlinks e grafo", () => {

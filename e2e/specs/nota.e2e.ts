@@ -185,4 +185,16 @@ test("[C02] [C15] [I6-API] Dado o endpoint /api/nota Quando chamado com caminho 
 
   const absoluto = await page.request.get(`${app.base}/api/nota?token=${encodeURIComponent(app.token)}&caminho=/etc/passwd`);
   expect(absoluto.status()).toBe(400);
+
+  const gitConfig = await page.request.get(`${app.base}/api/nota?token=${encodeURIComponent(app.token)}&caminho=.git/config`);
+  expect(gitConfig.status()).toBe(400);
+
+  const env = await page.request.get(`${app.base}/api/nota?token=${encodeURIComponent(app.token)}&caminho=.env`);
+  expect(env.status()).toBe(400);
+
+  const oculta = await page.request.get(`${app.base}/api/nota?token=${encodeURIComponent(app.token)}&caminho=pessoal/.oculta.md`);
+  expect(oculta.status()).toBe(400);
+
+  const meta = await page.request.get(`${app.base}/api/nota?token=${encodeURIComponent(app.token)}&caminho=_meta/x.md`);
+  expect(meta.status()).toBe(400);
 });

@@ -3,6 +3,7 @@ import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { lerFrontmatter, linhasDe } from "./frontmatter";
 import { estadoAprovacaoHumana } from "./okf";
+import { ehCaminhoDeNotaValido } from "./ui-biblioteca";
 import { caminhoWiki } from "./wiki-repo";
 
 export class ErroDeCaminhoInvalido extends Error {
@@ -165,10 +166,7 @@ function corpoSemFrontmatter(conteudo: string): string {
 }
 
 export async function validarCaminhoWiki(wiki: string, caminhoRelativo: string): Promise<string> {
-  if (!caminhoRelativo || typeof caminhoRelativo !== "string" || caminhoRelativo.includes("\0")) {
-    throw new ErroDeCaminhoInvalido();
-  }
-  if (isAbsolute(caminhoRelativo)) {
+  if (!ehCaminhoDeNotaValido(caminhoRelativo)) {
     throw new ErroDeCaminhoInvalido();
   }
   const caminhoNormalizado = resolve(wiki, caminhoRelativo);

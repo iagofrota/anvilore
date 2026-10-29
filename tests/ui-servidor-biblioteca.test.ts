@@ -91,6 +91,16 @@ test("Dado pedidos de /api/nota com caminhos inválidos ou inseguros Então a AP
   // Caminho absoluto
   expect((await chamar("/api/nota?caminho=/etc/passwd")).status).toBe(400);
 
+  // Arquivos ocultos, de configuração ou fora de markdown
+  expect((await chamar("/api/nota?caminho=.git/config")).status).toBe(400);
+  expect((await chamar("/api/nota?caminho=.git%2Fconfig")).status).toBe(400);
+  expect((await chamar("/api/nota?caminho=.env")).status).toBe(400);
+  expect((await chamar("/api/nota?caminho=pessoal/.oculta.md")).status).toBe(400);
+  expect((await chamar("/api/nota?caminho=_meta/x.md")).status).toBe(400);
+  expect((await chamar("/api/nota?caminho=log/log-2026-10-29.md")).status).toBe(400);
+  expect((await chamar("/api/nota?caminho=log.md")).status).toBe(400);
+  expect((await chamar("/api/nota?caminho=pessoal/arquivo.txt")).status).toBe(400);
+
   // Página inexistente
   expect((await chamar("/api/nota?caminho=inexistente.md")).status).toBe(404);
 });

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { listarBiblioteca } from "../src/lib/ui-biblioteca";
+import { ehCaminhoDeNotaValido, listarBiblioteca } from "../src/lib/ui-biblioteca";
 
 const RAIZ = join(import.meta.dir, ".tmp-ui-biblioteca");
 
@@ -151,6 +151,23 @@ tags: 123
     const p2 = resultado.paginas.find((p) => p.slug === "tags-invalida");
     expect(p2?.tags).toEqual([]);
     expect(resultado.tags).toEqual(["alfa", "beta", "gama"]);
+  });
+
+  test("ehCaminhoDeNotaValido valida extensão .md e recusa pontos, caminhos absolutos e reservados", () => {
+    expect(ehCaminhoDeNotaValido("")).toBe(false);
+    expect(ehCaminhoDeNotaValido("nota\0.md")).toBe(false);
+    expect(ehCaminhoDeNotaValido("/etc/passwd")).toBe(false);
+    expect(ehCaminhoDeNotaValido(".git/config")).toBe(false);
+    expect(ehCaminhoDeNotaValido(".env")).toBe(false);
+    expect(ehCaminhoDeNotaValido("area/.oculta.md")).toBe(false);
+    expect(ehCaminhoDeNotaValido("_meta/x.md")).toBe(false);
+    expect(ehCaminhoDeNotaValido("log/log-2026-10-29.md")).toBe(false);
+    expect(ehCaminhoDeNotaValido("log.md")).toBe(false);
+    expect(ehCaminhoDeNotaValido("index.md")).toBe(false);
+    expect(ehCaminhoDeNotaValido("area/index.md")).toBe(false);
+    expect(ehCaminhoDeNotaValido("area/arquivo.txt")).toBe(false);
+    expect(ehCaminhoDeNotaValido("pessoal/conceitos/padrao.md")).toBe(true);
+    expect(ehCaminhoDeNotaValido("simples.md")).toBe(true);
   });
 });
 
