@@ -1,4 +1,4 @@
-# Prova de ponta a ponta do instalar.ps1 no runner windows-latest (Windows PowerShell 5.1), num perfil vazio.
+﻿# Prova de ponta a ponta do instalar.ps1 no runner windows-latest (Windows PowerShell 5.1), num perfil vazio.
 #
 # O dono não tem Windows (D12): isto é a única prova do instalador no Windows. Cada cenário roda o script de verdade
 # em outro processo, com USERPROFILE/LOCALAPPDATA/TEMP numa pasta nova (com ESPAÇO no nome), contra um repositório

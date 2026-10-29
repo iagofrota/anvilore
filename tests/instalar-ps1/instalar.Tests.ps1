@@ -1,4 +1,4 @@
-# Testes unitários do instalador do Windows (Pester 5). Rodam em PowerShell 5.1 e 7: o CI usa o 5.1 no
+﻿# Testes unitários do instalador do Windows (Pester 5). Rodam em PowerShell 5.1 e 7: o CI usa o 5.1 no
 # windows-latest; no Linux, `pwsh` (docker) cobre as funções que não dependem do Windows.
 #
 # Cada cenário segue Dado / Quando / Então, em comentário (sem Cucumber).
