@@ -189,6 +189,8 @@ Para a linhagem do método e a argumentação completa das posições de design,
   barrando programas aprovadores locais e assinaturas não-SSH.
   O `fetch` (`guardaDeRede` em `src/lib/atualizacao.ts`) só abre o protocolo da origem oficial (`GIT_ALLOW_PROTOCOL`), zera o
   `credential.helper` e não pergunta senha: a configuração global não abre `ext::` antes de a tag ser autenticada.
+  Com `ANVILORE_ASSINANTES_DO_INSTALADOR` (o instalador entrega as chaves embutidas dele), o `verify-tag` usa só esse arquivo no
+  lugar do arquivo seguranca/assinantes local; ausente, vazio ou ilegível recusa. O arquivo local não é editado: vem do commit verificado.
 - O arquivo seguranca/assinantes usa o formato OpenSSH `allowed_signers`, uma entrada por linha:
   `<principal> [opções] <tipo-da-chave> <chave-pública-base64> [comentário]`. Para as tags Git, a entrada
   deve incluir `namespaces="git"` nas opções e o principal deve corresponder ao e-mail de assinatura Git

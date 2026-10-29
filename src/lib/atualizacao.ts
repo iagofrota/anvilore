@@ -625,14 +625,22 @@ async function bunExigido(raiz: string, commit: string, tag: string, exec: Exec,
 }
 
 // `objeto`: o id já resolvido de refs/tags/<tag>, para que o objeto verificado seja o mesmo lido depois.
-export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = execPadrao, objeto: string = tag): string | undefined {
-  const allow = join(raiz, "seguranca/assinantes");
+//
+// O instalador pode entregar o arquivo de chaves confiáveis da própria execução em ANVILORE_ASSINANTES_DO_INSTALADOR: numa
+// pasta que ficou para trás na troca de chave, o seguranca/assinantes local só conhece a chave antiga. Com a variável, vale
+// ESSE arquivo no lugar do local (não se somam); ausente, vazio ou ilegível recusa, nunca cai de volta no local.
+export const VAR_ASSINANTES_DO_INSTALADOR = "ANVILORE_ASSINANTES_DO_INSTALADOR";
+export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = execPadrao, objeto: string = tag, doInstalador: string | undefined = process.env[VAR_ASSINANTES_DO_INSTALADOR]): string | undefined {
+  const allow = doInstalador === undefined ? join(raiz, "seguranca/assinantes") : doInstalador === "" ? "" : resolve(doInstalador);
   let tamanho: number;
+  const semChaves = `o instalador não entregou as chaves confiáveis (arquivo ausente, vazio ou ilegível); a versão ${tag} foi recusada e nada mudou. Rode o instalador de novo.`;
   try { const st = statSync(allow); if (!st.isFile()) throw Object.assign(new Error("não é arquivo"), { code: "EISDIR" }); tamanho = st.size; }
   catch (e) {
+    if (doInstalador !== undefined) return semChaves;
     if (codigoFs(e) === "ENOENT") return `seguranca/assinantes ausente; tag candidata recusada. Configure no kit instalado (antes da atualização) uma linha OpenSSH allowed_signers com principal igual ao e-mail de assinatura Git, opção namespaces="git" e chave pública SSH aprovada; veja docs/knowledge_base/decisoes.md.`;
     return "seguranca/assinantes ilegível; tag candidata recusada. Confira permissões e formato OpenSSH allowed_signers; veja docs/knowledge_base/decisoes.md.";
   }
+  if (tamanho === 0 && doInstalador !== undefined) return semChaves;
   if (tamanho === 0) return `seguranca/assinantes vazio; tag candidata recusada. Configure no kit instalado (antes da atualização) uma linha OpenSSH allowed_signers com principal igual ao e-mail de assinatura Git, opção namespaces="git" e chave pública SSH aprovada; veja docs/knowledge_base/decisoes.md.`;
   const cat = exec(["cat-file", "tag", objeto], raiz);
   if (cat.codigo !== 0 || !cat.saida.split(/\r?\n/).includes("-----BEGIN SSH SIGNATURE-----")) {
