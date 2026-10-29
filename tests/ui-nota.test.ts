@@ -172,6 +172,21 @@ describe("ui-nota: obterNota", () => {
       },
       2000,
     );
+
+    test.skipIf(process.platform === "win32")(
+      "recusa symlink no último componente para outra nota dentro da wiki (proteção O_NOFOLLOW)",
+      async () => {
+        await writeFile(join(RAIZ, "wiki/pessoal/notas/alvo-interno.md"), "# Alvo Interno\n");
+        await symlink(
+          join(RAIZ, "wiki/pessoal/notas/alvo-interno.md"),
+          join(RAIZ, "wiki/pessoal/notas/link-interno.md"),
+        );
+
+        await expect(obterNota(RAIZ, "pessoal/notas/link-interno.md")).rejects.toThrow(
+          ErroDeCaminhoInvalido,
+        );
+      },
+    );
   });
 
   describe("extração de metadados, corpo, lacunas, backlinks e grafo", () => {
