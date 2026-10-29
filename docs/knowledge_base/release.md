@@ -287,9 +287,11 @@ $hashCalculado = (Get-FileHash .\instalar.ps1 -Algorithm SHA256).Hash
 if ($hashCalculado.ToLower() -ne $hashEsperado.ToLower()) {
     throw "Hash SHA-256 não confere: esperado $hashEsperado, obtido $hashCalculado"
 }
-Get-Content .\instalar.ps1 -Raw | ssh-keygen -Y verify -f assinantes -I "<EMAIL-DO-MANTENEDOR>" -n file -s .\instalar.ps1.sig
+cmd /c "ssh-keygen -Y verify -f assinantes -I <EMAIL-DO-MANTENEDOR> -n file -s instalar.ps1.sig < instalar.ps1"
 if ($LASTEXITCODE -ne 0) { throw "Assinatura SSH do instalador inválida!" }
 ```
+
+(O redirecionamento nativo via `cmd /c` é necessário porque o pipe do PowerShell acrescenta quebras de linha e converte o stdin para ASCII no Windows PowerShell 5.1, corrompendo a validação da assinatura).
 
 A saída `Good "file" signature` e a ausência de exceções confirmam que o instalador está autêntico e íntegro.
 
@@ -367,7 +369,7 @@ Se alguma máquina não recebeu a versão de transição e a rotação avançou 
 Os dois caminhos seguros de recuperação são:
 
 1. **Reinstalar com o instalador verificado (recomendado):**
-   Baixe o instalador da versão mais recente (`dist/instalar.sh (quando U3 entrar)` ou `dist/instalar.ps1 (quando U4 entrar)`), confira seu hash SHA-256 e sua assinatura SSH contra a chave pública obtida por canal independente fora do GitHub (veja "Segurança no bootstrap"), e execute-o. O instalador preserva os dados pessoais existentes e atualiza a chave em seguranca/assinantes.
+   Baixe o instalador da versão mais recente (`<dist/instalar.sh>` quando U3 entrar ou `<dist/instalar.ps1>` quando U4 entrar), confira seu hash SHA-256 e sua assinatura SSH contra a chave pública obtida por canal independente fora do GitHub (veja "Segurança no bootstrap"), e execute-o. O instalador preserva os dados pessoais existentes e atualiza a chave em seguranca/assinantes.
 
 2. **Atualizar via `anvilore atualizar` após validar assinatura e identidade da tag:**
    Para aplicar pelo próprio kit sem reinstalar:
@@ -383,11 +385,13 @@ Os dois caminhos seguros de recuperação são:
    ```
 
    A assinatura deve confirmar `Good "git" signature`, `git cat-file -t` deve retornar `tag`, o cabeçalho deve trazer `tag vX.Y.Z` e `type commit`, e o `package.json` deve conter `"version": "X.Y.Z"`. Se qualquer verificação falhar, **pare imediatamente**.
-   c. Em seguida, com a chave nova em seguranca/assinantes, execute a atualização segura pelo próprio Anvilore, que aplica a migração e salvaguarda os dados pessoais:
+   c. Em seguida, com a linha da chave nova adicionada em seguranca/assinantes, execute a atualização segura pelo próprio Anvilore:
 
    ```bash
-   bun src/cli.ts atualizar
+   anvilore atualizar
    ```
+
+   O atualizador lê seguranca/assinantes da pasta instalada para autenticar a tag da release e, ao aplicar a versão nova, substitui o arquivo pelo versionado no commit da tag (`src/lib/atualizacao.ts`). Ele executa a migração de rastreio e preserva integralmente os dados pessoais (`raw/`, `wiki/`).
 
 **Chave comprometida**
 

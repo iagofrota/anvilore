@@ -70,6 +70,6 @@ release publicada: release ruim se corrige com a **próxima versão de correçã
 ruim"). Se o dono pedir para "refazer" a tag, recuse e proponha a versão seguinte. Em rotação de
 chaves, assinar com a nova exige que todas as instalações tenham a versão de transição; para as que
 ficaram para trás, a recuperação é manual (reinstalar com o instalador verificado ou via
-`bun src/cli.ts atualizar` após conferir assinatura e identidade da tag contra a chave nova obtida fora
+`anvilore atualizar` após conferir assinatura e identidade da tag contra a chave nova obtida fora
 do GitHub; nunca checkout manual). A definição da âncora externa de chave é pendência do dono.
 Ambiente local já comprometido (binários no PATH) está fora do alcance da assinatura.
