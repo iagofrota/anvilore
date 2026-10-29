@@ -263,22 +263,27 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
     # A2 - Dado um gpg.ssh.program aprovador na config global e uma tag assinada por chave fora dos assinantes;
     # Então recusa (código 3).
     BeforeAll {
+      # Arquivos que o git vai ler/rodar (config, hooks, aprovador) ficam num caminho curto e sem espaço.
+      $script:Cfg = 'C:\anv-cfg'
+      Remove-Item $script:Cfg -Recurse -Force -ErrorAction SilentlyContinue
+      New-Item -ItemType Directory $script:Cfg -Force | Out-Null
       function script:Fw($caminho) { return ($caminho -replace '\\', '/') }
       function script:ConfigGlobal($nome, $texto) {
-        $f = Join-Path $script:Base "gitconfig-$nome"
+        $f = Join-Path $script:Cfg "gitconfig-$nome"
         [IO.File]::WriteAllText($f, $texto)
+        Write-Host "----- config global de teste ($f):`n$texto-----"
         return $f
       }
       function script:ConfigComFiltro($nome) {
-        $m = Join-Path $script:Base "marcador-smudge-$nome"
+        $m = Join-Path $script:Cfg "marcador-smudge-$nome"
         Remove-Item $m -ErrorAction SilentlyContinue
         $cfg = ConfigGlobal "filtro-$nome" ("[filter `"x`"]`n`tsmudge = `"printf executado >> '$(Fw $m)' && cat`"`n`tclean = cat`n")
         return @{ Config = $cfg; Marcador = $m }
       }
       function script:ConfigComHook($nome) {
-        $m = Join-Path $script:Base "marcador-hook-$nome"
+        $m = Join-Path $script:Cfg "marcador-hook-$nome"
         Remove-Item $m -ErrorAction SilentlyContinue
-        $pasta = Join-Path $script:Base "hooks-da-pessoa-$nome"
+        $pasta = Join-Path $script:Cfg "hooks-da-pessoa-$nome"
         New-Item -ItemType Directory $pasta -Force | Out-Null
         [IO.File]::WriteAllText((Join-Path $pasta 'reference-transaction'), "#!/bin/sh`nprintf `"ref-`$1 `" >> '$(Fw $m)'`ncat >/dev/null`n")
         [IO.File]::WriteAllText((Join-Path $pasta 'post-checkout'), "#!/bin/sh`nprintf 'post-checkout ' >> '$(Fw $m)'`n")
@@ -321,7 +326,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       Test-Path $c.Marcador | Should -BeTrue
     }
     It 'A2: gpg.ssh.program aprovador global + tag de chave fora dos assinantes: recusa' {
-      $apr = Join-Path $script:Base 'aprova-tudo'
+      $apr = Join-Path $script:Cfg 'aprova-tudo'
       [IO.File]::WriteAllText($apr, "#!/bin/sh`ncase `"`$*`" in`n  *find-principals*) echo atacante@exemplo ;;`n  *) echo 'Good `"git`" signature for atacante@exemplo with ED25519 key SHA256:falso' ;;`nesac`nexit 0`n")
       $cfg = ConfigGlobal 'aprovador' ("[gpg `"ssh`"]`n`tprogram = $(Fw $apr)`n")
       $origem = Origem 'a2-outra' 'outra-chave' $script:Boa $script:Outra
