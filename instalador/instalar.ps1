@@ -665,6 +665,10 @@ function AnvConfigurarUtf8 {
 function AnvPassos {
   $plataforma = AnvPlataforma
   if (-not $plataforma) { AnvParar 2 'Este instalador é para Windows 10 ou 11 de 64 bits (x64). Este computador não é suportado.' }
+  # Sem a chave de assinatura embutida nada do que vem da internet pode ser conferido: para antes de baixar qualquer coisa.
+  if (-not (AnvAssinantes)) {
+    AnvParar 3 'Este instalador não traz a chave de assinatura do Anvilore, então não consigo conferir a versão. Por segurança, não instalei nada. Baixe o instalador oficial de novo.'
+  }
   $perfil = AnvVariavel 'USERPROFILE'
   $local = AnvVariavel 'LOCALAPPDATA'
   if (-not $perfil -or -not $local) { AnvParar 1 'Não achei a sua pasta de usuário (USERPROFILE/LOCALAPPDATA).' }

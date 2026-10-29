@@ -283,11 +283,63 @@ por chave descartável. **Não provado aqui:** `curl | bash` contra o GitHub rea
 existe), `sudo` e gerenciadores de pacote reais (os testes usam substitutos), o login do Claude Code, e distribuições
 que não sejam as do CI.
 
+## Instalador do Windows (instalar.ps1)
+
+Fatia U4 dos instaladores. O script (`instalador/instalar.ps1`) instala o kit no Windows 10/11 x64 **sem administrador**
+e faz os passos 1 a 9, 11 e 12 do plano, na mesma ordem do `instalador/instalar.sh`: confere o sistema; usa o Git da pessoa (2.34 ou
+mais novo e com o bash do Git for Windows) ou baixa o PortableGit para `%LOCALAPPDATA%\Anvilore\git`; garante o Bun
+(`%USERPROFILE%\.bun\bin`) e o rg (`%LOCALAPPDATA%\Anvilore\bin`) com SHA-256 do manifesto; baixa a última release,
+**confere a assinatura da tag**; liga os agentes, grava o estado da atualização (o arquivo atualizacao.json, na pasta .anvilore), roda o `doctor` e termina com o resumo.
+O passo 10 (atalhos) é da fatia U6: o script só tem `AnvCriarAtalho`, que não cria nada e devolve `$false` (igual ao
+`criar_atalho` do `instalador/instalar.sh`). Não existe `abrir.ps1` ainda.
+
+- **Como chamar.** `irm <url> | iex` ou `powershell -NoProfile -Command "& ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 'instalar.ps1')))"`.
+  Não use `-ExecutionPolicy Bypass -File`: uma política de grupo vence o parâmetro (PROVA-U0 item 3). O script **nunca chama
+  `exit`** (num `irm | iex` fecharia o terminal da pessoa); o resultado fica em `$LASTEXITCODE`: 0 completo, 10 parcial (sem
+  agente), 1 falhou, 2 sistema não suportado, 3 assinatura que não confere, 4 download de dependência falhou ou não confere.
+- **Acentos.** O arquivo é UTF-8 **sem BOM** e quem o lê usa `-Encoding UTF8`. O Windows PowerShell 5.1 lê arquivo sem BOM
+  como ANSI, e os bytes `0x84` e `0x91`-`0x94` viram aspas tipográficas, que o PowerShell trata como aspas de verdade: o
+  primeiro CI deste instalador quebrou assim, por causa de um travessão. Por isso o script não usa travessão nem `Ó`/`Ô`
+  (`tests/instalar-ps1.test.ts` trava isso) e define `[Console]::OutputEncoding` como UTF-8 (com `chcp 65001` quando o
+  modo de linguagem não deixa).
+- **Constrained Language Mode.** O script lê `$ExecutionContext.SessionState.LanguageMode`; se não for `FullLanguage`,
+  grava o `PATH` e as variáveis do usuário com `reg.exe` (os métodos .NET do registro e `SetEnvironmentVariable` ficam
+  bloqueados). No modo normal ele grava no registro mantendo o tipo `REG_EXPAND_SZ` e **sem expandir** `%VARIÁVEL%` do
+  `PATH` da pessoa, e avisa o Explorer da mudança. O `PATH` do processo também recebe as pastas, para os passos seguintes.
+- **Origem e assinatura.** `ANVILORE_ORIGEM` troca a origem (CI e QA usam um repositório local); `ANVILORE_VERSAO`, `ANVILORE_PASTA`,
+  `ANVILORE_INSTALAR_CLAUDE` e `ANVILORE_ESPERAR_ENTER` têm os mesmos nomes do Linux. O clone usa `-c core.autocrlf=false` e
+  vai primeiro para `Anvilore.novo`; só depois de conferido é movido para o lugar. A conferência é a do `instalador/instalar.sh`: a tag
+  é anotada, tem bloco `-----BEGIN SSH SIGNATURE-----` (OpenPGP e x509 são recusados e os programas de gpg apontam para
+  um comando que não existe), `git verify-tag` aprova com a chave embutida, o nome assinado é o da tag, ela aponta para um
+  commit e o commit é o do `HEAD`. Falhou: apaga o que baixou e não liga agente nenhum.
+- **Manifesto e chave.** Vêm embutidos pela release (`bun scripts/embutir-instalador.ts --modelo instalador/instalar.ps1`,
+  e `--conferir` prova que a cópia é igual aos arquivos). O `instalar.ps1` do repositório é só o modelo: sem chave embutida
+  ele **recusa instalar** (código 3). `ANVILORE_MANIFESTO` e `ANVILORE_ASSINANTES` (arquivos) só valem com a região
+  correspondente vazia; numa release são ignorados, e há teste para isso.
+- **Sem agente.** Nenhuma CLI no `PATH` e a oferta do Claude Code recusada (ou modo sem perguntas): o kit fica instalado e o
+  código é 10, com "instale um agente e rode o instalador de novo". Reinstalar numa pasta já instalada só confere e roda
+  `atualizar`, sem sobrescrever nada.
+- **Bun gerenciado.** Se o instalador pôs o Bun, grava `bunGerenciado: true` no estado da atualização (o atualizador só mexe
+  no Bun nesse caso); um marcador (o arquivo bun-gerenciado.txt, em %LOCALAPPDATA%\Anvilore) guarda isso se a instalação parar no meio.
+
+Provas (job `instalar-ps1` do CI, `windows-latest`, Windows PowerShell 5.1): `tests/instalar-ps1/instalar.Tests.ps1` (funções,
+Pester) e `tests/instalar-ps1/e2e.Tests.ps1` (o script de verdade, num perfil vazio com espaço no nome, contra um repositório
+local com tag assinada por chave descartável criada no teste, usando o instalador **embutido pelo mesmo mecanismo da
+release**). Os cenários cobertos: instalação do zero sem Git, Bun nem rg (baixa e confere os três), reinstalar sem mexer em
+`raw/`, tag sem assinatura, de outra chave, com o nome trocado e com assinatura OpenPGP falsa (com um `gpg` de mentira que
+aprovaria tudo), instalador sem chave, `ANVILORE_ASSINANTES` ignorado numa release, sem agente, hash adulterado, versão e
+pasta pedidas. `tests/instalar-ps1.test.ts` e `tests/instalador-embutir-ps1.test.ts` (Bun) guardam o contrato estático e o
+embutir. **Não provado:** execução como usuário sem administrador (o runner é administrador; o plano da U0 já provou a
+extração e o uso sem admin), duplo clique e SmartScreen, Explorer e terminais já abertos com o `PATH` novo, Constrained
+Language Mode **real** (AppLocker/WDAC; os testes só forçam o caminho do `reg.exe`), CPU sem AVX2 (o Bun "baseline" só é
+tentado se o normal não abrir), o instalador oficial do Claude Code, `irm | iex` contra o GitHub real (a primeira release
+assinada ainda não existe) e a janela real com acentos.
+
 ## O que esta página não afirma
 
 - Que o CI da Onda 1 esteja verde nos três sistemas; só a fundação tem execução confirmada acima.
 - Qualquer número de latência no Windows ou no macOS; só o Linux local foi medido.
-- Que o instalador funcione fora do Linux.
+- Que o instalador funcione fora do Linux e do Windows x64 (e, no Windows, só o que o CI do `instalar-ps1` provou, listado acima).
 
 Quando o CI rodar e provar ou desmentir cada risco, ajuste a linha correspondente e peça a revisão
 por pessoa (veja [contribuindo.md](contribuindo.md)).

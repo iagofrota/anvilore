@@ -62,6 +62,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
     # gpg de mentira que aprovaria qualquer assinatura OpenPGP (script com #! que o Git for Windows sabe executar).
     $script:GpgFalso = Join-Path $script:Base 'gpg-falso'
     New-Item -ItemType Directory $script:GpgFalso -Force | Out-Null
+    $script:GpgFalsoArquivo = ((Join-Path $script:GpgFalso 'gpg') -replace '\\', '/')
     [IO.File]::WriteAllText((Join-Path $script:GpgFalso 'gpg'), "#!/bin/sh`necho '[GNUPG:] NEWSIG'`necho '[GNUPG:] GOODSIG ABCDEF0123456789 falso <f@x>'`necho '[GNUPG:] VALIDSIG ABCDEF0123456789 2026-10-29 1 0 4 0 1 8 00 ABCDEF0123456789'`necho '[GNUPG:] TRUST_ULTIMATE 0 pgp'`nexit 0`n")
     $script:Boa = Chave 'boa'
     $script:Outra = Chave 'outra'
@@ -200,16 +201,20 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
   Context 'assinatura que não confere (cenários 5 e 9)' {
     # Dado uma tag sem assinatura / assinada por outra chave / com nome trocado; Quando o instalador baixa o kit;
     # Então apaga o que baixou, não liga agente nenhum e diz por quê.
-    It 'recusa tag com assinatura OpenPGP falsa, mesmo com um gpg de mentira que aprovaria tudo' {
+    It 'recusa tag com assinatura OpenPGP falsa, mesmo com um gpg de mentira configurado que aprovaria tudo' {
+      # A pessoa pode ter um gpg.program no .gitconfig dela. Aqui ele aprova qualquer assinatura OpenPGP.
       $origem = Origem 'ruim-pgp' 'pgp-falso' $script:Boa $script:Outra
+      $cfg = Join-Path $script:Base 'gitconfig-pgp-falso'
+      [IO.File]::WriteAllText($cfg, "[gpg]`n`tprogram = $($script:GpgFalsoArquivo)`n[gpg `"openpgp`"]`n`tprogram = $($script:GpgFalsoArquivo)`n")
       # Prova de que o ataque é real: sem a defesa, o git aprova a tag pelo gpg falso (a chave SSH nem é consultada).
-      $antes = $env:Path
+      $antes = $env:GIT_CONFIG_GLOBAL; $eap = $ErrorActionPreference
       try {
-        $env:Path = $script:GpgFalso + ';' + $env:Path
-        & git -C $origem -c gpg.format=ssh -c "gpg.ssh.allowedSignersFile=$($script:Boa.Assinantes)" verify-tag refs/tags/v0.0.1 2>&1 | Out-Null
-        $LASTEXITCODE | Should -Be 0
-      } finally { $env:Path = $antes }
-      $r = Rodar (Perfil 'ruim-pgp') $origem $script:Release ($script:GpgFalso + ';' + $script:PathComAgente)
+        $env:GIT_CONFIG_GLOBAL = $cfg; $ErrorActionPreference = 'Continue'
+        $saida = & git -C $origem -c gpg.format=ssh -c "gpg.ssh.allowedSignersFile=$($script:Boa.Assinantes)" verify-tag refs/tags/v0.0.1 2>&1 | Out-String
+        $cod = $LASTEXITCODE
+      } finally { $env:GIT_CONFIG_GLOBAL = $antes; $ErrorActionPreference = $eap }
+      "$cod $saida" | Should -Match '^0 '
+      $r = Rodar (Perfil 'ruim-pgp') $origem $script:Release $script:PathComAgente @{ GIT_CONFIG_GLOBAL = $cfg }
       $r.Codigo | Should -Be 3
       $r.Saida | Should -Match 'assinatura SSH'
       Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
@@ -232,7 +237,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $r.Codigo | Should -Be 3
       Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
     }
-    It 'o modelo sem chave embutida (nem arquivo de apoio) recusa antes de baixar' {
+    It 'o modelo sem chave embutida (nem arquivo de apoio) recusa antes de baixar qualquer coisa' {
       $r = Rodar (Perfil 'sem-chave') $script:OrigemBoa $script:Modelo $script:PathComAgente
       $r.Codigo | Should -Be 3
       $r.Saida | Should -Match 'chave de assinatura'

@@ -137,6 +137,15 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   abertura dos caminhos citados. Divergências ficam explícitas no quadro, sem mudar a busca.
   Registra primeiro o PATH original; se faltar `rg`, usa uma versão fixa conferida por SHA-256
   apenas no diretório temporário do ensaio e a remove ao terminar.
+- `instalador/instalar.ps1`: instalador do Windows 10/11 x64, sem administrador. Usa o Git da pessoa ou baixa o
+  PortableGit, instala Bun e rg com SHA-256 conferido contra `instalador/dependencias.json`, baixa a última release,
+  **só aceita a tag se a assinatura SSH bater com a chave embutida no próprio script**, liga os agentes, grava o estado
+  da atualização, roda o `doctor` e deixa o resultado em `$LASTEXITCODE` (0 completo, 10 sem agente, 1 falhou, 2, 3 e 4
+  para sistema, assinatura e download). Não pede administrador, não chama `exit`, grava o `PATH` do usuário sem expandir
+  `%VARIÁVEL%` (com `reg.exe` em Constrained Language Mode), clona com `core.autocrlf=false` e escreve UTF-8. O atalho do
+  Menu Iniciar é da próxima fatia (`AnvCriarAtalho` ainda não faz nada).
+- `scripts/embutir-instalador.ts` também embute o manifesto e a chave no `instalar.ps1` (`--modelo instalador/instalar.ps1`).
+- Job `instalar-ps1` no CI (`windows-latest`): testes Pester das funções e prova de ponta a ponta num perfil vazio.
 
 ### Changed
 
