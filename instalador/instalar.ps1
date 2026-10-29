@@ -803,13 +803,17 @@ function AnvPassos {
       AnvDefinirLog -Pasta $pasta
       $versao = ''
       # O atualizador da pasta confere a tag com o seguranca/assinantes que a pasta já tem, e uma instalação que ficou para trás
-      # na troca de chave não conhece a chave nova. Entrega a ele as chaves embutidas deste instalador, só nesta chamada:
-      # com elas o atualizador confere a tag só contra o que este instalador traz. Nada é gravado na pasta por causa disso.
+      # na troca de chave não conhece a chave nova. Entrega a ele as chaves embutidas deste instalador pela opção
+      # --assinantes-do-instalador (só nesta chamada; nada é gravado na pasta e nada passa por variável de ambiente, que um
+      # `atualizar` manual ou agendado herdaria sem querer): com elas o atualizador confere a tag só contra o que este instalador traz.
       $assinantes = AnvAssinantes
       if (-not $assinantes) { AnvParar 3 'Este instalador não traz a chave de assinatura do Anvilore, então não consigo conferir a atualização. Por segurança, não mexi em nada. Baixe o instalador oficial de novo.' }
       $assinReinstalacao = Join-Path $temp 'assinantes-reinstalacao'
       Set-Content -LiteralPath $assinReinstalacao -Value $assinantes -NoNewline -Encoding ASCII
-      $at = AnvExecutarComAmbiente -Exe $bun -Argumentos @('src/cli.ts', 'atualizar') -Pasta $pasta -Ambiente @{ ANVILORE_ASSINANTES_DO_INSTALADOR = $assinReinstalacao }
+      $at = AnvExecutar $bun @('src/cli.ts', 'atualizar', '--assinantes-do-instalador', $assinReinstalacao) $pasta
+      # Código 2 = uso inválido: o atualizador da pasta é de uma versão que não conhece a opção. Não esconde o erro nem segue
+      # como se tivesse conferido (nada foi mudado).
+      if ($at.Codigo -eq 2) { AnvParar 1 'A pasta tem uma versão antiga do Anvilore que não sabe receber as chaves do instalador; nada foi mudado. Peça ao seu agente para atualizar o Anvilore dessa pasta pelo comando de atualização dela e rode este instalador de novo.' }
       if ($at.Codigo -eq 0) { AnvEscrever ('Atualização: ' + (($at.Saida -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 1))) }
       else { AnvAviso ('não atualizei agora (' + (($at.Saida -split "`n" | Select-Object -First 1)) + '). Segui com a versão instalada.') }
       $v = AnvExecutar $git.Exe @('-C', $pasta, 'describe', '--tags', '--exact-match')
