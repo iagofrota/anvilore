@@ -31,6 +31,8 @@ export type DependenciasAtualizacao = {
   versaoBun?: () => Promise<string | undefined>;
   // Atualiza o Bun instalado pelo Anvilore para pelo menos `minima` (D9). Sem ele, a tag que pede Bun mais novo é recusada.
   atualizarBun?: (raiz: string, minima: string) => Promise<number>;
+  // Arquivo de chaves confiáveis entregue pelo instalador (`--assinantes-do-instalador`). Só vale ao aplicar; veja verificarAssinaturaTag.
+  assinantesDoInstalador?: string;
 };
 
 type EstadoAtualizador = "ocioso" | "baixada" | "aplicando" | "revertendo" | "recusada" | "reversao-incompleta" | "migracao-incompleta";
@@ -626,11 +628,13 @@ async function bunExigido(raiz: string, commit: string, tag: string, exec: Exec,
 
 // `objeto`: o id já resolvido de refs/tags/<tag>, para que o objeto verificado seja o mesmo lido depois.
 //
-// O instalador pode entregar o arquivo de chaves confiáveis da própria execução em ANVILORE_ASSINANTES_DO_INSTALADOR: numa
-// pasta que ficou para trás na troca de chave, o seguranca/assinantes local só conhece a chave antiga. Com a variável, vale
-// ESSE arquivo no lugar do local (não se somam); ausente, vazio ou ilegível recusa, nunca cai de volta no local.
-export const VAR_ASSINANTES_DO_INSTALADOR = "ANVILORE_ASSINANTES_DO_INSTALADOR";
-export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = execPadrao, objeto: string = tag, doInstalador: string | undefined = process.env[VAR_ASSINANTES_DO_INSTALADOR]): string | undefined {
+// O instalador pode entregar o arquivo de chaves confiáveis da própria execução pela opção `--assinantes-do-instalador`: numa
+// pasta que ficou para trás na troca de chave, o seguranca/assinantes local só conhece a chave antiga. Com ele, vale ESSE
+// arquivo no lugar do local (não se somam); ausente, vazio ou ilegível recusa, nunca cai de volta no local. O ambiente
+// NÃO é lido: uma atualização manual ou agendada que herdasse uma variável trocaria a âncora de confiança por acidente.
+// A opção não prova quem a passou (um processo local hostil também poderia); o ganho é não herdá-la sem querer.
+export const OPCAO_ASSINANTES_DO_INSTALADOR = "--assinantes-do-instalador";
+export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = execPadrao, objeto: string = tag, doInstalador?: string): string | undefined {
   const allow = doInstalador === undefined ? join(raiz, "seguranca/assinantes") : doInstalador === "" ? "" : resolve(doInstalador);
   let tamanho: number;
   const semChaves = `o instalador não entregou as chaves confiáveis (arquivo ausente, vazio ou ilegível); a versão ${tag} foi recusada e nada mudou. Rode o instalador de novo.`;
@@ -973,7 +977,7 @@ export async function atualizar(acao: "verificar" | "voltar" | "estado" | "autom
     let assinada: ReturnType<typeof identidadeDaTag>;
     try {
       assinada = ref.codigo !== 0 || !COMMIT.test(objeto) ? `a tag ${release.tag} não existe depois do fetch; recusada.`
-        : verificarAssinaturaTag(raiz, release.tag, exec, objeto) ?? identidadeDaTag(raiz, release.tag, exec, objeto);
+        : verificarAssinaturaTag(raiz, release.tag, exec, objeto, acao === "aplicar" ? deps.assinantesDoInstalador : undefined) ?? identidadeDaTag(raiz, release.tag, exec, objeto);
     } catch (e) { await devolverRef(); throw e; }
     const bad = typeof assinada === "string" ? assinada
       : assinada.versao !== release.versao ? `a release anuncia ${release.versao}, mas a tag assinada é ${assinada.versao}; recusada.`
@@ -994,8 +998,17 @@ export async function atualizar(acao: "verificar" | "voltar" | "estado" | "autom
 }
 
 export async function comandoAtualizar(args: string[], deps: DependenciasAtualizacao = {}): Promise<number> {
-  const modos = args.filter(a => a.startsWith("--"));
-  if (args.some(a => !["--verificar", "--voltar", "--estado"].includes(a)) || modos.length > 1) { console.error("Uso: anvilore atualizar [--verificar | --voltar | --estado]"); return 2; }
+  const uso = () => { console.error("Uso: anvilore atualizar [--verificar | --voltar | --estado]"); return 2; };
+  // A opção interna (valor em seguida) sai da lista antes da conferência dos modos; só vale ao aplicar.
+  const resto: string[] = [];
+  let assinantes: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] !== OPCAO_ASSINANTES_DO_INSTALADOR) { resto.push(args[i]!); continue; }
+    if (assinantes !== undefined || i + 1 >= args.length || args[i + 1]!.startsWith("--")) return uso();
+    assinantes = args[++i]!;
+  }
+  const modos = resto.filter(a => a.startsWith("--"));
+  if (resto.some(a => !["--verificar", "--voltar", "--estado"].includes(a)) || modos.length > 1 || (assinantes !== undefined && modos.length)) return uso();
   const acao = modos[0] === "--voltar" ? "voltar" : modos[0] === "--estado" ? "estado" : modos[0] === "--verificar" ? "verificar" : "aplicar";
-  try { console.log(await atualizar(acao, deps)); return 0; } catch (e) { console.error(`atualizar: ${(e as Error).message}`); return 1; }
+  try { console.log(await atualizar(acao, assinantes === undefined ? deps : { ...deps, assinantesDoInstalador: assinantes })); return 0; } catch (e) { console.error(`atualizar: ${(e as Error).message}`); return 1; }
 }

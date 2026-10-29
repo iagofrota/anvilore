@@ -189,8 +189,12 @@ Para a linhagem do método e a argumentação completa das posições de design,
   barrando programas aprovadores locais e assinaturas não-SSH.
   O `fetch` (`guardaDeRede` em `src/lib/atualizacao.ts`) só abre o protocolo da origem oficial (`GIT_ALLOW_PROTOCOL`), zera o
   `credential.helper` e não pergunta senha: a configuração global não abre `ext::` antes de a tag ser autenticada.
-  Com `ANVILORE_ASSINANTES_DO_INSTALADOR` (o instalador entrega as chaves embutidas dele), o `verify-tag` usa só esse arquivo no
-  lugar do arquivo seguranca/assinantes local; ausente, vazio ou ilegível recusa. O arquivo local não é editado: vem do commit verificado.
+  Com a opção interna `anvilore atualizar --assinantes-do-instalador <arquivo>` (o instalador entrega as chaves embutidas dele), o
+  `verify-tag` usa só esse arquivo no lugar do arquivo seguranca/assinantes local; ausente, vazio ou ilegível recusa. O arquivo local
+  não é editado: vem do commit verificado. A opção só vale ao aplicar (com `--verificar`, `--voltar` ou `--estado` é uso inválido,
+  código 2) e não aparece na mensagem de "Uso:". O atualizador não lê variável de ambiente para isso: uma atualização manual ou
+  agendada que herdasse a variável trocaria a âncora por acidente. Alcance: a opção não prova que quem chamou é o instalador (um
+  processo local hostil pode passá-la, assim como poderia trocar o PATH); o ganho é que a âncora não é mais herdada por acidente.
 - O arquivo seguranca/assinantes usa o formato OpenSSH `allowed_signers`, uma entrada por linha:
   `<principal> [opções] <tipo-da-chave> <chave-pública-base64> [comentário]`. Para as tags Git, a entrada
   deve incluir `namespaces="git"` nas opções e o principal deve corresponder ao e-mail de assinatura Git
