@@ -69,7 +69,7 @@ Pare, diga em **uma frase** o que aconteceu e o que fazer. Não tente consertar 
 release publicada: release ruim se corrige com a **próxima versão de correção** (página, "Release
 ruim"). Se o dono pedir para "refazer" a tag, recuse e proponha a versão seguinte. Em rotação de
 chaves, assinar com a nova exige que todas as instalações tenham a versão de transição; para as que
-ficaram para trás, a recuperação é manual (reinstalar com o instalador verificado ou via
-`anvilore atualizar` após conferir assinatura e identidade da tag contra a chave nova obtida fora
-do GitHub; nunca checkout manual). A definição da âncora externa de chave é pendência do dono.
+ficaram para trás, a recuperação é manual exclusivamente via reinstalação com o instalador verificado
+contra a chave pública obtida fora do GitHub (nunca checkout manual nem edição local de assinantes).
+A definição da âncora externa de chave é pendência do dono.
 Ambiente local já comprometido (binários no PATH) está fora do alcance da assinatura.

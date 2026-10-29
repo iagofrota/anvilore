@@ -366,32 +366,10 @@ recusar as tags novas (chave desconhecida).
 Se alguma máquina não recebeu a versão de transição e a rotação avançou para a chave nova, o atualizador automático daquela máquina recusa a versão (chave desconhecida).
 **Nunca faça `git checkout` manual direto**: o checkout manual pula o atualizador, não executa a migração de rastreio (`atualizacao/migracoes.json`) e pode sobrescrever ou remover arquivos pessoais (`raw/`, `wiki/`, `SCHEMA.md`).
 
-Os dois caminhos seguros de recuperação são:
+O caminho seguro de recuperação é a **reinstalação com o instalador verificado**:
+Baixe o instalador da versão mais recente (`<dist/instalar.sh>` quando U3 entrar ou `<dist/instalar.ps1>` quando U4 entrar), confira seu hash SHA-256 e sua assinatura SSH contra a chave pública obtida por canal independente fora do GitHub (veja "Segurança no bootstrap"), e execute-o. O instalador preserva os dados pessoais existentes e atualiza a chave em seguranca/assinantes.
 
-1. **Reinstalar com o instalador verificado (recomendado):**
-   Baixe o instalador da versão mais recente (`<dist/instalar.sh>` quando U3 entrar ou `<dist/instalar.ps1>` quando U4 entrar), confira seu hash SHA-256 e sua assinatura SSH contra a chave pública obtida por canal independente fora do GitHub (veja "Segurança no bootstrap"), e execute-o. O instalador preserva os dados pessoais existentes e atualiza a chave em seguranca/assinantes.
-
-2. **Atualizar via `anvilore atualizar` após validar assinatura e identidade da tag:**
-   Para aplicar pelo próprio kit sem reinstalar:
-   a. Obtenha a nova chave pública por canal independente fora do GitHub (pendência do dono) e adicione-a em seguranca/assinantes (ou em arquivo temporário de assinantes).
-   b. Busque a tag e confira a **assinatura** e a **identidade interna da tag** (garantindo que o objeto assinado é uma tag anotada apontando para commit, com o nome exato e com a versão correspondente no `package.json`):
-
-   ```bash
-   git fetch origin refs/tags/vX.Y.Z:refs/tags/vX.Y.Z
-   git -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen -c gpg.ssh.allowedSignersFile=<ARQUIVO-COM-CHAVE-NOVA> verify-tag vX.Y.Z
-   git cat-file -t vX.Y.Z
-   git cat-file tag vX.Y.Z | sed -n 1,4p
-   git show vX.Y.Z:package.json | rg '"version":'
-   ```
-
-   A assinatura deve confirmar `Good "git" signature`, `git cat-file -t` deve retornar `tag`, o cabeçalho deve trazer `tag vX.Y.Z` e `type commit`, e o `package.json` deve conter `"version": "X.Y.Z"`. Se qualquer verificação falhar, **pare imediatamente**.
-   c. Em seguida, com a linha da chave nova adicionada em seguranca/assinantes, execute a atualização segura pelo próprio Anvilore:
-
-   ```bash
-   anvilore atualizar
-   ```
-
-   O atualizador lê seguranca/assinantes da pasta instalada para autenticar a tag da release (`src/lib/atualizacao.ts`). Como o atualizador guarda qualquer arquivo modificado da árvore antes do checkout (`listarModificados`) e o restaura logo após (`restaurarPessoais`), a modificação local em seguranca/assinantes é **preservada** após a atualização (o arquivo fica com a chave adicionada). Como a tag da nova versão já contém a chave oficial versionada, quem administra pode restaurar a cópia limpa do commit com `git checkout seguranca/assinantes` após a atualização terminar com sucesso.
+A recuperação manual via edição local de seguranca/assinantes e atualização foi retirada porque qualquer alteração no arquivo é preservada pelo atualizador (via `listarModificados` e `restaurarPessoais` em `src/lib/atualizacao.ts`, linhas 749 e 778), o que deixaria a chave adicionada permanentemente e impediria rotações e revogações futuras.
 
 **Chave comprometida**
 
@@ -407,7 +385,7 @@ O que **não** dá (confirmado no código; não há lista de revogação nem can
 - O kit só confia no arquivo que já tem. Se a chave comprometida era a **única**, nenhuma versão nova
   assinada por outra chave é aceita, e uma versão assinada pela comprometida seria aceita (inclusive
   se for do atacante). Nesse caso a saída é fora do kit: avisar as pessoas por outro meio para
-  atualizarem à mão (`git`) para uma versão que traga o arquivo corrigido.
+  reinstalarem com o instalador verificado para uma versão que traga o arquivo corrigido.
 - Máquinas que não atualizam continuam confiando na chave.
 - O atualizador não consulta a internet para saber se uma chave foi revogada.
 
