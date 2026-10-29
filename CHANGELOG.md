@@ -9,6 +9,10 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Security
+
+- O atualizador exige exclusivamente assinatura SSH na tag candidata (`-----BEGIN SSH SIGNATURE-----`) e desabilita programas OpenPGP e x509 (`gpg.program`, `gpg.openpgp.program`, `gpg.x509.program` apontados para comando inexistente no `verify-tag`), impedindo que tags com assinaturas OpenPGP ou x509 passem na verificação mesmo com chaves ou programas locais aprovadores.
+
 ### Fixed
 
 - Ao recriar o índice estrutural sem exemplos, `init` e `instalar` não incluem a área nem a página de exemplo. O manifesto da atualização declara os arquivos e esqueletos pessoais que deixam o rastreio na transição N→N+1.

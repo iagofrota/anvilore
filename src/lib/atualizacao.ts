@@ -613,7 +613,18 @@ export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = e
     return "seguranca/assinantes ilegível; tag candidata recusada. Confira permissões e formato OpenSSH allowed_signers; veja docs/knowledge_base/decisoes.md.";
   }
   if (tamanho === 0) return `seguranca/assinantes vazio; tag candidata recusada. Configure no kit instalado (antes da atualização) uma linha OpenSSH allowed_signers com principal igual ao e-mail de assinatura Git, opção namespaces="git" e chave pública SSH aprovada; veja docs/knowledge_base/decisoes.md.`;
-  const r = exec(["-c", "gpg.format=ssh", "-c", `gpg.ssh.allowedSignersFile=${allow}`, "verify-tag", objeto], raiz);
+  const cat = exec(["cat-file", "tag", objeto], raiz);
+  if (cat.codigo === 0 && !cat.saida.split(/\r?\n/).includes("-----BEGIN SSH SIGNATURE-----")) {
+    return `git verify-tag recusou a tag ${tag}: a tag não tem assinatura SSH. O Anvilore só aceita tags com assinatura SSH conferida por seguranca/assinantes.`;
+  }
+  const r = exec([
+    "-c", "gpg.format=ssh",
+    "-c", "gpg.program=anvilore-sem-gpg",
+    "-c", "gpg.openpgp.program=anvilore-sem-gpg",
+    "-c", "gpg.x509.program=anvilore-sem-gpg",
+    "-c", `gpg.ssh.allowedSignersFile=${allow}`,
+    "verify-tag", objeto,
+  ], raiz);
   return r.codigo === 0 ? undefined : `git verify-tag recusou a tag ${tag}: assinatura inválida ou signatário desconhecido. Confira o formato de seguranca/assinantes, o principal (e-mail de assinatura Git) e a chave pública ancorada no kit instalado antes da atualização; a chave da candidata não é confiável. ${r.saida.trim()}`;
 }
 // `verify-tag` só prova que o objeto foi assinado; não que o NOME assinado é o da ref. Um espelho pode publicar
