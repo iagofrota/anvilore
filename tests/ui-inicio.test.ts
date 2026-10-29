@@ -155,3 +155,37 @@ test("Dado wiki inexistente Quando consulto a saúde Então devolve erro legíve
   expect(saude.validar.outrosErros.length).toBeGreaterThan(0);
   expect(saude.auditoria.erro).toBeDefined();
 });
+
+// --- Resumo da tela --------------------------------------------------------------------------------------
+
+import { resumoDoInicio } from "../src/lib/ui-inicio";
+
+const GERADA = (slug: string, extras = "") => `---\ntype: concept\nslug: ${slug}\ntitle: ${slug}\ngenerated:\n  by: agente/teste\n  at: 2026-10-27T10:00:00Z\n${extras}---\n\nCorpo.\n`;
+
+test("Dado rascunhos novos, atualizados e inválidos Quando monto o resumo Então conta cada um e limita a lista", async () => {
+  for (let n = 0; n < 7; n++) escrever(`pessoal/concepts/n${n}.md`, GERADA(`n${n}`));
+  escrever("pessoal/concepts/at.md", GERADA("at", "verified:\n  - by: human:ana\n    at: 2026-10-26T10:00:00Z\n"));
+  escrever("pessoal/concepts/ruim.md", "---\ntype: concept\nslug: ruim\ngenerated: ontem\n---\nX\n");
+  const { rascunhos } = await resumoDoInicio(raiz);
+  expect(rascunhos).toMatchObject({ total: 9, novas: 7, atualizadas: 1, comErro: 1 });
+  expect(rascunhos.itens).toHaveLength(5);
+  expect(Object.keys(rascunhos.itens[0]!).sort()).toEqual(["caminho", "status", "tipo", "titulo"]);
+});
+
+test("Dado conversa aberta sobre uma fonte Quando monto o resumo Então a fonte aponta a conversa", async () => {
+  escrever("raw/pessoal/a.md", "x");
+  const resumo = await resumoDoInicio(raiz, new Map([["raw/pessoal/a.md", "conv-9"]]));
+  expect(resumo.fontes).toEqual([{ caminho: "raw/pessoal/a.md", area: "pessoal", bytes: 1, conversa: "conv-9" }]);
+  expect(resumo.atividade).toEqual([]);
+});
+
+test("Dado o resumo e a saúde Quando rodam Então não escrevem nada no vault", async () => {
+  wikiSaudavel();
+  escrever("raw/pessoal/a.md", "x");
+  escrever("log/log-2026-10-29.md", "## [2026-10-29] ingest | X\n");
+  const foto = () => Bun.spawnSync(["find", raiz, "-type", "f", "-printf", "%p %s %T@\\n"]).stdout.toString().split("\n").sort().join("\n");
+  const antes = foto();
+  await resumoDoInicio(raiz);
+  await saudeDaWiki(wiki);
+  expect(foto()).toBe(antes);
+});

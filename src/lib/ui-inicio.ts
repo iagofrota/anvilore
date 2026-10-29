@@ -5,11 +5,18 @@ import { listarLacunas } from "../comandos/listar-lacunas";
 import { validarWiki } from "../comandos/validar";
 import { lerFrontmatter } from "./frontmatter";
 import { paginasMarkdown } from "./paginas";
+import { listarFilaRascunhos } from "./ui-fila";
+import { caminhoWiki } from "./wiki-repo";
 
 // Os dados da tela Início, sem HTTP. Tudo aqui só lê: nada escreve na wiki nem em raw/.
 
 export type EntradaDeAtividade = { data: string; tipo: string; resumo: string; arquivo: string };
 export type FonteSemIngestao = { caminho: string; area: string; bytes: number; conversa?: string };
+export type ResumoDeRascunhos = {
+  total: number; novas: number; atualizadas: number; comErro: number;
+  itens: { caminho: string; titulo: string; tipo: string; status: "nova" | "atualizada" | "erro" }[];
+};
+export type ResumoDoInicio = { rascunhos: ResumoDeRascunhos; atividade: EntradaDeAtividade[]; fontes: FonteSemIngestao[] };
 export type SaudeDaWiki = {
   validar: { ok: boolean; semAprovacao: number; outrosErros: string[]; avisos: string[]; paginas: number };
   vencidas: number;
@@ -20,6 +27,7 @@ export type SaudeDaWiki = {
 const ARQUIVO_DO_DIA = /^log-\d{4}-\d{2}-\d{2}\.md$/;
 const CABECALHO = /^## \[(\d{4}-\d{2}-\d{2})\] ([^|]+?) *\| *(.+?)\s*$/;
 const SEM_APROVACAO = "página gerada sem aprovação humana:";
+const LIMITE_DE_RASCUNHOS = 5;
 const LIMITE_DE_LACUNAS = 5;
 const LIMITE_DA_AUDITORIA = 5;
 
@@ -124,5 +132,22 @@ export async function saudeDaWiki(wiki: string): Promise<SaudeDaWiki> {
     vencidas: validacao.vencidas,
     lacunas: { total: abertas.length, contradicoes: abertas.filter(linha => linha.includes(" [contradiction] ")).length, abertas: abertas.slice(0, LIMITE_DE_LACUNAS) },
     auditoria,
+  };
+}
+
+// O que a tela mostra de imediato. A saúde fica de fora de propósito: é a parte lenta e a tela a pede à parte.
+export async function resumoDoInicio(raiz: string, conversasAbertas: ReadonlyMap<string, string> = new Map(), ambiente: Record<string, string | undefined> = process.env): Promise<ResumoDoInicio> {
+  const wiki = caminhoWiki(raiz, ambiente);
+  const fila = await listarFilaRascunhos(raiz, ambiente);
+  return {
+    rascunhos: {
+      total: fila.length,
+      novas: fila.filter(item => item.status === "nova").length,
+      atualizadas: fila.filter(item => item.status === "atualizada").length,
+      comErro: fila.filter(item => item.status === "erro").length,
+      itens: fila.slice(0, LIMITE_DE_RASCUNHOS).map(({ caminho, titulo, tipo, status }) => ({ caminho, titulo, tipo, status })),
+    },
+    atividade: await atividadeRecente(wiki),
+    fontes: await fontesSemIngestao(raiz, wiki, conversasAbertas),
   };
 }

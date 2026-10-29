@@ -7,6 +7,7 @@ import type { PonteDeAgente } from "../../lib/ponte-agente";
 import { PonteClaudeCode } from "../../lib/ponte-claude-code";
 import { indexarCopias, listarFilaRascunhos } from "../../lib/ui-fila";
 import { areasDaWiki } from "../../lib/ui-fonte";
+import { resumoDoInicio, saudeDaWiki } from "../../lib/ui-inicio";
 import { ErroDeIngestao, IngestaoNaInterface } from "../../lib/ui-ingestao";
 import { caminhoWiki } from "../../lib/wiki-repo";
 import { atualizar } from "../../lib/atualizacao";
@@ -24,6 +25,8 @@ type OpcoesServidor = {
 // Teto de uma fonte enviada pela tela. Acima da janela grande (~1,15 MB) a ingestão já pede para dividir;
 // o teto só evita segurar na memória um envio por engano.
 const LIMITE_DO_ENVIO = 32 * 1024 * 1024;
+// Conversas que ainda esperam algo da pessoa ou do agente: a Início oferece continuar.
+const CONVERSA_PENDENTE = ["rodando", "esperando", "pronta"];
 const ROTA_DA_CONVERSA = /^\/api\/conversas\/([a-z0-9-]+)(?:\/(ler|seguir|cancelar))?$/;
 
 function localHost(request: Request): boolean {
@@ -182,6 +185,12 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
             return json(resultado, resultado.codigo === 0 ? 200 : 409);
           }
           if (url.pathname === "/api/validar" && request.method === "POST") return json(await validar(raiz, wiki));
+          if (url.pathname === "/api/inicio" && request.method === "GET") {
+            const conversas = (await ingestao.listar()).filter(c => CONVERSA_PENDENTE.includes(c.situacao));
+            const abertas = new Map(conversas.map(c => [c.fonte, c.id]));
+            return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas, ...await resumoDoInicio(raiz, abertas) });
+          }
+          if (url.pathname === "/api/saude" && request.method === "GET") return json(await saudeDaWiki(wiki));
           if (url.pathname === "/api/ingestao" && request.method === "GET") {
             return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas: await ingestao.listar(), atualizador: await estadoAtualizador(raiz) });
           }
