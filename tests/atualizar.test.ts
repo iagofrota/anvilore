@@ -994,4 +994,38 @@ describe("atualizador com Git real: só aceita assinatura SSH na tag", () => {
       process.env.PATH = envAntes.PATH;
     }
   });
+
+  real("Dado tag assinada por chave SSH desconhecida e gpg.ssh.program aprovador no gitconfig, Quando aplico, Então recusa a assinatura", async () => {
+    const k = await kit([...tres.slice(0, 2), { versao: "0.3.2" }]);
+    const pastaOutra = join(k.pai, "outra");
+    await mkdir(pastaOutra, { recursive: true });
+    const outra = await criarChave(pastaOutra);
+    k.ok(["-c", "gpg.format=ssh", "-c", `user.signingkey=${outra.chave}`, "tag", "-f", "-s", "v0.3.2", k.commits["0.3.2"]!, "-m", "v0.3.2"]);
+    const espelho = join(k.pai, "espelho-ssh-atacante.git");
+    expect(Bun.spawnSync(["git", "clone", "-q", "--bare", k.raiz, espelho]).exitCode).toBe(0);
+    k.ok(["update-ref", "-d", "refs/tags/v0.3.2"]);
+
+    const fakeSshKeygen = join(k.pai, "fake-ssh-keygen");
+    const fakeScript = `#!/bin/sh\nfor arg in "$@"; do\n  if [ "$arg" = "find-principals" ]; then\n    echo "teste@localhost"\n    exit 0\n  fi\ndone\necho 'Good "git" signature for teste@localhost with ED25519 key SHA256:FAKE'\nexit 0\n`;
+    await writeFile(fakeSshKeygen, fakeScript, { mode: 0o755 });
+
+    const homeGitconfig = join(process.env.HOME ?? tmpdir(), ".gitconfig");
+    let gitconfigAntes: string | null = null;
+    try {
+      if (existsSync(homeGitconfig)) gitconfigAntes = await readFile(homeGitconfig, "utf8");
+      await writeFile(homeGitconfig, `[gpg "ssh"]\n\tprogram = ${fakeSshKeygen}\n`);
+
+      k.publicar(["v0.3.2"]);
+      const executar = (args: string[]) => args[0] === "fetch"
+        ? k.git(["-c", `url.${espelho}.insteadOf=https://github.com/iagofrota/anvilore.git`, ...args])
+        : k.git(args);
+
+      await expect(atualizar("aplicar", k.deps({ executar }))).rejects.toThrow("git verify-tag recusou a tag v0.3.2");
+      await semMudanca(k, "0.3.2");
+      expect(k.git(["rev-parse", "--verify", "-q", "refs/tags/v0.3.2"]).codigo).not.toBe(0);
+    } finally {
+      if (gitconfigAntes !== null) await writeFile(homeGitconfig, gitconfigAntes);
+      else await rm(homeGitconfig, { force: true });
+    }
+  });
 });
