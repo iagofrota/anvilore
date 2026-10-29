@@ -32,7 +32,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 ### Added
 
 - `anvilore atualizar [--verificar | --voltar | --estado]`: verifica releases publicadas, compara SemVer/canal,
-  confere a assinatura SSH com a confiança local e aplica com estado retomável. Antes do checkout, recusa a versão
+  confere a assinatura SSH com a confiança local — e que o nome assinado da tag é a versão anunciada, sem
+  tag leve nem aninhada — e aplica com estado retomável. Antes do checkout, recusa a versão
   que deixaria de rastrear arquivos da pessoa sem declarar a migração e a que pede Bun mais novo sem um jeito
   seguro de atualizá-lo. Guarda com SHA-256 os arquivos editados, apagados e não rastreados da pessoa e tudo o
   que o `instalar` escreve nas configurações dos agentes; depois do checkout devolve o que é da pessoa e roda

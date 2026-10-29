@@ -193,6 +193,17 @@ Para a linhagem do método e a argumentação completa das posições de design,
   fictícia que possa ser confundida com confiança. Se o arquivo faltar, estiver vazio ou `git verify-tag`
   recusar, `anvilore atualizar` apresenta o caminho e orienta a conferir principal, opção de namespace e
   chave pública previamente provisionada; a operação é recusada até isso ser configurado.
+- `git verify-tag` prova a assinatura do objeto, não que o nome assinado é o da ref: um espelho poderia publicar
+  a ref v0.3.2 apontando para a tag assinada da v0.3.1. Por isso, depois da assinatura, o atualizador lê o
+  conteúdo assinado (`git cat-file tag`) e exige tag anotada, nome igual ao da release, alvo do tipo commit (sem
+  tag aninhada) e o mesmo commit que a ref resolve. A versão comparada, recusada e aplicada vem desse nome e tem
+  de ser mais nova que a instalada; o commit aplicado é o do objeto assinado, e o que se lê da candidata
+  (migração, `package.json`) é lido desse commit. Qualquer divergência recusa antes da cópia e do checkout.
+  A ref é resolvida uma vez e o mesmo id de objeto passa por `verify-tag`, `cat-file` e pela resolução do
+  commit. O `fetch` usa `+refs/tags/<tag>:refs/tags/<tag>`, para que uma tag trocada por um espelho seja
+  substituída pela do origin (sem o `+` o git recusa sobrescrever a tag local). Recusa por assinatura ou
+  identidade não entra em `recusadas`: o objeto não foi confirmado como da release, e marcá-la bloquearia para
+  sempre a tag legítima da mesma versão; o estado fica `recusada` com o erro e a próxima checagem tenta de novo.
 - **Antes do checkout**, nada é mudado se algo destes falhar: o atualizador compara `bun.lock`/`bun.lockb`
   entre o `HEAD` atual e a tag (erro do `git diff` recusa, nunca vale como "igual"); lê
   atualizacao/migracoes.json da tag; e **recusa a candidata** que deixaria de rastrear um arquivo da
