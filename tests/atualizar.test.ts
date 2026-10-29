@@ -751,3 +751,40 @@ describe("atualizador com Git real: tags que não são candidatas nunca são bus
     });
   }
 });
+
+describe("atualizador com Git real: recusa depois do fetch devolve a ref da tag", () => {
+  async function espelhos(k: Kit) {
+    const legitimo = join(k.pai, "legitimo.git"), malicioso = join(k.pai, "malicioso.git");
+    for (const destino of [legitimo, malicioso]) expect(Bun.spawnSync(["git", "clone", "-q", "--bare", k.raiz, destino]).exitCode).toBe(0);
+    // v0.3.2 anotada, sem assinatura, apontando para o commit instalado.
+    const ruim = gitReal(malicioso);
+    expect(ruim(["update-ref", "-d", "refs/tags/v0.3.2"]).codigo).toBe(0);
+    expect(ruim(["-c", "user.name=Espelho", "-c", "user.email=espelho@localhost", "tag", "-a", "v0.3.2", k.commits["0.3.0"]!, "-m", "v0.3.2"]).codigo).toBe(0);
+    const por = (espelho: string) => (args: string[]) => args[0] === "fetch" ? k.git(["-c", `url.${espelho}.insteadOf=https://github.com/iagofrota/anvilore.git`, ...args]) : k.git(args);
+    return { legitimo: por(legitimo), malicioso: por(malicioso) };
+  }
+
+  real("Dado a v0.3.2 ausente localmente e um espelho que a serve sem assinatura apontando para o HEAD, Quando a recusa, Então a ref some, o clone segue gerenciado e a legítima aplica depois", async () => {
+    const k = await kit([...tres.slice(0, 2), { versao: "0.3.2" }]);
+    const e = await espelhos(k);
+    k.ok(["update-ref", "-d", "refs/tags/v0.3.2"]);
+    k.publicar(["v0.3.2"]);
+    await expect(atualizar("aplicar", k.deps({ executar: e.malicioso }))).rejects.toThrow("git verify-tag recusou a tag v0.3.2");
+    expect(k.git(["rev-parse", "--verify", "-q", "refs/tags/v0.3.2"]).codigo).not.toBe(0);
+    expect(k.ok(["describe", "--tags", "--exact-match", "HEAD"])).toBe("v0.3.0");
+    expect(await atualizar("verificar", k.deps({ executar: e.legitimo, releases: async () => [] }))).toContain("0.3.0 já está atualizado");
+    expect(await atualizar("aplicar", k.deps({ executar: e.legitimo }))).toContain("Atualizado para 0.3.2");
+    expect(k.head()).toBe(k.commits["0.3.2"]!);
+  });
+
+  real("Dado a v0.3.2 legítima já no clone e um espelho que a troca por uma sem assinatura, Quando a recusa, Então a ref volta ao objeto anterior", async () => {
+    const k = await kit([...tres.slice(0, 2), { versao: "0.3.2" }]);
+    const e = await espelhos(k);
+    const antes = k.ok(["rev-parse", "refs/tags/v0.3.2"]);
+    k.publicar(["v0.3.2"]);
+    await expect(atualizar("verificar", k.deps({ executar: e.malicioso }))).rejects.toThrow("git verify-tag recusou a tag v0.3.2");
+    expect(k.ok(["rev-parse", "refs/tags/v0.3.2"])).toBe(antes);
+    expect(k.ok(["describe", "--tags", "--exact-match", "HEAD"])).toBe("v0.3.0");
+    expect(await atualizar("aplicar", k.deps({ executar: e.legitimo }))).toContain("Atualizado para 0.3.2");
+  });
+});

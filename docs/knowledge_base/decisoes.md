@@ -203,11 +203,15 @@ Para a linhagem do método e a argumentação completa das posições de design,
   commit. O `fetch` usa `+refs/tags/<tag>:refs/tags/<tag>`, para que uma tag trocada por um espelho seja
   substituída pela do origin (sem o `+` o git recusa sobrescrever a tag local). Esse fetch só roda para uma
   versão **mais nova que a instalada**, comparada antes de qualquer busca e em toda ação (uma `baixada` obsoleta
-  é descartada); e nunca para uma tag de versão igual ou anterior que aponte para o commit instalado ou para os de
-  refs/anvilore/*. Assim um espelho não sobrescreve a tag da versão instalada nem a da anterior. Recusa por
+  é descartada); como o nome da candidata é então sempre outro, um espelho não sobrescreve a tag da versão
+  instalada nem a da anterior. Qualquer recusa ou erro depois do fetch, até a verificação terminar, devolve a ref
+  da tag ao que era antes da busca (apaga se não existia): uma tag não confirmada apontando para o commit
+  instalado mudaria o `describe` e o clone deixaria de ser gerenciado. Recusa por
   assinatura ou identidade não entra em `recusadas`: o objeto não foi confirmado como da release, e marcá-la
   bloquearia para sempre a tag legítima da mesma versão; o estado fica `recusada` com o erro e com `verificadoEm`,
   para que o hook de início de sessão só tente de novo depois de 24 h.
+  **Limite:** a falha ao consultar a API de releases também grava `verificadoEm`; sem rede ou com o GitHub fora do
+  ar, a checagem seguinte espera as mesmas 24 h.
 - **Antes do checkout**, nada é mudado se algo destes falhar: o atualizador compara `bun.lock`/`bun.lockb`
   entre o `HEAD` atual e a tag (erro do `git diff` recusa, nunca vale como "igual"); lê
   atualizacao/migracoes.json da tag; e **recusa a candidata** que deixaria de rastrear um arquivo da
