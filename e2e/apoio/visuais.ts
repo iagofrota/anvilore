@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import type { Page } from "@playwright/test";
 
-export async function guardarEvidencias(page: Page, tela: "chat" | "revisao"): Promise<void> {
+export async function guardarEvidencias(page: Page, tela: "inicio" | "chat" | "revisao"): Promise<void> {
   if (process.env.E2E_EVIDENCIA_VISUAL !== "1") return;
   const pasta = "e2e/resultados/evidencias";
   mkdirSync(pasta, { recursive: true });
