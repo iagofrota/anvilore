@@ -74,6 +74,7 @@ jobs:
           $c.Run.Exit = $true
           Invoke-Pester -Configuration $c
       - name: Prova de ponta a ponta do instalar.ps1 (perfil vazio, tag assinada com chave descartável)
+        if: ${{ !cancelled() }}
         shell: powershell
         run: |
           Import-Module Pester -MinimumVersion 5.5
