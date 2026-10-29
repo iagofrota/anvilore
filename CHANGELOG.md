@@ -9,6 +9,10 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Fixed
+
+- Ao recriar o índice estrutural sem exemplos, `init` e `instalar` não incluem a área nem a página de exemplo. O manifesto da atualização declara os arquivos e esqueletos pessoais que deixam o rastreio na transição N→N+1.
+
 ### Atenção
 
 - **Antes de atualizar um clone antigo, peça ao agente para rodar `bun src/cli.ts migrar-rastreio --puxar`.** Esta

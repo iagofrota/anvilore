@@ -21,6 +21,12 @@ test("Dado a pasta modelos/ do kit, Quando listo as peças, Então cobre exatame
   }
 });
 
+test("Dado o manifesto da N+1, Quando declaro a migração do rastreio, Então lista exatamente os caminhos relativos seguros do contrato §4b", () => {
+  const manifesto = JSON.parse(readFileSync(join(raiz, "atualizacao/migracoes.json"), "utf8")) as { deixa_de_rastrear: string[] };
+  expect(manifesto.deixa_de_rastrear).toEqual([...LISTA_DO_RASTREIO]);
+  expect(manifesto.deixa_de_rastrear.every(caminho => caminho !== "" && !caminho.startsWith("/") && !caminho.split("/").some(parte => parte === "" || parte === "." || parte === ".."))).toBe(true);
+});
+
 test("Dado um caminho da pessoa, Quando procuro o original, Então acha em modelos/ ou diz que não é da pessoa", () => {
   expect(origemNoModelo("raw/")).toBe("fontes");
   expect(origemNoModelo("raw/exemplo/llm-wiki.md")).toBe("fontes/exemplo/llm-wiki.md");
@@ -82,6 +88,9 @@ test("Dado wiki/ existente e raw/ ausente, Quando copio com exemplo, Então só 
 test("Dado pedido sem exemplo, Quando copio numa pasta vazia, Então só o estrutural nasce", async () => {
   const r = await copiarModelos(tmp, { exemplo: false });
   expect(r.criados.sort()).toEqual([...ESTRUTURAIS].sort());
+  const indice = readFileSync(join(tmp, "wiki/index.md"), "utf8");
+  expect(indice).not.toContain("## Área: exemplo");
+  expect(indice).not.toContain("[[area-tematica]]");
 });
 
 test("Dado simulação, Quando planejo, Então devolve o que seria criado sem escrever nada", async () => {
