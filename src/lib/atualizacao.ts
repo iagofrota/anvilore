@@ -554,11 +554,11 @@ function listarModificados(raiz: string, exec: Exec): string[] {
   }
   return caminhos;
 }
-function lerMigracoes(raiz: string, tag: string, exec: Exec): string[] {
-  const existe = exec(["ls-tree", "--name-only", tag, "--", CAMINHO_MIGRACOES], raiz);
+function lerMigracoes(raiz: string, commit: string, exec: Exec): string[] {
+  const existe = exec(["ls-tree", "--name-only", commit, "--", CAMINHO_MIGRACOES], raiz);
   if (existe.codigo !== 0) throw erro("migração declarada", existe.saida.trim());
   if (!existe.saida.trim()) return [];
-  const r = exec(["show", `${tag}:${CAMINHO_MIGRACOES}`], raiz);
+  const r = exec(["show", `${commit}:${CAMINHO_MIGRACOES}`], raiz);
   if (r.codigo !== 0) throw erro("migração declarada", r.saida.trim());
   let value: any; try { value = JSON.parse(r.saida); } catch { throw erro("migração declarada inválida", `${CAMINHO_MIGRACOES} não é JSON válido`); }
   if (!Array.isArray(value?.deixa_de_rastrear) || !value.deixa_de_rastrear.every(caminhoSeguro)) throw erro("migração declarada inválida", "deixa_de_rastrear precisa ser uma lista de caminhos relativos seguros");
@@ -580,8 +580,8 @@ function dadosQueOCheckoutApagaria(raiz: string, de: string, para: string, decla
   }
   return apagados.filter(rel => !cobertos.has(rel));
 }
-async function bunExigido(raiz: string, tag: string, exec: Exec, estado: Estado, deps: DependenciasAtualizacao): Promise<string | undefined> {
-  const r = exec(["show", `${tag}:package.json`], raiz);
+async function bunExigido(raiz: string, commit: string, tag: string, exec: Exec, estado: Estado, deps: DependenciasAtualizacao): Promise<string | undefined> {
+  const r = exec(["show", `${commit}:package.json`], raiz);
   if (r.codigo !== 0) throw erro("package.json da versão nova", r.saida.trim());
   let pm: unknown;
   try { pm = (JSON.parse(r.saida) as { packageManager?: unknown }).packageManager; } catch { throw erro("package.json da versão nova", "não é JSON válido"); }
@@ -607,6 +607,30 @@ export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = e
   if (tamanho === 0) return `seguranca/assinantes vazio; tag candidata recusada. Configure no kit instalado (antes da atualização) uma linha OpenSSH allowed_signers com principal igual ao e-mail de assinatura Git, opção namespaces="git" e chave pública SSH aprovada; veja docs/knowledge_base/decisoes.md.`;
   const r = exec(["-c", "gpg.format=ssh", "-c", `gpg.ssh.allowedSignersFile=${allow}`, "verify-tag", tag], raiz);
   return r.codigo === 0 ? undefined : `git verify-tag recusou a tag ${tag}: assinatura inválida ou signatário desconhecido. Confira o formato de seguranca/assinantes, o principal (e-mail de assinatura Git) e a chave pública ancorada no kit instalado antes da atualização; a chave da candidata não é confiável. ${r.saida.trim()}`;
+}
+// `verify-tag` só prova que o objeto foi assinado; não que o NOME assinado é o da ref. Um espelho pode publicar
+// refs/tags/v0.3.2 apontando para a tag assinada da v0.3.1. Aqui a identidade vem do conteúdo assinado: o objeto é
+// uma tag anotada, `tag` é o nome pedido, `type` é commit (sem tag aninhada) e `object` é o commit que será aplicado.
+export function identidadeDaTag(raiz: string, tag: string, exec: Exec = execPadrao): { versao: string; commit: string } | string {
+  const tipo = exec(["cat-file", "-t", tag], raiz);
+  if (tipo.codigo !== 0 || tipo.saida.trim() !== "tag") return `a ref ${tag} não é uma tag anotada (tipo ${tipo.saida.trim() || "desconhecido"}); recusada.`;
+  const conteudo = exec(["cat-file", "tag", tag], raiz);
+  if (conteudo.codigo !== 0) return `não consegui ler a tag ${tag}: ${conteudo.saida.trim()}`;
+  const cabecalho = new Map<string, string>();
+  for (const linha of conteudo.saida.split("\n")) {
+    if (linha === "") break;
+    const espaco = linha.indexOf(" ");
+    if (espaco > 0 && !cabecalho.has(linha.slice(0, espaco))) cabecalho.set(linha.slice(0, espaco), linha.slice(espaco + 1));
+  }
+  const nome = cabecalho.get("tag"), objeto = cabecalho.get("object") ?? "", alvo = cabecalho.get("type");
+  if (nome !== tag) return `a tag assinada se chama ${nome ?? "(sem nome)"}, não ${tag}; a ref foi trocada e a versão anunciada não é a assinada. Recusada.`;
+  if (alvo !== "commit") return `a tag ${tag} aponta para um objeto do tipo ${alvo ?? "desconhecido"}, não para um commit; recusada.`;
+  if (!COMMIT.test(objeto)) return `a tag ${tag} não traz um commit válido; recusada.`;
+  const resolvido = exec(["rev-parse", "--verify", "-q", `${tag}^{commit}`], raiz).saida.trim();
+  if (resolvido !== objeto) return `a tag ${tag} aponta para ${objeto}, mas a ref resolve para ${resolvido || "nada"}; recusada.`;
+  const versao = tag.startsWith("v") ? tag.slice(1) : tag;
+  if (!parsearSemVer(versao)) return `o nome assinado ${tag} não é uma versão SemVer; recusada.`;
+  return { versao, commit: objeto };
 }
 function oficial(raiz: string, exec: Exec) {
   const rem = exec(["remote", "get-url", "origin"], raiz).saida.trim();
@@ -696,18 +720,19 @@ async function concluirReversao(raiz: string, estado: Estado, exec: Exec, erroOr
   await gravarEstado(raiz, estado);
 }
 
-async function aplicar(raiz: string, estado: Estado, release: { tag: string; versao: string }, exec: Exec, deps: DependenciasAtualizacao): Promise<string> {
+// `release` já passou por verificarAssinaturaTag e identidadeDaTag: versão e commit vêm do conteúdo assinado.
+async function aplicar(raiz: string, estado: Estado, release: { tag: string; versao: string; commit: string }, exec: Exec, deps: DependenciasAtualizacao): Promise<string> {
   let op: Operacao, copia: Copia;
   try {
-    const origemCommit = commitDe(raiz, exec, "HEAD"), alvoCommit = commitDe(raiz, exec, `${release.tag}^{commit}`);
+    const origemCommit = commitDe(raiz, exec, "HEAD"), alvoCommit = release.commit;
     const origemVersao = estado.versaoInstalada ?? (await versaoDoKit(raiz)).versao;
-    const migracoes = lerMigracoes(raiz, release.tag, exec);
+    const migracoes = lerMigracoes(raiz, alvoCommit, exec);
     const semMigrar = dadosQueOCheckoutApagaria(raiz, origemCommit, alvoCommit, migracoes, exec);
     if (semMigrar.length) {
       estado.estado = "recusada"; estado.recusadas = [...new Set([...(estado.recusadas ?? []), release.versao])];
       throw erro("versão recusada", `a ${release.tag} deixaria de rastrear arquivos que são seus (${resumir(semMigrar)}) sem declará-los em ${CAMINHO_MIGRACOES}; o checkout os apagaria. Nada foi mudado.`);
     }
-    const bunMinimo = await bunExigido(raiz, release.tag, exec, estado, deps);
+    const bunMinimo = await bunExigido(raiz, alvoCommit, release.tag, exec, estado, deps);
     const lockMudou = arquivosDiferem(raiz, exec, origemCommit, alvoCommit, ["bun.lock", "bun.lockb"]);
     const doctor = await diagnosticoAtivo(raiz, deps);
     const hook = await provaDoHook(raiz, deps);
@@ -875,15 +900,20 @@ export async function atualizar(acao: "verificar" | "voltar" | "estado" | "autom
     if (decision === "ignorar" && acao !== "aplicar") return `Atualização ignorada pela política atual (${state.modo}, canal ${state.canal}).`;
     const fetch = exec(["fetch", "origin", "tag", release.tag, "--no-tags"], raiz);
     if (fetch.codigo) throw erro("fetch", fetch.saida.trim());
-    const bad = verificarAssinaturaTag(raiz, release.tag, exec);
-    if (bad) { state.estado = "recusada"; state.recusadas = [...new Set([...(state.recusadas ?? []), release.versao])]; state.erro = bad; await gravarEstado(raiz, state); await log(raiz, `assinatura inválida tag=${release.tag}`); throw new Error(bad); }
+    const assinada = verificarAssinaturaTag(raiz, release.tag, exec) ?? identidadeDaTag(raiz, release.tag, exec);
+    const bad = typeof assinada === "string" ? assinada
+      : assinada.versao !== release.versao ? `a release anuncia ${release.versao}, mas a tag assinada é ${assinada.versao}; recusada.`
+      : compararSemVer(assinada.versao, atual) <= 0 ? `a tag assinada ${release.tag} não é mais nova que a ${atual} instalada; recusada.`
+      : undefined;
+    if (bad || typeof assinada === "string") { state.estado = "recusada"; state.recusadas = [...new Set([...(state.recusadas ?? []), release.versao])]; state.erro = bad; await gravarEstado(raiz, state); await log(raiz, `tag recusada tag=${release.tag}: ${bad}`); throw new Error(bad); }
+    const confirmada = { tag: release.tag, versao: assinada.versao, commit: assinada.commit };
     if (acao === "verificar" || (acao === "automatico" && state.estado !== "baixada")) {
       state.estado = "baixada"; state.disponivel = release.versao; state.tagDisponivel = release.tag; state.verificadoEm = new Date().toISOString();
       await gravarEstado(raiz, state);
       return decision === "perguntar" ? `Há uma versão que pede confirmação: ${release.versao}. Rode o comando anvilore atualizar para aplicar.` : `Versão ${release.versao} conferida e aguardando a próxima sessão.`;
     }
     if (acao === "automatico" && decision !== "aplicar") { state.estado = "baixada"; state.disponivel = release.versao; state.tagDisponivel = release.tag; await gravarEstado(raiz, state); return `Versão ${release.versao} aguardando confirmação.`; }
-    return await aplicar(raiz, state, release, exec, deps);
+    return await aplicar(raiz, state, confirmada, exec, deps);
   });
 }
 

@@ -604,3 +604,47 @@ describe("atualizador com Git real: ciclo do alerta de raw/ alterado", () => {
     expect(await alerta()).toBeUndefined();
   });
 });
+
+describe("atualizador com Git real: o nome assinado da tag é a versão anunciada", () => {
+  async function semMudanca(k: Kit, versao: string) {
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+    const estado = await k.estado();
+    expect(estado).toMatchObject({ versaoInstalada: "0.3.0", estado: "recusada", recusadas: [versao] });
+    expect(estado.operacao).toBeUndefined();
+    expect(estado.ultima).toBeUndefined();
+    expect(existsSync(join(k.raiz, ".anvilore/atualizacao"))).toBe(false);
+  }
+
+  real("Dado a ref v0.3.2 apontando para a tag assinada da v0.3.1, Quando aplico, Então recuso antes de qualquer cópia ou checkout", async () => {
+    const k = await kit(tres.slice(0, 2));
+    k.ok(["update-ref", "refs/tags/v0.3.2", k.ok(["rev-parse", "refs/tags/v0.3.1"])]);
+    k.publicar(["v0.3.2"]);
+    await expect(atualizar("aplicar", k.deps())).rejects.toThrow("a tag assinada se chama v0.3.1, não v0.3.2");
+    await semMudanca(k, "0.3.2");
+  });
+
+  real("Dado a ref v0.3.2 apontando para a tag assinada da v0.3.1, Quando só verifico, Então também recuso e não marco como baixada", async () => {
+    const k = await kit(tres.slice(0, 2));
+    k.ok(["update-ref", "refs/tags/v0.3.2", k.ok(["rev-parse", "refs/tags/v0.3.1"])]);
+    k.publicar(["v0.3.2"]);
+    await expect(atualizar("verificar", k.deps())).rejects.toThrow("não v0.3.2");
+    await semMudanca(k, "0.3.2");
+  });
+
+  real("Dado a v0.3.2 como tag leve, Quando aplico, Então recuso", async () => {
+    const k = await kit(tres.slice(0, 2));
+    k.ok(["tag", "v0.3.2", k.commits["0.3.1"]!]);
+    k.publicar(["v0.3.2"]);
+    await expect(atualizar("aplicar", k.deps())).rejects.toThrow("v0.3.2");
+    await semMudanca(k, "0.3.2");
+  });
+
+  real("Dado a v0.3.2 assinada mas apontando para outra tag, Quando aplico, Então recuso a tag aninhada", async () => {
+    const k = await kit(tres.slice(0, 2));
+    k.ok(["-c", "gpg.format=ssh", "-c", `user.signingkey=${k.chave}`, "tag", "-s", "v0.3.2", "refs/tags/v0.3.1", "-m", "v0.3.2"]);
+    expect(k.git(["-c", "gpg.format=ssh", "-c", `gpg.ssh.allowedSignersFile=${join(k.raiz, "seguranca/assinantes")}`, "verify-tag", "v0.3.2"]).codigo).toBe(0);
+    k.publicar(["v0.3.2"]);
+    await expect(atualizar("aplicar", k.deps())).rejects.toThrow("aponta para um objeto do tipo tag");
+    await semMudanca(k, "0.3.2");
+  });
+});
