@@ -46,11 +46,15 @@ Duas consequências práticas:
   SessionStart de Claude e Codex consulta uma vez a cada 24 horas: `hooks/hooks.json`,
   `src/comandos/hooks-wiki.ts`). Trate toda release de correção como algo que vai rodar na máquina de
   todo mundo sem pedir.
-- **Uma versão que o kit recusou por motivo da própria versão** (migração ausente, Bun) fica em
-  `recusadas` naquela máquina e **nunca mais é reconsiderada** ("já foi recusada; aguardando outra
-  release"). Só uma versão nova a destrava. Recusa por assinatura ou identidade **não** entra em
-  `recusadas` (o objeto não foi confirmado como da release), mas o estado fica `recusada` até a
-  próxima checagem, que espera 24 horas.
+- **Uma versão que deixaria de rastrear arquivos da pessoa sem declarar a migração**, ou **uma
+  aplicação que falhou e foi revertida**, fica em `recusadas` naquela máquina e **nunca mais é
+  reconsiderada** ("já foi recusada; aguardando outra release"). Só uma versão nova a destrava
+  (`src/lib/atualizacao.ts`: recusa da migração em `aplicar`, reversão em `concluirReversao`).
+- **Bun desatualizado não é recusa permanente**: `bunExigido` para a atualização sem tocar em
+  `recusadas`, e o diagnóstico pede para atualizar o Bun e tentar de novo. Depois de atualizar o Bun, a
+  **mesma** versão é aplicada; não é preciso publicar outra.
+- Recusa por assinatura ou identidade **não** entra em `recusadas` (o objeto não foi confirmado como
+  da release), mas o estado fica `recusada` até a próxima checagem, que espera 24 horas.
 
 ## Pré-requisitos (uma vez)
 
@@ -219,6 +223,22 @@ por vez**.
    é da pública (nunca se imprime a privada). O último comando tem de imprimir a linha do dono e sair com
    0: prova que a chave **já está** em `vANTERIOR` (veja "A ordem que faz a confiança fechar").
 
+   **Exceção: a primeira release assinada (bootstrap).** Se `vANTERIOR` é a `0.2.0`, ou outra versão
+   sem seguranca/assinantes, o último comando falha porque o arquivo não existe nela, e não por chave
+   errada. Só nesse caso, e com um "sim" do dono **específico para o bootstrap**, confira contra o
+   arquivo que a própria release traz:
+
+   ```bash
+   git show vANTERIOR:seguranca/assinantes   # tem de falhar: o arquivo não existe na anterior
+   git show <COMMIT>:seguranca/assinantes | rg -F "$(cut -d' ' -f1,2 <CAMINHO-DA-CHAVE-PRIVADA>.pub)"
+   ```
+
+   O primeiro comando tem de falhar; se ele imprimir um arquivo, não há bootstrap e vale a regra de
+   cima. O segundo tem de imprimir a linha do dono. Mostre ao dono a impressão digital
+   (`ssh-keygen -l`) para ele comparar com a chave que publicou no canal fora do GitHub. Essa release
+   é aplicada à mão, não pelo atualizador (item 1 de "A ordem que faz a confiança fechar"). Da release
+   seguinte em diante, a conferência volta a ser sempre contra `vANTERIOR`.
+
 Antes de passar ao publicar, o resumo ao dono diz: versão, commit, o que mudou, resultado das
 conferências, checklist de segurança, conferência dos instaladores e assinaturas, os três jobs do CI e a impressão digital da chave.
 
@@ -237,12 +257,20 @@ torna anotada. Confira a assinatura com o arquivo da **versão anterior**, que �
 
 ```bash
 git show vANTERIOR:seguranca/assinantes > <ARQUIVO-TEMPORARIO-DE-ASSINANTES>
-git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=<ARQUIVO-TEMPORARIO-DE-ASSINANTES> verify-tag vX.Y.Z
+git -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen -c gpg.ssh.allowedSignersFile=<ARQUIVO-TEMPORARIO-DE-ASSINANTES> verify-tag vX.Y.Z
 ```
 
 Tem de imprimir `Good "git" signature` e sair com 0. Se falhar, **não envie**: apague a tag *local*
 (`git tag -d vX.Y.Z`, só enquanto ela não saiu da sua máquina) e descubra a causa (chave, e-mail,
 arquivo da versão anterior).
+
+Na primeira release assinada (bootstrap aprovado pelo dono no item 11), `vANTERIOR` não tem o
+arquivo. Confira com o da própria release; as demais regras ficam iguais:
+
+```bash
+git show <COMMIT>:seguranca/assinantes > <ARQUIVO-TEMPORARIO-DE-ASSINANTES>
+git -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen -c gpg.ssh.allowedSignersFile=<ARQUIVO-TEMPORARIO-DE-ASSINANTES> verify-tag vX.Y.Z
+```
 
 **Ação 2 — enviar a tag.** Sem `--force`, sem `+`, só esta tag:
 

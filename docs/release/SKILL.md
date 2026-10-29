@@ -51,12 +51,16 @@ mostre só o que decide algo.
    (`git show vANTERIOR:seguranca/assinantes | rg -F …`). Sem isso, pare: se a chave ainda não foi
    publicada, a release atual é a que a leva e **não será aceita pelo atualizador**; diga isso e
    deixe o dono decidir. Se faltar configuração, diga o que o dono precisa configurar (você não
-   escolhe a chave).
+   escolhe a chave). **Bootstrap:** se a versão anterior não tem seguranca/assinantes (a `0.2.0`), é a
+   primeira release assinada. Só com um "sim" do dono específico para o bootstrap, confira a linha no
+   arquivo **da própria release** (`git show <COMMIT>:seguranca/assinantes | rg -F …`) e mostre a
+   impressão digital para ele comparar com a chave publicada fora do GitHub (página, item 11).
 5. **Resumo e os três "sim".** Mostre, em poucas linhas: versão, commit, o que muda, resultado das
    conferências, CI nos três sistemas, impressão digital e canal (estável ou pré-release). Depois,
    uma ação por vez, esperando "sim" a cada uma:
    1. criar a tag assinada: `git tag -s vX.Y.Z -m "Anvilore X.Y.Z" <COMMIT>`, depois conferir
-      `git cat-file -t` e `verify-tag` com o arquivo da **versão anterior** (página, Ação 1). Se a
+      `git cat-file -t` e `verify-tag` com o arquivo da **versão anterior**, ou com o da própria
+      release no bootstrap aprovado (página, Ação 1). Se a
       conferência falhar, apague só a tag **local** e pare;
    2. enviar a tag: `git push origin refs/tags/vX.Y.Z` (nunca `--force`) e conferir com `ls-remote`;
    3. criar a release: `gh release create vX.Y.Z ...` anexando os instaladores, hashes e assinaturas SSH (quando U3/U4 entrarem na `main`), com `--prerelease` se a versão tem sufixo e `--latest=false` se é correção de linha antiga.
