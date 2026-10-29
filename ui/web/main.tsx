@@ -3,14 +3,16 @@ import { createRoot } from "react-dom/client";
 import type { Rascunho } from "../../src/lib/ui-fila";
 import { api } from "./api";
 import { Chat, type EstadoDaIngestao } from "./chat";
+import { Inicio } from "./inicio";
+import { lerRota } from "./navegacao";
 import { diffLinhas, ErroApi, indiceVizinho } from "./revisao";
+import { Shell } from "./shell";
 import "./styles.css";
 
 type Item = Rascunho & { anterior?: string };
 type ResultadoValidacao = { codigo: number; saida: string };
 type Filtro = "Todas" | "Novas" | "Atualizadas";
 type Tema = "claro" | "escuro";
-type Rota = { tela: "chat" | "revisao"; id?: string };
 
 function dataCurta(valor?: string): string {
   if (!valor) return "—";
@@ -18,21 +20,15 @@ function dataCurta(valor?: string): string {
   return Number.isNaN(data.valueOf()) ? valor : new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short" }).format(data);
 }
 
-function lerRota(): Rota {
-  const [, tela, id] = window.location.hash.split("/");
-  if (tela === "revisao") return { tela: "revisao" };
-  return { tela: "chat", ...(id && /^[a-z0-9-]+$/.test(id) ? { id } : {}) };
-}
-
 function Aplicacao() {
-  const [rota, setRota] = useState<Rota>(lerRota);
+  const [rota, setRota] = useState(() => lerRota(window.location.hash));
   const [tema, setTema] = useState<Tema>(() => localStorage.getItem("anvilore-tema") === "escuro" ? "escuro" : "claro");
   const [estado, setEstado] = useState<EstadoDaIngestao | null>(null);
   const [operandoAtualizador, setOperandoAtualizador] = useState(false);
   const [mensagemAtualizador, setMensagemAtualizador] = useState("");
 
   useEffect(() => {
-    const mudou = () => setRota(lerRota());
+    const mudou = () => setRota(lerRota(window.location.hash));
     window.addEventListener("hashchange", mudou);
     return () => window.removeEventListener("hashchange", mudou);
   }, []);
@@ -46,7 +42,7 @@ function Aplicacao() {
   }, []);
   useEffect(() => { void recarregarEstado(); }, [recarregarEstado]);
 
-  const acionarAtualizador = async (acao: "verificar" | "aplicar" | "voltar" | "automatico") => {
+  const acionarAtualizador = async (acao: AcaoDoAtualizador) => {
     setOperandoAtualizador(true);
     try {
       const resultado = await api<{ mensagem: string }>("/api/atualizador", "POST", { acao });
@@ -58,60 +54,42 @@ function Aplicacao() {
     } finally { setOperandoAtualizador(false); }
   };
 
-  // Voltar à interface sem uma conversa na URL reabre a que ficou no meio do caminho.
-  const abertaUmaVez = React.useRef(false);
-  useEffect(() => {
-    if (abertaUmaVez.current || !estado || rota.tela !== "chat" || rota.id) return;
-    abertaUmaVez.current = true;
-    const pendente = estado.conversas.find(c => ["rodando", "esperando", "pronta"].includes(c.situacao));
-    if (pendente) window.location.hash = `#/chat/${pendente.id}`;
-  }, [estado, rota]);
-
   const abrir = useCallback((id?: string) => { window.location.hash = id ? `#/chat/${id}` : "#/chat"; }, []);
   const alternarTema = useCallback(() => setTema(atual => atual === "claro" ? "escuro" : "claro"), []);
 
-  return <div className="layout">
-    <aside className="sidebar">
-      <div className="brand"><span className="brand-mark">a</span><span>anvilore</span></div>
-      <nav className="nav" aria-label="Telas">
-        <a href="#/chat" className={rota.tela === "chat" && !rota.id ? "active" : ""} onClick={() => abertaUmaVez.current = true}>＋ Nova ingestão</a>
-        <a href="#/revisao" className={rota.tela === "revisao" ? "active" : ""}>Revisão</a>
-      </nav>
-      {estado && estado.conversas.length > 0 && <>
-        <div className="vault-label">CONVERSAS</div>
-        <nav className="conversations" aria-label="Conversas">
-          {estado.conversas.map(c => <a key={c.id} href={`#/chat/${c.id}`} className={rota.id === c.id ? "active" : ""} title={c.fonte}>
-            <span className={`conversation-dot ${c.situacao}`} aria-hidden="true" />Ingerir: {c.nome}
-          </a>)}
-        </nav>
-      </>}
-      <div className="sidebar-bottom"><span className="status-dot" /> <span>{estado?.agente ?? "Agente"}</span> <span className="sidebar-spacer" /> <span className="mono">raw/ protegido</span></div>
-    </aside>
-    <div className="main-column">
-    {estado?.atualizador && <section className={`update-panel ${["reversao-incompleta", "migracao-incompleta", "aplicando", "revertendo"].includes(estado.atualizador.estado) ? "problem" : ""}`} role={["reversao-incompleta", "migracao-incompleta", "aplicando", "revertendo"].includes(estado.atualizador.estado) ? "alert" : "status"}>
-      <div className="update-copy">
-        {estado.atualizador.atualizadoEm && Date.now() - Date.parse(estado.atualizador.atualizadoEm) < 60 * 60 * 1000
-          ? <strong>Atualizado para {estado.atualizador.versaoInstalada} — o que mudou</strong>
-          : <strong>Atualizador · {estado.atualizador.estado}</strong>}
-        {estado.atualizador.mudancas.map(item => <span key={item}>{item}</span>)}
-        {estado.atualizador.atualizadoEm && Date.now() - Date.parse(estado.atualizador.atualizadoEm) < 60 * 60 * 1000 && estado.atualizador.mudancas.length === 0 && <span>Veja o resumo desta versão em CHANGELOG.md.</span>}
-        {estado.atualizador.disponivel && <span>Versão {estado.atualizador.disponivel} conferida e pronta.</span>}
-        {estado.atualizador.erro && <span>{estado.atualizador.erro}</span>}
-        {estado.atualizador.etapa && <span>Etapa para recuperar: {estado.atualizador.etapa}</span>}
-        {mensagemAtualizador && <span>{mensagemAtualizador}</span>}
-      </div>
-      <div className="update-actions">
-        {estado.atualizador.estado === "baixada"
-          ? <button disabled={operandoAtualizador} onClick={() => void acionarAtualizador("aplicar")}>Atualizar agora</button>
-          : ["aplicando", "revertendo", "reversao-incompleta", "migracao-incompleta"].includes(estado.atualizador.estado)
-            ? <button disabled={operandoAtualizador} onClick={() => void acionarAtualizador("automatico")}>Tentar de novo</button>
-            : <button disabled={operandoAtualizador} onClick={() => void acionarAtualizador("verificar")}>Verificar agora</button>}
-        {estado.atualizador.podeVoltar && <button className="secondary-button" disabled={operandoAtualizador} onClick={() => void acionarAtualizador("voltar")}>Voltar para a versão anterior</button>}
-      </div>
-    </section>}
-    {rota.tela === "revisao" ? <Revisao tema={tema} alternarTema={alternarTema} /> : <Chat id={rota.id} estado={estado} recarregarEstado={recarregarEstado} abrir={abrir} tema={tema} alternarTema={alternarTema} />}
+  const atualizador = estado?.atualizador && <PainelDoAtualizador atualizador={estado.atualizador} mensagem={mensagemAtualizador} operando={operandoAtualizador} acionar={acionarAtualizador} />;
+  return <Shell rota={rota} conversas={estado?.conversas ?? []} agente={estado?.agente ?? "Agente"} aviso={atualizador}>
+    {rota.tela === "revisao" ? <Revisao tema={tema} alternarTema={alternarTema} />
+      : rota.tela === "chat" ? <Chat id={rota.id} estado={estado} recarregarEstado={recarregarEstado} abrir={abrir} tema={tema} alternarTema={alternarTema} />
+        : <Inicio tema={tema} alternarTema={alternarTema} />}
+  </Shell>;
+}
+
+type AcaoDoAtualizador = "verificar" | "aplicar" | "voltar" | "automatico";
+const COM_PROBLEMA = ["reversao-incompleta", "migracao-incompleta", "aplicando", "revertendo"];
+
+function PainelDoAtualizador({ atualizador, mensagem, operando, acionar }: { atualizador: NonNullable<EstadoDaIngestao["atualizador"]>; mensagem: string; operando: boolean; acionar: (acao: AcaoDoAtualizador) => Promise<void> }) {
+  const recente = atualizador.atualizadoEm !== undefined && Date.now() - Date.parse(atualizador.atualizadoEm) < 60 * 60 * 1000;
+  const problema = COM_PROBLEMA.includes(atualizador.estado);
+  return <section className={`update-panel ${problema ? "problem" : ""}`} role={problema ? "alert" : "status"}>
+    <div className="update-copy">
+      {recente ? <strong>Atualizado para {atualizador.versaoInstalada} — o que mudou</strong> : <strong>Atualizador · {atualizador.estado}</strong>}
+      {atualizador.mudancas.map(item => <span key={item}>{item}</span>)}
+      {recente && atualizador.mudancas.length === 0 && <span>Veja o resumo desta versão em CHANGELOG.md.</span>}
+      {atualizador.disponivel && <span>Versão {atualizador.disponivel} conferida e pronta.</span>}
+      {atualizador.erro && <span>{atualizador.erro}</span>}
+      {atualizador.etapa && <span>Etapa para recuperar: {atualizador.etapa}</span>}
+      {mensagem && <span>{mensagem}</span>}
     </div>
-  </div>;
+    <div className="update-actions">
+      {atualizador.estado === "baixada"
+        ? <button disabled={operando} onClick={() => void acionar("aplicar")}>Atualizar agora</button>
+        : problema
+          ? <button disabled={operando} onClick={() => void acionar("automatico")}>Tentar de novo</button>
+          : <button disabled={operando} onClick={() => void acionar("verificar")}>Verificar agora</button>}
+      {atualizador.podeVoltar && <button className="secondary-button" disabled={operando} onClick={() => void acionar("voltar")}>Voltar para a versão anterior</button>}
+    </div>
+  </section>;
 }
 
 function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void }) {
