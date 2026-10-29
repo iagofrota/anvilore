@@ -71,6 +71,18 @@ describe("ui-nota: obterNota", () => {
       expect(obterNota(RAIZ, "log.md")).rejects.toThrow(ErroDeCaminhoInvalido);
     });
 
+    test("recusa caminhos reservados da wiki independentemente de caixa (_META, Log, LOG.md, Index.md)", async () => {
+      await mkdir(join(RAIZ, "wiki/_META"), { recursive: true });
+      await mkdir(join(RAIZ, "wiki/Log"), { recursive: true });
+      await writeFile(join(RAIZ, "wiki/_META/segredo.md"), "# Meta segredo\n");
+      await writeFile(join(RAIZ, "wiki/Log/x.md"), "# Log com maiúscula\n");
+      await writeFile(join(RAIZ, "wiki/LOG.md"), "# Log em maiúsculas\n");
+
+      expect(obterNota(RAIZ, "_META/segredo.md")).rejects.toThrow(ErroDeCaminhoInvalido);
+      expect(obterNota(RAIZ, "Log/x.md")).rejects.toThrow(ErroDeCaminhoInvalido);
+      expect(obterNota(RAIZ, "LOG.md")).rejects.toThrow(ErroDeCaminhoInvalido);
+    });
+
     test("recusa arquivos que não terminam com .md", async () => {
       await writeFile(join(RAIZ, "wiki/pessoal/conceitos/arquivo.txt"), "texto\n");
       expect(obterNota(RAIZ, "pessoal/conceitos/arquivo.txt")).rejects.toThrow(ErroDeCaminhoInvalido);

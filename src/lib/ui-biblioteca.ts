@@ -52,9 +52,10 @@ export function ehCaminhoDeNotaValido(caminhoRelativo: string): boolean {
   const partes = caminhoRelativo.split(/[/\\]/);
   for (const parte of partes) {
     if (parte.startsWith(".")) return false;
-    if (parte === "_meta" || parte === "log") return false;
+    const parteMin = parte.toLowerCase();
+    if (parteMin === "_meta" || parteMin === "log") return false;
   }
-  const nomeArquivo = partes[partes.length - 1];
+  const nomeArquivo = (partes[partes.length - 1] ?? "").toLowerCase();
   if (nomeArquivo === "log.md" || nomeArquivo === "index.md") return false;
   return true;
 }
@@ -73,7 +74,8 @@ async function listarMarkdown(diretorio: string, prefixo = ""): Promise<string[]
   for (const entrada of entradas) {
     const caminho = prefixo ? `${prefixo}/${entrada.name}` : entrada.name;
     if (entrada.isDirectory()) {
-      if (entrada.name === "_meta" || entrada.name === "log" || entrada.name.startsWith(".")) continue;
+      const nomeMin = entrada.name.toLowerCase();
+      if (nomeMin === "_meta" || nomeMin === "log" || entrada.name.startsWith(".")) continue;
       arquivos.push(...(await listarMarkdown(diretorio, caminho)));
     } else if (entrada.isFile() && ehCaminhoDeNotaValido(caminho)) {
       arquivos.push(caminho);

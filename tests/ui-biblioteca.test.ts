@@ -161,10 +161,17 @@ tags: 123
     expect(ehCaminhoDeNotaValido(".env")).toBe(false);
     expect(ehCaminhoDeNotaValido("area/.oculta.md")).toBe(false);
     expect(ehCaminhoDeNotaValido("_meta/x.md")).toBe(false);
+    expect(ehCaminhoDeNotaValido("_META/x.md")).toBe(false);
+    expect(ehCaminhoDeNotaValido("_Meta/x.md")).toBe(false);
     expect(ehCaminhoDeNotaValido("log/log-2026-10-29.md")).toBe(false);
+    expect(ehCaminhoDeNotaValido("Log/x.md")).toBe(false);
+    expect(ehCaminhoDeNotaValido("LOG/x.md")).toBe(false);
     expect(ehCaminhoDeNotaValido("log.md")).toBe(false);
+    expect(ehCaminhoDeNotaValido("LOG.md")).toBe(false);
     expect(ehCaminhoDeNotaValido("index.md")).toBe(false);
+    expect(ehCaminhoDeNotaValido("Index.md")).toBe(false);
     expect(ehCaminhoDeNotaValido("area/index.md")).toBe(false);
+    expect(ehCaminhoDeNotaValido("area/Index.md")).toBe(false);
     expect(ehCaminhoDeNotaValido("area/arquivo.txt")).toBe(false);
     expect(ehCaminhoDeNotaValido("pessoal/conceitos/padrao.md")).toBe(true);
     expect(ehCaminhoDeNotaValido("simples.md")).toBe(true);
