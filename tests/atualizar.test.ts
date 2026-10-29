@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { atualizar, compararSemVer, comandoAtualizar, decidirPolitica, parsearSemVer, selecionarRelease } from "../src/lib/atualizacao";
+import { atualizar, compararSemVer, comandoAtualizar, decidirPolitica, parsearSemVer, selecionarRelease, tipoDeLink } from "../src/lib/atualizacao";
 import { capturarConsole } from "./apoio/console";
 import { arvore, criarChave, criarKit, type Kit, type Versao } from "./apoio/kit-atualizavel";
 
@@ -58,6 +58,7 @@ test("Dado allow_signers ausente, vazio ou inválido, Quando verifica uma tag, E
   };
   try {
     expect(git(["init", "-q"]).codigo).toBe(0);
+    expect(git(["config", "core.autocrlf", "false"]).codigo).toBe(0);
     const { verificarAssinaturaTag } = await import("../src/lib/atualizacao");
     expect(verificarAssinaturaTag(raiz, "v0.3.1", git)).toContain("seguranca/assinantes ausente");
     await mkdir(join(raiz, "seguranca"), { recursive: true });
@@ -92,6 +93,7 @@ test("Dado tags SSH descartáveis, Quando a confiança vem do commit anterior, E
   const { verificarAssinaturaTag } = await import("../src/lib/atualizacao");
   try {
     expect(git(["init", "-q"]).codigo).toBe(0);
+    expect(git(["config", "core.autocrlf", "false"]).codigo).toBe(0);
     expect(git(["config", "user.name", "Teste Anvilore"]).codigo).toBe(0);
     expect(git(["config", "user.email", "teste@localhost"]).codigo).toBe(0);
     expect(git(["config", "commit.gpgsign", "false"]).codigo).toBe(0);
@@ -144,6 +146,7 @@ test("Dado SCHEMA.md ignorado preservado na migração, Quando checkout --force 
   };
   try {
     expect(git(["init", "-q"]).codigo).toBe(0);
+    expect(git(["config", "core.autocrlf", "false"]).codigo).toBe(0);
     expect(git(["config", "user.name", "Teste Anvilore"]).codigo).toBe(0);
     expect(git(["config", "user.email", "teste@localhost"]).codigo).toBe(0);
     await writeFile(join(raiz, "SCHEMA.md"), "modelo da tag\n");
@@ -169,7 +172,8 @@ test("Dado SCHEMA.md ignorado preservado na migração, Quando checkout --force 
 // ---------------------------------------------------------------------------------------------------------------
 
 const temFerramentas = Boolean(Bun.which("git") && Bun.which("ssh-keygen"));
-const real = temFerramentas ? test : test.skip;
+// 30 s: no Windows do CI cada cenário com Git real levou de 2 a 4 s, perto do limite padrão de 5 s.
+const real = (nome: string, corpo: () => Promise<void>) => (temFerramentas ? test : test.skip)(nome, corpo, 30_000);
 const CONFIG = [".claude", ".codex", ".agents", ".gemini", ".github", "anvilore.toml"];
 const kits: Kit[] = [];
 afterAll(async () => { for (const kit of kits) await kit.limpar(); });
@@ -376,7 +380,9 @@ describe("atualizador com Git real: voltar, três tags e interrupção", () => {
     await comConfigInicial(k);
     const antes = await arvore(k.raiz, CONFIG);
     const morto = Bun.spawnSync([process.execPath, join(import.meta.dir, "apoio/atualizar-e-morrer.ts"), k.raiz, "v0.3.1"], { stdout: "pipe", stderr: "pipe" });
-    expect(morto.signalCode).toBe("SIGKILL");
+    // POSIX: morte por sinal. Windows: o kill encerra sem sinal POSIX (TerminateProcess), mas nunca com sucesso.
+    if (process.platform === "win32") { expect(morto.exitCode).not.toBe(0); expect(morto.exitCode).not.toBeNull(); }
+    else expect(morto.signalCode).toBe("SIGKILL");
     expect(await k.estado()).toMatchObject({ estado: "aplicando", etapa: "instalar" });
     expect(existsSync(join(k.raiz, ".anvilore/atualizar.lock"))).toBe(true);
     expect(k.head()).toBe(k.commits["0.3.1"]!);
@@ -467,6 +473,8 @@ describe("atualizador com Git real: confiança, trava e estado", () => {
     await writeFile(join(k.raiz, "seguranca/assinantes"), outra.assinantes);
     await expect(atualizar("verificar", k.deps())).rejects.toThrow("git verify-tag recusou a tag v0.3.1");
     expect(k.head()).toBe(k.commits["0.3.0"]!);
+    expect(await k.estado()).toMatchObject({ estado: "recusada" });
+    expect((await k.estado()).recusadas ?? []).not.toContain("0.3.1");
   });
 
   real("Dado versão candidata com SemVer inválido, Quando verifico, Então não consulta assinatura nem aplica", async () => {
@@ -609,7 +617,8 @@ describe("atualizador com Git real: o nome assinado da tag é a versão anunciad
   async function semMudanca(k: Kit, versao: string) {
     expect(k.head()).toBe(k.commits["0.3.0"]!);
     const estado = await k.estado();
-    expect(estado).toMatchObject({ versaoInstalada: "0.3.0", estado: "recusada", recusadas: [versao] });
+    expect(estado).toMatchObject({ versaoInstalada: "0.3.0", estado: "recusada" });
+    expect(estado.recusadas ?? []).not.toContain(versao);
     expect(estado.operacao).toBeUndefined();
     expect(estado.ultima).toBeUndefined();
     expect(existsSync(join(k.raiz, ".anvilore/atualizacao"))).toBe(false);
@@ -621,6 +630,26 @@ describe("atualizador com Git real: o nome assinado da tag é a versão anunciad
     k.publicar(["v0.3.2"]);
     await expect(atualizar("aplicar", k.deps())).rejects.toThrow("a tag assinada se chama v0.3.1, não v0.3.2");
     await semMudanca(k, "0.3.2");
+  });
+
+  real("Dado a ref trocada recusada uma vez, Quando o origin traz depois a tag legítima da mesma versão, Então o fetch a substitui e a versão é aceita", async () => {
+    const k = await kit([...tres.slice(0, 2), { versao: "0.3.2" }]);
+    const espelho = join(k.pai, "espelho.git");
+    expect(Bun.spawnSync(["git", "clone", "-q", "--bare", k.raiz, espelho]).exitCode).toBe(0);
+    const legitima = k.ok(["rev-parse", "refs/tags/v0.3.2"]);
+    k.ok(["update-ref", "refs/tags/v0.3.2", k.ok(["rev-parse", "refs/tags/v0.3.1"])]);
+    k.publicar(["v0.3.2"]);
+    await expect(atualizar("aplicar", k.deps())).rejects.toThrow("não v0.3.2");
+    expect((await k.estado()).recusadas ?? []).not.toContain("0.3.2");
+    const fetches: string[][] = [];
+    const executar = (args: string[]) => {
+      if (args[0] === "fetch") { fetches.push(args); return k.git(["-c", `url.${espelho}.insteadOf=https://github.com/iagofrota/anvilore.git`, ...args]); }
+      return k.git(args);
+    };
+    expect(await atualizar("aplicar", k.deps({ executar }))).toContain("Atualizado para 0.3.2");
+    expect(fetches).toEqual([["fetch", "--no-tags", "origin", "+refs/tags/v0.3.2:refs/tags/v0.3.2"]]);
+    expect(k.ok(["rev-parse", "refs/tags/v0.3.2"])).toBe(legitima);
+    expect(k.head()).toBe(k.commits["0.3.2"]!);
   });
 
   real("Dado a ref v0.3.2 apontando para a tag assinada da v0.3.1, Quando só verifico, Então também recuso e não marco como baixada", async () => {
@@ -646,5 +675,32 @@ describe("atualizador com Git real: o nome assinado da tag é a versão anunciad
     k.publicar(["v0.3.2"]);
     await expect(atualizar("aplicar", k.deps())).rejects.toThrow("aponta para um objeto do tipo tag");
     await semMudanca(k, "0.3.2");
+  });
+});
+
+describe("atualizador: links na cópia (b) e no Windows", () => {
+  test("Dado um link de pasta, Quando escolho o tipo para recriar no Windows, Então só alvo absoluto vira junção e o relativo continua link de pasta", () => {
+    expect(tipoDeLink("C:\\Users\\p\\Anvilore\\skills\\ingest", true, "win32")).toBe("junction");
+    expect(tipoDeLink("..\\..\\skills\\ingest", true, "win32")).toBe("dir");
+    expect(tipoDeLink("../../skills/ingest", true, "win32")).toBe("dir");
+    expect(tipoDeLink("SKILL.md", false, "win32")).toBe("file");
+    expect(tipoDeLink("../../skills/ingest", true, "linux")).toBeUndefined();
+    expect(tipoDeLink("/abs/skills/ingest", true, "darwin")).toBeUndefined();
+  });
+
+  real("Dado um link de pasta relativo em .claude/skills, Quando aplico e volto, Então a cópia guarda só o alvo no manifesto e o link volta com o mesmo texto", async () => {
+    const k = await kit(tres.slice(0, 2));
+    await comConfigInicial(k);
+    const antes = await readlink(join(k.raiz, ".claude/skills/ingest"));
+    await atualizar("aplicar", k.deps());
+    const id = (await k.estado()).ultima.id;
+    const copia = JSON.parse(await readFile(join(k.raiz, ".anvilore/atualizacao", id, "manifesto.json"), "utf8"));
+    const entrada = copia.config.flatMap((g: { entradas: { path: string }[] }) => g.entradas).find((e: { path: string }) => e.path === ".claude/skills/ingest");
+    expect(entrada).toMatchObject({ tipo: "link", link: antes, alvoPasta: true });
+    expect(await lstat(join(k.raiz, ".anvilore/atualizacao", id, "config/.claude/skills/ingest")).then(() => "existe", () => "ausente")).toBe("ausente");
+    await rm(join(k.raiz, ".claude/skills/ingest"));
+    expect(await atualizar("voltar", k.deps())).toContain("Voltou para 0.3.0");
+    expect((await lstat(join(k.raiz, ".claude/skills/ingest"))).isSymbolicLink()).toBe(true);
+    expect(await readlink(join(k.raiz, ".claude/skills/ingest"))).toBe(antes);
   });
 });

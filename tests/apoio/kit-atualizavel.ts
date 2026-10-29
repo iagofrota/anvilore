@@ -72,6 +72,8 @@ export async function criarKit(versoes: Versao[], opcoes: { alvos?: string[]; es
   const commits: Record<string, string> = {};
   for (const v of versoes) {
     const base: Record<string, string | null> = {
+      // Como o kit real: sem isto, o checkout no Windows (core.autocrlf=true no runner) grava CRLF.
+      ".gitattributes": "* text=auto eol=lf\n",
       ".gitignore": GITIGNORE, "seguranca/assinantes": assinantes, "bun.lock": `lock ${v.versao}\n`,
       "package.json": JSON.stringify({ name: "anvilore", version: v.versao, ...(v.packageManager ? { packageManager: v.packageManager } : {}) }),
       "src/cli.ts": stubCli(v.versao, v.cli), "skills/ingest/SKILL.md": "skill do kit\n",

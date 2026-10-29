@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createReadStream, statSync } from "node:fs";
 import { appendFile, chmod, lstat, mkdir, readFile, readdir, readlink, rename, rm, rmdir, stat, symlink, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, win32 } from "node:path";
 import type { Diagnostico } from "../comandos/doctor";
 import type { Alvo } from "../comandos/instalar";
 import { versaoDoKit } from "../comandos/versao";
@@ -49,7 +49,7 @@ type Estado = {
   recusadas?: string[]; alvos?: Alvo[]; autoCommit?: boolean; githubBackup?: boolean; bunGerenciado?: boolean;
   operacao?: Operacao; ultima?: Ultima; atualizadoEm?: string; verificadoEm?: string;
 };
-// `alvoPasta`: o link aponta para pasta; no Windows ele volta como junção, como o `instalar` cria (plataformas.md).
+// `alvoPasta`: o link aponta para pasta. No Windows o tipo do link recriado sai de `tipoDeLink` (plataformas.md).
 type Entrada = { path: string; tipo: "arquivo" | "link" | "dir" | "ausente"; sha256?: string; link?: string; modo?: number; alvoPasta?: boolean };
 type Dados = { arquivos: Record<string, string>; pastas: { raw: boolean; wiki: boolean } };
 type Copia = {
@@ -290,7 +290,15 @@ function diferencasDados(antes: Dados, depois: Dados): string[] {
 }
 const resumir = (lista: string[]) => lista.length > 8 ? `${lista.slice(0, 8).join(", ")} e mais ${lista.length - 8}` : lista.join(", ");
 
-const criarLink = (e: Entrada, alvo: string, destino: string) => symlink(alvo, destino, process.platform === "win32" && e.alvoPasta ? "junction" : undefined);
+// No Windows, junção só guarda caminho absoluto: o Node resolve um alvo relativo contra a pasta do PROCESSO, não a
+// do link. Por isso só alvo absoluto (o que o `instalar` cria) volta como junção; link de pasta relativo volta como
+// link simbólico de pasta, com o mesmo texto de alvo. Fora do Windows o tipo não importa.
+export function tipoDeLink(alvo: string, alvoPasta: boolean, plataforma: NodeJS.Platform = process.platform): "junction" | "dir" | "file" | undefined {
+  if (plataforma !== "win32") return undefined;
+  if (!alvoPasta) return "file";
+  return win32.isAbsolute(alvo) ? "junction" : "dir";
+}
+const criarLink = (e: Entrada, alvo: string, destino: string) => symlink(alvo, destino, tipoDeLink(alvo, e.alvoPasta === true));
 async function escreverAtomico(destino: string, dados: Uint8Array, modo?: number) {
   const tmp = `${destino}.anvilore-${process.pid}.tmp`;
   await writeFile(tmp, dados, { mode: modo ?? 0o644 });
@@ -302,10 +310,11 @@ async function escreverAtomico(destino: string, dados: Uint8Array, modo?: number
 async function copiarEntradas(raiz: string, destinoBase: string, entradas: Entrada[]) {
   for (const e of entradas) {
     const alvo = noDisco(destinoBase, e.path);
-    if (e.tipo === "ausente") continue;
+    // Link não vira arquivo na cópia: o alvo dele, com SHA-256, já está no manifesto. Recriá-lo aqui mudaria o
+    // alvo no Windows (junção relativa) e a cópia não conferiria.
+    if (e.tipo === "ausente" || e.tipo === "link") continue;
     if (e.tipo === "dir") { await mkdir(alvo, { recursive: true }); continue; }
     await mkdir(dirname(alvo), { recursive: true });
-    if (e.tipo === "link") { await criarLink(e, e.link!, alvo); continue; }
     const dados = await readFile(noDisco(raiz, e.path));
     if (hash(dados) !== e.sha256) throw erro("cópia de segurança", `${e.path} mudou durante a cópia`);
     await writeFile(alvo, dados, { mode: 0o600 });
@@ -362,14 +371,12 @@ async function lerCopia(raiz: string, id: string): Promise<Copia> {
 // Confere a fonte (na cópia) antes de mexer no destino: nada é apagado se a cópia não bate com o SHA-256 guardado.
 async function conferirFonte(base: string, e: Entrada): Promise<Uint8Array | string | undefined> {
   if (e.tipo === "dir" || e.tipo === "ausente") return undefined;
+  if (e.tipo === "link") {
+    if (typeof e.link !== "string" || hash(e.link) !== e.sha256) throw erro("cópia não confere", e.path);
+    return e.link;
+  }
   await conferirAncestrais(base, e.path);
   const abs = noDisco(base, e.path), st = await lstat(abs);
-  if (e.tipo === "link") {
-    if (!st.isSymbolicLink()) throw erro("cópia não confere", `${e.path} deveria ser link`);
-    const alvo = await readlink(abs);
-    if (hash(alvo) !== e.sha256) throw erro("cópia não confere", e.path);
-    return alvo;
-  }
   if (!st.isFile()) throw erro("cópia não confere", `${e.path} deveria ser arquivo`);
   const dados = await readFile(abs);
   if (hash(dados) !== e.sha256) throw erro("cópia não confere", e.path);
@@ -596,7 +603,8 @@ async function bunExigido(raiz: string, commit: string, tag: string, exec: Exec,
   return minima;
 }
 
-export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = execPadrao): string | undefined {
+// `objeto`: o id já resolvido de refs/tags/<tag>, para que o objeto verificado seja o mesmo lido depois.
+export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = execPadrao, objeto: string = tag): string | undefined {
   const allow = join(raiz, "seguranca/assinantes");
   let tamanho: number;
   try { const st = statSync(allow); if (!st.isFile()) throw Object.assign(new Error("não é arquivo"), { code: "EISDIR" }); tamanho = st.size; }
@@ -605,16 +613,16 @@ export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = e
     return "seguranca/assinantes ilegível; tag candidata recusada. Confira permissões e formato OpenSSH allowed_signers; veja docs/knowledge_base/decisoes.md.";
   }
   if (tamanho === 0) return `seguranca/assinantes vazio; tag candidata recusada. Configure no kit instalado (antes da atualização) uma linha OpenSSH allowed_signers com principal igual ao e-mail de assinatura Git, opção namespaces="git" e chave pública SSH aprovada; veja docs/knowledge_base/decisoes.md.`;
-  const r = exec(["-c", "gpg.format=ssh", "-c", `gpg.ssh.allowedSignersFile=${allow}`, "verify-tag", tag], raiz);
+  const r = exec(["-c", "gpg.format=ssh", "-c", `gpg.ssh.allowedSignersFile=${allow}`, "verify-tag", objeto], raiz);
   return r.codigo === 0 ? undefined : `git verify-tag recusou a tag ${tag}: assinatura inválida ou signatário desconhecido. Confira o formato de seguranca/assinantes, o principal (e-mail de assinatura Git) e a chave pública ancorada no kit instalado antes da atualização; a chave da candidata não é confiável. ${r.saida.trim()}`;
 }
 // `verify-tag` só prova que o objeto foi assinado; não que o NOME assinado é o da ref. Um espelho pode publicar
 // refs/tags/v0.3.2 apontando para a tag assinada da v0.3.1. Aqui a identidade vem do conteúdo assinado: o objeto é
 // uma tag anotada, `tag` é o nome pedido, `type` é commit (sem tag aninhada) e `object` é o commit que será aplicado.
-export function identidadeDaTag(raiz: string, tag: string, exec: Exec = execPadrao): { versao: string; commit: string } | string {
-  const tipo = exec(["cat-file", "-t", tag], raiz);
+export function identidadeDaTag(raiz: string, tag: string, exec: Exec = execPadrao, id: string = tag): { versao: string; commit: string } | string {
+  const tipo = exec(["cat-file", "-t", id], raiz);
   if (tipo.codigo !== 0 || tipo.saida.trim() !== "tag") return `a ref ${tag} não é uma tag anotada (tipo ${tipo.saida.trim() || "desconhecido"}); recusada.`;
-  const conteudo = exec(["cat-file", "tag", tag], raiz);
+  const conteudo = exec(["cat-file", "tag", id], raiz);
   if (conteudo.codigo !== 0) return `não consegui ler a tag ${tag}: ${conteudo.saida.trim()}`;
   const cabecalho = new Map<string, string>();
   for (const linha of conteudo.saida.split("\n")) {
@@ -626,7 +634,7 @@ export function identidadeDaTag(raiz: string, tag: string, exec: Exec = execPadr
   if (nome !== tag) return `a tag assinada se chama ${nome ?? "(sem nome)"}, não ${tag}; a ref foi trocada e a versão anunciada não é a assinada. Recusada.`;
   if (alvo !== "commit") return `a tag ${tag} aponta para um objeto do tipo ${alvo ?? "desconhecido"}, não para um commit; recusada.`;
   if (!COMMIT.test(objeto)) return `a tag ${tag} não traz um commit válido; recusada.`;
-  const resolvido = exec(["rev-parse", "--verify", "-q", `${tag}^{commit}`], raiz).saida.trim();
+  const resolvido = exec(["rev-parse", "--verify", "-q", `${id}^{commit}`], raiz).saida.trim();
   if (resolvido !== objeto) return `a tag ${tag} aponta para ${objeto}, mas a ref resolve para ${resolvido || "nada"}; recusada.`;
   const versao = tag.startsWith("v") ? tag.slice(1) : tag;
   if (!parsearSemVer(versao)) return `o nome assinado ${tag} não é uma versão SemVer; recusada.`;
@@ -898,14 +906,20 @@ export async function atualizar(acao: "verificar" | "voltar" | "estado" | "autom
     if ((state.recusadas ?? []).includes(release.versao)) return `Anvilore ${release.versao} já foi recusada; aguardando outra release.`;
     const decision = decidirPolitica(atual, release.versao, state.modo, state.canal);
     if (decision === "ignorar" && acao !== "aplicar") return `Atualização ignorada pela política atual (${state.modo}, canal ${state.canal}).`;
-    const fetch = exec(["fetch", "origin", "tag", release.tag, "--no-tags"], raiz);
+    // `+`: se um espelho já trocou esta tag localmente, a do origin a substitui (sem isso o git recusa com "would
+    // clobber existing tag" e a release legítima nunca entraria). A troca não dá confiança: tudo é verificado abaixo.
+    const fetch = exec(["fetch", "--no-tags", "origin", `+refs/tags/${release.tag}:refs/tags/${release.tag}`], raiz);
     if (fetch.codigo) throw erro("fetch", fetch.saida.trim());
-    const assinada = verificarAssinaturaTag(raiz, release.tag, exec) ?? identidadeDaTag(raiz, release.tag, exec);
+    const ref = exec(["rev-parse", "--verify", "-q", `refs/tags/${release.tag}`], raiz), objeto = ref.saida.trim();
+    const assinada = ref.codigo !== 0 || !COMMIT.test(objeto) ? `a tag ${release.tag} não existe depois do fetch; recusada.`
+      : verificarAssinaturaTag(raiz, release.tag, exec, objeto) ?? identidadeDaTag(raiz, release.tag, exec, objeto);
     const bad = typeof assinada === "string" ? assinada
       : assinada.versao !== release.versao ? `a release anuncia ${release.versao}, mas a tag assinada é ${assinada.versao}; recusada.`
       : compararSemVer(assinada.versao, atual) <= 0 ? `a tag assinada ${release.tag} não é mais nova que a ${atual} instalada; recusada.`
       : undefined;
-    if (bad || typeof assinada === "string") { state.estado = "recusada"; state.recusadas = [...new Set([...(state.recusadas ?? []), release.versao])]; state.erro = bad; await gravarEstado(raiz, state); await log(raiz, `tag recusada tag=${release.tag}: ${bad}`); throw new Error(bad); }
+    // Sem `recusadas`: o objeto não foi confirmado como da release (assinatura ou identidade), então um espelho que
+    // o sirva uma vez não pode bloquear para sempre a tag legítima da mesma versão. A próxima checagem tenta de novo.
+    if (bad || typeof assinada === "string") { state.estado = "recusada"; state.erro = bad; await gravarEstado(raiz, state); await log(raiz, `tag recusada tag=${release.tag}: ${bad}`); throw new Error(bad); }
     const confirmada = { tag: release.tag, versao: assinada.versao, commit: assinada.commit };
     if (acao === "verificar" || (acao === "automatico" && state.estado !== "baixada")) {
       state.estado = "baixada"; state.disponivel = release.versao; state.tagDisponivel = release.tag; state.verificadoEm = new Date().toISOString();
