@@ -66,10 +66,14 @@ describe("ui-web: PainelDaNota", () => {
     const simples = renderizarTextoComWikilinks("Texto puro sem links");
     expect(simples).toEqual(["Texto puro sem links"]);
 
-    const comLinks = renderToStaticMarkup(<>{renderizarTextoComWikilinks("Veja [[alvo]] e [[alvo2|rótulo]]")}</>);
+    const comLinks = renderToStaticMarkup(<>{renderizarTextoComWikilinks("Veja [[alvo]] e [[alvo2|rótulo]] e mais texto")}</>);
     expect(comLinks).toContain('href="#/nota/alvo.md"');
     expect(comLinks).toContain('href="#/nota/alvo2.md"');
     expect(comLinks).toContain("rótulo");
+
+    const comFormatacao = renderToStaticMarkup(<>{renderizarTextoComWikilinks("Texto com **negrito** e `codigo` e fim")}</>);
+    expect(comFormatacao).toContain("<strong>negrito</strong>");
+    expect(comFormatacao).toContain("<code>codigo</code>");
   });
 
   test("renderizarCorpoMarkdown processa títulos, listas, citações e callouts", () => {
@@ -131,6 +135,9 @@ describe("ui-web: PainelDaNota", () => {
     expect(btns.length).toBe(1);
     (btns[0]?.props.onClick as (() => void) | undefined)?.();
     expect(chamadas).toContain("aprovar");
+
+    const html = renderToStaticMarkup(<PainelDaNota nota={notaExemplo} carregando={false} erro="" tema="claro" alternarTema={() => {}} />);
+    expect(html).toContain("Padrão LLM Wiki");
   });
 
   test("renderiza nota aprovada e nota com erro", () => {

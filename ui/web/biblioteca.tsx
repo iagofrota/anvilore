@@ -16,6 +16,8 @@ type PropriedadesPainel = {
   aoSelecionarArea: (area: string) => void;
   tagSelecionada: string;
   aoSelecionarTag: (tag: string) => void;
+  tema?: "claro" | "escuro";
+  alternarTema?: () => void;
 };
 
 export function formatarData(dataIso: string): string {
@@ -64,6 +66,8 @@ export function PainelDaBiblioteca({
   aoSelecionarArea,
   tagSelecionada,
   aoSelecionarTag,
+  tema,
+  alternarTema,
 }: PropriedadesPainel) {
   const paginasFiltradas = !resumo
     ? []
@@ -143,6 +147,11 @@ export function PainelDaBiblioteca({
           </svg>
           Nova ingestão
         </a>
+        {alternarTema && (
+          <button className="icon-button" title="Alternar tema" aria-label="Alternar tema claro ou escuro" onClick={alternarTema}>
+            {tema === "claro" ? "◐" : "☼"}
+          </button>
+        )}
       </header>
 
       <div className="lib-filterbar">
@@ -304,6 +313,8 @@ export function Biblioteca({ tema, alternarTema }: { tema: "claro" | "escuro"; a
       aoSelecionarArea={setAreaSelecionada}
       tagSelecionada={tagSelecionada}
       aoSelecionarTag={setTagSelecionada}
+      tema={tema}
+      alternarTema={alternarTema}
     />
   );
 }

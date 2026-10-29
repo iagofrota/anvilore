@@ -8,6 +8,8 @@ type PropriedadesPainel = {
   erro: string;
   aoAprovar?: () => Promise<void>;
   aprovando?: boolean;
+  tema?: "claro" | "escuro";
+  alternarTema?: () => void;
 };
 
 export function formatarData(dataIso?: string): string {
@@ -23,7 +25,7 @@ export function formatarData(dataIso?: string): string {
 
 export function renderizarTextoComWikilinks(texto: string): React.ReactNode {
   const partes: React.ReactNode[] = [];
-  const regex = /\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]/g;
+  const regex = /(\[\[[^\]\n|]+(?:\|[^\]\n]+)?\]\]|\*\*[^*]+\*\*|`[^`]+`)/g;
   let ultimoIndice = 0;
   let match;
 
@@ -31,14 +33,23 @@ export function renderizarTextoComWikilinks(texto: string): React.ReactNode {
     if (match.index > ultimoIndice) {
       partes.push(texto.slice(ultimoIndice, match.index));
     }
-    const alvo = match[1]!.trim();
-    const rotulo = match[2]?.trim() || alvo;
-    const destino = alvo.endsWith(".md") ? alvo : `${alvo}.md`;
-    partes.push(
-      <a key={`${match.index}-${alvo}`} className="wl" href={`#/nota/${destino}`}>
-        {rotulo}
-      </a>,
-    );
+    const token = match[0];
+    if (token.startsWith("[[")) {
+      const semColchetes = token.slice(2, -2);
+      const pipe = semColchetes.indexOf("|");
+      const alvo = (pipe >= 0 ? semColchetes.slice(0, pipe) : semColchetes).trim();
+      const rotulo = (pipe >= 0 ? semColchetes.slice(pipe + 1) : alvo).trim();
+      const destino = alvo.endsWith(".md") ? alvo : `${alvo}.md`;
+      partes.push(
+        <a key={`${match.index}-${alvo}`} className="wl" href={`#/nota/${destino}`}>
+          {rotulo}
+        </a>,
+      );
+    } else if (token.startsWith("**")) {
+      partes.push(<strong key={`strong-${match.index}`}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith("`")) {
+      partes.push(<code key={`code-${match.index}`}>{token.slice(1, -1)}</code>);
+    }
     ultimoIndice = match.index + match[0].length;
   }
   if (ultimoIndice < texto.length) {
@@ -70,7 +81,7 @@ export function renderizarCorpoMarkdown(corpo: string): React.ReactNode[] {
         i++;
       }
       elementos.push(
-        <aside key={`callout-${i}`} aria-label={tipo === "gap" ? "Lacuna" : "Contradição"} className={`note-callout ${tipo}`}>
+        <aside key={`callout-${i}`} aria-label={tipo === "gap" ? "Lacuna" : "Contradição"} className={`note-callout ${tipo} callout-${tipo}`}>
           <svg className="i-sm" viewBox="0 0 16 16" aria-hidden="true">
             <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
             <path d="M8 5.5V8.5M8 10.6V10.7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -78,7 +89,7 @@ export function renderizarCorpoMarkdown(corpo: string): React.ReactNode[] {
           <div className="note-callout-body">
             <span className="mono note-callout-type">{tipo === "gap" ? "LACUNA" : "CONTRADIÇÃO"}</span>
             <p>{renderizarTextoComWikilinks(partes.join(" "))}</p>
-            <a href="#/chat" className="note-gap-link">Procurar uma fonte que responda</a>
+            <a href={`#/chat?lacuna=${encodeURIComponent(partes.join(" "))}`} className="note-gap-link callout-chat-btn callout-botao-chat">Buscar fonte no Chat</a>
           </div>
         </aside>,
       );
@@ -171,7 +182,7 @@ export function GrafoLocalVisual({ grafo }: { grafo: GrafoLocal }) {
       role="img"
       aria-label={`Grafo local: ${grafo.nos.map((n) => n.rotulo).join(", ")}`}
       viewBox={`0 0 ${largura} ${altura}`}
-      className="note-graph-svg"
+      className="note-graph-svg local-graph-svg"
     >
       <g className="graph-edges">
         {grafo.arestas.map((a, idx) => {
@@ -241,6 +252,8 @@ export function PainelDaNota({
   erro,
   aoAprovar,
   aprovando,
+  tema,
+  alternarTema,
 }: PropriedadesPainel) {
   if (carregando) {
     return (
@@ -275,6 +288,11 @@ export function PainelDaNota({
           </svg>
           Perguntar sobre esta página
         </a>
+        {alternarTema && (
+          <button className="icon-button" title="Alternar tema" aria-label="Alternar tema claro ou escuro" onClick={alternarTema}>
+            {tema === "claro" ? "◐" : "☼"}
+          </button>
+        )}
       </header>
 
       {nota.status === "rascunho" && (
@@ -491,6 +509,8 @@ export function Nota({
       erro={erro}
       aoAprovar={nota?.aprovavel ? aoAprovar : undefined}
       aprovando={aprovando}
+      tema={tema}
+      alternarTema={alternarTema}
     />
   );
 }
