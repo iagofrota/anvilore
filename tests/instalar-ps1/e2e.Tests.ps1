@@ -241,8 +241,11 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
           [IO.File]::WriteAllText((Join-Path $dir ".git\hooks\$g"), "#!/bin/sh`necho hook >> '$marcador'`nexit 0`n")
         }
         $pkg = Join-Path $dir 'package.json'
+        $original = [IO.File]::ReadAllText($pkg)
         Remove-Item $pkg -Recurse -Force -ErrorAction SilentlyContinue
-        if ($pacote -eq 'DIRETORIO') { New-Item -ItemType Directory $pkg | Out-Null }
+        # 'VERSAO:x.y.z' troca só a versão do package.json de verdade: o resto fica igual, para o `bun install --frozen-lockfile` da reinstalação passar.
+        if ($pacote -like 'VERSAO:*') { [IO.File]::WriteAllText($pkg, ($original -replace '"version"\s*:\s*"[^"]*"', ('"version": "' + $pacote.Substring(7) + '"'))) }
+        elseif ($pacote -eq 'DIRETORIO') { New-Item -ItemType Directory $pkg | Out-Null }
         elseif ($pacote -eq 'BINARIO') { [IO.File]::WriteAllBytes($pkg, [byte[]](0xFF, 0xFE, 0x00, 0x80, 0x7B)) }
         elseif ($null -ne $pacote) { [IO.File]::WriteAllText($pkg, $pacote) }
         return @{ Pasta = $dir; Marcador = ($marcador -replace '/', '\') ; Cabeca = (& git -C $dir rev-parse HEAD).Trim() }
@@ -279,21 +282,21 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       }
     }
     It 'versão igual à base: segue o fluxo atual (reinstala)' {
-      $caso = CasoBase 'igual' ('{"name":"anvilore","version":"' + $script:VersaoRepo + '"}')
+      $caso = CasoBase 'igual' ('VERSAO:' + $script:VersaoRepo)
       $r = RodarCaso $caso
       $r.Codigo | Should -Be 0
       $r.Saida | Should -Match 'Já existe uma instalação'
       $r.Saida | Should -Not -Match 'anterior à primeira versão assinada'
     }
     It 'versão maior que a base: segue o fluxo atual (reinstala)' {
-      $caso = CasoBase 'maior' '{"name":"anvilore","version":"99.0.0"}'
+      $caso = CasoBase 'maior' 'VERSAO:99.0.0'
       $r = RodarCaso $caso
       $r.Codigo | Should -Be 0
       $r.Saida | Should -Match 'Já existe uma instalação'
     }
     It 'a base mínima do instalador é conferida contra o arquivo: instalador com base maior que a versão da pasta recusa' {
       $alto = Embutir 'base-alta' $script:Boa.Assinantes $script:Manifesto '99.0.0'
-      $caso = CasoBase 'base-alta' ('{"name":"anvilore","version":"' + $script:VersaoRepo + '"}')
+      $caso = CasoBase 'base-alta' ('VERSAO:' + $script:VersaoRepo)
       $r = Rodar $script:P1 $script:OrigemBoa $alto $script:PathComAgente @{ ANVILORE_PASTA = $caso.Pasta }
       $r.Codigo | Should -Be 1
       $r.Saida | Should -Match 'anterior à primeira versão assinada'
