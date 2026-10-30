@@ -17,9 +17,15 @@
 #   ANVILORE_INSTALAR_CLAUDE=sim|nao   responde de antemão se instala o Claude Code quando não há agente nenhum.
 #   ANVILORE_ESPERAR_ENTER=1   espera Enter antes de terminar (janela com Terminal=true, para a pessoa ler o resumo).
 #
-# Segurança: o manifesto de dependências (instalador/dependencias.json) e a chave pública (seguranca/assinantes) vêm
-# EMBUTIDOS neste arquivo pela release (scripts/embutir-instalador.ts). Sem chave embutida válida o script recusa
-# instalar. Nenhum segredo é pedido, lido ou gravado; o login dos agentes é da pessoa.
+# Segurança: o manifesto de dependências (instalador/dependencias.json), a chave pública (seguranca/assinantes) e a base mínima
+# (instalador/base-minima) vêm EMBUTIDOS neste arquivo pela release (scripts/embutir-instalador.ts). Sem chave embutida válida
+# o script recusa instalar. Numa pasta já instalada, a versão dela é lida do package.json SEM executar nada da pasta e, se for
+# menor que a base mínima (ou não puder ser lida), o script recusa antes de tocar em qualquer coisa. Nenhum segredo é pedido,
+# lido ou gravado; o login dos agentes é da pessoa.
+#
+# Estado das chaves fora do GitHub: antes de aceitar a tag (instalação nova) e antes de delegar ao atualizador da pasta
+# (reinstalação), o instalador consulta a lista de chaves que o dono publica no site dele (a URL também vem EMBUTIDA, nunca
+# de variável de ambiente) e só vale a interseção dela com as chaves embutidas. Sem conseguir consultar, ele para.
 #
 # `curl | bash` ocupa a entrada padrão: tudo mora em funções, o script só roda na última linha, e as respostas
 # vêm de /dev/tty.
@@ -44,6 +50,16 @@ assinantes_embutidas() {
   :
 }
 # <<< ANVILORE:ASSINANTES
+# >>> ANVILORE:BASE_MINIMA (preenchido na release por scripts/embutir-instalador.ts; não edite)
+base_minima_embutida() {
+  :
+}
+# <<< ANVILORE:BASE_MINIMA
+# >>> ANVILORE:URL_CONFIANCA (preenchido na release por scripts/embutir-instalador.ts; não edite)
+url_confianca_embutida() {
+  :
+}
+# <<< ANVILORE:URL_CONFIANCA
 
 # ---------------------------------------------------------------------------------------------------------------
 # Registro e mensagens
@@ -175,6 +191,12 @@ conferir_embutidos() {
   fi
   if ! chave_embutida_valida; then
     falhar "este instalar.sh não traz a chave de assinatura do Anvilore, então não tenho como conferir que o kit é o do Iago. Recusei instalar. Use o instalar.sh da release."
+  fi
+  if ! semver_simples "$(base_minima_embutida)"; then
+    falhar "este instalar.sh não traz a base mínima (a primeira versão assinada), então não tenho como saber se uma pasta antiga é segura. Recusei instalar. Use o instalar.sh da release."
+  fi
+  if ! url_confianca_valida "$(url_confianca_embutida)"; then
+    falhar "este instalar.sh não traz o endereço da lista atual de chaves (ou ele é inseguro), então não tenho como conferir se a chave de assinatura ainda vale. Recusei instalar. Use o instalar.sh da release."
   fi
 }
 
@@ -396,8 +418,12 @@ passo_rg() {
 # Passos 5 e 6 — pasta, download do kit e assinatura da tag
 # ---------------------------------------------------------------------------------------------------------------
 
+# Pasta instalada = a estrutura do kit (.git, AGENTS.md, src/cli.ts, skills/). O mesmo critério do instalar.ps1. Não exige o
+# estado da atualização (uma pasta de antes do atualizador, como a v0.2.0, não o tem e PRECISA cair no teste da base mínima,
+# com a mensagem certa, em vez de ser tratada como "outra coisa") nem o conteúdo do package.json (a versão é lida depois,
+# pela base mínima, e package.json ausente ou ilegível é um motivo de recusa, não de pasta desconhecida).
 eh_instalacao() {
-  [ -d "$1/.git" ] && [ -f "$1/AGENTS.md" ] && [ -f "$1/src/cli.ts" ] && [ -d "$1/skills" ] && [ -f "$1/.anvilore/atualizacao.json" ]
+  [ -d "$1/.git" ] && [ -f "$1/AGENTS.md" ] && [ -f "$1/src/cli.ts" ] && [ -d "$1/skills" ]
 }
 
 # nova | instalacao | outra
@@ -477,11 +503,109 @@ git_rede() (
   git_staging -c credential.helper= -c core.askPass= "$@"
 )
 
+# ---------------------------------------------------------------------------------------------------------------
+# Estado das chaves: a lista que o dono publica fora do GitHub (confianca.json)
+# ---------------------------------------------------------------------------------------------------------------
+
+# 0 se $1 é uma URL https, ou http só em loopback (127.0.0.1: build de teste; o embutir só a aceita com a flag de teste).
+url_confianca_valida() {
+  [[ "$1" =~ ^https://[A-Za-z0-9._~:/-]+$ ]] || [[ "$1" =~ ^http://127\.0\.0\.1(:[0-9]+)?/[A-Za-z0-9._~/-]*$ ]]
+}
+
+# 0 se $1 é a fingerprint SHA256 do ssh-keygen.
+fingerprint_valida() { [[ "$1" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]]; }
+
+# Fingerprint (a do `ssh-keygen -lf`) da chave de uma linha allowed_signers: principal [opções] tipo chave-base64 [comentário].
+fingerprint_da_linha() {
+  local chave arquivo="$TMP_DIR/chave-da-linha.pub" fp
+  case "$1" in "" | "#"*) return 1 ;; esac
+  chave=$(printf '%s\n' "$1" | awk '{ for (i = 2; i < NF; i++) if ($i ~ /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp[0-9]+|sk-ssh-ed25519@openssh[.]com|sk-ecdsa-sha2-nistp256@openssh[.]com)$/) { print $i " " $(i + 1); exit } }')
+  [ -n "$chave" ] || return 1
+  printf '%s\n' "$chave" >"$arquivo"
+  fp=$(ssh-keygen -lf "$arquivo" 2>/dev/null | awk 'NR == 1 { print $2 }')
+  fingerprint_valida "$fp" && printf '%s' "$fp"
+}
+
+# Consulta a lista do site e a valida com rigor (campo extra, tipo errado, formato diferente de 1, chaves vazia ou repetida e
+# versaoMinima com pré-release recusam). Preenche CONFIANCA_CHAVES (uma fingerprint por linha) e CONFIANCA_MINIMA.
+# Só https (loopback http no build de teste), sem seguir redirecionamento, sem cache, 15 s e 64 KiB. Sem cache local nem
+# fallback: qualquer falha devolve 1 e MOTIVO diz o que fazer.
+consultar_confianca() {
+  local url proto arquivo codigo plano fp ws=' *' chave_re formato_re minima_re item_re n k
+  url=$(url_confianca_embutida)
+  url_confianca_valida "$url" || { MOTIVO="o endereço da lista de chaves embutido neste instalador não é seguro."; return 1; }
+  case "$url" in https://*) proto=https ;; *) proto=http ;; esac
+  MOTIVO="não consegui conferir a lista atual de chaves em $url; nada mudou; tente de novo mais tarde."
+  arquivo="$TMP_DIR/confianca.json"
+  rm -f "$arquivo"
+  codigo=$(curl -q --silent --show-error --proto "=$proto" --max-redirs 0 --max-time 15 --max-filesize 65536 \
+    -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' -o "$arquivo" -w '%{http_code}' -- "$url" 2>>"${LOG:-/dev/null}") || { registrar "consulta da lista de chaves falhou (curl)"; return 1; }
+  [ "$codigo" = "200" ] || { registrar "consulta da lista de chaves: HTTP $codigo"; return 1; }
+  [ "$(wc -c <"$arquivo" | tr -d ' ')" -le 65536 ] || { registrar "consulta da lista de chaves: resposta maior que 64 KiB"; return 1; }
+  # Quebras de linha e tabulações viram espaço: dentro de uma string da lista elas não são válidas, então a conta só aceita o que o
+  # JSON aceitaria.
+  plano=$(tr '\r\n\t' '   ' <"$arquivo")
+  chave_re='"SHA256:[A-Za-z0-9+/]{43}"'
+  formato_re="\"formato\"${ws}:${ws}1"
+  minima_re="\"versaoMinima\"${ws}:${ws}\"(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})\""
+  item_re="(${formato_re}|\"chaves\"${ws}:${ws}\\[${ws}${chave_re}(${ws},${ws}${chave_re})*${ws}\\]|${minima_re})"
+  if ! [[ "$plano" =~ ^${ws}\{${ws}${item_re}${ws},${ws}${item_re}${ws},${ws}${item_re}${ws}\}${ws}$ ]]; then registrar "consulta da lista de chaves: formato inválido"; return 1; fi
+  for k in formato chaves versaoMinima; do
+    n=$(printf '%s' "$plano" | grep -o "\"$k\" *:" | wc -l | tr -d ' ')
+    [ "$n" = "1" ] || { registrar "consulta da lista de chaves: campo $k ausente ou repetido"; return 1; }
+  done
+  CONFIANCA_MINIMA=$(printf '%s' "$plano" | grep -oE '"versaoMinima" *: *"[0-9.]+"' | sed 's/.*"\([0-9.]*\)"$/\1/')
+  CONFIANCA_CHAVES=$(printf '%s' "$plano" | grep -oE 'SHA256:[A-Za-z0-9+/]{43}')
+  semver_simples "$CONFIANCA_MINIMA" || return 1
+  printf '%s\n' "$CONFIANCA_CHAVES" | awk 'seen[$0]++ { exit 1 }' || { registrar "consulta da lista de chaves: chaves repetidas"; return 1; }
+  for fp in $CONFIANCA_CHAVES; do fingerprint_valida "$fp" || return 1; done
+  MOTIVO=""
+  return 0
+}
+
+# Com a lista consultada, grava em $1 só as linhas das chaves embutidas cuja fingerprint está nela (a INTERSEÇÃO: o site nunca
+# acrescenta uma chave). Devolve 1 (e MOTIVO) se não sobra nenhuma.
+filtrar_assinantes_pela_lista() {
+  local destino="$1" linha fp
+  assinantes_embutidas | while IFS= read -r linha || [ -n "$linha" ]; do
+    fp=$(fingerprint_da_linha "$linha") || continue
+    printf '%s\n' "$CONFIANCA_CHAVES" | grep -Fxq -- "$fp" && printf '%s\n' "$linha"
+  done >"$destino"
+  if [ ! -s "$destino" ]; then
+    MOTIVO="a lista atual de chaves do site não inclui a chave de assinatura deste instalador; nada foi instalado nem mudado. Baixe o instalador mais recente pelo canal oficial."
+    return 1
+  fi
+}
+
+# 0 se a tag $1 (vX.Y.Z[-pré]) é igual ou mais nova que a versão mínima da lista (uma pré-release é anterior à versão final).
+tag_atende_versao_minima() {
+  local candidata="${1#v}" numeros
+  numeros="${candidata%%[-+]*}"
+  semver_simples "$numeros" || return 1
+  semver_maior_ou_igual "$numeros" "$CONFIANCA_MINIMA" || return 1
+  if [ "$candidata" != "$numeros" ] && semver_maior_ou_igual "$CONFIANCA_MINIMA" "$numeros"; then return 1; fi
+  return 0
+}
+
+# Consulta a lista e prepara $TMP_DIR/assinantes (a interseção) para o verify-tag ou para a opção --assinantes-do-instalador.
+# $1 = a tag candidata (instalação nova) ou vazio (reinstalação: quem escolhe a candidata é o atualizador, que consulta de novo).
+conferir_estado_das_chaves() {
+  local tag="$1"
+  dizer "Conferindo a lista atual de chaves de assinatura..."
+  consultar_confianca || falhar "$MOTIVO"
+  filtrar_assinantes_pela_lista "$TMP_DIR/assinantes" || falhar "$MOTIVO"
+  if [ -n "$tag" ] && ! tag_atende_versao_minima "$tag"; then
+    falhar "a lista atual do site exige a versão $CONFIANCA_MINIMA ou mais nova e a $tag é mais antiga; nada foi instalado. Baixe o instalador mais recente pelo canal oficial."
+  fi
+  registrar "lista de chaves conferida: $(printf '%s\n' "$CONFIANCA_CHAVES" | wc -l | tr -d ' ') chave(s); versão mínima $CONFIANCA_MINIMA"
+}
+
 # Confere a assinatura da tag no clone $1 com a chave embutida. MOTIVO diz por que recusou.
 verificar_assinatura() {
   local dir="$1" tag="$2" assinantes id tipo conteudo objeto tipo_alvo nome commit_ref cabeca
+  # A interseção entre a chave embutida e a lista do site (conferir_estado_das_chaves): nunca a chave embutida sozinha.
   assinantes="$TMP_DIR/assinantes"
-  assinantes_embutidas >"$assinantes"
+  [ -s "$assinantes" ] || { MOTIVO="a lista atual de chaves não foi conferida."; return 1; }
   id=$(git_staging -C "$dir" rev-parse --verify -q "refs/tags/$tag") || { MOTIVO="a tag $tag não existe no repositório baixado."; return 1; }
   tipo=$(git_staging -C "$dir" cat-file -t "$id" 2>/dev/null)
   [ "$tipo" = "tag" ] || { MOTIVO="$tag não é uma tag anotada e assinada (tipo: ${tipo:-desconhecido})."; return 1; }
@@ -525,6 +649,7 @@ gravar_estado_inicial() {
 passo_baixar_kit() {
   local origem pai
   resolver_tag
+  conferir_estado_das_chaves "$TAG"
   origem="${ANVILORE_ORIGEM:-$REPO_OFICIAL}"
   pai=$(dirname "$PASTA")
   mkdir -p "$pai" || falhar "não consegui criar $pai."
@@ -674,8 +799,73 @@ criar_atalho() {
 # Instalação já existente: vira "atualizar"
 # ---------------------------------------------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------------------------------------------
+# Base mínima: a pasta instalada é lida (sem executar nada dela) ANTES de qualquer outro passo sobre ela
+# ---------------------------------------------------------------------------------------------------------------
+
+# 0 se $1 é uma versão X.Y.Z (sem v, pré-release, metadado de build nem zero à esquerda; até 9 dígitos por número).
+# `[[ =~ ]]` compara a string inteira: um valor com quebra de linha no meio não passa.
+semver_simples() {
+  [[ "$1" =~ ^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]]
+}
+
+# 0 se $1 >= $2 (as duas já validadas por semver_simples); a conta é por número, não por texto (0.10.0 > 0.9.0).
+semver_maior_ou_igual() {
+  local -a a b
+  IFS=. read -r -a a <<<"$1"
+  IFS=. read -r -a b <<<"$2"
+  local i
+  for i in 0 1 2; do
+    [ "${a[$i]}" -gt "${b[$i]}" ] && return 0
+    [ "${a[$i]}" -lt "${b[$i]}" ] && return 1
+  done
+  return 0
+}
+
+# Imprime a versão do package.json da pasta ($1) se ela for um X.Y.Z; senão, nada. SÓ LÊ O ARQUIVO COMO TEXTO: o Bun roda um
+# trecho do próprio instalador, com a pasta de trabalho na pasta temporária (o bunfig.toml da pasta instalada não é carregado)
+# e nada é importado, instalado nem executado a partir da pasta. A pasta nem sequer é a pasta atual do processo.
+versao_da_pasta() {
+  local saida
+  saida=$(cd "$TMP_DIR" 2>/dev/null && ANV_PACOTE="$1/package.json" bun --no-install -e '
+    try {
+      const texto = new TextDecoder("utf-8", { fatal: true }).decode(require("node:fs").readFileSync(process.env.ANV_PACOTE));
+      const pacote = JSON.parse(texto);
+      const v = pacote !== null && typeof pacote === "object" && !Array.isArray(pacote) ? pacote.version : undefined;
+      if (typeof v === "string") process.stdout.write(v + "#");
+    } catch {}
+  ' 2>/dev/null)
+  # O "#" no fim impede que o $(...) engula uma quebra de linha final da versão (que então não passaria no semver_simples).
+  case "$saida" in *"#") saida="${saida%"#"}" ;; *) return 0 ;; esac
+  semver_simples "$saida" && printf '%s' "$saida"
+  return 0
+}
+
+MSG_PASTA_NOVA="Instale o Anvilore numa pasta nova e peça ao seu agente para trazer a sua wiki para lá de forma conferida, fazendo antes uma cópia de segurança dela."
+
+passo_conferir_base_minima() {
+  local base versao
+  base=$(base_minima_embutida)
+  versao=$(versao_da_pasta "$PASTA")
+  registrar "base mínima: $base ; versão da pasta: ${versao:-não reconhecida}"
+  if [ -z "$versao" ]; then
+    falhar "Não reconheço a versão do Anvilore na pasta $PASTA (o package.json está ausente, ilegível ou não é uma versão publicada). Por segurança, não executei nada dela e nada foi mudado. $MSG_PASTA_NOVA"
+  fi
+  if ! semver_maior_ou_igual "$versao" "$base"; then
+    falhar "A pasta $PASTA tem o Anvilore na versão $versao, anterior à primeira versão assinada ($base). Por segurança, não executei nada dela e nada foi mudado. $MSG_PASTA_NOVA"
+  fi
+}
+
 passo_atualizar_existente() {
-  local primeira assinantes codigo
+  local primeira assinantes codigo versao_instalada
+  # A lista atual de chaves vem ANTES de qualquer execução da pasta (a base mínima já foi conferida no passo anterior).
+  conferir_estado_das_chaves ""
+  # A versão mínima da lista vale também para o que já está instalado: uma pasta abaixo dela não tem o código executado por aqui
+  # (o atualizador dela, o `instalar`, o `doctor`). A versão é lida do package.json como texto, como na base mínima.
+  versao_instalada=$(versao_da_pasta "$PASTA")
+  if [ -z "$versao_instalada" ] || ! semver_maior_ou_igual "$versao_instalada" "$CONFIANCA_MINIMA"; then
+    falhar "A pasta $PASTA tem o Anvilore na versão ${versao_instalada:-desconhecida}, e a lista atual do site exige a versão $CONFIANCA_MINIMA ou mais nova. Por segurança, não executei nada dela e nada foi mudado. $MSG_PASTA_NOVA"
+  fi
   mover_registro "$PASTA"
   dizer "Já existe uma instalação em $PASTA: vou conferir e atualizar, sem sobrescrever nada seu."
   INSTALACAO_NOVA=0
@@ -691,9 +881,10 @@ passo_atualizar_existente() {
   # O atualizador da pasta confere a tag com o seguranca/assinantes que a pasta já tem, e uma instalação que ficou para trás
   # na troca de chave não conhece a chave nova. Entrega a ela as chaves embutidas deste instalador pela opção
   # --assinantes-do-instalador (só nesta chamada; não grava nada na pasta e não passa por variável de ambiente, que um
-  # `atualizar` manual ou agendado herdaria sem querer): com elas o atualizador confere a tag só contra o que este script traz.
+  # `atualizar` manual ou agendado herdaria sem querer): com elas o atualizador confere a tag só contra o que este script traz,
+  # reduzido às chaves que a lista atual do site ainda autoriza.
   assinantes="$TMP_DIR/assinantes-reinstalacao"
-  assinantes_embutidas >"$assinantes" || falhar "não consegui preparar as chaves de assinatura para conferir a atualização."
+  cp "$TMP_DIR/assinantes" "$assinantes" || falhar "não consegui preparar as chaves de assinatura para conferir a atualização."
   if rodar bash -c 'cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts atualizar --assinantes-do-instalador "$2"' _ "$PASTA" "$assinantes"; then
     dizer "Atualização: $(printf '%s\n' "$ULTIMA_SAIDA" | tail -n1)"
   else
@@ -701,7 +892,7 @@ passo_atualizar_existente() {
     # Código 2 = uso inválido: o atualizador da pasta é de uma versão que não conhece a opção. Não esconde o erro nem segue
     # como se tivesse conferido (nada foi mudado).
     if [ "$codigo" -eq 2 ]; then
-      falhar "A pasta tem uma versão antiga do Anvilore que não sabe receber as chaves do instalador; nada foi mudado. Peça ao seu agente para atualizar o Anvilore dessa pasta pelo comando de atualização dela e rode este instalador de novo."
+      falhar "O atualizador dessa pasta é de uma versão anterior à primeira versão assinada e não sabe receber as chaves do instalador; nada foi mudado. $MSG_PASTA_NOVA"
     fi
     primeira=$(printf '%s\n' "$ULTIMA_SAIDA" | head -n1)
     avisar "não atualizei agora (${primeira:-sem detalhes}). Segui com a versão instalada."
@@ -757,7 +948,7 @@ principal() {
   passo_git_e_bun
   passo_rg
   passo_pasta
-  if [ "$SITUACAO_PASTA" = "instalacao" ]; then passo_atualizar_existente; else passo_baixar_kit; fi
+  if [ "$SITUACAO_PASTA" = "instalacao" ]; then passo_conferir_base_minima; passo_atualizar_existente; else passo_baixar_kit; fi
   passo_agentes
   passo_configurar
   passo_estado

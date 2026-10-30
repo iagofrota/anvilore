@@ -53,8 +53,20 @@ export async function criarChave(pasta: string) {
   const p = Bun.spawnSync(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "fixture-descartavel", "-f", chave], { stdout: "pipe", stderr: "pipe" });
   if (p.exitCode !== 0) throw new Error("ssh-keygen falhou");
   const publica = (await readFile(`${chave}.pub`, "utf8")).trim().split(/\s+/).slice(0, 2).join(" ");
-  return { chave, assinantes: `teste@localhost namespaces="git" ${publica}\n` };
+  return { chave, assinantes: `teste@localhost namespaces="git" ${publica}\n`, fingerprint: fingerprintDe(`${chave}.pub`) };
 }
+
+// Fingerprint como o `ssh-keygen -lf` a mostra (o fixture não usa o código sob teste para obtê-la).
+export function fingerprintDe(arquivoPublico: string): string {
+  const p = Bun.spawnSync(["ssh-keygen", "-lf", arquivoPublico], { stdout: "pipe", stderr: "pipe" });
+  const fp = p.stdout.toString().trim().split(/\s+/)[1];
+  if (p.exitCode !== 0 || !fp?.startsWith("SHA256:")) throw new Error("ssh-keygen -lf falhou");
+  return fp;
+}
+
+// Lista de chaves do site (confianca.json) e a busca que a serve, sem rede: o fixture publica o que o teste mandar.
+export type ListaConfianca = { formato: 1; chaves: string[]; versaoMinima: string };
+export const respostaDaLista = (lista: unknown) => new Response(JSON.stringify(lista), { status: 200, headers: { "content-type": "application/json" } });
 
 const GITIGNORE = ".anvilore/\n.claude/\n.codex/\n.agents/\n.gemini/\n.github/copilot/\n.github/hooks/\n.github/agents/\nraw/\nwiki/\nanvilore.toml\nnode_modules/\n";
 
@@ -64,7 +76,7 @@ export async function criarKit(versoes: Versao[], opcoes: { alvos?: string[]; es
   const pai = await mkdtemp(join(tmpdir(), "anvilore-kit-"));
   const raiz = join(pai, "Anvilore");
   await mkdir(raiz);
-  const { chave, assinantes } = await criarChave(pai);
+  const { chave, assinantes, fingerprint } = await criarChave(pai);
   const git = gitReal(raiz);
   const ok = (args: string[]) => { const r = git(args); if (r.codigo) throw new Error(`git ${args.join(" ")}: ${r.saida}`); return r.saida.trim(); };
   ok(["init", "-q"]); ok(["config", "user.name", "Teste"]); ok(["config", "user.email", "teste@localhost"]); ok(["config", "commit.gpgsign", "false"]);
@@ -96,8 +108,12 @@ export async function criarKit(versoes: Versao[], opcoes: { alvos?: string[]; es
   }));
   let releases: Release[] = versoes.slice(1).map(v => ({ tag_name: `v${v.versao}`, draft: false, prerelease: false }));
   let dependencias = 0;
+  // O que o site publica agora: por padrão, só a chave do kit e nenhuma versão mínima.
+  let lista: ListaConfianca = { formato: 1, chaves: [fingerprint], versaoMinima: "0.0.0" };
+  const consultas: { url: string; init: RequestInit }[] = [];
   const kit = {
-    pai, raiz, chave, git, ok, commits,
+    pai, raiz, chave, git, ok, commits, fingerprint, consultas,
+    publicarLista: (nova: Partial<ListaConfianca>) => { lista = { ...lista, ...nova }; },
     head: () => ok(["rev-parse", "HEAD"]),
     dependencias: () => dependencias,
     publicar: (tags: string[]) => { releases = tags.map(tag => ({ tag_name: tag, draft: false, prerelease: false })); },
@@ -107,6 +123,7 @@ export async function criarKit(versoes: Versao[], opcoes: { alvos?: string[]; es
       releases: async () => releases,
       instalarDependencias: async () => { dependencias++; return 0; },
       versaoBun: async () => "1.4.1",
+      buscarConfianca: async (url: string, init: RequestInit) => { consultas.push({ url, init }); return respostaDaLista(lista); },
       ...extra,
     }),
     estado: async () => JSON.parse(await readFile(join(raiz, ".anvilore/atualizacao.json"), "utf8")),

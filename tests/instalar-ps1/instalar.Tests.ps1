@@ -241,6 +241,119 @@ Describe 'AnvEscolherPasta (ANVILORE_PASTA)' {
   }
 }
 
+Describe 'AnvEhInstalacao (critério igual ao do instalar.sh: estrutura do kit)' {
+  # Dado uma pasta; Quando o instalador decide se é uma instalação do Anvilore; Então vale a estrutura do kit (.git, AGENTS.md,
+  # src\cli.ts, skills\), sem exigir o estado da atualização nem o conteúdo do package.json (a versão é lida depois, pela base mínima).
+  BeforeEach {
+    $script:K = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory (Join-Path $script:K '.git'), (Join-Path $script:K 'src'), (Join-Path $script:K 'skills') -Force | Out-Null
+    Set-Content (Join-Path $script:K 'AGENTS.md') 'contrato'
+    Set-Content (Join-Path $script:K 'src\cli.ts') 'x'
+  }
+  It 'pasta com a estrutura do kit é instalação, mesmo sem o estado da atualização e sem package.json' {
+    AnvEhInstalacao -Pasta $script:K | Should -BeTrue
+  }
+  It 'package.json ilegível não muda a classificação' {
+    New-Item -ItemType Directory (Join-Path $script:K 'package.json') | Out-Null
+    AnvEhInstalacao -Pasta $script:K | Should -BeTrue
+  }
+  It 'sem .git não é' { Remove-Item (Join-Path $script:K '.git') -Recurse -Force; AnvEhInstalacao -Pasta $script:K | Should -BeFalse }
+  It 'sem AGENTS.md não é' { Remove-Item (Join-Path $script:K 'AGENTS.md'); AnvEhInstalacao -Pasta $script:K | Should -BeFalse }
+  It 'sem src\cli.ts não é' { Remove-Item (Join-Path $script:K 'src\cli.ts'); AnvEhInstalacao -Pasta $script:K | Should -BeFalse }
+  It 'sem skills\ não é' { Remove-Item (Join-Path $script:K 'skills') -Recurse -Force; AnvEhInstalacao -Pasta $script:K | Should -BeFalse }
+  It 'pasta de outra coisa com package.json anvilore não é' {
+    $o = Join-Path $TestDrive 'outra-coisa'; New-Item -ItemType Directory (Join-Path $o '.git') -Force | Out-Null
+    Set-Content (Join-Path $o 'package.json') '{"name":"anvilore","version":"0.2.0"}'
+    AnvEhInstalacao -Pasta $o | Should -BeFalse
+  }
+}
+
+Describe 'AnvBaseMinima (a versão mínima embutida no instalador)' {
+  # Dado o instalador; Quando pede a base mínima; Então só uma versão X.Y.Z vale. Vazia ou inválida: nulo (o instalador recusa reinstalar).
+  It 'versão válida' { AnvBaseMinima -Embutido "0.3.0`n" | Should -Be '0.3.0' }
+  It 'sem quebra de linha final também' { AnvBaseMinima -Embutido '0.3.0' | Should -Be '0.3.0' }
+  It 'vazia: nulo' { AnvBaseMinima -Embutido '' | Should -BeNullOrEmpty }
+  It 'pré-release: nulo' { AnvBaseMinima -Embutido '0.3.0-rc.1' | Should -BeNullOrEmpty }
+  It 'texto: nulo' { AnvBaseMinima -Embutido 'nova' | Should -BeNullOrEmpty }
+  It 'duas linhas: nulo' { AnvBaseMinima -Embutido "0.3.0`n0.4.0" | Should -BeNullOrEmpty }
+}
+
+Describe 'AnvLerVersaoDaPasta (lê o package.json sem executar nada da pasta)' {
+  BeforeEach {
+    $script:V = Join-Path $TestDrive ([guid]::NewGuid().ToString('N')); New-Item -ItemType Directory $script:V | Out-Null
+    $script:Marca = Join-Path $TestDrive 'marcador-leitura'; Remove-Item $script:Marca -ErrorAction SilentlyContinue
+    # Se a leitura executasse o cli.ts ou o bunfig.toml da pasta, o marcador apareceria.
+    New-Item -ItemType Directory (Join-Path $script:V 'src') | Out-Null
+    Set-Content (Join-Path $script:V 'src\cli.ts') "require('fs').writeFileSync('$($script:Marca -replace '\\','/')', 'x')"
+  }
+  It 'lê a versão e não executa nada' {
+    Set-Content (Join-Path $script:V 'package.json') '{"name":"anvilore","version":"0.3.0"}'
+    AnvLerVersaoDaPasta -Pasta $script:V | Should -Be '0.3.0'
+    Test-Path $script:Marca | Should -BeFalse
+  }
+  It 'aceita BOM no começo' {
+    [IO.File]::WriteAllBytes((Join-Path $script:V 'package.json'), ([byte[]](0xEF,0xBB,0xBF) + [Text.Encoding]::UTF8.GetBytes('{"version":"1.2.3"}')))
+    AnvLerVersaoDaPasta -Pasta $script:V | Should -Be '1.2.3'
+  }
+  It 'ausente: nulo' { AnvLerVersaoDaPasta -Pasta $script:V | Should -BeNullOrEmpty }
+  It 'pasta no lugar do arquivo: nulo' { New-Item -ItemType Directory (Join-Path $script:V 'package.json') | Out-Null; AnvLerVersaoDaPasta -Pasta $script:V | Should -BeNullOrEmpty }
+  It 'bytes que não são texto: nulo' { [IO.File]::WriteAllBytes((Join-Path $script:V 'package.json'), [byte[]](0xFF,0xFE,0x00,0x80,0x7B)); AnvLerVersaoDaPasta -Pasta $script:V | Should -BeNullOrEmpty }
+  It 'que não é JSON: nulo' { Set-Content (Join-Path $script:V 'package.json') '{ nao e json'; AnvLerVersaoDaPasta -Pasta $script:V | Should -BeNullOrEmpty }
+  It 'lista: nulo' { Set-Content (Join-Path $script:V 'package.json') '[]'; AnvLerVersaoDaPasta -Pasta $script:V | Should -BeNullOrEmpty }
+  It 'sem version: nulo' { Set-Content (Join-Path $script:V 'package.json') '{"name":"anvilore"}'; AnvLerVersaoDaPasta -Pasta $script:V | Should -BeNullOrEmpty }
+  It 'version só dentro de dependencies: nulo' { Set-Content (Join-Path $script:V 'package.json') '{"dependencies":{"version":"9.9.9"}}'; AnvLerVersaoDaPasta -Pasta $script:V | Should -BeNullOrEmpty }
+  It 'version número: nulo' { Set-Content (Join-Path $script:V 'package.json') '{"version":3}'; AnvLerVersaoDaPasta -Pasta $script:V | Should -BeNullOrEmpty }
+}
+
+Describe 'AnvVerificarBaseMinima (menor, ausente, inválida e pré-release recusam; igual ou maior segue)' {
+  BeforeEach { $script:W = Join-Path $TestDrive ([guid]::NewGuid().ToString('N')); New-Item -ItemType Directory $script:W | Out-Null }
+  It '<nome>' -ForEach @(
+    @{ nome = 'igual à base segue';                    json = '{"version":"0.3.0"}';          base = '0.3.0'; ok = $true;  motivo = '' }
+    @{ nome = 'patch maior segue';                     json = '{"version":"0.3.1"}';          base = '0.3.0'; ok = $true;  motivo = '' }
+    @{ nome = '0.10.0 contra 0.9.0 segue (número)';    json = '{"version":"0.10.0"}';         base = '0.9.0'; ok = $true;  motivo = '' }
+    @{ nome = 'major maior segue';                     json = '{"version":"1.0.0"}';          base = '0.3.0'; ok = $true;  motivo = '' }
+    @{ nome = 'v0.2.0 recusa como antiga';             json = '{"version":"0.2.0"}';          base = '0.3.0'; ok = $false; motivo = 'antiga' }
+    @{ nome = '0.8.9 contra 0.9.0 recusa como antiga'; json = '{"version":"0.8.9"}';          base = '0.9.0'; ok = $false; motivo = 'antiga' }
+    @{ nome = 'pré-release acima da base recusa';      json = '{"version":"0.3.1-beta"}';     base = '0.3.0'; ok = $false; motivo = 'desconhecida' }
+    @{ nome = 'pré-release da base recusa';            json = '{"version":"0.3.0-rc.1"}';     base = '0.3.0'; ok = $false; motivo = 'desconhecida' }
+    @{ nome = 'metadado de build recusa';              json = '{"version":"0.3.0+abc"}';      base = '0.3.0'; ok = $false; motivo = 'desconhecida' }
+    @{ nome = 'com v na frente recusa';                json = '{"version":"v0.3.0"}';         base = '0.3.0'; ok = $false; motivo = 'desconhecida' }
+    @{ nome = 'só major.minor recusa';                 json = '{"version":"0.3"}';            base = '0.3.0'; ok = $false; motivo = 'desconhecida' }
+    @{ nome = 'zero à esquerda recusa';                json = '{"version":"0.03.0"}';         base = '0.3.0'; ok = $false; motivo = 'desconhecida' }
+    @{ nome = 'duas linhas recusa';                    json = '{"version":"0.3.0\n9.9.9"}';   base = '0.3.0'; ok = $false; motivo = 'desconhecida' }
+    @{ nome = 'número gigante recusa';                 json = '{"version":"99999999999999999999.0.0"}'; base = '0.3.0'; ok = $false; motivo = 'desconhecida' }
+  ) {
+    Set-Content (Join-Path $script:W 'package.json') $json
+    $r = AnvVerificarBaseMinima -Pasta $script:W -Base $base
+    $r.Ok | Should -Be $ok
+    $r.Motivo | Should -Be $motivo
+  }
+  It 'package.json ausente recusa como desconhecida' {
+    $r = AnvVerificarBaseMinima -Pasta $script:W -Base '0.3.0'
+    $r.Ok | Should -BeFalse
+    $r.Motivo | Should -Be 'desconhecida'
+  }
+}
+
+Describe 'AnvMensagemBaseMinima (linguagem simples, sem comando técnico)' {
+  It 'versão antiga: diz a versão, a primeira assinada, que nada foi mudado e o caminho da pasta nova' {
+    $m = AnvMensagemBaseMinima -Pasta 'C:\Anvilore' -Resultado @{ Ok = $false; Motivo = 'antiga'; Versao = '0.2.0' } -Base '0.3.0'
+    $m | Should -Match 'anterior à primeira versão assinada'
+    $m | Should -Match '0\.2\.0'
+    $m | Should -Match 'nada foi mudado'
+    $m | Should -Match 'numa pasta nova'
+    $m | Should -Match 'de forma conferida'
+    $m | Should -Match 'cópia de segurança'
+    $m | Should -Not -Match 'bun |cli\.ts|atualizar'
+  }
+  It 'versão desconhecida: diz que não reconhece e dá o mesmo caminho' {
+    $m = AnvMensagemBaseMinima -Pasta 'C:\Anvilore' -Resultado @{ Ok = $false; Motivo = 'desconhecida'; Versao = '' } -Base '0.3.0'
+    $m | Should -Match 'Não reconheço a versão do Anvilore'
+    $m | Should -Match 'nada foi mudado'
+    $m | Should -Match 'numa pasta nova'
+  }
+}
+
 Describe 'AnvConfirmar' {
   AfterEach { Remove-Item Env:ANVILORE_SEM_PERGUNTAS -ErrorAction SilentlyContinue }
   # Dado ANVILORE_SEM_PERGUNTAS=1 (CI); Quando o instalador pergunta; Então responde o padrão, sem esperar.
@@ -425,5 +538,171 @@ Describe 'transporte do git antes da assinatura (A5)' {
     $env:ANV_TESTE_A | Should -Be 'antes'
     (Test-Path Env:ANV_TESTE_B) | Should -BeFalse
     Remove-Item Env:ANV_TESTE_A -ErrorAction SilentlyContinue
+  }
+}
+
+# Estado das chaves fora do GitHub (PARECER-SOL §2): a lista que o dono publica no site; o instalador só vale a interseção dela
+# com as chaves embutidas. O comportamento de ponta a ponta (servidor de loopback, reinstalação) está em e2e.Tests.ps1.
+Describe 'estado das chaves: URL, documento, fingerprint e interseção' {
+  BeforeAll {
+    $script:FpA = 'SHA256:/JgFK5PwZmasglTqgzoAjmXPyJUZMG00A2M8/094SLc'
+    $script:FpB = 'SHA256:dqanDdeEV020uGcmGitbT6dlSS+jHYoL2XMmXUpqCD8'
+    $script:LinhaA = 'unit@anvilore.test namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILzBKzpYMJNV3yvlaRIPDKwIjuHnYW4sJuBuwlXqU8+v'
+    $script:LinhaB = 'unit2@anvilore.test namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKtLPcuTLjTVuWPqqPiG59ATxI72uAjPUaFxMdT9LV2X unit2'
+    $script:Lista = { param($chaves, $minima = '0.0.0') (@{ formato = 1; chaves = $chaves; versaoMinima = $minima } | ConvertTo-Json -Compress) }
+  }
+
+  # Dado o endereço embutido; Quando o leio; Então só vale https (ou http em loopback, do build de teste), numa linha só.
+  It 'AnvUrlConfianca aceita https e http em 127.0.0.1' {
+    AnvUrlConfianca -Embutido "https://anvilore.iagofrota.com.br/confianca.json`n" | Should -Be 'https://anvilore.iagofrota.com.br/confianca.json'
+    AnvUrlConfianca -Embutido 'http://127.0.0.1:8123/confianca.json' | Should -Be 'http://127.0.0.1:8123/confianca.json'
+  }
+  It 'AnvUrlConfianca recusa vazio, http fora de loopback, espaço, usuário, consulta e duas linhas' {
+    foreach ($u in @('', "`n", 'http://anvilore.iagofrota.com.br/confianca.json', 'http://localhost:1/x', 'http://127.0.0.2/x', 'https://exemplo.com/a b', 'https://u:s@exemplo.com/x', 'https://exemplo.com/x?a=1', "https://exemplo.com/x`nhttps://outro.com/y", 'ftp://exemplo.com/x', 'exemplo.com/x')) {
+      AnvUrlConfianca -Embutido $u | Should -BeNullOrEmpty
+    }
+  }
+
+  It 'AnvValidarConfianca aceita o documento certo' {
+    $c = AnvValidarConfianca -Texto (& $script:Lista @($script:FpA, $script:FpB) '0.3.0')
+    $c | Should -Not -BeNullOrEmpty
+    @($c.Chaves) | Should -Be @($script:FpA, $script:FpB)
+    $c.VersaoMinima | Should -Be '0.3.0'
+  }
+  It 'AnvValidarConfianca recusa campo extra, tipo errado, formato 2, chaves vazia ou repetida, fingerprint torta e versão com pré-release' {
+    $ruins = @(
+      '{', '[]', 'null', '"texto"',
+      '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":"0.3.0","extra":1}',
+      '{"formato":1,"chaves":["' + $script:FpA + '"]}',
+      '{"formato":"1","chaves":["' + $script:FpA + '"],"versaoMinima":"0.3.0"}',
+      '{"formato":2,"chaves":["' + $script:FpA + '"],"versaoMinima":"0.3.0"}',
+      '{"formato":1,"chaves":[],"versaoMinima":"0.3.0"}',
+      '{"formato":1,"chaves":"' + $script:FpA + '","versaoMinima":"0.3.0"}',
+      '{"formato":1,"chaves":[1],"versaoMinima":"0.3.0"}',
+      '{"formato":1,"chaves":["' + $script:FpA + '","' + $script:FpA + '"],"versaoMinima":"0.3.0"}',
+      '{"formato":1,"chaves":["SHA256:curta"],"versaoMinima":"0.3.0"}',
+      '{"formato":1,"chaves":["' + $script:FpA.ToLowerInvariant() + '"],"versaoMinima":"0.3.0"}',
+      '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":"0.3.0-rc.1"}',
+      '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":"v0.3.0"}',
+      '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":3}',
+      '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":"1234567890.0.0"}',
+      # Nome repetido (a lista é a autoridade de revogação: documento ambíguo falha fechado, igual ao instalar.sh e ao atualizador).
+      '{"formato":1,"chaves":["' + $script:FpB + '"],"chaves":["' + $script:FpA + '"],"versaoMinima":"0.3.0"}',
+      '{"chaves":["' + $script:FpA + '"],"formato":1,"chaves":["' + $script:FpB + '"],"versaoMinima":"0.3.0"}',
+      '{"formato":1,"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":"0.3.0"}',
+      '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":"0.3.0","versaoMinima":"0.4.0"}',
+      '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":"0.3.0","versaoMinim\u0061":"0.1.0"}'
+    )
+    foreach ($t in $ruins) { (AnvValidarConfianca -Texto $t) | Should -BeNullOrEmpty }
+  }
+
+  # Dado a linha de uma chave; Quando calculo a fingerprint; Então é a que o `ssh-keygen -lf` mostra.
+  It 'AnvImpressaoDaLinha bate com a do ssh-keygen (com opções antes da chave e comentário depois)' {
+    AnvImpressaoDaLinha -Linha $script:LinhaA | Should -Be $script:FpA
+    AnvImpressaoDaLinha -Linha $script:LinhaB | Should -Be $script:FpB
+  }
+  It 'AnvImpressaoDaLinha: comentário, linha em branco e chave torta não têm fingerprint' {
+    foreach ($l in @('', '# ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILzBKzpYMJNV3yvlaRIPDKwIjuHnYW4sJuBuwlXqU8+v', 'so texto', 'x ssh-ed25519', 'x ssh-ed25519 nao_e_base64!', 'x ssh-ed25519 AAAA')) {
+      AnvImpressaoDaLinha -Linha $l | Should -BeNullOrEmpty
+    }
+  }
+  It 'AnvFiltrarAssinantes guarda só as linhas cuja fingerprint está na lista (a interseção)' {
+    $texto = "# âncoras`n$($script:LinhaA)`n$($script:LinhaB)`n"
+    AnvFiltrarAssinantes -Texto $texto -Chaves @($script:FpA) | Should -Be "$($script:LinhaA)`n"
+    AnvFiltrarAssinantes -Texto $texto -Chaves @($script:FpB, ('SHA256:' + ('Z' * 43))) | Should -Be "$($script:LinhaB)`n"
+    AnvFiltrarAssinantes -Texto $texto -Chaves @($script:FpA, $script:FpB) | Should -Be "$($script:LinhaA)`n$($script:LinhaB)`n"
+    AnvFiltrarAssinantes -Texto $script:LinhaA -Chaves @($script:FpB) | Should -BeNullOrEmpty
+  }
+}
+
+Describe 'AnvConsultarConfianca (busca da lista)' {
+  BeforeAll {
+    $script:Doc = '{"formato":1,"chaves":["SHA256:/JgFK5PwZmasglTqgzoAjmXPyJUZMG00A2M8/094SLc"],"versaoMinima":"0.3.0"}'
+    $script:Url = 'https://anvilore.iagofrota.com.br/confianca.json'
+    $script:Resp = { param($status, $conteudo) [pscustomobject]@{ StatusCode = $status; Content = $conteudo; RawContentLength = $conteudo.Length } }
+  }
+  It 'devolve o documento quando o site responde 200 e pede sem cache' {
+    $script:Visto = $null
+    $r = AnvConsultarConfianca -Url $script:Url -Buscar { param($u, $cabecalhos) $script:Visto = @{ Url = $u; Cabecalhos = $cabecalhos }; & $script:Resp 200 $script:Doc }
+    $r.Ok | Should -BeTrue
+    @($r.Chaves).Count | Should -Be 1
+    $r.VersaoMinima | Should -Be '0.3.0'
+    $script:Visto.Url | Should -Be $script:Url
+    $script:Visto.Cabecalhos['Cache-Control'] | Should -Be 'no-cache'
+    $script:Visto.Cabecalhos['Pragma'] | Should -Be 'no-cache'
+  }
+  It 'recusa HTTP diferente de 200, redirecionamento, erro de rede/TLS, documento inválido e resposta grande, com a mensagem simples' {
+    $casos = @(
+      { & $script:Resp 404 'nada' }, { & $script:Resp 302 '' }, { & $script:Resp 500 'erro' }, { throw 'falha de TLS' },
+      { & $script:Resp 200 '{' }, { & $script:Resp 200 '{"formato":2,"chaves":[],"versaoMinima":"0.0.0"}' },
+      { & $script:Resp 200 ($script:Doc + (' ' * 70000)) }
+    )
+    foreach ($b in $casos) {
+      $r = AnvConsultarConfianca -Url $script:Url -Buscar $b
+      $r.Ok | Should -BeFalse
+      $r.Motivo | Should -Match 'não consegui conferir a lista atual de chaves'
+      $r.Motivo | Should -Match 'nada mudou'
+      $r.Motivo | Should -Match ([regex]::Escape($script:Url))
+    }
+  }
+}
+
+Describe 'AnvConferirEstadoDasChaves (consulta + interseção + versão mínima)' {
+  BeforeAll {
+    $script:FpA = 'SHA256:/JgFK5PwZmasglTqgzoAjmXPyJUZMG00A2M8/094SLc'
+    $script:FpB = 'SHA256:dqanDdeEV020uGcmGitbT6dlSS+jHYoL2XMmXUpqCD8'
+    $script:LinhaA = 'unit@anvilore.test namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILzBKzpYMJNV3yvlaRIPDKwIjuHnYW4sJuBuwlXqU8+v'
+    $script:LinhaB = 'unit2@anvilore.test namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKtLPcuTLjTVuWPqqPiG59ATxI72uAjPUaFxMdT9LV2X'
+    $script:Servir = { param($chaves, $minima = '0.0.0') $j = (@{ formato = 1; chaves = $chaves; versaoMinima = $minima } | ConvertTo-Json -Compress); { param($u, $c) [pscustomobject]@{ StatusCode = 200; Content = $j; RawContentLength = $j.Length } }.GetNewClosure() }
+    $script:Ancoras = "$($script:LinhaA)`n$($script:LinhaB)`n"
+    $script:UrlOk = 'https://anvilore.iagofrota.com.br/confianca.json'
+  }
+  It 'chave na lista: devolve só as linhas permitidas' {
+    $r = AnvConferirEstadoDasChaves -Tag 'v0.3.0' -Url $script:UrlOk -Assinantes $script:Ancoras -Buscar (& $script:Servir @($script:FpA))
+    $r.Ok | Should -BeTrue
+    $r.Assinantes | Should -Be "$($script:LinhaA)`n"
+  }
+  It 'lista sem nenhuma chave embutida (chave retirada): recusa dizendo que o instalador está desatualizado' {
+    $r = AnvConferirEstadoDasChaves -Tag 'v0.3.0' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar (& $script:Servir @($script:FpB))
+    $r.Ok | Should -BeFalse
+    $r.Motivo | Should -Match 'não inclui a chave de assinatura deste instalador'
+  }
+  It 'o site nunca acrescenta chave: chave da lista que não está nas âncoras não entra' {
+    $r = AnvConferirEstadoDasChaves -Tag 'v0.3.0' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar (& $script:Servir @($script:FpA, $script:FpB))
+    $r.Assinantes | Should -Be "$($script:LinhaA)`n"
+  }
+  It 'versão mínima: candidata abaixo recusa; igual ou acima passa; pré-release da mínima recusa; sem tag (reinstalação) não compara' {
+    (AnvConferirEstadoDasChaves -Tag 'v0.3.0' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar (& $script:Servir @($script:FpA) '0.3.1')).Ok | Should -BeFalse
+    (AnvConferirEstadoDasChaves -Tag 'v0.3.0' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar (& $script:Servir @($script:FpA) '0.3.1')).Motivo | Should -Match 'exige a versão 0.3.1'
+    (AnvConferirEstadoDasChaves -Tag 'v0.3.1' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar (& $script:Servir @($script:FpA) '0.3.1')).Ok | Should -BeTrue
+    (AnvConferirEstadoDasChaves -Tag 'v0.10.0' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar (& $script:Servir @($script:FpA) '0.9.0')).Ok | Should -BeTrue
+    (AnvConferirEstadoDasChaves -Tag 'v0.3.1-rc.1' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar (& $script:Servir @($script:FpA) '0.3.1')).Ok | Should -BeFalse
+    (AnvConferirEstadoDasChaves -Tag '' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar (& $script:Servir @($script:FpA) '9.9.9')).Ok | Should -BeTrue
+  }
+  It 'sem URL embutida válida ou sem chave embutida: recusa sem consultar' {
+    $script:Chamou = $false
+    $busca = { param($u, $c) $script:Chamou = $true; [pscustomobject]@{ StatusCode = 200; Content = '{}'; RawContentLength = 2 } }
+    (AnvConferirEstadoDasChaves -Tag 'v0.3.0' -Url '' -Assinantes $script:LinhaA -Buscar $busca).Ok | Should -BeFalse
+    (AnvConferirEstadoDasChaves -Tag 'v0.3.0' -Url 'http://exemplo.com/x' -Assinantes $script:LinhaA -Buscar $busca).Ok | Should -BeFalse
+    $script:Chamou | Should -BeFalse
+  }
+  It 'falha da consulta: recusa com a mensagem simples' {
+    $r = AnvConferirEstadoDasChaves -Tag 'v0.3.0' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar { throw 'sem rede' }
+    $r.Ok | Should -BeFalse
+    $r.Motivo | Should -Match 'não consegui conferir a lista atual de chaves'
+  }
+}
+
+Describe 'AnvVersaoDaPastaAtendeMinima (a pasta instalada contra a versão mínima da lista)' {
+  It 'abaixo da mínima recusa; igual ou acima passa; comparação por número' {
+    AnvVersaoDaPastaAtendeMinima -Versao '0.3.0' -Minima '0.3.1' | Should -BeFalse
+    AnvVersaoDaPastaAtendeMinima -Versao '0.3.1' -Minima '0.3.1' | Should -BeTrue
+    AnvVersaoDaPastaAtendeMinima -Versao '0.10.0' -Minima '0.9.0' | Should -BeTrue
+    AnvVersaoDaPastaAtendeMinima -Versao '0.9.0' -Minima '0.10.0' | Should -BeFalse
+  }
+  It 'versão ou mínima que não é X.Y.Z recusa (nunca assume que passa)' {
+    AnvVersaoDaPastaAtendeMinima -Versao '' -Minima '0.3.1' | Should -BeFalse
+    AnvVersaoDaPastaAtendeMinima -Versao '0.3.0' -Minima '' | Should -BeFalse
+    AnvVersaoDaPastaAtendeMinima -Versao 'abc' -Minima '0.3.1' | Should -BeFalse
   }
 }

@@ -11,7 +11,8 @@ set -euo pipefail
 
 raiz="$(cd "$(dirname "$0")/.." && pwd)"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+servidor=""
+trap '[ -n "$servidor" ] && kill "$servidor" 2>/dev/null; rm -rf "$tmp"' EXIT
 home="$tmp/home"; falso="$tmp/falso"
 mkdir -p "$home" "$falso"
 
@@ -25,9 +26,23 @@ git -C "$tmp/origem" tag -d "$tag" >/dev/null 2>&1 || true
 git -C "$tmp/origem" -c user.name=Teste -c user.email=teste@localhost -c gpg.format=ssh -c "user.signingkey=$tmp/chave" tag -s "$tag" -m "$tag"
 printf 'teste@localhost namespaces="git" %s\n' "$(cut -d' ' -f1,2 "$tmp/chave.pub")" > "$tmp/assinantes"
 
-echo "== instalar.sh com o manifesto real e a chave descartável embutidos"
-bun "$raiz/scripts/embutir-instalador.ts" --assinantes "$tmp/assinantes" --saida "$tmp/instalar.sh"
-bun "$raiz/scripts/embutir-instalador.ts" --conferir "$tmp/instalar.sh" --assinantes "$tmp/assinantes"
+# A base mínima deste ensaio é a versão do kit sob teste: a segunda rodada reinstala essa mesma pasta e precisa passar pela
+# recusa prévia (a base real, instalador/base-minima, é a da primeira versão assinada e seria maior que o kit atual).
+printf '%s\n' "$versao" > "$tmp/base-minima"
+
+# A lista de chaves do site (confianca.json) é servida por um servidor SÓ de teste em 127.0.0.1, com a chave descartável: o
+# instalador deste ensaio leva essa URL de loopback embutida (--aceitar-url-de-teste). Nada acessa o site real.
+mkdir -p "$tmp/confianca"
+printf '{"formato":1,"chaves":["%s"],"versaoMinima":"0.0.0"}\n' "$(ssh-keygen -lf "$tmp/chave.pub" | cut -d' ' -f2)" > "$tmp/confianca/confianca.json"
+bun "$raiz/scripts/servir-confianca-teste.ts" "$tmp/confianca" &
+servidor=$!
+for _ in $(seq 1 100); do [ -s "$tmp/confianca/porta" ] && break; sleep 0.1; done
+[ -s "$tmp/confianca/porta" ] || { echo "FALHA: o servidor de teste do confianca.json não subiu" >&2; exit 1; }
+url_confianca="http://127.0.0.1:$(cat "$tmp/confianca/porta")/confianca.json"
+
+echo "== instalar.sh com o manifesto real, a chave descartável, a base mínima e a URL de teste embutidos"
+bun "$raiz/scripts/embutir-instalador.ts" --assinantes "$tmp/assinantes" --base-minima "$tmp/base-minima" --url-confianca "$url_confianca" --aceitar-url-de-teste --saida "$tmp/instalar.sh"
+bun "$raiz/scripts/embutir-instalador.ts" --conferir "$tmp/instalar.sh" --assinantes "$tmp/assinantes" --base-minima "$tmp/base-minima" --url-confianca "$url_confianca" --aceitar-url-de-teste
 
 printf '#!/bin/sh\necho "2.1.312 (Claude Code)"\n' > "$falso/claude"
 chmod +x "$falso/claude"

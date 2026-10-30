@@ -55,6 +55,28 @@ if (comando === "hook") process.exit(2);
 process.exit(64);
 `;
 
+// Servidor de loopback do confianca.json (processo à parte: o teste roda o instalador com spawnSync, que travaria um servidor
+// no mesmo processo). O instalador de teste leva esta URL embutida (--aceitar-url-de-teste); nada acessa a rede real.
+export async function iniciarServidorConfianca(chaves: string[], versaoMinima = "0.0.0") {
+  const pasta = await mkdtemp(join(tmpdir(), "anvilore-confianca-srv-"));
+  const arquivo = join(pasta, "confianca.json");
+  await writeFile(arquivo, JSON.stringify({ formato: 1, chaves, versaoMinima }));
+  const proc = Bun.spawn([BUN_REAL, join(raizDoRepo, "scripts/servir-confianca-teste.ts"), pasta], { stdout: "ignore", stderr: "ignore" });
+  let porta = "";
+  for (let i = 0; i < 200 && !porta; i++) { porta = await readFile(join(pasta, "porta"), "utf8").catch(() => ""); if (!porta) await Bun.sleep(25); }
+  if (!porta) { proc.kill(); throw new Error("o servidor de teste do confianca.json não subiu"); }
+  return {
+    pasta, url: `http://127.0.0.1:${porta}/confianca.json`,
+    publicar: (texto: string | object) => writeFile(arquivo, typeof texto === "string" ? texto : JSON.stringify(texto)),
+    status: (codigo?: number) => codigo === undefined ? rm(join(pasta, "status"), { force: true }) : writeFile(join(pasta, "status"), String(codigo)),
+    // "infinito": o servidor responde sem parar; `enviados` devolve os bytes que já saíram (o cliente tem de abortar em 64 KiB).
+    modo: (m?: string) => m === undefined ? rm(join(pasta, "modo"), { force: true }) : writeFile(join(pasta, "modo"), m),
+    enviados: async () => Number(await readFile(join(pasta, "enviados"), "utf8").catch(() => "0")),
+    requisicoes: async () => (await readFile(join(pasta, "requisicoes.log"), "utf8").catch(() => "")).trim().split("\n").filter(Boolean).map(l => JSON.parse(l) as { rota: string; cacheControl: string | null; pragma: string | null }),
+    parar: async () => { proc.kill(); await proc.exited; await rm(pasta, { recursive: true, force: true }); },
+  };
+}
+
 export type Entradas = { versao?: string; semRg?: boolean; rgCorrompido?: boolean; bunCorrompido?: boolean };
 
 // Dependências falsas com o formato do manifesto real: Bun que repassa para o Bun do teste e rg que só imprime a versão.
@@ -97,7 +119,8 @@ ${o.semRg ? "" : `        "linux-x64": ${rg},\n        "linux-arm64": ${rg}\n`} 
 
 export type Cenario = Awaited<ReturnType<typeof criarCenario>>;
 
-export async function criarCenario(opcoes: { agentes?: string[]; comBun?: boolean; entradas?: Entradas; versoes?: string[]; kitReal?: boolean; assinar?: boolean } = {}) {
+// baseMinima: a versão mínima embutida no instalador (padrão 0.3.0, a mesma de instalador/base-minima).
+export async function criarCenario(opcoes: { agentes?: string[]; comBun?: boolean; entradas?: Entradas; versoes?: string[]; kitReal?: boolean; assinar?: boolean; baseMinima?: string; assinantesEmbutidos?: (padrao: string) => string; chavesDoSite?: (fingerprintDoKit: string) => string[] } = {}) {
   const pai = await mkdtemp(join(tmpdir(), "anvilore-sh-"));
   const home = join(pai, "home"), bin = join(pai, "bin"), tmp = join(pai, "tmp");
   await mkdir(home); await mkdir(bin); await mkdir(tmp);
@@ -112,11 +135,13 @@ export async function criarCenario(opcoes: { agentes?: string[]; comBun?: boolea
     versao,
     arquivos: { "src/cli.ts": STUB_CLI, "AGENTS.md": "contrato\n", "bun.lock": null },
   })));
-  const assinantes = (await readFile(join(kit.raiz, "seguranca/assinantes"), "utf8"));
+  const assinantesDoKit = (await readFile(join(kit.raiz, "seguranca/assinantes"), "utf8"));
+  const assinantes = opcoes.assinantesEmbutidos ? opcoes.assinantesEmbutidos(assinantesDoKit) : assinantesDoKit;
+  const servidor = await iniciarServidorConfianca(opcoes.chavesDoSite ? opcoes.chavesDoSite(kit.fingerprint) : [kit.fingerprint]);
   const manifesto = await criarDependencias(pai, opcoes.entradas);
   const modelo = await readFile(join(raizDoRepo, "instalador/instalar.sh"), "utf8");
   const script = join(pai, "instalar.sh");
-  await writeFile(script, embutirInstalador(modelo, manifesto, assinantes), { mode: 0o755 });
+  await writeFile(script, embutirInstalador(modelo, manifesto, assinantes, `${opcoes.baseMinima ?? "0.3.0"}\n`, "sh", { urlConfianca: servidor.url, urlDeTeste: true }), { mode: 0o755 });
 
   const env = (extra: Record<string, string> = {}): Record<string, string> => ({
     HOME: home, TMPDIR: tmp, LANG: "C.UTF-8", PATH: bin,
@@ -130,11 +155,11 @@ export async function criarCenario(opcoes: { agentes?: string[]; comBun?: boolea
   };
   const pasta = join(home, "Anvilore");
   return {
-    pai, home, bin, tmp, kit, script, pasta, manifesto, assinantes, modelo, env, rodar,
+    pai, home, bin, tmp, kit, script, pasta, manifesto, assinantes, modelo, env, rodar, servidor,
     log: () => readFile(join(pasta, ".anvilore/instalacao.log"), "utf8"),
     estado: async () => JSON.parse(await readFile(join(pasta, ".anvilore/atualizacao.json"), "utf8")) as Record<string, unknown>,
     chamadas: async () => (await readFile(join(pasta, ".anvilore/chamadas.log"), "utf8").catch(() => "")).trim().split("\n").filter(Boolean),
     comando: async (nome: string, conteudo: string) => { await rm(join(bin, nome), { force: true }); await writeFile(join(bin, nome), conteudo, { mode: 0o755 }); await chmod(join(bin, nome), 0o755); },
-    limpar: async () => { await kit.limpar(); await rm(pai, { recursive: true, force: true }); },
+    limpar: async () => { await servidor.parar(); await kit.limpar(); await rm(pai, { recursive: true, force: true }); },
   };
 }

@@ -25,7 +25,8 @@ test.skipIf(!rodar)("Dado o kit real numa tag assinada, Quando instalo do zero e
   const origem = join(pai, "origem");
   const clone = Bun.spawnSync(["git", "clone", "--quiet", raizDoRepo, origem]);
   expect(clone.exitCode, clone.stderr.toString()).toBe(0);
-  const { chave, assinantes } = await criarChave(pai);
+  const { chave, assinantes, fingerprint } = await criarChave(pai);
+  await base.servidor.publicar({ formato: 1, chaves: [fingerprint], versaoMinima: "0.0.0" });
   const git = gitReal(origem);
   const pacote = JSON.parse(await readFile(join(origem, "package.json"), "utf8")) as { version: string };
   expect(git(["config", "user.name", "Teste"]).codigo).toBe(0);
@@ -37,7 +38,7 @@ test.skipIf(!rodar)("Dado o kit real numa tag assinada, Quando instalo do zero e
   // O manifesto é o do teste (downloads por file://); o Bun do teste atende à versão pedida.
   const manifesto = base.manifesto;
   const script = join(pai, "instalar.sh");
-  await writeFile(script, embutirInstalador(await readFile(join(raizDoRepo, "instalador/instalar.sh"), "utf8"), manifesto, assinantes), { mode: 0o755 });
+  await writeFile(script, embutirInstalador(await readFile(join(raizDoRepo, "instalador/instalar.sh"), "utf8"), manifesto, assinantes, `${pacote.version}\n`, "sh", { urlConfianca: base.servidor.url, urlDeTeste: true }), { mode: 0o755 });
   await base.comando("claude", '#!/bin/sh\ncase "$1" in --version) echo "2.1.312 (Claude Code)" ;; *) echo claude falso ;; esac\n');
   await base.comando("rg", "#!/bin/sh\necho ripgrep 15.2.0\n");
 

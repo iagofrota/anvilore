@@ -26,7 +26,7 @@ test.skipIf(!linux)("Dado o manifesto real embutido, Quando o awk lê cada campo
   const c = await novo();
   const real = await readFile(join(raizDoRepo, "instalador/dependencias.json"), "utf8");
   const script = join(c.pai, "real.sh");
-  await writeFile(script, embutirInstalador(c.modelo, real, c.assinantes));
+  await writeFile(script, embutirInstalador(c.modelo, real, c.assinantes, "0.3.0\n"));
   const m = JSON.parse(real) as { dependencias: Record<string, { versao: string; plataformas: Record<string, Record<string, string | number>> }> };
   const lidos: string[] = [], esperados: string[] = [];
   for (const [dep, d] of Object.entries(m.dependencias)) {

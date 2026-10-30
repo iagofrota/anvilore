@@ -1,10 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
-import { createReadStream, statSync } from "node:fs";
+import { createReadStream, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { appendFile, chmod, lstat, mkdir, readFile, readdir, readlink, rename, rm, rmdir, stat, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve, win32 } from "node:path";
 import type { Diagnostico } from "../comandos/doctor";
 import type { Alvo } from "../comandos/instalar";
 import { versaoDoKit } from "../comandos/versao";
+import { consultarConfianca, filtrarAssinantes, type BuscarConfianca } from "./confianca";
 import { devolverTudo, lerManifestos, migrarRastreio, situacaoDaMigracao } from "./migracao";
 import { LISTA_DO_RASTREIO } from "./modelos";
 import { caminhoWiki } from "./wiki-repo";
@@ -33,6 +35,8 @@ export type DependenciasAtualizacao = {
   atualizarBun?: (raiz: string, minima: string) => Promise<number>;
   // Arquivo de chaves confiáveis entregue pelo instalador (`--assinantes-do-instalador`). Só vale ao aplicar; veja verificarAssinaturaTag.
   assinantesDoInstalador?: string;
+  // Busca da lista de chaves do site (confianca.json). Padrão: `fetch`. Só os testes trocam; a URL é constante (confianca.ts).
+  buscarConfianca?: BuscarConfianca;
 };
 
 type EstadoAtualizador = "ocioso" | "baixada" | "aplicando" | "revertendo" | "recusada" | "reversao-incompleta" | "migracao-incompleta";
@@ -633,8 +637,12 @@ async function bunExigido(raiz: string, commit: string, tag: string, exec: Exec,
 // arquivo no lugar do local (não se somam); ausente, vazio ou ilegível recusa, nunca cai de volta no local. O ambiente
 // NÃO é lido: uma atualização manual ou agendada que herdasse uma variável trocaria a âncora de confiança por acidente.
 // A opção não prova quem a passou (um processo local hostil também poderia); o ganho é não herdá-la sem querer.
+//
+// `permitidas`: as fingerprints que o site (confianca.json) autoriza agora. O verify-tag roda com um allowed_signers
+// TEMPORÁRIO só com as linhas do arquivo acima cuja fingerprint está na lista: a interseção. O site nunca acrescenta uma
+// chave, e uma chave retirada dele deixa de valer mesmo que a assinatura seja válida. Interseção vazia recusa.
 export const OPCAO_ASSINANTES_DO_INSTALADOR = "--assinantes-do-instalador";
-export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = execPadrao, objeto: string = tag, doInstalador?: string): string | undefined {
+export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = execPadrao, objeto: string = tag, doInstalador?: string, permitidas?: readonly string[]): string | undefined {
   const allow = doInstalador === undefined ? join(raiz, "seguranca/assinantes") : doInstalador === "" ? "" : resolve(doInstalador);
   let tamanho: number;
   const semChaves = `o instalador não entregou as chaves confiáveis (arquivo ausente, vazio ou ilegível); a versão ${tag} foi recusada e nada mudou. Rode o instalador de novo.`;
@@ -650,15 +658,27 @@ export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = e
   if (cat.codigo !== 0 || !cat.saida.split(/\r?\n/).includes("-----BEGIN SSH SIGNATURE-----")) {
     return `git verify-tag recusou a tag ${tag}: a tag não tem assinatura SSH. Confira o formato de seguranca/assinantes, o principal (e-mail de assinatura Git) e a chave pública ancorada no kit instalado antes da atualização.`;
   }
-  const r = exec([
-    "-c", "gpg.format=ssh",
-    "-c", "gpg.ssh.program=ssh-keygen",
-    "-c", "gpg.program=anvilore-sem-gpg",
-    "-c", "gpg.openpgp.program=anvilore-sem-gpg",
-    "-c", "gpg.x509.program=anvilore-sem-gpg",
-    "-c", `gpg.ssh.allowedSignersFile=${allow}`,
-    "verify-tag", objeto,
-  ], raiz);
+  let temporaria: string | undefined, arquivo = allow;
+  if (permitidas !== undefined) {
+    let filtradas: string;
+    try { filtradas = filtrarAssinantes(readFileSync(allow, "utf8"), permitidas); } catch { filtradas = ""; }
+    if (filtradas === "") return `a lista atual de chaves do site não inclui nenhuma chave em que esta pasta confia; a versão ${tag} foi recusada e nada mudou. Se a chave de assinatura foi trocada, rode o instalador de novo.`;
+    temporaria = mkdtempSync(join(tmpdir(), "anvilore-assinantes-"));
+    arquivo = join(temporaria, "assinantes");
+    writeFileSync(arquivo, filtradas, { mode: 0o600 });
+  }
+  let r: { codigo: number; saida: string };
+  try {
+    r = exec([
+      "-c", "gpg.format=ssh",
+      "-c", "gpg.ssh.program=ssh-keygen",
+      "-c", "gpg.program=anvilore-sem-gpg",
+      "-c", "gpg.openpgp.program=anvilore-sem-gpg",
+      "-c", "gpg.x509.program=anvilore-sem-gpg",
+      "-c", `gpg.ssh.allowedSignersFile=${arquivo}`,
+      "verify-tag", objeto,
+    ], raiz);
+  } finally { if (temporaria) rmSync(temporaria, { recursive: true, force: true }); }
   return r.codigo === 0 ? undefined : `git verify-tag recusou a tag ${tag}: assinatura inválida ou signatário desconhecido. Confira o formato de seguranca/assinantes, o principal (e-mail de assinatura Git) e a chave pública ancorada no kit instalado antes da atualização; a chave da candidata não é confiável. ${r.saida.trim()}`;
 }
 // `verify-tag` só prova que o objeto foi assinado; não que o NOME assinado é o da ref. Um espelho pode publicar
@@ -958,6 +978,16 @@ export async function atualizar(acao: "verificar" | "voltar" | "estado" | "autom
     if ((state.recusadas ?? []).includes(release.versao)) return `Anvilore ${release.versao} já foi recusada; aguardando outra release.`;
     const decision = decidirPolitica(atual, release.versao, state.modo, state.canal);
     if (decision === "ignorar" && acao !== "aplicar") return `Atualização ignorada pela política atual (${state.modo}, canal ${state.canal}).`;
+    // Estado das chaves no site, ANTES de buscar a tag e de verificá-la, na aplicação comum e na com `--assinantes-do-instalador`
+    // (e na verificação): falha da consulta ou versão abaixo da mínima param aqui, sem tocar na tag nem no HEAD.
+    let confianca: Awaited<ReturnType<typeof consultarConfianca>>;
+    try { confianca = await consultarConfianca(deps.buscarConfianca); }
+    catch (e) { state.verificadoEm = new Date().toISOString(); await gravarEstado(raiz, state); await log(raiz, `consulta do estado das chaves falhou: ${motivo((e as Error).cause ?? e)}`); throw e; }
+    if (compararSemVer(release.versao, confianca.versaoMinima) < 0) {
+      const bad = `a lista atual do site exige a versão ${confianca.versaoMinima} ou mais nova e a ${release.versao} é mais antiga; foi recusada e nada mudou. Instale a versão atual pelo instalador.`;
+      state.estado = "recusada"; state.erro = bad; state.verificadoEm = new Date().toISOString(); await gravarEstado(raiz, state);
+      throw new Error(bad);
+    }
     // `+`: se um espelho já trocou esta tag localmente, a do origin a substitui (sem isso o git recusa com "would
     // clobber existing tag" e a release legítima nunca entraria). A troca não dá confiança: tudo é verificado abaixo.
     // A ref da tag antes do fetch: qualquer recusa ou erro até a verificação terminar a devolve como estava (apaga se
@@ -977,7 +1007,7 @@ export async function atualizar(acao: "verificar" | "voltar" | "estado" | "autom
     let assinada: ReturnType<typeof identidadeDaTag>;
     try {
       assinada = ref.codigo !== 0 || !COMMIT.test(objeto) ? `a tag ${release.tag} não existe depois do fetch; recusada.`
-        : verificarAssinaturaTag(raiz, release.tag, exec, objeto, acao === "aplicar" ? deps.assinantesDoInstalador : undefined) ?? identidadeDaTag(raiz, release.tag, exec, objeto);
+        : verificarAssinaturaTag(raiz, release.tag, exec, objeto, acao === "aplicar" ? deps.assinantesDoInstalador : undefined, confianca.chaves) ?? identidadeDaTag(raiz, release.tag, exec, objeto);
     } catch (e) { await devolverRef(); throw e; }
     const bad = typeof assinada === "string" ? assinada
       : assinada.versao !== release.versao ? `a release anuncia ${release.versao}, mas a tag assinada é ${assinada.versao}; recusada.`

@@ -272,12 +272,29 @@ Para a linhagem do método e a argumentação completa das posições de design,
 - A documentação descreve o código atual da fatia U2 e ainda aguarda revisão humana. A primeira
   operação real depende da chave pública do dono no arquivo seguranca/assinantes.
 
+## Estado das chaves fora do GitHub (revogação)
+
+**Decisão:** o atualizador consulta, antes do `verify-tag`, https://anvilore.iagofrota.com.br/confianca.json
+(chaves permitidas por fingerprint e versão mínima) e aceita só a **interseção** com as chaves que a pasta já
+tinha. **Por quê:** a assinatura SSH só prova a chave, e um arquivo de assinantes entregue na própria versão
+nunca revoga (a circularidade da seção "Atualização automática do kit"). Um arquivo estático em domínio do dono,
+sem servidor nem chave a mais, dá o veto atual. **Escolhas:** URL fixa (constante de build, sem ambiente);
+site fora do ar para a atualização, não a wiki; sem cache nem fallback; o site não acrescenta chave. **Custo:**
+o dono mantém o arquivo e o purge; os instaladores consultam antes da tag e antes de executar a pasta (e recusam pasta abaixo da `versaoMinima`, como a base mínima); vale só para quem já tem a consulta (parecer de segurança de 2026-10-29, seção 2, fora do repositório). Guia: `docs/knowledge_base/release.md`, "Estado das chaves no site".
+
 ## Instalador do Linux (instalar.sh)
 
 - O instalador é um script bash único (`instalador/instalar.sh`) e a release embute nele o manifesto de dependências e
   a chave pública (`scripts/embutir-instalador.ts`). Motivo: ele precisa dos dois antes de clonar o kit, e a única
   confiança inicial é a do HTTPS do GitHub ao baixar o script; daí em diante só entra o que o dono assinou.
 - Sem chave embutida válida o script recusa instalar. Não há chave de mentira no modelo do repositório.
+- A primeira release assinada é a **base mínima** (`instalador/base-minima`, embutida como o manifesto e a chave), sem release de
+  transição. Motivo: a `0.2.0` não tem atualizador nem âncora de confiança, então publicar outra tag não cria confiança nas
+  máquinas antigas, e executar o CLI da pasta para descobrir se ela serve é executar código não autenticado. Os dois
+  instaladores leem a versão do `package.json` como texto e recusam, antes de executar qualquer coisa da pasta, o que for menor,
+  ausente, ilegível, inválido ou pré-release. O arquivo próprio (e não um campo do `instalador/dependencias.json`) evita mexer no formato que
+  o `awk` do instalar.sh lê. Migração dos dados de uma pasta antiga: pasta nova + migração conferida, ferramenta no backlog
+  (parecer em specs/release/PARECER-SOL-DECISOES-RELEASE.md, seção 1).
 - Só vale assinatura SSH. O `git verify-tag` escolhe o verificador pelo tipo de assinatura que a tag traz; por isso o
   script exige o bloco SSH e desliga os programas de gpg e x509, para o chaveiro da pessoa nunca entrar na decisão.
 - Respostas por /dev/tty e `ANVILORE_SEM_PERGUNTAS=1`; sem terminal usa os padrões. Instalar o Claude Code é sempre

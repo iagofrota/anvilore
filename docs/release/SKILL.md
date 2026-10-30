@@ -38,7 +38,9 @@ mostre só o que decide algo.
      e registre em "Atenção" no CHANGELOG;
    - `bun run checar`, `bun src/cli.ts checar-docs`, `bun src/cli.ts checar-release X.Y.Z`;
    - checklist de segurança: nenhum achado de segurança ALTO ou MÉDIO aberto nos instaladores ou no atualizador, com revisão de outro modelo registrada;
-   - instaladores (quando U3/U4 entrarem na `main`): embutir instalador (`bun scripts/embutir-instalador.ts`), conferir com `--conferir`, gerar `sha256` dentro de `dist` (`cd dist && sha256sum ...`) e assinar com `ssh-keygen -Y sign -n file`;
+   - **base mínima** (`instalador/base-minima`, uma linha `X.Y.Z`): na **primeira release assinada** ela recebe o número dessa release (hoje o valor é o provisório `0.3.0`; confira com o dono que é o mesmo do `package.json` que vai sair). Nas seguintes não muda sem decisão do dono (subir a base deixa pastas antigas recusadas pelo instalador). Sem `X.Y.Z` válido o embutir recusa gerar;
+   - instaladores (quando U3/U4 entrarem na `main`): embutir instalador (`bun scripts/embutir-instalador.ts`; embute manifesto, chave, base mínima e a URL da lista de chaves; a URL é a constante de `src/lib/confianca.ts`, sempre https), conferir com `--conferir` (confere os quatro), gerar `sha256` dentro de `dist` (`cd dist && sha256sum ...`) e assinar com `ssh-keygen -Y sign -n file`;
+   - **URL de teste fora da release:** gerar e conferir os instaladores da release sem `--url-confianca` e sem `--aceitar-url-de-teste`. Nunca use `--aceitar-url-de-teste` numa release: um instalador com a URL de loopback (build de teste) é recusado pela conferência sem flags; se ela recusar por causa da URL, gere de novo sem as flags e não publique o artefato recusado;
    - **`checar-release` reprovando por falta de `verified` é esperado** até o dono revisar as páginas:
      diga quais páginas faltam e pare. Nunca ponha `verified`.
 3. **Entrar na `main`.** Enviar a branch, abrir o PR e mesclar são ações públicas: peça o "sim" de
@@ -48,11 +50,14 @@ mostre só o que decide algo.
    ausente ou vermelho → pare e diga qual.
 4. **Assinatura.** Confira `git config --get gpg.format` (tem de ser `ssh`), `user.signingkey`, a
    impressão digital da pública e que a **linha da chave está no arquivo da versão anterior**
-   (`git show vANTERIOR:seguranca/assinantes | rg -F …`). Sem isso, pare: se a chave ainda não foi
+   (`git show vANTERIOR:seguranca/assinantes | rg -F …`). **Confira também a lista atual do site**
+   (`curl -s https://anvilore.iagofrota.com.br/confianca.json`): a fingerprint da chave que vai assinar
+   (`ssh-keygen -lf`) tem de estar em `chaves` e a `versaoMinima` não pode passar da versão que sai.
+   Fora da lista, pare e diga ao dono (a release seria recusada por quem consulta). Sem isso, pare: se a chave ainda não foi
    publicada, a release atual é a que a leva e **não será aceita pelo atualizador**; diga isso e
    deixe o dono decidir. Se faltar configuração, diga o que o dono precisa configurar (você não
    escolhe a chave). **Bootstrap:** se a versão anterior não tem seguranca/assinantes (a `0.2.0`), é a
-   primeira release assinada. Só com um "sim" do dono específico para o bootstrap, confira a linha no
+   primeira release assinada e é a **base mínima** (pastas anteriores são recusadas pelos instaladores, sem release de transição). Só com um "sim" do dono específico para o bootstrap, confira a linha no
    arquivo **da própria release** (`git show <COMMIT>:seguranca/assinantes | rg -F …`) e mostre a
    impressão digital para ele comparar com a chave publicada fora do GitHub (página, item 11).
 5. **Resumo e os três "sim".** Mostre, em poucas linhas: versão, commit, o que muda, resultado das

@@ -263,7 +263,9 @@ test.skipIf(!linux)("R1: Dado o atualizador antigo da pasta (devolve 2 com 'Uso:
   const chamadasAntes = (await c.chamadas()).length;
   const r = c.rodar({ STUB_ATUALIZAR_CODIGO: "2" });
   expect(r.codigo, r.tudo).not.toBe(0);
-  expect(r.tudo).toContain("A pasta tem uma versão antiga do Anvilore que não sabe receber as chaves do instalador");
+  expect(r.tudo).toContain("anterior à primeira versão assinada e não sabe receber as chaves do instalador");
+  expect(r.tudo).toContain("numa pasta nova");
+  expect(r.tudo).not.toContain("pelo comando de atualização dela");
   expect(r.tudo).toContain("nada foi mudado");
   expect(r.tudo).not.toContain("Uso:");
   expect(r.tudo).not.toContain("Pronto:");

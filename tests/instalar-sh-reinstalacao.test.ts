@@ -18,9 +18,12 @@ const apoio = rodar ? await import("./apoio/instalar-sh") : undefined;
 const OFICIAL = "https://github.com/iagofrota/anvilore.git";
 
 const PRELOAD = `const original = globalThis.fetch;
+// A lista de chaves do site (confianca.json) também é simulada aqui: o teste nunca acessa a rede real.
 globalThis.fetch = (async (url, init) => String(url).startsWith("https://api.github.com/")
   ? Response.json({ tag_name: process.env.RELEASE_FALSA, draft: false, prerelease: false })
-  : original(url, init)) as typeof fetch;
+  : String(url) === "https://anvilore.iagofrota.com.br/confianca.json"
+    ? Response.json({ formato: 1, chaves: JSON.parse(process.env.CHAVES_FALSAS ?? "[]"), versaoMinima: "0.0.0" })
+    : original(url, init)) as typeof fetch;
 `;
 const APROVADOR = `#!/bin/sh
 case "$*" in
@@ -53,7 +56,9 @@ test.skipIf(!rodar)("Dado uma pasta instalada e gpg.ssh.program aprovador na con
   assinar(atual, confiavel.chave);
 
   const script = join(pai, "instalar.sh");
-  await writeFile(script, embutirInstalador(await readFile(join(raizDoRepo, "instalador/instalar.sh"), "utf8"), base.manifesto, confiavel.assinantes), { mode: 0o755 });
+  await writeFile(script, embutirInstalador(await readFile(join(raizDoRepo, "instalador/instalar.sh"), "utf8"), base.manifesto, confiavel.assinantes, `${pacote.version}\n`, "sh", { urlConfianca: base.servidor.url, urlDeTeste: true }), { mode: 0o755 });
+  const lista = (...fp: string[]) => base.servidor.publicar({ formato: 1, chaves: fp, versaoMinima: "0.0.0" });
+  await lista(confiavel.fingerprint);
   const primeira = base.rodar({ ANVILORE_ORIGEM: origem }, [], script);
   expect(primeira.codigo, primeira.tudo).toBe(0);
 
@@ -82,7 +87,8 @@ exec ${Bun.which("git")} "$@"
   const aprovador = join(pai, "aprova-tudo.sh");
   await writeFile(aprovador, APROVADOR, { mode: 0o755 });
   expect(Bun.spawnSync(["git", "config", "--file", config, "gpg.ssh.program", aprovador]).exitCode).toBe(0);
-  const recusa = base.rodar({ ANVILORE_ORIGEM: origem, RELEASE_FALSA: nova }, [], script);
+  await lista(confiavel.fingerprint, atacante.fingerprint);
+  const recusa = base.rodar({ ANVILORE_ORIGEM: origem, RELEASE_FALSA: nova, CHAVES_FALSAS: JSON.stringify([confiavel.fingerprint, atacante.fingerprint]) }, [], script);
   expect(recusa.codigo, recusa.tudo).toBe(0);
   expect(recusa.saida).toContain("Já existe uma instalação");
   expect(recusa.saida).toContain("não atualizei agora");
@@ -92,7 +98,8 @@ exec ${Bun.which("git")} "$@"
   // Controle: sem o aprovador e com a tag assinada pela chave certa, a mesma reinstalação aplica a versão.
   expect(Bun.spawnSync(["git", "config", "--file", config, "--unset", "gpg.ssh.program"]).exitCode).toBe(0);
   assinar(nova, confiavel.chave);
-  const aplica = base.rodar({ ANVILORE_ORIGEM: origem, RELEASE_FALSA: nova }, [], script);
+  await lista(confiavel.fingerprint);
+  const aplica = base.rodar({ ANVILORE_ORIGEM: origem, RELEASE_FALSA: nova, CHAVES_FALSAS: JSON.stringify([confiavel.fingerprint]) }, [], script);
   expect(aplica.codigo, aplica.tudo).toBe(0);
   expect(aplica.saida).not.toContain("não atualizei agora");
   expect(pasta(["rev-parse", "HEAD"]).saida.trim()).toBe(novoCommit);
@@ -106,11 +113,12 @@ exec ${Bun.which("git")} "$@"
   const commitTrocado = ok(["rev-parse", "HEAD"]);
   assinar(nova2, chaveNova.chave);
   const scriptNovo = join(pai, "instalar-novo.sh");
-  await writeFile(scriptNovo, embutirInstalador(await readFile(join(raizDoRepo, "instalador/instalar.sh"), "utf8"), base.manifesto, chaveNova.assinantes), { mode: 0o755 });
+  await writeFile(scriptNovo, embutirInstalador(await readFile(join(raizDoRepo, "instalador/instalar.sh"), "utf8"), base.manifesto, chaveNova.assinantes, `${pacote.version}\n`, "sh", { urlConfianca: base.servidor.url, urlDeTeste: true }), { mode: 0o755 });
   await mkdir(join(base.pasta, "raw"), { recursive: true });
   await writeFile(join(base.pasta, "raw/nota.md"), "minha nota\n");
   const notaAntes = await readFile(join(base.pasta, "raw/nota.md"), "utf8");
-  const atrasada = base.rodar({ ANVILORE_ORIGEM: origem, RELEASE_FALSA: nova2 }, [], scriptNovo);
+  await lista(confiavel.fingerprint, chaveNova.fingerprint);
+  const atrasada = base.rodar({ ANVILORE_ORIGEM: origem, RELEASE_FALSA: nova2, CHAVES_FALSAS: JSON.stringify([confiavel.fingerprint, chaveNova.fingerprint]) }, [], scriptNovo);
   expect(atrasada.codigo, atrasada.tudo).toBe(0);
   expect(atrasada.saida).not.toContain("não atualizei agora");
   expect(pasta(["rev-parse", "HEAD"]).saida.trim()).toBe(commitTrocado);

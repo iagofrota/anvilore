@@ -28,7 +28,8 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $pub = (Get-Content -Raw "$f.pub").Trim() -split '\s+'
       $assin = Join-Path $script:Base "assinantes-$nome"
       Set-Content -LiteralPath $assin -Value ("$nome@anvilore.test namespaces=`"git`" $($pub[0]) $($pub[1])`n") -NoNewline -Encoding ASCII
-      return @{ Privada = $f; Assinantes = $assin }
+      $fp = ((& $script:SshKeygen -lf "$f.pub") -split '\s+')[1]
+      return @{ Privada = $f; Assinantes = $assin; Fingerprint = $fp }
     }
     function script:GitCmd {
       $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'   # avisos do git vão para o stderr e não são erro
@@ -74,6 +75,8 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
     New-Item -ItemType Directory $script:GpgFalso -Force | Out-Null
     $script:GpgFalsoArquivo = ((Join-Path $script:GpgFalso 'gpg') -replace '\\', '/')
     [IO.File]::WriteAllText((Join-Path $script:GpgFalso 'gpg'), "#!/bin/sh`necho '[GNUPG:] NEWSIG'`necho '[GNUPG:] GOODSIG ABCDEF0123456789 falso <f@x>'`necho '[GNUPG:] VALIDSIG ABCDEF0123456789 2026-10-29 1 0 4 0 1 8 00 ABCDEF0123456789'`necho '[GNUPG:] TRUST_ULTIMATE 0 pgp'`nexit 0`n")
+    # A versão do kit sob teste (o checkout atual) é a base mínima dos instaladores gerados aqui: a instalação e a reinstalação seguem.
+    $script:VersaoRepo = (Get-Content -Raw -Encoding UTF8 (Join-Path $script:Raiz 'package.json') | ConvertFrom-Json).version
     $script:Boa = Chave 'boa'
     $script:Outra = Chave 'outra'
     $script:AgenteFalso = Join-Path $script:Base 'agente'
@@ -90,12 +93,32 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       }
       return ($manter -join ';')
     }
+    # Servidor de loopback do confianca.json (scripts/servir-confianca-teste.ts, só 127.0.0.1): o instalador de teste leva esta URL
+    # embutida (--aceitar-url-de-teste). Nada aqui acessa a rede real nem o site do dono.
+    $script:ConfDir = Join-Path $script:Base 'confianca'
+    New-Item -ItemType Directory $script:ConfDir -Force | Out-Null
+    function script:Publicar($chaves, $minima = '0.0.0') {
+      Remove-Item (Join-Path $script:ConfDir 'status') -ErrorAction SilentlyContinue
+      $j = @{ formato = 1; chaves = @($chaves); versaoMinima = $minima } | ConvertTo-Json -Compress
+      [IO.File]::WriteAllText((Join-Path $script:ConfDir 'confianca.json'), $j)
+    }
+    function script:StatusDoSite($codigo) { [IO.File]::WriteAllText((Join-Path $script:ConfDir 'status'), "$codigo") }
+    function script:ModoDoSite($modo) { if ($modo) { [IO.File]::WriteAllText((Join-Path $script:ConfDir 'modo'), $modo) } else { Remove-Item (Join-Path $script:ConfDir 'modo') -ErrorAction SilentlyContinue } }
+    function script:Requisicoes { $f = Join-Path $script:ConfDir 'requisicoes.log'; if (Test-Path $f) { @(Get-Content $f).Count } else { 0 } }
+    Publicar @($script:Boa.Fingerprint, $script:Outra.Fingerprint)
+    $bun = (Get-Command bun).Source
+    $script:Servidor = Start-Process -FilePath $bun -ArgumentList @("`"$(Join-Path $script:Raiz 'scripts\servir-confianca-teste.ts')`"", "`"$($script:ConfDir)`"") -PassThru -WindowStyle Hidden
+    for ($i = 0; $i -lt 200 -and -not (Test-Path (Join-Path $script:ConfDir 'porta')); $i++) { Start-Sleep -Milliseconds 50 }
+    if (-not (Test-Path (Join-Path $script:ConfDir 'porta'))) { throw 'o servidor de teste do confianca.json não subiu' }
+    $script:UrlConfianca = "http://127.0.0.1:$((Get-Content -Raw (Join-Path $script:ConfDir 'porta')).Trim())/confianca.json"
     # Gera o instalar.ps1 de release com o MESMO mecanismo do build (scripts/embutir-instalador.ts): manifesto e chave embutidos.
-    function script:Embutir($nome, $assinantes, $manifesto) {
+    function script:Embutir($nome, $assinantes, $manifesto, $baseMinima = $script:VersaoRepo) {
       $m = Join-Path $script:Base "manifesto-$nome.json"
       [IO.File]::WriteAllText($m, ((Get-Content -Raw -Encoding UTF8 $manifesto) -replace "`r`n", "`n"))
+      $b = Join-Path $script:Base "base-minima-$nome"
+      [IO.File]::WriteAllText($b, "$baseMinima`n")
       $saida = Join-Path $script:Base "instalar-$nome.ps1"
-      $o = & bun (Join-Path $script:Raiz 'scripts\embutir-instalador.ts') --modelo $script:Modelo --manifesto $m --assinantes $assinantes --saida $saida 2>&1 | Out-String
+      $o = & bun (Join-Path $script:Raiz 'scripts\embutir-instalador.ts') --modelo $script:Modelo --manifesto $m --assinantes $assinantes --base-minima $b --url-confianca $script:UrlConfianca --aceitar-url-de-teste --saida $saida 2>&1 | Out-String
       if ($LASTEXITCODE -ne 0) { throw "embutir falhou: $o" }
       return $saida
     }
@@ -130,6 +153,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
   }
 
   AfterAll {
+    if ($script:Servidor) { Stop-Process -Id $script:Servidor.Id -Force -ErrorAction SilentlyContinue }
     # Devolve o registro do runner como estava.
     Set-ItemProperty HKCU:\Environment -Name Path -Value $script:PathUsuarioAntes -Type ExpandString
     if ($null -eq $script:BashAntes) { Remove-ItemProperty HKCU:\Environment -Name CLAUDE_CODE_GIT_BASH_PATH -ErrorAction SilentlyContinue }
@@ -208,6 +232,98 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
     }
   }
 
+  Context 'base mínima: a pasta antiga é recusada ANTES de executar qualquer coisa dela (decisão 1)' {
+    # Dado uma pasta instalada cuja versão é menor que a base mínima embutida, ou cujo package.json está ausente, ilegível,
+    # inválido ou é pré-release; Quando o instalador roda de novo; Então para com a mensagem simples (código 1), nada da pasta
+    # foi executado (cli.ts, bunfig.toml com preload e hooks do git gravam um marcador) e HEAD e arquivos continuam iguais.
+    # Dado versão igual ou maior que a base; Então segue o fluxo atual.
+    BeforeAll {
+      $script:PastaBM = Join-Path $script:P1 'Anvilore'
+      function script:Instantaneo($raiz) {
+        @(Get-ChildItem -LiteralPath $raiz -Recurse -Force | ForEach-Object {
+          if ($_.PSIsContainer) { "$($_.FullName)/" } else { "$($_.FullName) $((Get-FileHash -LiteralPath $_.FullName).Hash)" }
+        }) | Sort-Object
+      }
+      function script:CasoBase($nome, $pacote) {
+        $dir = Join-Path $script:Base "caso-$nome"
+        Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+        Copy-Item -LiteralPath $script:PastaBM -Destination $dir -Recurse -Force
+        $marcador = "C:/anv-cfg-bm-$nome"
+        Remove-Item ($marcador -replace '/', '\') -ErrorAction SilentlyContinue
+        $cli = Join-Path $dir 'src\cli.ts'
+        # A linha 1 do cli.ts é o shebang: o código do marcador entra logo depois dela.
+        $linhasCli = [IO.File]::ReadAllLines($cli)
+        $marca = @('import { appendFileSync as _a } from "node:fs";', "_a('$marcador', 'cli ' + process.argv.slice(2).join(' ') + '\n');")
+        [IO.File]::WriteAllLines($cli, @($linhasCli[0]) + $marca + $linhasCli[1..($linhasCli.Count - 1)])
+        [IO.File]::WriteAllText((Join-Path $dir 'marca.ts'), ('import { appendFileSync } from "node:fs";' + "`n" + "appendFileSync('$marcador', 'preload\n');`n"))
+        [IO.File]::WriteAllText((Join-Path $dir 'bunfig.toml'), "preload = [`"./marca.ts`"]`n")
+        foreach ($g in @('post-checkout', 'post-merge', 'post-rewrite', 'pre-commit', 'reference-transaction', 'post-commit')) {
+          [IO.File]::WriteAllText((Join-Path $dir ".git\hooks\$g"), "#!/bin/sh`necho hook >> '$marcador'`nexit 0`n")
+        }
+        $pkg = Join-Path $dir 'package.json'
+        $original = [IO.File]::ReadAllText($pkg)
+        Remove-Item $pkg -Recurse -Force -ErrorAction SilentlyContinue
+        # 'VERSAO:x.y.z' troca só a versão do package.json de verdade: o resto fica igual, para o `bun install --frozen-lockfile` da reinstalação passar.
+        if ($pacote -like 'VERSAO:*') { [IO.File]::WriteAllText($pkg, ($original -replace '"version"\s*:\s*"[^"]*"', ('"version": "' + $pacote.Substring(7) + '"'))) }
+        elseif ($pacote -eq 'DIRETORIO') { New-Item -ItemType Directory $pkg | Out-Null }
+        elseif ($pacote -eq 'BINARIO') { [IO.File]::WriteAllBytes($pkg, [byte[]](0xFF, 0xFE, 0x00, 0x80, 0x7B)) }
+        elseif ($null -ne $pacote) { [IO.File]::WriteAllText($pkg, $pacote) }
+        return @{ Pasta = $dir; Marcador = ($marcador -replace '/', '\') ; Cabeca = (& git -C $dir rev-parse HEAD).Trim() }
+      }
+      function script:RodarCaso($caso) {
+        return (Rodar $script:P1 $script:OrigemBoa $script:Release $script:PathComAgente @{ ANVILORE_PASTA = $caso.Pasta })
+      }
+    }
+    foreach ($c in @(
+        @{ N = 'versão antiga (0.0.1)';          P = '{"name":"anvilore","version":"0.0.1"}';        F = 'anterior à primeira versão assinada' },
+        @{ N = 'package.json ausente';           P = $null;                                          F = 'Não reconheço a versão do Anvilore' },
+        @{ N = 'package.json que é uma pasta';   P = 'DIRETORIO';                                    F = 'Não reconheço a versão do Anvilore' },
+        @{ N = 'package.json com bytes inválidos'; P = 'BINARIO';                                    F = 'Não reconheço a versão do Anvilore' },
+        @{ N = 'package.json que não é JSON';    P = '{ isto nao e json';                            F = 'Não reconheço a versão do Anvilore' },
+        @{ N = 'sem version';                    P = '{"name":"anvilore"}';                          F = 'Não reconheço a versão do Anvilore' },
+        @{ N = 'version número';                 P = '{"name":"anvilore","version":3}';              F = 'Não reconheço a versão do Anvilore' },
+        @{ N = 'pré-release acima da base';      P = '{"name":"anvilore","version":"99.0.0-beta"}';  F = 'Não reconheço a versão do Anvilore' }
+      )) {
+      It "recusa: $($c.N)" -TestCases @($c) {
+        param($N, $P, $F)
+        $caso = CasoBase ([guid]::NewGuid().ToString('N').Substring(0, 8)) $P
+        $antes = Instantaneo $caso.Pasta
+        $r = RodarCaso $caso
+        $r.Codigo | Should -Be 1
+        $r.Saida | Should -Match $F
+        $r.Saida | Should -Match 'nada foi mudado'
+        $r.Saida | Should -Match 'numa pasta nova'
+        $r.Saida | Should -Match 'de forma conferida'
+        $r.Saida | Should -Match 'cópia de segurança'
+        $r.Saida | Should -Not -Match 'Pronto'
+        Test-Path $caso.Marcador | Should -BeFalse
+        (& git -C $caso.Pasta rev-parse HEAD).Trim() | Should -Be $caso.Cabeca
+        (Instantaneo $caso.Pasta) | Should -Be $antes
+      }
+    }
+    It 'versão igual à base: segue o fluxo atual (reinstala)' {
+      $caso = CasoBase 'igual' ('VERSAO:' + $script:VersaoRepo)
+      $r = RodarCaso $caso
+      $r.Codigo | Should -Be 0
+      $r.Saida | Should -Match 'Já existe uma instalação'
+      $r.Saida | Should -Not -Match 'anterior à primeira versão assinada'
+    }
+    It 'versão maior que a base: segue o fluxo atual (reinstala)' {
+      $caso = CasoBase 'maior' 'VERSAO:99.0.0'
+      $r = RodarCaso $caso
+      $r.Codigo | Should -Be 0
+      $r.Saida | Should -Match 'Já existe uma instalação'
+    }
+    It 'a base mínima do instalador é conferida contra o arquivo: instalador com base maior que a versão da pasta recusa' {
+      $alto = Embutir 'base-alta' $script:Boa.Assinantes $script:Manifesto '99.0.0'
+      $caso = CasoBase 'base-alta' ('VERSAO:' + $script:VersaoRepo)
+      $r = Rodar $script:P1 $script:OrigemBoa $alto $script:PathComAgente @{ ANVILORE_PASTA = $caso.Pasta }
+      $r.Codigo | Should -Be 1
+      $r.Saida | Should -Match 'anterior à primeira versão assinada'
+      Test-Path $caso.Marcador | Should -BeFalse
+    }
+  }
+
   Context 'reinstalar entrega as chaves embutidas ao atualizador pela opção (RR6, R1)' {
     # Dado uma pasta instalada cujo atualizador só conhece o seguranca/assinantes dela (que pode estar atrasado na troca de
     # chave); Quando o instalador roda de novo; Então o `atualizar` da pasta recebe o ARGUMENTO --assinantes-do-instalador
@@ -256,10 +372,110 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $script:R2c = Rodar $script:P1 $script:OrigemBoa $script:Release $script:PathComAgente
     }
     It 'sai com erro'                           { $script:R2c.Codigo | Should -Not -Be 0 }
-    It 'explica em linguagem simples'           { $script:R2c.Saida | Should -Match 'A pasta tem uma versão antiga do Anvilore que não sabe receber as chaves do instalador; nada foi mudado' }
+    It 'explica em linguagem simples'           { $script:R2c.Saida | Should -Match 'anterior à primeira versão assinada e não sabe receber as chaves do instalador; nada foi mudado' }
+    It 'diz o caminho: pasta nova e migração conferida' { $script:R2c.Saida | Should -Match 'numa pasta nova'; $script:R2c.Saida | Should -Match 'cópia de segurança' }
+    It 'não dá o conselho circular de atualizar a pasta' { $script:R2c.Saida | Should -Not -Match 'pelo comando de atualização' }
     It 'não diz que concluiu'                   { $script:R2c.Saida | Should -Not -Match 'Pronto' }
     It 'não troca o commit do kit'              { (& git -C $script:PastaAntiga rev-parse HEAD).Trim() | Should -Be $script:HeadAntiga }
     It 'não mexe no que é da pessoa'            { (Get-FileHash (Join-Path $script:Pasta1 'raw\minha-fonte.txt')).Hash | Should -Be $script:HashAntiga }
+  }
+
+  Context 'estado das chaves no site: instalação nova (decisão 2)' {
+    # Dado o instalador de teste com a URL de loopback embutida; Quando o site retira a chave, falha ou exige versão mais nova;
+    # Então a instalação para ANTES de baixar o kit e não cria a pasta. Com a chave na lista, instala.
+    BeforeAll {
+      $script:PathEstado = (PathSem @() $false) + ';' + $script:AgenteFalso
+      Publicar @($script:Outra.Fingerprint)
+      $script:Rc1 = Rodar (Perfil 'chave-retirada') $script:OrigemBoa $script:Release $script:PathEstado
+      Publicar @($script:Boa.Fingerprint, $script:Outra.Fingerprint)
+      StatusDoSite 302
+      $script:Rc2 = Rodar (Perfil 'site-302') $script:OrigemBoa $script:Release $script:PathEstado
+      StatusDoSite 404
+      $script:Rc3 = Rodar (Perfil 'site-404') $script:OrigemBoa $script:Release $script:PathEstado
+      Publicar @($script:Boa.Fingerprint) '99.0.0'
+      $script:Rc4 = Rodar (Perfil 'versao-minima') $script:OrigemBoa $script:Release $script:PathEstado
+      # Site que responde sem parar: o instalador tem de abortar ao passar de 64 KiB (o servidor registra os bytes que saíram).
+      Publicar @($script:Boa.Fingerprint, $script:Outra.Fingerprint)
+      ModoDoSite 'infinito'
+      $cron = [Diagnostics.Stopwatch]::StartNew()
+      $script:Rc5 = Rodar (Perfil 'corpo-infinito') $script:OrigemBoa $script:Release $script:PathEstado
+      $cron.Stop()
+      $script:Rc5Segundos = $cron.Elapsed.TotalSeconds
+      Start-Sleep -Milliseconds 500
+      $script:Rc5Enviados = [long](Get-Content -Raw (Join-Path $script:ConfDir 'enviados')).Trim()
+      ModoDoSite $null
+      Publicar @($script:Boa.Fingerprint, $script:Outra.Fingerprint)
+    }
+    It 'chave retirada da lista: recusa, diz que o instalador está desatualizado e não cria a pasta' {
+      $script:Rc1.Codigo | Should -Not -Be 0
+      $script:Rc1.Saida | Should -Match 'não inclui a chave de assinatura deste instalador'
+      Test-Path (Join-Path $script:Rc1.Perfil 'Anvilore') | Should -BeFalse
+      $script:Rc1.Saida | Should -Not -Match 'Baixando'
+    }
+    It 'redirecionamento do site: recusa com a mensagem simples' {
+      $script:Rc2.Codigo | Should -Not -Be 0
+      $script:Rc2.Saida | Should -Match 'não consegui conferir a lista atual de chaves'
+      Test-Path (Join-Path $script:Rc2.Perfil 'Anvilore') | Should -BeFalse
+    }
+    It 'HTTP 404 do site: recusa com a mensagem simples' {
+      $script:Rc3.Codigo | Should -Not -Be 0
+      $script:Rc3.Saida | Should -Match 'não consegui conferir a lista atual de chaves'
+      Test-Path (Join-Path $script:Rc3.Perfil 'Anvilore') | Should -BeFalse
+    }
+    It 'resposta sem fim: aborta no limite de 64 KiB, recusa com a mensagem simples e não cria a pasta' {
+      $script:Rc5.Codigo | Should -Not -Be 0
+      $script:Rc5.Saida | Should -Match 'não consegui conferir a lista atual de chaves'
+      $script:Rc5Enviados | Should -BeLessThan 1048576
+      $script:Rc5Segundos | Should -BeLessThan 12
+      Test-Path (Join-Path $script:Rc5.Perfil 'Anvilore') | Should -BeFalse
+    }
+    It 'versão mínima acima da tag: recusa antes de baixar' {
+      $script:Rc4.Codigo | Should -Not -Be 0
+      $script:Rc4.Saida | Should -Match 'exige a versão 99.0.0'
+      Test-Path (Join-Path $script:Rc4.Perfil 'Anvilore') | Should -BeFalse
+    }
+  }
+
+  Context 'estado das chaves no site: reinstalação (decisão 2)' {
+    # Dado uma pasta instalada; Quando o site retira a chave embutida, ou exige uma versão acima da instalada; Então o instalador
+    # recusa antes de executar qualquer coisa da pasta (o HEAD e os arquivos ficam). Com a chave de volta, segue.
+    BeforeAll {
+      $script:PastaRe = Join-Path $script:P1 'Anvilore'
+      $script:HeadRe = (& git -C $script:PastaRe rev-parse HEAD).Trim()
+      $script:MarcaRe = Join-Path $script:Base 'marca-reinstalacao.txt'
+      Remove-Item $script:MarcaRe -ErrorAction SilentlyContinue
+      $cli = Join-Path $script:PastaRe 'src\cli.ts'
+      $linhas = [IO.File]::ReadAllLines($cli)
+      $gancho = 'if (process.argv[2] === "atualizar") { await Bun.write(' + "'" + ($script:MarcaRe -replace '\\', '/') + "'" + ', "executou"); process.exit(0); }'
+      [IO.File]::WriteAllLines($cli, @($linhas[0], $gancho) + $linhas[2..($linhas.Count - 1)])
+      $pathRe = (PathSem @() $false) + ';' + $script:AgenteFalso
+      Publicar @($script:Outra.Fingerprint)
+      $script:Rr1 = Rodar $script:P1 $script:OrigemBoa $script:Release $pathRe
+      Publicar @($script:Boa.Fingerprint) '99.0.0'
+      $script:Rr2 = Rodar $script:P1 $script:OrigemBoa $script:Release $pathRe
+      Publicar @($script:Boa.Fingerprint, $script:Outra.Fingerprint)
+      $script:Rr3 = Rodar $script:P1 $script:OrigemBoa $script:Release $pathRe
+    }
+    It 'chave retirada: recusa, sem executar o atualizador da pasta e sem mudar o HEAD' {
+      $script:Rr1.Codigo | Should -Not -Be 0
+      $script:Rr1.Saida | Should -Match 'não inclui a chave de assinatura deste instalador'
+      $script:Rr1.Saida | Should -Not -Match 'Já existe uma instalação'
+    }
+    It 'pasta abaixo da versão mínima da lista: recusa antes de executar qualquer coisa dela' {
+      $script:Rr2.Codigo | Should -Not -Be 0
+      $script:Rr2.Saida | Should -Match 'exige a versão 99.0.0'
+      $script:Rr2.Saida | Should -Match 'não executei nada dela'
+    }
+    It 'as duas recusas não executaram o atualizador nem mudaram o commit' {
+      (& git -C $script:PastaRe rev-parse HEAD).Trim() | Should -Be $script:HeadRe
+    }
+    It 'com a chave de volta na lista, a reinstalação segue e chama o atualizador' {
+      $script:Rr3.Codigo | Should -Be 0
+      Test-Path $script:MarcaRe | Should -BeTrue
+    }
+    It 'a consulta pediu ao servidor a cada rodada (nunca usou cache)' {
+      (Requisicoes) | Should -BeGreaterThan 3
+    }
   }
 
   Context 'assinatura que não confere (cenários 5 e 9)' {

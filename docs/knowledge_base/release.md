@@ -108,9 +108,15 @@ caminho da privada.)
 A versão `0.2.0` não tem atualizador nem seguranca/assinantes (conferido na tag: nenhum dos dois
 existe nela). Portanto:
 
-1. A primeira versão que traz o atualizador **e** a chave pública é aplicada à mão por quem a tem
-   (veja "Atenção" no `CHANGELOG.md`: `bun src/cli.ts migrar-rastreio --puxar`). Assine a tag dela
-   também, para que se possa conferir.
+1. A primeira versão que traz o atualizador **e** a chave pública é a **base mínima**: o número dela
+   vai para `instalador/base-minima` no preparo da release (o valor de hoje, `0.3.0`, é provisório) e
+   os instaladores o embutem. **Não há release de transição**: uma pasta anterior (a `0.2.0` ou um
+   clone intermediário) não é atualizada no lugar e o CLI antigo dela nunca é executado para descobrir
+   se serve. Os instaladores leem a versão do `package.json` da pasta como texto e, se for menor que a
+   base (ou ausente, ilegível, inválida, pré-release), recusam antes de tocar em qualquer coisa. Quem
+   tem uma pasta anterior instala numa pasta nova e pede ao agente para trazer a wiki de forma
+   conferida, com cópia de segurança antes; essa migração assistida ainda não é uma ferramenta
+   (backlog). Assine a tag da base mínima também, para que se possa conferir.
 2. **Só depois** dela, as versões seguintes (assinadas pela chave que já está nas máquinas) são
    verificadas e aplicadas pelo atualizador.
 3. Se uma versão for assinada por uma chave que **não** está no arquivo do kit instalado, ela é
@@ -121,7 +127,7 @@ Sem seguranca/assinantes (ausente, vazio ou ilegível), o kit recusa toda candid
 
 **Segurança no bootstrap do instalador:** conferir apenas a tag Git não autentica o instalador
 executado por quem instala pela primeira vez. Para fechar a cadeia de confiança antes da primeira execução:
-1. A chave pública embutida no instalador gerado precisa ser idêntica a seguranca/assinantes (conferida por `bun scripts/embutir-instalador.ts --conferir <script>`).
+1. A chave pública e a base mínima embutidas no instalador gerado precisam ser idênticas a seguranca/assinantes e a instalador/base-minima (conferidas por `bun scripts/embutir-instalador.ts --conferir <script>`).
 2. Cada instalador gerado (dist/instalar.sh e dist/instalar.ps1) deve ter seu SHA-256 e sua assinatura SSH (`ssh-keygen -Y sign -n file`) publicados junto da release.
 3. Quem baixa o instalador confere o hash e a assinatura (`ssh-keygen -Y verify`) contra a chave pública obtida por canal independente **fora do repositório e fora do GitHub** (o README do próprio repositório não é canal independente; a âncora deve residir fora desse domínio, como site pessoal do mantenedor ou registro público verificado — definir qual será esse canal é uma pendência do dono antes da publicação da primeira versão).
 
@@ -172,7 +178,7 @@ por vez**.
    registrada. Não publique se houver vulnerabilidades em aberto na cadeia (como execução de
    filtros antes da verificação da tag ou configuração global interferindo no verificador).
 8. **Gerar e conferir os instaladores (quando U3/U4 entrarem na main).**
-   Gere os scripts com manifesto e assinantes embutidos:
+   Gere os scripts com manifesto, assinantes e base mínima (`instalador/base-minima`, um `X.Y.Z`; sem valor válido o comando recusa gerar) embutidos:
 
    ```bash
    bun scripts/embutir-instalador.ts --modelo instalador/instalar.sh --assinantes seguranca/assinantes --saida dist/instalar.sh
@@ -181,7 +187,7 @@ por vez**.
    bun scripts/embutir-instalador.ts --conferir dist/instalar.ps1 --assinantes seguranca/assinantes
    ```
 
-   O `--conferir` confirma que a chave embutida e o manifesto batem exatamente com seguranca/assinantes e instalador/dependencias.json. (Nota: este passo passa a valer quando as branches U3 e U4 forem mescladas na `main`).
+   O `--conferir` confirma que a chave, o manifesto, a base mínima e a URL da lista de chaves embutidos batem exatamente com seguranca/assinantes, instalador/dependencias.json, instalador/base-minima e a constante de src/lib/confianca.ts (sempre https; o modelo sem a região URL_CONFIANCA é recusado). (Nota: este passo passa a valer quando as branches U3 e U4 forem mescladas na `main`).
 9. **Assinar e gerar hashes dos instaladores.**
    Gere o hash SHA-256 (executado dentro de `dist` para que o checksum registre apenas o nome do arquivo, permitindo conferência na pasta de download) e a assinatura SSH (`ssh-keygen -Y sign -n file`) de cada instalador gerado:
 
@@ -372,6 +378,62 @@ O que fazer, sempre com o "sim" do dono nas ações públicas:
    em `recusadas`.
 4. Registre no CHANGELOG, na versão de correção, o que houve, em linguagem simples.
 
+## Estado das chaves no site (confianca.json)
+
+A assinatura SSH prova que a tag foi assinada por uma chave em que a pasta já confia. Para **revogar** uma
+chave sem esperar que todas as máquinas atualizem, o atualizador consulta, antes de aceitar uma versão, um
+arquivo pequeno publicado fora do GitHub: `https://anvilore.iagofrota.com.br/confianca.json` (constante
+`URL_CONFIANCA` em `src/lib/confianca.ts`; **nunca** vem de variável de ambiente).
+
+```json
+{ "formato": 1, "chaves": ["SHA256:<fingerprint do ssh-keygen -lf>", "..."], "versaoMinima": "x.y.z" }
+```
+
+- Validação estrita: campo extra, tipo errado, `formato` diferente de 1, `chaves` vazia ou repetida, fingerprint
+  fora de `SHA256:<43 caracteres base64>` ou `versaoMinima` com pré-release recusam.
+- A consulta é HTTPS com certificado validado, **sem seguir redirecionamento** (redirect = recusa), com
+  `Cache-Control: no-cache` e `Pragma: no-cache`, limite de 15 s e 64 KiB. Não há cache local nem fallback
+  offline. Falha de rede, TLS, HTTP diferente de 200, formato ou tamanho: a atualização para com "não consegui
+  conferir a lista atual de chaves em <URL>; nada mudou; tente de novo mais tarde" e a versão instalada fica.
+- Antes do `verify-tag`, o atualizador monta um allowed_signers **temporário** só com as linhas das âncoras
+  (as de seguranca/assinantes; as do arquivo da opção `--assinantes-do-instalador`, quando ela é usada) cuja
+  fingerprint está em `chaves`: a **interseção**. O site nunca acrescenta uma chave. Interseção vazia recusa.
+- Candidata abaixo de `versaoMinima` é recusada (`recusada`, sem entrar em `recusadas`).
+- A consulta vale na verificação e na aplicação, nos dois caminhos (comum e com `--assinantes-do-instalador`),
+  e só quando há uma versão candidata.
+
+**Publicar** (o dono, no projeto do Cloudflare **separado** do blog, por upload direto, sem ligação com o GitHub):
+
+1. Edite confianca.json e confira cada fingerprint com `ssh-keygen -lf <publica>` e com a que está no
+   arquivo seguranca/assinantes da versão que vai sair.
+2. Publique junto um arquivo `_headers` com /confianca.json e `Cache-Control: no-store`.
+3. **Faça o purge do cache do Cloudflare depois de cada mudança** e confira com `curl -sI` que a resposta
+   não vem de cache.
+4. Rotação em duas fases: as **duas** chaves ficam na lista durante a transição; só retire a antiga depois
+   que a versão de transição estiver nas instalações-alvo.
+5. Comprometimento: **retire a fingerprint imediatamente** e faça o purge. Quem consultar deixa de aceitar a
+   chave, mesmo que a assinatura seja válida.
+
+Limites: a proteção assume domínio, TLS e Cloudflare íntegros (um host comprometido junto da chave de
+assinatura serve o estado que quiser); o site fora do ar impede atualizar, não usar a wiki atual; e um
+atualizador que saiu sem esta consulta nunca a ganha depois.
+
+Os instaladores (instalar.sh e instalar.ps1) fazem a mesma consulta, com a URL **embutida** (região URL_CONFIANCA, que o
+embutir sempre preenche com a constante e recusa se o modelo não a tem):
+
+- **Instalação nova:** consulta depois de descobrir a tag e **antes de baixar** o kit; só a interseção da chave embutida com
+  a lista vai ao `verify-tag`; chave fora da lista, versão da tag abaixo da `versaoMinima` ou falha da consulta param sem
+  criar a pasta. A obtenção do próprio instalador deve ser conferida com a chave que a lista autoriza agora.
+- **Reinstalação:** vem **depois** da base mínima (lida sem executar a pasta) e **antes** de qualquer execução da pasta;
+  entrega ao atualizador, pela opção `--assinantes-do-instalador`, só as linhas embutidas autorizadas pela lista; e uma
+  pasta instalada **abaixo da `versaoMinima`** da lista também é recusada sem executar nada dela.
+- No sh a consulta é `curl --proto =https --max-redirs 0 --max-time 15 --max-filesize 65536` com `Cache-Control` e
+  `Pragma`; no ps1, `HttpWebRequest` sem redirecionamento, com 15 s no total, lendo o corpo em blocos e abortando ao passar de 64 KiB. O documento é validado de forma estrita nos dois e nome de campo repetido o recusa (também no atualizador).
+- Build de **teste**: `--url-confianca http://127.0.0.1:<porta>/... --aceitar-url-de-teste` (só loopback; qualquer outro
+  http é recusado pelo embutir e pelo `--conferir`). Os testes usam `scripts/servir-confianca-teste.ts`. **Nunca numa
+  release:** o par de flags de teste serve só para gerar e conferir artefatos de teste; a conferência da release roda
+  SEM `--url-confianca` e SEM `--aceitar-url-de-teste`, e um instalador com a URL de loopback é recusado nela.
+
 ## Rotação e revogação da chave
 
 O arquivo de assinantes pode ter **várias linhas**; qualquer chave listada assina. Quem confia é o que
@@ -394,6 +456,8 @@ recusar as tags novas (chave desconhecida).
 Se alguma máquina não recebeu a versão de transição e a rotação avançou para a chave nova, o atualizador automático daquela máquina recusa a versão (chave desconhecida).
 **Nunca faça `git checkout` manual direto**: o checkout manual pula o atualizador, não executa a migração de rastreio (`atualizacao/migracoes.json`) e pode sobrescrever ou remover arquivos pessoais (`raw/`, `wiki/`, `SCHEMA.md`).
 
+Isto vale para pastas **na base mínima ou acima dela**. Uma pasta **anterior** à base mínima (a `0.2.0` ou um clone intermediário) o instalador recusa antes de executar qualquer coisa dela; para essas, o caminho é "pasta nova + migração assistida": instalar o Anvilore numa pasta nova com o instalador verificado e pedir ao agente que traga a wiki de lá para cá de forma conferida (cópia de segurança antes, conferência depois), sem apagar nem renomear a pasta original. Não use `git checkout` nem `migrar-rastreio --puxar` como bootstrap: eles não provam a cadeia de assinatura. A ferramenta que automatize essa migração é backlog.
+
 O caminho seguro de recuperação é a **reinstalação com o instalador verificado**:
 Baixe o instalador da versão mais recente (`<dist/instalar.sh>` quando U3 entrar ou `<dist/instalar.ps1>` quando U4 entrar), confira seu hash SHA-256 e sua assinatura SSH contra a chave pública obtida por canal independente fora do GitHub (veja "Segurança no bootstrap"), e execute-o. O instalador preserva os dados pessoais existentes e atualiza a chave em seguranca/assinantes.
 
@@ -408,14 +472,16 @@ O que dá para fazer:
 - Quem **já** aplicou uma versão assinada pela chave roubada pode voltar com `--voltar`, se foi a última
   atualização.
 
-O que **não** dá (confirmado no código; não há lista de revogação nem canal fora da banda):
+O que **não** dá (confirmado no código; não existe revogação retroativa para versões e instaladores ANTIGOS, que não fazem a
+consulta ao confianca.json, nem canal fora da banda para eles):
 
 - O kit só confia no arquivo que já tem. Se a chave comprometida era a **única**, nenhuma versão nova
   assinada por outra chave é aceita, e uma versão assinada pela comprometida seria aceita (inclusive
   se for do atacante). Nesse caso a saída é fora do kit: avisar as pessoas por outro meio para
   reinstalarem com o instalador verificado para uma versão que traga o arquivo corrigido.
 - Máquinas que não atualizam continuam confiando na chave.
-- O atualizador não consulta a internet para saber se uma chave foi revogada.
+- Só o confianca.json (seção acima) revoga sem uma versão nova: retire a fingerprint dele e faça o purge. Ele
+  vale para atualizadores que **já têm** a consulta; os que saíram antes dela não a ganham depois.
 
 Por isso: tenha a rotação feita **antes** de precisar, e guarde a privada com senha.
 
