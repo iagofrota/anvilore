@@ -179,6 +179,21 @@ describe("ui-web: PainelDaNota", () => {
     expect(linksChat.length).toBeGreaterThan(0);
   });
 
+  test("Dado caminhos resolvidos no servidor Quando renderizo wikilinks e Relacionados Então uso o caminho único e não navego por slug ambíguo", () => {
+    const nota = {
+      ...notaExemplo,
+      corpo: "[[Destino|Página certa]] e [[duplicado]].",
+      relacionados: ["Destino", "duplicado"],
+      destinosWikilinks: { Destino: "trabalho/concepts/destino.md", duplicado: null },
+    } as DetalhesDaNota;
+    const arvore = expandir(<PainelDaNota nota={nota} carregando={false} erro="" />);
+    const links = achar(arvore, e => e.type === "a");
+    expect(links.some(e => e.props.href === "#/nota/trabalho/concepts/destino.md" && texto(e).includes("Página certa"))).toBe(true);
+    expect(links.some(e => e.props.href === "#/nota/trabalho/concepts/destino.md" && texto(e).includes("Destino"))).toBe(true);
+    expect(links.some(e => e.props.href === "#/nota/duplicado.md")).toBe(false);
+    expect(texto(arvore)).toContain("duplicado");
+  });
+
   test("renderiza seção de proveniência com fonte bruta", () => {
     const arvore = expandir(<PainelDaNota nota={notaExemplo} carregando={false} erro="" />);
     const txt = texto(arvore);

@@ -123,6 +123,26 @@ test("[I6-09] Dado páginas interligadas por wikilinks Quando abro a Nota Então
   await expect(grafo.locator("text", { hasText: "Origem" })).toBeVisible();
 });
 
+test("[I6-11] Dado wikilink por slug para página em área Quando clico Então abro o caminho real da nota", async ({ page, app, vault }) => {
+  await vault.escrever("wiki/pessoal/concepts/origem-link.md", [
+    "---", "type: concept", "slug: origem-link", "title: Origem", "tags: [link]", "---", "",
+    "Veja [[destino-certo|Destino certo]].", "",
+  ].join("\n"));
+  await vault.escrever("wiki/trabalho/concepts/destino-certo.md", [
+    "---", "type: concept", "slug: destino-certo", "title: Destino certo", "tags: [link]", "---", "",
+    "Conteúdo de destino.", "",
+  ].join("\n"));
+
+  await page.goto(`${app.url}#/nota/pessoal/concepts/origem-link.md`);
+  const href = "#/nota/trabalho/concepts/destino-certo.md";
+  await expect(page.locator(".note-related-list").getByRole("link", { name: "Destino certo" })).toHaveAttribute("href", href);
+  const destino = page.locator(".note-body").getByRole("link", { name: "Destino certo" });
+  await expect(destino).toHaveAttribute("href", href);
+  await destino.click();
+  await expect(page).toHaveURL(/#\/nota\/trabalho\/concepts\/destino-certo\.md$/);
+  await expect(page.getByRole("heading", { name: "Destino certo", level: 1 })).toBeVisible();
+});
+
 test("[I6-10] Dado a tela da Nota aberta Quando a pessoa lê a nota Então a wiki e raw/ permanecem inalterados", async ({ page, app, vault }) => {
   await vault.escrever("wiki/pessoal/concepts/leitura.md", [
     "---",
