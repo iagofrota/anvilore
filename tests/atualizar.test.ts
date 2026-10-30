@@ -4,8 +4,9 @@ import { lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } fro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { atualizar, compararSemVer, comandoAtualizar, decidirPolitica, parsearSemVer, selecionarRelease, tipoDeLink } from "../src/lib/atualizacao";
+import { URL_CONFIANCA } from "../src/lib/confianca";
 import { capturarConsole } from "./apoio/console";
-import { arvore, criarChave, criarKit, gitReal, type Kit, type Versao } from "./apoio/kit-atualizavel";
+import { arvore, criarChave, criarKit, gitReal, respostaDaLista, type Kit, type Versao } from "./apoio/kit-atualizavel";
 
 describe("atualizador: SemVer e canal", () => {
   test("Dado versões SemVer válidas e inválidas, Quando analiso, Então recusa forma inválida sem normalizar", () => {
@@ -379,7 +380,7 @@ describe("atualizador com Git real: voltar, três tags e interrupção", () => {
     const k = await kit(tres.slice(0, 2));
     await comConfigInicial(k);
     const antes = await arvore(k.raiz, CONFIG);
-    const morto = Bun.spawnSync([process.execPath, join(import.meta.dir, "apoio/atualizar-e-morrer.ts"), k.raiz, "v0.3.1"], { stdout: "pipe", stderr: "pipe" });
+    const morto = Bun.spawnSync([process.execPath, join(import.meta.dir, "apoio/atualizar-e-morrer.ts"), k.raiz, "v0.3.1", k.fingerprint], { stdout: "pipe", stderr: "pipe" });
     // POSIX: morte por sinal. Windows: o kill encerra sem sinal POSIX (TerminateProcess), mas nunca com sucesso.
     if (process.platform === "win32") { expect(morto.exitCode).not.toBe(0); expect(morto.exitCode).not.toBeNull(); }
     else expect(morto.signalCode).toBe("SIGKILL");
@@ -1261,5 +1262,151 @@ describe("atualizador: assinantes confiáveis vindos do instalador (RR6, R1)", (
     }
     intacta(k);
     expect((await k.estado()).estado).toBe("ocioso");
+  });
+});
+
+// Estado das chaves fora do GitHub (PARECER-SOL §2): antes do verify-tag o atualizador consulta a lista do site e só
+// aceita a interseção dela com as chaves que a pasta já tinha (as locais; ou as do instalador, na opção interna).
+describe("atualizador: estado das chaves no site (revogação)", () => {
+  const OPCAO = "--assinantes-do-instalador";
+  const FRASE = `não consegui conferir a lista atual de chaves em ${URL_CONFIANCA}; nada mudou; tente de novo mais tarde`;
+  const duas: Versao[] = [{ versao: "0.3.0", arquivos: { "pessoal.txt": "modelo antigo\n" } }, { versao: "0.3.1", arquivos: { "pessoal.txt": "modelo novo\n" } }];
+  const PEDACOS = ["pessoal.txt", "seguranca/assinantes", "src/cli.ts", "package.json"];
+  // Tudo o que uma recusa precisa deixar como estava: HEAD, árvore, tags e status.
+  async function fotografia(k: Kit) {
+    return { head: k.head(), arvore: await arvore(k.raiz, PEDACOS), tags: k.ok(["tag", "--list"]), status: k.git(["status", "--porcelain"]).saida };
+  }
+  async function recusa(k: Kit, deps: Parameters<Kit["deps"]>[0], mensagem: string | RegExp, acao: "aplicar" | "verificar" = "aplicar") {
+    const antes = await fotografia(k);
+    await expect(atualizar(acao, k.deps(deps))).rejects.toThrow(mensagem);
+    expect(await fotografia(k)).toEqual(antes);
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+    expect(((await k.estado()).recusadas ?? []).includes("0.3.1")).toBe(false);
+  }
+  // Pasta com assinantes locais da chave antiga; a 0.3.1 traz (e é assinada por) uma chave nova.
+  async function comChaveNova() {
+    const nova = await criarChave(await mkdtemp(join(tmpdir(), "anvilore-chave-nova-")));
+    const k = await kit([duas[0]!, { versao: "0.3.1", arquivos: { "seguranca/assinantes": nova.assinantes } }]);
+    k.ok(["-c", "gpg.format=ssh", "-c", `user.signingkey=${nova.chave}`, "tag", "-f", "-s", "v0.3.1", k.commits["0.3.1"]!, "-m", "v0.3.1"]);
+    return { k, nova };
+  }
+  const servidor = (resposta: () => Response | Promise<Response>) => {
+    const s = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: req => new URL(req.url).pathname === "/confianca.json" ? resposta() : new Response("outra", { status: 404 }) });
+    return { s, buscarConfianca: (_url: string, init: RequestInit) => fetch(`http://127.0.0.1:${s.port}/confianca.json`, init), parar: () => s.stop(true) };
+  };
+
+  real("Dado a chave da tag na lista do site, Quando aplico, Então aplica depois de consultar a URL fixa sem cache e sem seguir redirecionamento", async () => {
+    const k = await kit(duas);
+    expect(await atualizar("aplicar", k.deps())).toContain("Atualizado para 0.3.1");
+    expect(k.head()).toBe(k.commits["0.3.1"]!);
+    expect(k.consultas.length).toBe(1);
+    expect(k.consultas[0]!.url).toBe(URL_CONFIANCA);
+    expect(k.consultas[0]!.init.redirect).toBe("manual");
+    expect(new Headers(k.consultas[0]!.init.headers).get("cache-control")).toBe("no-cache");
+  });
+
+  real("Dado a lista do site SEM a chave da tag (chave retirada) e assinatura válida dela, Quando aplico, Então recusa antes de mexer em qualquer coisa", async () => {
+    const k = await kit(duas);
+    k.publicarLista({ chaves: ["SHA256:" + "B".repeat(43)] });
+    await recusa(k, {}, /não inclui nenhuma/);
+  });
+
+  real("Dado a pasta que confia em duas chaves e o site só com a outra, Quando a tag é da chave retirada, Então o verify-tag recusa", async () => {
+    const k = await kit(duas);
+    const outra = await criarChave(await mkdtemp(join(tmpdir(), "anvilore-outra-")));
+    await writeFile(join(k.raiz, "seguranca/assinantes"), (await readFile(join(k.raiz, "seguranca/assinantes"), "utf8")) + outra.assinantes);
+    k.publicarLista({ chaves: [outra.fingerprint] });
+    const antes = await arvore(k.raiz, PEDACOS);
+    await expect(atualizar("aplicar", k.deps())).rejects.toThrow("git verify-tag recusou a tag v0.3.1");
+    expect(await arvore(k.raiz, PEDACOS)).toEqual(antes);
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+  });
+
+  real("Dado o site autorizando uma chave que NÃO está nas âncoras locais e a tag assinada por ela, Quando aplico, Então recusa: o site nunca acrescenta chave", async () => {
+    const { k, nova } = await comChaveNova();
+    k.publicarLista({ chaves: [k.fingerprint, nova.fingerprint] });
+    await recusa(k, {}, "git verify-tag recusou a tag v0.3.1");
+  });
+
+  real("Dado o site só com a chave nova e as âncoras só com a antiga, Quando aplico, Então recusa por interseção vazia", async () => {
+    const { k, nova } = await comChaveNova();
+    k.publicarLista({ chaves: [nova.fingerprint] });
+    await recusa(k, {}, /não inclui nenhuma/);
+  });
+
+  real("Dado o instalador entregando o arquivo da chave nova (opção interna) e o site com a nova, Quando aplico, Então aplica; com a nova fora da lista, recusa", async () => {
+    const { k, nova } = await comChaveNova();
+    const arquivo = join(k.pai, "assinantes-do-instalador");
+    await writeFile(arquivo, nova.assinantes);
+    k.publicarLista({ chaves: [k.fingerprint] });
+    const c = capturarConsole();
+    try {
+      expect(await comandoAtualizar([OPCAO, arquivo], k.deps())).toBe(1);
+      expect(c.erros.join("\n")).toMatch(/não inclui nenhuma/);
+      expect(k.head()).toBe(k.commits["0.3.0"]!);
+      k.publicarLista({ chaves: [k.fingerprint, nova.fingerprint] });
+      expect(await comandoAtualizar([OPCAO, arquivo], k.deps())).toBe(0);
+    } finally { c.restaurar(); }
+    expect(k.head()).toBe(k.commits["0.3.1"]!);
+    expect(k.consultas.length).toBe(2);
+  });
+
+  real("Dado o site retirando uma chave depois de a pasta já a ter aceitado, Quando um atualizador já instalado consulta de novo, Então reconhece a revogação nova", async () => {
+    const k = await kit(duas);
+    expect(await atualizar("verificar", k.deps())).toContain("conferida");
+    k.publicarLista({ chaves: ["SHA256:" + "C".repeat(43)] });
+    await recusa(k, {}, /não inclui nenhuma/);
+  });
+
+  real("Dado o site com versaoMinima acima da candidata, Quando aplico, Então recusa; igual à candidata, aplica", async () => {
+    const k = await kit(duas);
+    k.publicarLista({ versaoMinima: "0.3.2" });
+    await recusa(k, {}, "exige a versão 0.3.2");
+    expect((await k.estado()).estado).toBe("recusada");
+    k.publicarLista({ versaoMinima: "0.3.1" });
+    await k.mudarEstado({ estado: "ocioso" });
+    expect(await atualizar("aplicar", k.deps())).toContain("Atualizado para 0.3.1");
+  });
+
+  const falhas: [string, () => ReturnType<typeof servidor>][] = [
+    ["redirecionamento (302)", () => { const x = servidor(() => new Response(null, { status: 302, headers: { location: "/confianca.json" } })); return x; }],
+    ["HTTP 404", () => servidor(() => new Response("nada", { status: 404 }))],
+    ["HTTP 500", () => servidor(() => new Response("erro", { status: 500 }))],
+    ["JSON inválido", () => servidor(() => new Response("{"))],
+    ["campo extra", () => servidor(() => respostaDaLista({ formato: 1, chaves: ["SHA256:" + "A".repeat(43)], versaoMinima: "0.0.0", extra: true }))],
+    ["formato 2", () => servidor(() => respostaDaLista({ formato: 2, chaves: ["SHA256:" + "A".repeat(43)], versaoMinima: "0.0.0" }))],
+    ["chaves vazia", () => servidor(() => respostaDaLista({ formato: 1, chaves: [], versaoMinima: "0.0.0" }))],
+  ];
+  for (const [caso, criar] of falhas) {
+    real(`Dado ${caso}, Quando aplico e verifico, Então recusa com a mensagem simples e HEAD e arquivos ficam intactos`, async () => {
+      const k = await kit(duas);
+      const x = criar();
+      try {
+        await recusa(k, { buscarConfianca: x.buscarConfianca }, FRASE);
+        await recusa(k, { buscarConfianca: x.buscarConfianca }, FRASE, "verificar");
+      } finally { x.parar(); }
+      expect((await k.estado()).estado).toBe("ocioso");
+    });
+  }
+
+  real("Dado o servidor do site fora do ar ou falha de TLS, Quando aplico, Então recusa e a versão instalada fica", async () => {
+    const k = await kit(duas);
+    const x = servidor(() => new Response("ok")); const porta = x.s.port; x.parar();
+    await recusa(k, { buscarConfianca: (_u: string, init: RequestInit) => fetch(`http://127.0.0.1:${porta}/confianca.json`, init) }, FRASE);
+    await recusa(k, { buscarConfianca: async () => { throw new TypeError("certificate has expired"); } }, FRASE);
+  });
+
+  real("Dado variáveis de ambiente que parecem apontar a URL, Quando aplico, Então a consulta continua na URL fixa", async () => {
+    const k = await kit(duas);
+    const nomes = ["ANVILORE_URL_CONFIANCA", "ANVILORE_CONFIANCA_URL", "URL_CONFIANCA"];
+    for (const n of nomes) process.env[n] = "http://127.0.0.1:1/outra.json";
+    try { await atualizar("aplicar", k.deps()); } finally { for (const n of nomes) delete process.env[n]; }
+    expect(k.consultas.map(c => c.url)).toEqual([URL_CONFIANCA]);
+  });
+
+  real("Dado que já está atualizado, Quando verifico, Então não consulta o site (nada a aceitar)", async () => {
+    const k = await kit([duas[0]!]);
+    expect(await atualizar("verificar", k.deps())).toContain("já está atualizado");
+    expect(k.consultas.length).toBe(0);
   });
 });
