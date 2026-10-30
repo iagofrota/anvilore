@@ -706,3 +706,23 @@ Describe 'AnvVersaoDaPastaAtendeMinima (a pasta instalada contra a versão míni
     AnvVersaoDaPastaAtendeMinima -Versao 'abc' -Minima '0.3.1' | Should -BeFalse
   }
 }
+
+Describe 'AnvAutoCommitDaPasta (a reinstalação respeita a escolha da pessoa)' {
+  # Dado uma pasta nova; Então o commit automático nasce ligado.
+  # Dado uma pasta já instalada; Então vale o autoCommit do atualizacao.json, e sem esse estado legível fica desligado.
+  BeforeAll {
+    function script:PastaComEstado($conteudo) {
+      $p = Join-Path ([IO.Path]::GetTempPath()) ('anv-ac-' + [guid]::NewGuid().ToString('N'))
+      New-Item -ItemType Directory (Join-Path $p '.anvilore') -Force | Out-Null
+      if ($null -ne $conteudo) { [IO.File]::WriteAllText((Join-Path $p '.anvilore\atualizacao.json'), $conteudo) }
+      return $p
+    }
+  }
+  It 'instalação nova liga'                          { AnvAutoCommitDaPasta -Pasta (PastaComEstado $null) -JaInstalado $false | Should -BeTrue }
+  It 'instalação nova ignora estado antigo na pasta' { AnvAutoCommitDaPasta -Pasta (PastaComEstado '{"autoCommit":false}') -JaInstalado $false | Should -BeTrue }
+  It 'reinstalação com autoCommit true mantém ligado' { AnvAutoCommitDaPasta -Pasta (PastaComEstado '{"versao":1,"autoCommit":true}') -JaInstalado $true | Should -BeTrue }
+  It 'reinstalação com autoCommit false mantém desligado' { AnvAutoCommitDaPasta -Pasta (PastaComEstado '{"versao":1,"autoCommit":false}') -JaInstalado $true | Should -BeFalse }
+  It 'reinstalação sem a chave deixa desligado'      { AnvAutoCommitDaPasta -Pasta (PastaComEstado '{"versao":1}') -JaInstalado $true | Should -BeFalse }
+  It 'reinstalação com estado ilegível deixa desligado' { AnvAutoCommitDaPasta -Pasta (PastaComEstado 'lixo') -JaInstalado $true | Should -BeFalse }
+  It 'reinstalação sem atualizacao.json (a primeira rodada parou antes) liga' { AnvAutoCommitDaPasta -Pasta (PastaComEstado $null) -JaInstalado $true | Should -BeTrue }
+}

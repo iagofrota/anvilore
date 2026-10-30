@@ -240,3 +240,20 @@ describe("instalar.ps1: estado das chaves no site (decisão 2 do parecer de rele
     expect(corpo).toMatch(/Set-Content -LiteralPath \$assinReinstalacao -Value \$estadoChaves\.Assinantes/);
   });
 });
+
+describe("instalar.ps1: commit automático só na instalação nova (achado P2 do Codex)", () => {
+  test("Dado AnvPassos, Quando leio a chamada do instalar, Então --auto-commit não é passado sempre: vem de AnvAutoCommitDaPasta", () => {
+    const corpo = funcao("AnvPassos");
+    expect(corpo).not.toMatch(/'--destino', \$pasta, '--auto-commit'/);
+    expect(corpo).toMatch(/AnvAutoCommitDaPasta -Pasta \$pasta -JaInstalado \$jaInstalado/);
+    expect(corpo).toMatch(/'--auto-commit'/);
+  });
+
+  test("Dado AnvAutoCommitDaPasta, Quando leio o código, Então só a reinstalação lê o autoCommit do atualizacao.json", () => {
+    const corpo = funcao("AnvAutoCommitDaPasta");
+    expect(corpo).not.toBe("");
+    expect(corpo).toMatch(/atualizacao\.json/);
+    expect(corpo).toMatch(/autoCommit/);
+    expect(corpo).toMatch(/-not \$JaInstalado/);
+  });
+});

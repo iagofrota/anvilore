@@ -232,6 +232,25 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
     }
   }
 
+  Context 'reinstalar respeita o commit automático desligado (achado P2 do Codex)' {
+    # Dado uma instalação cuja pessoa desligou o commit automático (atualizacao.json com autoCommit false e sem anvilore.toml);
+    # Quando o instalador roda de novo; Então o commit automático continua desligado: anvilore.toml não aparece e o estado não muda.
+    # Dado uma instalação nova; Então o commit automático nasce ligado (coberto na instalação do zero).
+    BeforeAll {
+      $script:PAc = Perfil 'autocommit'
+      $script:RAc1 = Rodar $script:PAc $script:OrigemBoa $script:Release $script:PathComAgente
+      $script:PastaAc = Join-Path $script:PAc 'Anvilore'
+      $arq = Join-Path $script:PastaAc '.anvilore\atualizacao.json'
+      [IO.File]::WriteAllText($arq, ((Get-Content -Raw -Encoding UTF8 $arq) -replace '"autoCommit":true', '"autoCommit":false'))
+      Remove-Item -LiteralPath (Join-Path $script:PastaAc 'anvilore.toml') -Force
+      $script:RAc2 = Rodar $script:PAc $script:OrigemBoa $script:Release $script:PathComAgente
+    }
+    It 'a primeira instalação terminou completa'             { $script:RAc1.Codigo | Should -Be 0 }
+    It 'a reinstalação termina completa'                     { $script:RAc2.Codigo | Should -Be 0 }
+    It 'não religou o commit automático (sem anvilore.toml)' { Test-Path -LiteralPath (Join-Path $script:PastaAc 'anvilore.toml') | Should -BeFalse }
+    It 'mantém autoCommit false no estado'                   { (Get-Content -Raw (Join-Path $script:PastaAc '.anvilore\atualizacao.json') | ConvertFrom-Json).autoCommit | Should -BeFalse }
+  }
+
   Context 'base mínima: a pasta antiga é recusada ANTES de executar qualquer coisa dela (decisão 1)' {
     # Dado uma pasta instalada cuja versão é menor que a base mínima embutida, ou cujo package.json está ausente, ilegível,
     # inválido ou é pré-release; Quando o instalador roda de novo; Então para com a mensagem simples (código 1), nada da pasta
