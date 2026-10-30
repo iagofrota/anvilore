@@ -472,6 +472,7 @@ describe("atualizador com Git real: confiança, trava e estado", () => {
     await mkdir(join(k.pai, "outra"));
     const outra = await criarChave(join(k.pai, "outra"));
     await writeFile(join(k.raiz, "seguranca/assinantes"), outra.assinantes);
+    k.publicarLista({ chaves: [k.fingerprint, outra.fingerprint] });
     await expect(atualizar("verificar", k.deps())).rejects.toThrow("git verify-tag recusou a tag v0.3.1");
     expect(k.head()).toBe(k.commits["0.3.0"]!);
     expect(await k.estado()).toMatchObject({ estado: "recusada" });
@@ -1167,6 +1168,8 @@ describe("atualizador: assinantes confiáveis vindos do instalador (RR6, R1)", (
     const nova = await criarChave(await mkdtemp(join(tmpdir(), "anvilore-chave-nova-")));
     const k = await kit([{ versao: "0.3.0" }, { versao: "0.3.1", arquivos: { "seguranca/assinantes": nova.assinantes } }]);
     k.ok(["-c", "gpg.format=ssh", "-c", `user.signingkey=${assinarComNova ? nova.chave : k.chave}`, "tag", "-f", "-s", "v0.3.1", k.commits["0.3.1"]!, "-m", "v0.3.1"]);
+    // Aqui o que se prova é a âncora (arquivo local ou do instalador): o site autoriza as duas chaves.
+    k.publicarLista({ chaves: [k.fingerprint, nova.fingerprint] });
     const arquivoNovo = join(k.pai, "assinantes-do-instalador");
     await writeFile(arquivoNovo, nova.assinantes);
     return { k, nova, arquivoNovo };

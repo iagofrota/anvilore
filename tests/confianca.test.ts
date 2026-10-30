@@ -66,13 +66,12 @@ function servidor(rotas: Record<string, (req: Request) => Response | Promise<Res
 
 describe("confianca.json: busca", () => {
   test("Dado o site no ar, Quando consulto, Então a requisição pede sem cache, não segue redirecionamento e devolve o documento", async () => {
-    let visto: Request | undefined;
-    const x = servidor({ "/confianca.json": req => { visto = req; return new Response(valido()); } });
+    let visto: { cache: string | null; pragma: string | null } | undefined;
+    const x = servidor({ "/confianca.json": req => { visto = { cache: req.headers.get("cache-control"), pragma: req.headers.get("pragma") }; return new Response(valido()); } });
     try {
       const lista = await consultarConfianca(x.buscar);
       expect(lista).toEqual({ formato: 1, chaves: [FP], versaoMinima: "0.3.0" });
-      expect(visto!.headers.get("cache-control")).toBe("no-cache");
-      expect(visto!.headers.get("pragma")).toBe("no-cache");
+      expect(visto).toEqual({ cache: "no-cache", pragma: "no-cache" });
     } finally { x.parar(); }
   });
 
