@@ -372,6 +372,47 @@ O que fazer, sempre com o "sim" do dono nas ações públicas:
    em `recusadas`.
 4. Registre no CHANGELOG, na versão de correção, o que houve, em linguagem simples.
 
+## Estado das chaves no site (confianca.json)
+
+A assinatura SSH prova que a tag foi assinada por uma chave em que a pasta já confia. Para **revogar** uma
+chave sem esperar que todas as máquinas atualizem, o atualizador consulta, antes de aceitar uma versão, um
+arquivo pequeno publicado fora do GitHub: `https://anvilore.iagofrota.com.br/confianca.json` (constante
+`URL_CONFIANCA` em `src/lib/confianca.ts`; **nunca** vem de variável de ambiente).
+
+```json
+{ "formato": 1, "chaves": ["SHA256:<fingerprint do ssh-keygen -lf>", "..."], "versaoMinima": "x.y.z" }
+```
+
+- Validação estrita: campo extra, tipo errado, `formato` diferente de 1, `chaves` vazia ou repetida, fingerprint
+  fora de `SHA256:<43 caracteres base64>` ou `versaoMinima` com pré-release recusam.
+- A consulta é HTTPS com certificado validado, **sem seguir redirecionamento** (redirect = recusa), com
+  `Cache-Control: no-cache` e `Pragma: no-cache`, limite de 15 s e 64 KiB. Não há cache local nem fallback
+  offline. Falha de rede, TLS, HTTP diferente de 200, formato ou tamanho: a atualização para com "não consegui
+  conferir a lista atual de chaves em <URL>; nada mudou; tente de novo mais tarde" e a versão instalada fica.
+- Antes do `verify-tag`, o atualizador monta um allowed_signers **temporário** só com as linhas das âncoras
+  (as de seguranca/assinantes; as do arquivo da opção `--assinantes-do-instalador`, quando ela é usada) cuja
+  fingerprint está em `chaves`: a **interseção**. O site nunca acrescenta uma chave. Interseção vazia recusa.
+- Candidata abaixo de `versaoMinima` é recusada (`recusada`, sem entrar em `recusadas`).
+- A consulta vale na verificação e na aplicação, nos dois caminhos (comum e com `--assinantes-do-instalador`),
+  e só quando há uma versão candidata.
+
+**Publicar** (o dono, no projeto do Cloudflare **separado** do blog, por upload direto, sem ligação com o GitHub):
+
+1. Edite confianca.json e confira cada fingerprint com `ssh-keygen -lf <publica>` e com a que está no
+   arquivo seguranca/assinantes da versão que vai sair.
+2. Publique junto um arquivo `_headers` com /confianca.json e `Cache-Control: no-store`.
+3. **Faça o purge do cache do Cloudflare depois de cada mudança** e confira com `curl -sI` que a resposta
+   não vem de cache.
+4. Rotação em duas fases: as **duas** chaves ficam na lista durante a transição; só retire a antiga depois
+   que a versão de transição estiver nas instalações-alvo.
+5. Comprometimento: **retire a fingerprint imediatamente** e faça o purge. Quem consultar deixa de aceitar a
+   chave, mesmo que a assinatura seja válida.
+
+Limites: a proteção assume domínio, TLS e Cloudflare íntegros (um host comprometido junto da chave de
+assinatura serve o estado que quiser); o site fora do ar impede atualizar, não usar a wiki atual; e um
+atualizador que saiu sem esta consulta nunca a ganha depois. Os instaladores fazem a mesma consulta (instalação
+nova e reinstalação) — veja "Instalador do Linux" e "Instalador do Windows" quando a integração deles entrar.
+
 ## Rotação e revogação da chave
 
 O arquivo de assinantes pode ter **várias linhas**; qualquer chave listada assina. Quem confia é o que
@@ -415,7 +456,8 @@ O que **não** dá (confirmado no código; não há lista de revogação nem can
   se for do atacante). Nesse caso a saída é fora do kit: avisar as pessoas por outro meio para
   reinstalarem com o instalador verificado para uma versão que traga o arquivo corrigido.
 - Máquinas que não atualizam continuam confiando na chave.
-- O atualizador não consulta a internet para saber se uma chave foi revogada.
+- Só o confianca.json (seção acima) revoga sem uma versão nova: retire a fingerprint dele e faça o purge. Ele
+  vale para atualizadores que **já têm** a consulta; os que saíram antes dela não a ganham depois.
 
 Por isso: tenha a rotação feita **antes** de precisar, e guarde a privada com senha.
 

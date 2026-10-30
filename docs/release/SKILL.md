@@ -48,7 +48,10 @@ mostre só o que decide algo.
    ausente ou vermelho → pare e diga qual.
 4. **Assinatura.** Confira `git config --get gpg.format` (tem de ser `ssh`), `user.signingkey`, a
    impressão digital da pública e que a **linha da chave está no arquivo da versão anterior**
-   (`git show vANTERIOR:seguranca/assinantes | rg -F …`). Sem isso, pare: se a chave ainda não foi
+   (`git show vANTERIOR:seguranca/assinantes | rg -F …`). **Confira também a lista atual do site**
+   (`curl -s https://anvilore.iagofrota.com.br/confianca.json`): a fingerprint da chave que vai assinar
+   (`ssh-keygen -lf`) tem de estar em `chaves` e a `versaoMinima` não pode passar da versão que sai.
+   Fora da lista, pare e diga ao dono (a release seria recusada por quem consulta). Sem isso, pare: se a chave ainda não foi
    publicada, a release atual é a que a leva e **não será aceita pelo atualizador**; diga isso e
    deixe o dono decidir. Se faltar configuração, diga o que o dono precisa configurar (você não
    escolhe a chave). **Bootstrap:** se a versão anterior não tem seguranca/assinantes (a `0.2.0`), é a

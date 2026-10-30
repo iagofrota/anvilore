@@ -30,6 +30,12 @@ do que ainda é só hipótese.
 - O `.gitattributes` fixa `eol=lf` para texto, Markdown e TypeScript, para o checkout no Windows
   não trazer CRLF.
 
+- **Estado das chaves (`src/lib/confianca.ts`):** a consulta ao confianca.json usa o `fetch` do Bun e calcula a
+  fingerprint SHA-256 da chave em TypeScript (igual ao `ssh-keygen -lf`, conferido no teste), então não depende de
+  binário nem de shell e é a mesma nos três sistemas. O allowed_signers temporário vai para a pasta temporária do
+  sistema (`os.tmpdir()`) e é apagado depois do `verify-tag`. Os testes só falam com loopback; o TLS real contra o
+  domínio do dono **não** foi provado em nenhum sistema.
+
 ## MCP de consulta: configuração por agente
 
 O servidor usa stdio e o campo de protocolo `instructions` no `initialize`. O teste do SDK verifica
