@@ -64,7 +64,13 @@ function normalizarFonte(valor: string): string {
 
 async function fontesCitadas(wiki: string): Promise<Set<string>> {
   const citadas = new Set<string>();
-  for (const pagina of await paginasMarkdown(wiki)) {
+  let paginas: string[];
+  try { paginas = await paginasMarkdown(wiki); }
+  catch (erro) {
+    if ((erro as NodeJS.ErrnoException).code === "ENOENT") return citadas;
+    throw erro;
+  }
+  for (const pagina of paginas) {
     let frontmatter: Record<string, unknown> | null;
     try { frontmatter = lerFrontmatter(await readFile(pagina, "utf8")); } catch { continue; }
     if (!frontmatter) continue;

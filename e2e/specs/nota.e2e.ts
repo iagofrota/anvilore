@@ -55,6 +55,36 @@ test("[I6-07] Dado uma página com callouts de lacuna e contradição Quando a N
   await expect(linkBusca).toHaveAttribute("href", /#\/chat\?lacuna=/);
 });
 
+test("[I6-12] Dado uma lacuna na Nota Quando peço para buscar fonte no Chat Então a dúvida aparece preenchida sem envio automático", async ({ page, app, vault }) => {
+  await vault.escrever("wiki/pessoal/concepts/com-lacuna-chat.md", [
+    "---", "type: concept", "slug: com-lacuna-chat", "title: Nota com lacuna", "---", "",
+    "> [!gap] Falta definir o orçamento e conferir a fonte", "",
+  ].join("\n"));
+  const envios: string[] = [];
+  page.on("request", requisicao => {
+    if (requisicao.method() === "POST" && new URL(requisicao.url()).pathname === "/api/fontes") envios.push(requisicao.url());
+  });
+  await page.goto(`${app.url}#/nota/pessoal/concepts/com-lacuna-chat.md`);
+  await page.getByRole("link", { name: "Buscar fonte no Chat" }).click();
+  await expect(page).toHaveURL(/#\/chat\?lacuna=/);
+  await expect(page.getByLabel("Texto da fonte")).toHaveValue("Falta definir o orçamento e conferir a fonte");
+  expect(envios).toEqual([]);
+  await page.evaluate(() => { window.location.hash = "#/chat?lacuna=Outra%20d%C3%BAvida"; });
+  await expect(page.getByLabel("Texto da fonte")).toHaveValue("Outra dúvida");
+});
+
+test("[I6-13] Dado erro ao abrir uma nota Quando navego para uma nota existente Então leio a página sem o erro anterior", async ({ page, app, vault }) => {
+  await vault.escrever("wiki/pessoal/concepts/nota-existente.md", [
+    "---", "type: concept", "slug: nota-existente", "title: Nota existente", "---", "",
+    "Conteúdo disponível.", "",
+  ].join("\n"));
+  await page.goto(`${app.url}#/nota/pessoal/concepts/nota-ausente.md`);
+  await expect(page.getByRole("alert")).toContainText("Página não encontrada");
+  await page.evaluate(() => { window.location.hash = "#/nota/pessoal/concepts/nota-existente.md"; });
+  await expect(page.getByRole("heading", { name: "Nota existente", level: 1 })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
 test("[I6-08] Dado uma página com proveniência completa Quando abro a Nota Então vejo fonte, gerador e verificação", async ({ page, app, vault }) => {
   await vault.escrever("raw/pessoal/origem.md", "conteúdo original da fonte");
   await vault.escrever("wiki/pessoal/concepts/proveniente.md", [
@@ -121,6 +151,26 @@ test("[I6-09] Dado páginas interligadas por wikilinks Quando abro a Nota Então
   await expect(grafo.locator("svg.local-graph-svg")).toBeVisible();
   await expect(grafo.locator("text", { hasText: "Destino" })).toBeVisible();
   await expect(grafo.locator("text", { hasText: "Origem" })).toBeVisible();
+});
+
+test("[I6-11] Dado wikilink por slug para página em área Quando clico Então abro o caminho real da nota", async ({ page, app, vault }) => {
+  await vault.escrever("wiki/pessoal/concepts/origem-link.md", [
+    "---", "type: concept", "slug: origem-link", "title: Origem", "tags: [link]", "---", "",
+    "Veja [[destino-certo|Destino certo]].", "",
+  ].join("\n"));
+  await vault.escrever("wiki/trabalho/concepts/destino-certo.md", [
+    "---", "type: concept", "slug: destino-certo", "title: Destino certo", "tags: [link]", "---", "",
+    "Conteúdo de destino.", "",
+  ].join("\n"));
+
+  await page.goto(`${app.url}#/nota/pessoal/concepts/origem-link.md`);
+  const href = "#/nota/trabalho/concepts/destino-certo.md";
+  await expect(page.locator(".note-related-list").getByRole("link", { name: "destino-certo" })).toHaveAttribute("href", href);
+  const destino = page.locator(".note-body").getByRole("link", { name: "Destino certo" });
+  await expect(destino).toHaveAttribute("href", href);
+  await destino.click();
+  await expect(page).toHaveURL(/#\/nota\/trabalho\/concepts\/destino-certo\.md$/);
+  await expect(page.getByRole("heading", { name: "Destino certo", level: 1 })).toBeVisible();
 });
 
 test("[I6-10] Dado a tela da Nota aberta Quando a pessoa lê a nota Então a wiki e raw/ permanecem inalterados", async ({ page, app, vault }) => {

@@ -48,6 +48,10 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - Os dois instaladores só mantêm o commit automático ligado quando `atualizacao.json` é JSON válido e `autoCommit` é booleano `true`; estado inválido ou valor de outro tipo fica desligado.
 - O bloco de PATH do Linux é gravado por substituição atômica e preserva as permissões. Com um único par de marcadores, conteúdo alterado é reparado; marcador sem par ou duplicado deixa o arquivo intacto e gera aviso. Arquivos de shell que são symlinks também ficam intactos e recebem aviso.
 - Os testes do atualizador não escrevem mais no `~/.gitconfig` de quem os roda: usam um arquivo temporário escolhido por `GIT_CONFIG_GLOBAL`.
+- O Início continua carregando quando `wiki/` não existe: mostra o diagnóstico de saúde, os atalhos e os arquivos de `raw/` sem ingestão.
+- Wikilinks e a lista de Relacionados da Nota resolvem o slug para o caminho real; destinos ausentes ou ambíguos aparecem sem navegação.
+- O atalho de lacuna abre o Chat com o texto da dúvida preenchido e aguarda a confirmação antes de enviar.
+- Ao abrir outra Nota após um erro, a tela limpa a mensagem antiga e mostra o resultado do novo carregamento.
 - Ao recriar o índice estrutural sem exemplos, `init` e `instalar` não incluem a área nem a página de exemplo. O manifesto da atualização declara os arquivos e esqueletos pessoais que deixam o rastreio na transição N→N+1.
 
 ### Atenção

@@ -38,6 +38,9 @@ forma síncrona, então a carga a paga uma vez só, e cada carga vê a wiki como
 `GET /api/saude`, que valida na hora. As duas rotas exigem o token e o Host local, como as demais
 (`src/ui/servidor/servidor.ts`).
 
+Se `wiki/` não existe, o Início ainda recebe a resposta normal: o cartão de saúde mostra o diagnóstico da pasta ausente,
+os atalhos continuam disponíveis e as fontes de `raw/` aparecem como sem ingestão (`src/lib/ui-inicio.ts`).
+
 ## O que a Biblioteca mostra
 
 A Biblioteca lista o acervo completo da wiki (`GET /api/biblioteca`, `listarBiblioteca` em `src/lib/ui-biblioteca.ts`):
@@ -50,9 +53,10 @@ A Biblioteca lista o acervo completo da wiki (`GET /api/biblioteca`, `listarBibl
 
 A tela de Nota (`GET /api/nota?caminho=...`, `obterNota` em `src/lib/ui-nota.ts`) oferece uma experiência focada estritamente em leitura (sem formulários nem campos editáveis):
 - **Metadados e navegação:** trilha com área, título, tipo, tags, status e atalho para o chat de perguntas.
-- **Corpo renderizado:** markdown formatado com suporte a cabeçalhos, listas, blocos de código e `[[wikilinks]]`.
-- **Destaque de lacunas:** callouts `[!gap]` e `[!contradiction]` destacados com botão que leva ao Chat com a dúvida preenchida para buscar fontes.
-- **Barra lateral contextual:** proveniência (fonte em `raw/`, modelo gerador, data e aprovação humana), lista de backlinks com trecho de contexto e grafo local em SVG com nós e arestas dos vizinhos imediatos.
+- **Falhas de leitura:** ao iniciar uma nova carga, a Nota limpa o erro anterior para que uma leitura válida possa aparecer.
+- **Corpo renderizado:** markdown formatado com suporte a cabeçalhos, listas, blocos de código e `[[wikilinks]]`. A API resolve cada slug para o caminho real da página usando a comparação sem caixa e normalizada do validador; slug inexistente ou ambíguo fica sem navegação.
+- **Destaque de lacunas:** callouts `[!gap]` e `[!contradiction]` destacados com botão que leva ao Chat com a dúvida preenchida. A pessoa confirma antes do envio.
+- **Barra lateral contextual:** proveniência (fonte em `raw/`, modelo gerador, data e aprovação humana), lista de backlinks com trecho de contexto e grafo local em SVG com nós e arestas dos vizinhos imediatos. A lista de Relacionados usa a mesma resolução de slug para caminho.
 - **Segurança de caminho:** o endpoint valida e barra estritamente path traversal (`..`), caminhos absolutos e links simbólicos que apontem para fora de `wiki/`.
 
 ## Como acrescentar uma tela (Nota, Biblioteca, Onboarding)
