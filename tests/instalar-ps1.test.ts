@@ -197,7 +197,8 @@ describe("instalar.ps1: estado das chaves no site (decisão 2 do parecer de rele
     expect(busca).toContain("GetResponseStream()");
     expect(busca).toMatch(/\.Read\(\$bloco, 0, /);
     expect(busca).toContain("$script:AnvLimiteConfianca");
-    expect(busca).toContain(".Abort()");
+    // O aborto está no teste do limite sobre o que já foi lido (e não só no do tempo).
+    expect(busca).toMatch(/\$memoria\.Length -gt \$script:AnvLimiteConfianca\) \{ \$req\.Abort\(\); throw 'resposta maior que o limite'/);
     expect(busca).toContain("maior que o limite");
     // Um Content-Length acima do limite também recusa antes de ler.
     expect(busca).toContain("ContentLength");
