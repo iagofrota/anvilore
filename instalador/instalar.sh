@@ -466,9 +466,12 @@ if (bytes.length && bytes[bytes.length - 1] !== 10 && linhas.length === 0) linha
 const textoLinha = linha => bytes.subarray(linha.comeco, linha.conteudo).toString("utf8").replace(/\r$/, "");
 const inicios = linhas.filter(linha => Buffer.from(textoLinha(linha)).equals(inicio));
 const finais = linhas.filter(linha => Buffer.from(textoLinha(linha)).equals(fim));
+const semMarcadores = inicios.length === 0 && finais.length === 0;
+const parUnico = inicios.length === 1 && finais.length === 1 && inicios[0].comeco < finais[0].comeco;
+if (!semMarcadores && !parUnico) process.exit(3);
 const primeiro = inicios[0];
-const final = primeiro && finais.find(linha => linha.comeco > primeiro.comeco);
-if (inicios.length === 1 && finais.length === 1 && primeiro && final) {
+const final = parUnico ? finais[0] : undefined;
+if (parUnico && primeiro && final) {
   const atual = bytes.subarray(primeiro.comeco, final.depois);
   if (atual.equals(bloco)) process.exit(10);
 }
@@ -487,23 +490,30 @@ ANVILORE_FIM_PATH
   ANVILORE_PATH_ORIGEM="$arq" ANVILORE_PATH_TEMP="$temporario" ANVILORE_PATH_BLOCO="$bloco" bun "$script"
   codigo=$?
   if [ "$codigo" -eq 10 ]; then rm -f -- "$temporario"; PATH_ATOMICO_TMP=""; return 0; fi
+  if [ "$codigo" -eq 3 ]; then rm -f -- "$temporario"; PATH_ATOMICO_TMP=""; return 3; fi
   if [ "$codigo" -ne 0 ] || ! mv -f -- "$temporario" "$arq"; then rm -f -- "$temporario"; PATH_ATOMICO_TMP=""; return 1; fi
   PATH_ATOMICO_TMP=""
   return 0
 }
 
 persistir_path() {
-  local nome arq
+  local nome arq codigo
   for nome in .profile .bash_profile .bash_login .bashrc .zshrc; do
     arq="$HOME/$nome"
     if [ "$nome" != ".profile" ] && [ ! -f "$arq" ]; then continue; fi
     if [ -L "$arq" ]; then
       avisar "não acrescentei o PATH em ~/$nome porque é um symlink; configure-o manualmente no arquivo de destino."
-    elif acrescentar_bloco_path "$arq"; then
-      PATH_PERSISTIDO="${PATH_PERSISTIDO:+$PATH_PERSISTIDO }~/$nome"
-      registrar "path: bloco do Anvilore em $arq"
     else
-      avisar "não consegui acrescentar ~/.local/bin ao PATH em ~/$nome (sem permissão de escrita). Um terminal novo pode não achar o comando bun: acrescente a esse arquivo a linha  export PATH=\"\$HOME/.local/bin:\$PATH\""
+      acrescentar_bloco_path "$arq"
+      codigo=$?
+      if [ "$codigo" -eq 0 ]; then
+        PATH_PERSISTIDO="${PATH_PERSISTIDO:+$PATH_PERSISTIDO }~/$nome"
+        registrar "path: bloco do Anvilore em $arq"
+      elif [ "$codigo" -eq 3 ]; then
+        avisar "o bloco do Anvilore em ~/$nome está incompleto ou tem marcadores repetidos; não alterei o arquivo. Corrija os marcadores à mão."
+      else
+        avisar "não consegui acrescentar ~/.local/bin ao PATH em ~/$nome (sem permissão de escrita). Um terminal novo pode não achar o comando bun: acrescente a esse arquivo a linha  export PATH=\"\$HOME/.local/bin:\$PATH\""
+      fi
     fi
   done
 }

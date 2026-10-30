@@ -46,7 +46,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - No Linux, o `instalar.sh` deixa `~/.local/bin` (e `~/.bun/bin`, se o Bun é o gerenciado) no PATH de um terminal novo, com um bloco marcado em `~/.profile` (e em `~/.bashrc`, `~/.zshrc`, `~/.bash_profile` e `~/.bash_login` se já existem). Antes, os hooks dos agentes podiam não achar o `bun` depois que o instalador terminava.
 - `instalar.ps1` não religa mais o commit automático ao reinstalar: só a instalação nova o liga, e a reinstalação respeita a escolha gravada.
 - Os dois instaladores só mantêm o commit automático ligado quando `atualizacao.json` é JSON válido e `autoCommit` é booleano `true`; estado inválido ou valor de outro tipo fica desligado.
-- O bloco de PATH do Linux é gravado por substituição atômica, preserva as permissões do arquivo e repara blocos incompletos. Arquivos de shell que são symlinks recebem aviso e não são alterados.
+- O bloco de PATH do Linux é gravado por substituição atômica e preserva as permissões. Com um único par de marcadores, conteúdo alterado é reparado; marcador sem par ou duplicado deixa o arquivo intacto e gera aviso. Arquivos de shell que são symlinks também ficam intactos e recebem aviso.
 - Os testes do atualizador não escrevem mais no `~/.gitconfig` de quem os roda: usam um arquivo temporário escolhido por `GIT_CONFIG_GLOBAL`.
 - Ao recriar o índice estrutural sem exemplos, `init` e `instalar` não incluem a área nem a página de exemplo. O manifesto da atualização declara os arquivos e esqueletos pessoais que deixam o rastreio na transição N→N+1.
 

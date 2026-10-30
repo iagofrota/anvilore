@@ -255,10 +255,12 @@ Onde cada coisa fica (Linux):
   instalador não sobrevive a ele. No fim da instalação (`persistir_path` em `instalador/instalar.sh`) o script acrescenta, no fim de
   cada arquivo acima, um bloco entre `# >>> Anvilore: PATH >>>` e `# <<< Anvilore: PATH <<<` que põe ~/.local/bin (e ~/.bun/bin,
   se o Bun é o gerenciado) no PATH só quando a pasta ainda não está nele, como fazem os instaladores do Bun e do rustup. Reinstalar
-  não duplica: o bloco só conta como presente quando os dois marcadores e todo o conteúdo esperado conferem. Bloco interrompido ou
-  alterado é substituído, mantendo intactos os bytes antes e depois dele. A cópia temporária fica no mesmo diretório, preserva as
-  permissões, e `mv` publica a alteração atomicamente. Arquivo de shell que seja symlink não é alterado; o instalador avisa para
-  configurar manualmente o destino do link. Arquivo sem permissão de escrita vira aviso em linguagem simples, não erro. O resumo
+  não duplica: o bloco só conta como presente quando os dois marcadores únicos e todo o conteúdo esperado conferem. Com exatamente
+  um início seguido de um fim, conteúdo alterado é substituído, mantendo intactos os bytes antes e depois. Sem par único (marcador
+  sem par ou marcadores repetidos), o instalador não mexe no arquivo e avisa para corrigir os marcadores à mão. A cópia temporária
+  fica no mesmo diretório, preserva as permissões, e `mv` publica a alteração atomicamente. Arquivo de shell que seja symlink não
+  é alterado; o instalador avisa para configurar manualmente o destino do link. Arquivo sem permissão de escrita vira aviso em
+  linguagem simples, não erro. O resumo
   final diz que um terminal novo já acha o comando. Os hooks
   continuam chamando `bun` pelo PATH, sem caminho absoluto. O `doctor` e o `--conferir` não precisam saber disso: eles olham o PATH
   do terminal em que rodam, que num terminal novo já traz o bloco. ~/.bash_profile e ~/.bash_login entram porque o bash de login
