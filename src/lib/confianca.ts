@@ -58,6 +58,7 @@ export function validarConfianca(texto: string): Confianca {
   let valor: unknown;
   try { valor = JSON.parse(texto); } catch { throw new Error("não é JSON válido"); }
   if (temNomeRepetido(texto)) throw new Error("nome de campo repetido");
+  if (texto.includes("\\")) throw new Error("escape não permitido");
   if (typeof valor !== "object" || valor === null || Array.isArray(valor)) throw new Error("não é um objeto");
   const o = valor as Record<string, unknown>;
   if (Object.keys(o).sort().join() !== CAMPOS.join()) throw new Error("campos diferentes de formato, chaves e versaoMinima");

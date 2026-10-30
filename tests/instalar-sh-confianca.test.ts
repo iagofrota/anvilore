@@ -68,6 +68,8 @@ const FALHAS: [string, (c: Cenario) => Promise<void>][] = [
   ["chaves vazia", c => c.servidor.publicar({ formato: 1, chaves: [], versaoMinima: "0.0.0" })],
   ["chave repetida", c => c.servidor.publicar({ formato: 1, chaves: [FP("A"), FP("A")], versaoMinima: "0.0.0" })],
   ["fingerprint com espaço no meio", c => c.servidor.publicar(`{"formato":1,"chaves":["SHA256:${"A".repeat(20)} ${"A".repeat(23)}"],"versaoMinima":"0.0.0"}`)],
+  ["escape em fingerprint", c => c.servidor.publicar(String.raw`{"formato":1,"chaves":["SHA256:\u0041${"A".repeat(42)}"],"versaoMinima":"0.0.0"}`)],
+  ["escape em nome", c => c.servidor.publicar(String.raw`{"formato":1,"chaves":["${c.kit.fingerprint}"],"versaoMinima":"0.0.0","versaoMinim\u0061":"0.0.0"}`)],
   ["versaoMinima com pré-release", c => c.servidor.publicar({ formato: 1, chaves: [FP("A")], versaoMinima: "0.3.0-rc.1" })],
   ["versaoMinima com número de 10 dígitos", c => c.servidor.publicar({ formato: 1, chaves: [FP("A")], versaoMinima: "1234567890.0.0" })],
   // Nome repetido: a lista é a autoridade de revogação, então um documento ambíguo falha fechado (igual ao atualizador).

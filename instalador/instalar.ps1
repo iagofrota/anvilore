@@ -748,6 +748,7 @@ function AnvLerConfiancaHttp {
   $req.UserAgent = 'Anvilore-instalador'
   foreach ($k in $Cabecalhos.Keys) { $req.Headers[$k] = $Cabecalhos[$k] }
   $resposta = $null
+  $memoria = $null
   try {
     try { $resposta = $req.GetResponse() }
     catch [System.Net.WebException] { if ($_.Exception.Response) { $resposta = $_.Exception.Response } else { throw } }
@@ -758,15 +759,22 @@ function AnvLerConfiancaHttp {
     $memoria = New-Object System.IO.MemoryStream
     $bloco = New-Object byte[] 4096
     while ($true) {
-      $n = $fluxo.Read($bloco, 0, $bloco.Length)
+      $restante = 15000 - [int][Math]::Ceiling($relogio.Elapsed.TotalMilliseconds)
+      if ($restante -le 0) { $req.Abort(); throw 'tempo limite' }
+      $fluxo.ReadTimeout = $restante
+      try { $n = $fluxo.Read($bloco, 0, $bloco.Length) }
+      catch [System.IO.IOException] { $req.Abort(); throw 'tempo limite' }
       if ($n -le 0) { break }
       $memoria.Write($bloco, 0, $n)
       if ($memoria.Length -gt $script:AnvLimiteConfianca) { $req.Abort(); throw 'resposta maior que o limite' }
-      if ($relogio.ElapsedMilliseconds -gt 15000) { $req.Abort(); throw 'tempo limite' }
+      if ($relogio.ElapsedMilliseconds -ge 15000) { $req.Abort(); throw 'tempo limite' }
     }
     $texto = (New-Object System.Text.UTF8Encoding($false, $true)).GetString($memoria.ToArray())
     return [pscustomobject]@{ StatusCode = $status; Content = $texto }
-  } finally { if ($resposta) { try { $resposta.Close() } catch { } } }
+  } finally {
+    if ($memoria) { $memoria.Dispose() }
+    if ($resposta) { try { $resposta.Close() } catch { } }
+  }
 }
 
 # Consulta a lista. Ok = $true com Chaves e VersaoMinima, ou Ok = $false com a Mensagem simples. Sem seguir redirecionamento
