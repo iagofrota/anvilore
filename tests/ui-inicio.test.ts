@@ -157,6 +157,14 @@ test("Dado wiki inexistente Quando consulto a saúde Então devolve erro legíve
   expect(saude.auditoria.erro).toBeDefined();
 });
 
+test("Dado wiki ausente e fonte em raw/ Quando monto a lista do Início Então preserva a fonte sem ingerir", async () => {
+  rmSync(wiki, { recursive: true, force: true });
+  escrever("raw/pessoal/solta.md", "texto");
+  expect(await fontesSemIngestao(raiz, wiki)).toEqual([
+    { caminho: "raw/pessoal/solta.md", area: "pessoal", bytes: 5 },
+  ]);
+});
+
 // --- Resumo da tela --------------------------------------------------------------------------------------
 
 const GERADA = (slug: string, extras = "") => `---\ntype: concept\nslug: ${slug}\ntitle: ${slug}\ngenerated:\n  by: agente/teste\n  at: 2026-10-27T10:00:00Z\n${extras}---\n\nCorpo.\n`;

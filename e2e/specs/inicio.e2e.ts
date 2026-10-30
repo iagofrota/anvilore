@@ -1,4 +1,5 @@
 import { test, expect } from "../apoio/fixtures";
+import { rm } from "node:fs/promises";
 import { instantaneo, mesmaArvore } from "../apoio/arvore";
 import { paginaGerada } from "../apoio/paginas";
 import { semearConversa, semearFila } from "../apoio/sementes";
@@ -151,4 +152,17 @@ test("[I5-10] Dado a carga do Início Quando a tela abre Então pede /api/inicio
   await page.getByRole("button", { name: "Validar agora" }).click();
   await expect(contador(page, "Sem aprovação")).toHaveText("2");
   expect(pedidos.filter(rota => rota === "/api/saude")).toHaveLength(1);
+});
+
+test("[I5-11] Dado a pasta wiki ausente Quando abro o Início Então vejo o diagnóstico de saúde e os atalhos", async ({ page, app, vault }) => {
+  await rm(vault.wiki, { recursive: true, force: true });
+  const resposta = page.waitForResponse(resposta => resposta.url().includes("/api/inicio") && resposta.request().method() === "GET");
+  await page.goto(app.url);
+  expect((await resposta).status()).toBe(200);
+  const saude = page.getByRole("region", { name: "Saúde da wiki" });
+  await expect(saude).toBeVisible();
+  await expect(saude).toContainText(/ENOENT|não existe|no such file/i);
+  await expect(page.getByRole("link", { name: "Ingerir uma fonte" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Revisar rascunhos" })).toBeVisible();
+  await expect(page.getByText("Lendo a wiki…")).toHaveCount(0);
 });
