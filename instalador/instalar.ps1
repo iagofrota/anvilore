@@ -38,6 +38,10 @@ $script:AnvAssinantesEmbutido = @'
 $script:AnvBaseMinimaEmbutida = @'
 '@
 # <<< ANVILORE:BASE_MINIMA
+# >>> ANVILORE:URL_CONFIANCA (preenchido na release por scripts/embutir-instalador.ts; não edite)
+$script:AnvUrlConfiancaEmbutida = @'
+'@
+# <<< ANVILORE:URL_CONFIANCA
 
 $script:AnvSemVerSimples = '^(?:0|[1-9][0-9]{0,8})\.(?:0|[1-9][0-9]{0,8})\.(?:0|[1-9][0-9]{0,8})\z'
 $script:AnvMsgPastaNova = 'Instale o Anvilore numa pasta nova e peça ao seu agente para trazer a sua wiki para lá de forma conferida, fazendo antes uma cópia de segurança dela.'
@@ -683,6 +687,145 @@ function AnvEscolherPasta {
 }
 
 # Passo 6. Baixa para uma pasta de passagem, confere a assinatura e só então move para o lugar. Falhou: apaga o que baixou.
+# ---------------------------------------------------------------- estado das chaves (a lista do site)
+
+# Antes de aceitar a tag (instalação nova) e antes de executar o atualizador da pasta (reinstalação), o instalador consulta a
+# lista de chaves que o dono publica no site dele (confianca.json) e só vale a INTERSEÇÃO dela com as chaves embutidas: o site
+# nunca acrescenta uma chave, e uma chave retirada dele deixa de valer mesmo com assinatura válida. O endereço também vem
+# EMBUTIDO (nunca de variável de ambiente). Sem cache e sem fallback: se não conseguir consultar, para.
+$script:AnvLimiteConfianca = 65536
+
+# O endereço embutido: https, ou http só em loopback (127.0.0.1: build de teste; o embutir só o aceita com a flag de teste).
+function AnvUrlConfianca {
+  param([string]$Embutido = $script:AnvUrlConfiancaEmbutida)
+  $t = $Embutido -replace '\r?\n\z', ''
+  if ($t -cmatch '^https://[A-Za-z0-9._~:/-]+\z') { return $t }
+  if ($t -cmatch '^http://127\.0\.0\.1(?::[0-9]+)?/[A-Za-z0-9._~/-]*\z') { return $t }
+  return $null
+}
+
+# Validação estrita do documento: { formato: 1, chaves: ["SHA256:..."], versaoMinima: "X.Y.Z" }. Campo extra, tipo errado,
+# formato diferente de 1, chaves vazia ou repetida e versão com pré-release valem nulo.
+function AnvValidarConfianca {
+  param([string]$Texto)
+  try { $j = ConvertFrom-Json -InputObject $Texto -ErrorAction Stop } catch { return $null }
+  if ($j -isnot [System.Management.Automation.PSCustomObject]) { return $null }
+  $nomes = @($j.PSObject.Properties | ForEach-Object { $_.Name })
+  if ($nomes.Count -ne 3 -or ($nomes -cnotcontains 'chaves') -or ($nomes -cnotcontains 'formato') -or ($nomes -cnotcontains 'versaoMinima')) { return $null }
+  $f = $j.formato
+  if (-not (($f -is [int] -or $f -is [long]) -and $f -eq 1)) { return $null }
+  $c = $j.chaves
+  if ($c -isnot [array] -or @($c).Count -eq 0) { return $null }
+  $vistas = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+  foreach ($k in $c) {
+    if ($k -isnot [string] -or $k -cnotmatch '^SHA256:[A-Za-z0-9+/]{43}\z') { return $null }
+    if (-not $vistas.Add($k)) { return $null }
+  }
+  $v = $j.versaoMinima
+  if ($v -isnot [string] -or $v -cnotmatch $script:AnvSemVerSimples) { return $null }
+  return [pscustomobject]@{ Chaves = [string[]]@($c); VersaoMinima = $v }
+}
+
+# Consulta a lista. Ok = $true com Chaves e VersaoMinima, ou Ok = $false com a Mensagem simples. Sem seguir redirecionamento
+# (redirect = recusa), com Cache-Control e Pragma no-cache, 15 s e 64 KiB. `-Buscar` só para teste: recebe a URL e os cabeçalhos.
+function AnvConsultarConfianca {
+  param([string]$Url, [scriptblock]$Buscar = $null)
+  $falha = "não consegui conferir a lista atual de chaves em $Url; nada mudou; tente de novo mais tarde."
+  $cabecalhos = @{ 'Cache-Control' = 'no-cache'; 'Pragma' = 'no-cache' }
+  try {
+    if ($Buscar) { $r = & $Buscar $Url $cabecalhos }
+    else {
+      $ProgressPreference = 'SilentlyContinue'
+      $r = Invoke-WebRequest -Uri $Url -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 15 -Headers $cabecalhos -ErrorAction Stop
+    }
+    if ([int]$r.StatusCode -ne 200) { throw "HTTP $($r.StatusCode)" }
+    if ($r.RawContentLength -gt $script:AnvLimiteConfianca) { throw 'resposta maior que o limite' }
+    $conteudo = $r.Content
+    if ($conteudo -is [byte[]]) { $conteudo = (New-Object System.Text.UTF8Encoding($false, $true)).GetString($conteudo) }
+    $conteudo = [string]$conteudo
+    if ([System.Text.Encoding]::UTF8.GetByteCount($conteudo) -gt $script:AnvLimiteConfianca) { throw 'resposta maior que o limite' }
+    $doc = AnvValidarConfianca -Texto $conteudo
+    if (-not $doc) { throw 'documento inválido' }
+  } catch {
+    AnvRegistrar "consulta da lista de chaves falhou: $($_.Exception.Message)"
+    return @{ Ok = $false; Motivo = $falha }
+  }
+  return @{ Ok = $true; Chaves = $doc.Chaves; VersaoMinima = $doc.VersaoMinima }
+}
+
+# A fingerprint (a do `ssh-keygen -lf`) da chave de uma linha allowed_signers: principal [opções] tipo chave-base64 [comentário].
+# Calculada aqui (SHA-256 do blob, base64 sem preenchimento) para não depender de um binário.
+function AnvImpressaoDaLinha {
+  param([string]$Linha)
+  $t = $Linha.Trim()
+  if (-not $t -or $t.StartsWith('#')) { return $null }
+  $palavras = @([regex]::Matches($t, '(?:[^\s"]|"[^"]*")+') | ForEach-Object { $_.Value })
+  for ($i = 1; $i + 1 -lt $palavras.Count; $i++) {
+    $tipo = $palavras[$i]
+    if ($tipo -cnotmatch '^(?:ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp[0-9]+|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)\z') { continue }
+    $b64 = $palavras[$i + 1]
+    if ($b64 -cnotmatch '^[A-Za-z0-9+/]+={0,2}\z') { return $null }
+    try { $blob = [Convert]::FromBase64String($b64) } catch { return $null }
+    if ($blob.Length -lt 4) { return $null }
+    $n = ([int]$blob[0] -shl 24) -bor ([int]$blob[1] -shl 16) -bor ([int]$blob[2] -shl 8) -bor [int]$blob[3]
+    if ($n -ne $tipo.Length -or $blob.Length -lt (4 + $n)) { return $null }
+    if ([System.Text.Encoding]::ASCII.GetString($blob, 4, $n) -cne $tipo) { return $null }
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { $h = $sha.ComputeHash($blob) } finally { $sha.Dispose() }
+    return ('SHA256:' + [Convert]::ToBase64String($h).TrimEnd('='))
+  }
+  return $null
+}
+
+# Só as linhas das chaves embutidas cuja fingerprint está na lista (a interseção); vazio se não sobra nenhuma.
+function AnvFiltrarAssinantes {
+  param([string]$Texto, [string[]]$Chaves)
+  $saida = @()
+  foreach ($l in ($Texto -split "`r?`n")) {
+    $fp = AnvImpressaoDaLinha -Linha $l
+    if ($fp -and ($Chaves -ccontains $fp)) { $saida += $l.Trim() }
+  }
+  if (@($saida).Count -eq 0) { return '' }
+  return ((@($saida) -join "`n") + "`n")
+}
+
+# A pasta instalada precisa estar na versão mínima da lista (versões que não são X.Y.Z nunca passam).
+function AnvVersaoDaPastaAtendeMinima {
+  param([string]$Versao, [string]$Minima)
+  if ($Versao -cnotmatch $script:AnvSemVerSimples -or $Minima -cnotmatch $script:AnvSemVerSimples) { return $false }
+  return ((AnvCompararVersao $Versao $Minima) -ge 0)
+}
+
+# Consulta e confere. Ok = $true com Assinantes (a interseção, para o verify-tag ou para a opção --assinantes-do-instalador) e
+# VersaoMinima, ou Ok = $false com o Motivo em linguagem simples. `Tag` vazia: reinstalação (quem escolhe a candidata é o
+# atualizador da pasta, que consulta de novo).
+function AnvConferirEstadoDasChaves {
+  param([string]$Tag, [string]$Url = (AnvUrlConfianca), [string]$Assinantes = (AnvAssinantes), [scriptblock]$Buscar = $null)
+  $endereco = AnvUrlConfianca -Embutido $Url
+  if (-not $endereco) {
+    return @{ Ok = $false; Motivo = 'Este instalador não traz o endereço da lista atual de chaves (ou ele é inseguro), então não consigo conferir se a chave de assinatura ainda vale. Por segurança, não instalei nada. Baixe o instalador oficial de novo.' }
+  }
+  if (-not $Assinantes) {
+    return @{ Ok = $false; Motivo = 'Este instalador não traz a chave de assinatura do Anvilore, então não consigo conferir a versão. Por segurança, não instalei nada. Baixe o instalador oficial de novo.' }
+  }
+  $c = AnvConsultarConfianca -Url $endereco -Buscar $Buscar
+  if (-not $c.Ok) { return @{ Ok = $false; Motivo = $c.Motivo } }
+  $permitidas = AnvFiltrarAssinantes -Texto $Assinantes -Chaves $c.Chaves
+  if (-not $permitidas) {
+    return @{ Ok = $false; Motivo = 'A lista atual de chaves do site não inclui a chave de assinatura deste instalador; não instalei nem mudei nada. Baixe o instalador mais recente pelo canal oficial.' }
+  }
+  if ($Tag) {
+    $candidata = $Tag -replace '^v', ''
+    $numeros = $candidata -replace '[-+].*$', ''
+    $comparacao = if ($numeros -cmatch $script:AnvSemVerSimples) { AnvCompararVersao $numeros $c.VersaoMinima } else { -1 }
+    # Uma pré-release é anterior à versão final de mesmo número.
+    if ($comparacao -lt 0 -or ($comparacao -eq 0 -and $candidata -ne $numeros)) {
+      return @{ Ok = $false; Motivo = "A lista atual do site exige a versão $($c.VersaoMinima) ou mais nova e a $Tag é mais antiga; não instalei nada. Baixe o instalador mais recente pelo canal oficial." }
+    }
+  }
+  return @{ Ok = $true; Assinantes = $permitidas; VersaoMinima = $c.VersaoMinima; Chaves = $c.Chaves }
+}
+
 function AnvBaixarKit {
   param([string]$Git, [string]$Pasta, [string]$Perfil, [string]$Temp)
   $assinantes = AnvAssinantes
@@ -698,11 +841,14 @@ function AnvBaixarKit {
   $tag = if ($fixa) { 'v' + $fixa.TrimStart('v') } else { AnvDescobrirTag -Git $Git -Origem $origem -HooksVazio $semHooks }
   if (-not $tag -and $script:AnvRecusaTransporte) { AnvParar 3 $script:AnvMensagemTransporte }
   if (-not $tag) { AnvParar 1 'Não achei nenhuma versão publicada do Anvilore para instalar.' }
+  AnvEscrever 'Conferindo a lista atual de chaves de assinatura...'
+  $estadoChaves = AnvConferirEstadoDasChaves -Tag $tag
+  if (-not $estadoChaves.Ok) { AnvParar 3 $estadoChaves.Motivo }
   AnvEscrever "Baixando o Anvilore $tag..."
   $staging = Join-Path $Perfil 'Anvilore.novo'
   Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
   $assinFile = Join-Path $Temp 'assinantes'
-  Set-Content -LiteralPath $assinFile -Value $assinantes -NoNewline -Encoding ASCII
+  Set-Content -LiteralPath $assinFile -Value $estadoChaves.Assinantes -NoNewline -Encoding ASCII
   $env:GIT_TERMINAL_PROMPT = '0'
   $clone = AnvExecutarRede -Exe $Git -Argumentos (AnvArgsClone -Origem $origem -Tag $tag -Staging $staging -HooksVazio $semHooks) -Origem $origem
   if ($clone.Codigo -ne 0) {
@@ -865,6 +1011,12 @@ function AnvPassos {
       if (-not $base) { AnvParar 3 'Este instalador não traz a base mínima (a primeira versão assinada), então não consigo saber se uma pasta antiga é segura. Por segurança, não mexi em nada. Baixe o instalador oficial de novo.' }
       $verificacao = AnvVerificarBaseMinima -Pasta $pasta -Base $base
       if (-not $verificacao.Ok) { AnvParar 1 (AnvMensagemBaseMinima -Pasta $pasta -Resultado $verificacao -Base $base) }
+      # A lista atual de chaves também vem ANTES de executar qualquer coisa da pasta, e a versão mínima dela vale para o que já está instalado.
+      $estadoChaves = AnvConferirEstadoDasChaves -Tag ''
+      if (-not $estadoChaves.Ok) { AnvParar 3 $estadoChaves.Motivo }
+      if (-not (AnvVersaoDaPastaAtendeMinima -Versao $verificacao.Versao -Minima $estadoChaves.VersaoMinima)) {
+        AnvParar 1 "A pasta $pasta tem o Anvilore na versão $($verificacao.Versao), e a lista atual do site exige a versão $($estadoChaves.VersaoMinima) ou mais nova. Por segurança, não executei nada dela e nada foi mudado. $script:AnvMsgPastaNova"
+      }
       AnvEscrever "Já existe uma instalação em $pasta. Só vou conferir o que falta; nada da pasta é sobrescrito."
       AnvDefinirLog -Pasta $pasta
       $versao = ''
@@ -872,10 +1024,8 @@ function AnvPassos {
       # na troca de chave não conhece a chave nova. Entrega a ele as chaves embutidas deste instalador pela opção
       # --assinantes-do-instalador (só nesta chamada; nada é gravado na pasta e nada passa por variável de ambiente, que um
       # `atualizar` manual ou agendado herdaria sem querer): com elas o atualizador confere a tag só contra o que este instalador traz.
-      $assinantes = AnvAssinantes
-      if (-not $assinantes) { AnvParar 3 'Este instalador não traz a chave de assinatura do Anvilore, então não consigo conferir a atualização. Por segurança, não mexi em nada. Baixe o instalador oficial de novo.' }
       $assinReinstalacao = Join-Path $temp 'assinantes-reinstalacao'
-      Set-Content -LiteralPath $assinReinstalacao -Value $assinantes -NoNewline -Encoding ASCII
+      Set-Content -LiteralPath $assinReinstalacao -Value $estadoChaves.Assinantes -NoNewline -Encoding ASCII
       $at = AnvExecutar $bun @('src/cli.ts', 'atualizar', '--assinantes-do-instalador', $assinReinstalacao) $pasta
       # Código 2 = uso inválido: o atualizador da pasta é de uma versão que não conhece a opção. Não esconde o erro nem segue
       # como se tivesse conferido (nada foi mudado).

@@ -184,7 +184,8 @@ describe("instalar.ps1: estado das chaves no site (decisão 2 do parecer de rele
     expect(corpo).toContain("-UseBasicParsing");
     expect(corpo).toContain("'Cache-Control' = 'no-cache'");
     expect(corpo).toContain("'Pragma' = 'no-cache'");
-    expect(corpo).toContain("65536");
+    expect(corpo).toContain("$script:AnvLimiteConfianca");
+    expect(codigo).toMatch(/\$script:AnvLimiteConfianca = 65536\b/);
     for (const nome of ["AnvUrlConfianca", "AnvConsultarConfianca", "AnvConferirEstadoDasChaves", "AnvValidarConfianca"]) {
       expect(funcao(nome), nome).not.toMatch(/AnvVariavel|\$env:|GetEnvironmentVariable/);
     }

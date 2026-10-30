@@ -857,9 +857,15 @@ passo_conferir_base_minima() {
 }
 
 passo_atualizar_existente() {
-  local primeira assinantes codigo
+  local primeira assinantes codigo versao_instalada
   # A lista atual de chaves vem ANTES de qualquer execução da pasta (a base mínima já foi conferida no passo anterior).
   conferir_estado_das_chaves ""
+  # A versão mínima da lista vale também para o que já está instalado: uma pasta abaixo dela não tem o código executado por aqui
+  # (o atualizador dela, o `instalar`, o `doctor`). A versão é lida do package.json como texto, como na base mínima.
+  versao_instalada=$(versao_da_pasta "$PASTA")
+  if [ -z "$versao_instalada" ] || ! semver_maior_ou_igual "$versao_instalada" "$CONFIANCA_MINIMA"; then
+    falhar "A pasta $PASTA tem o Anvilore na versão ${versao_instalada:-desconhecida}, e a lista atual do site exige a versão $CONFIANCA_MINIMA ou mais nova. Por segurança, não executei nada dela e nada foi mudado. $MSG_PASTA_NOVA"
+  fi
   mover_registro "$PASTA"
   dizer "Já existe uma instalação em $PASTA: vou conferir e atualizar, sem sobrescrever nada seu."
   INSTALACAO_NOVA=0
