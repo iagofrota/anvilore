@@ -18,7 +18,7 @@ async function assinantesDescartaveis(): Promise<string> {
   return (await criarChave(pasta)).assinantes;
 }
 const BASE = "0.3.0\n";
-const MODELO_MINIMO = "# >>> ANVILORE:MANIFESTO\nmanifesto_embutido() {\n  :\n}\n# <<< ANVILORE:MANIFESTO\n# >>> ANVILORE:ASSINANTES\nassinantes_embutidas() {\n  :\n}\n# <<< ANVILORE:ASSINANTES\n# >>> ANVILORE:BASE_MINIMA\nbase_minima_embutida() {\n  :\n}\n# <<< ANVILORE:BASE_MINIMA\n";
+const MODELO_MINIMO = "# >>> ANVILORE:MANIFESTO\nmanifesto_embutido() {\n  :\n}\n# <<< ANVILORE:MANIFESTO\n# >>> ANVILORE:ASSINANTES\nassinantes_embutidas() {\n  :\n}\n# <<< ANVILORE:ASSINANTES\n# >>> ANVILORE:BASE_MINIMA\nbase_minima_embutida() {\n  :\n}\n# <<< ANVILORE:BASE_MINIMA\n# >>> ANVILORE:URL_CONFIANCA\nurl_confianca_embutida() {\n  :\n}\n# <<< ANVILORE:URL_CONFIANCA\n";
 const modelo = () => readFile(join(raiz, "instalador/instalar.sh"), "utf8");
 const manifesto = () => readFile(join(raiz, "instalador/dependencias.json"), "utf8");
 
@@ -32,7 +32,7 @@ test("Dado o modelo do instalar.sh, Quando embuto manifesto e chave, Então a c�
 });
 
 test("Dado o modelo do repositório, Quando leio o que ele embute, Então não traz manifesto nem chave (nada que pareça confiança)", async () => {
-  expect(lerEmbutidos(await modelo())).toEqual({ manifesto: "", assinantes: "", baseMinima: "" });
+  expect(lerEmbutidos(await modelo())).toEqual({ manifesto: "", assinantes: "", baseMinima: "", urlConfianca: "" });
 });
 
 test("Dado um script já embutido, Quando embuto de novo, Então o resultado é o mesmo (idempotente) e o resto do script não muda", async () => {

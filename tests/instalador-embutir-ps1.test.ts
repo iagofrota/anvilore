@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { comandoEmbutir, conferirEmbutidos, dialetoDe, embutirInstalador, lerEmbutidos } from "../scripts/embutir-instalador";
+import { URL_CONFIANCA } from "../src/lib/confianca";
 import { criarChave } from "./apoio/kit-atualizavel";
 
 // PLANO §2 passo 4 e cenário 36 para o instalar.ps1: o build da release embute o manifesto e a chave pública no script do
@@ -27,13 +28,13 @@ test("Dado um arquivo .ps1 ou .sh, Quando pergunto o dialeto, Então a extensão
 });
 
 test("Dado o modelo do instalar.ps1 do repositório, Quando leio o que ele embute, Então não traz manifesto nem chave", async () => {
-  expect(lerEmbutidos(await modelo(), "ps1")).toEqual({ manifesto: "", assinantes: "", baseMinima: "" });
+  expect(lerEmbutidos(await modelo(), "ps1")).toEqual({ manifesto: "", assinantes: "", baseMinima: "", urlConfianca: "" });
 });
 
 test("Dado o modelo do instalar.ps1, Quando embuto manifesto e chave, Então a cópia embutida é igual aos arquivos (cenário 36)", async () => {
   const assinantes = await assinantesDescartaveis();
   const pronto = embutirInstalador(await modelo(), await manifesto(), assinantes, BASE, "ps1");
-  expect(lerEmbutidos(pronto, "ps1")).toEqual({ manifesto: await manifesto(), assinantes, baseMinima: BASE });
+  expect(lerEmbutidos(pronto, "ps1")).toEqual({ manifesto: await manifesto(), assinantes, baseMinima: BASE, urlConfianca: `${URL_CONFIANCA}\n` });
   expect(conferirEmbutidos(pronto, await manifesto(), assinantes, BASE, "ps1")).toEqual([]);
   expect(pronto).toContain("$script:AnvManifestoEmbutido = @'\n{");
 });

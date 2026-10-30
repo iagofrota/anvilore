@@ -26,7 +26,7 @@ test.each(DIALETOS)("Dado o repositório, Quando leio instalador/base-minima, En
 });
 
 test.each(DIALETOS)("Dado o modelo do %s do repositório, Quando leio o que ele embute, Então a base mínima vem vazia (nada que pareça confiança)", async (dialeto, nome) => {
-  expect(lerEmbutidos(await modelo(nome), dialeto)).toEqual({ manifesto: "", assinantes: "", baseMinima: "" });
+  expect(lerEmbutidos(await modelo(nome), dialeto)).toEqual({ manifesto: "", assinantes: "", baseMinima: "", urlConfianca: "" });
 });
 
 test.each(DIALETOS)("Dado o modelo do %s, Quando embuto manifesto, chave e base mínima, Então a cópia embutida é igual aos arquivos e confere", async (dialeto, nome) => {

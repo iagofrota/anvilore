@@ -62,7 +62,7 @@ describe("instalar.ps1: requisitos do passo a passo", () => {
   });
 
   test("Dado o instalador sem build de release, Então as regiões embutidas estão vazias: sem chave, nada é confiável", () => {
-    expect(lerEmbutidos(texto, "ps1")).toEqual({ manifesto: "", assinantes: "", baseMinima: "" });
+    expect(lerEmbutidos(texto, "ps1")).toEqual({ manifesto: "", assinantes: "", baseMinima: "", urlConfianca: "" });
     expect(texto).toMatch(/# >>> ANVILORE:MANIFESTO[^\n]*\n\$script:AnvManifestoEmbutido = @'\n'@\n# <<< ANVILORE:MANIFESTO/);
     expect(texto).toMatch(/# >>> ANVILORE:ASSINANTES[^\n]*\n\$script:AnvAssinantesEmbutido = @'\n'@\n# <<< ANVILORE:ASSINANTES/);
     expect(texto).toMatch(/# >>> ANVILORE:BASE_MINIMA[^\n]*\n\$script:AnvBaseMinimaEmbutida = @'\n'@\n# <<< ANVILORE:BASE_MINIMA/);
