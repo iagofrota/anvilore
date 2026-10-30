@@ -135,6 +135,22 @@ test.skipIf(!linux)("Dado um bloco PATH truncado no ~/.profile, Quando reinstalo
   expect(await readFile(profile, "utf8")).toBe(reparado);
 });
 
+test.skipIf(!linux)("Dado um bloco PATH com os marcadores mas conteúdo alterado, Quando reinstalo, Então restaura o bloco esperado e preserva o sufixo", async () => {
+  const c = await novo();
+  expect(c.rodar().codigo).toBe(0);
+  const profile = join(c.home, ".profile");
+  const original = await readFile(profile, "utf8");
+  const fim = original.indexOf(FIM);
+  const blocoEsperado = `${original.slice(original.indexOf(INICIO), fim + FIM.length)}\n`;
+  const prefixo = "# antes do bloco\n";
+  const sufixo = "# depois do bloco\n";
+  await writeFile(profile, `${prefixo}${INICIO}\n# conteúdo alterado\n${FIM}\n${sufixo}`);
+
+  const r = c.rodar();
+  expect(r.codigo, r.tudo).toBe(0);
+  expect(await readFile(profile, "utf8")).toBe(`${prefixo}\n${blocoEsperado}${sufixo}`);
+});
+
 test.skipIf(!linux)("Dado um arquivo de shell com permissões próprias, Quando persisto o PATH, Então preservo as permissões", async () => {
   const c = await novo();
   const profile = join(c.home, ".profile");
