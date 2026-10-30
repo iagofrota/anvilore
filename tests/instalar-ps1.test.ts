@@ -240,3 +240,49 @@ describe("instalar.ps1: estado das chaves no site (decisão 2 do parecer de rele
     expect(corpo).toMatch(/Set-Content -LiteralPath \$assinReinstalacao -Value \$estadoChaves\.Assinantes/);
   });
 });
+
+describe("instalar.ps1: commit automático só na instalação nova (achado P2 do Codex)", () => {
+  test("Dado AnvPassos, Quando leio a chamada do instalar, Então --auto-commit não é passado sempre: vem de AnvAutoCommitDaPasta", () => {
+    const corpo = funcao("AnvPassos");
+    expect(corpo).not.toMatch(/'--destino', \$pasta, '--auto-commit'/);
+    expect(corpo).toMatch(/AnvAutoCommitDaPasta -Pasta \$pasta -JaInstalado \$jaInstalado/);
+    expect(corpo).toMatch(/'--auto-commit'/);
+  });
+
+  test("Dado AnvAutoCommitDaPasta, Quando leio o código, Então só a reinstalação lê o autoCommit do atualizacao.json", () => {
+    const corpo = funcao("AnvAutoCommitDaPasta");
+    expect(corpo).not.toBe("");
+    expect(corpo).toMatch(/atualizacao\.json/);
+    expect(corpo).toMatch(/autoCommit/);
+    expect(corpo).toMatch(/-not \$JaInstalado/);
+    expect(corpo).toContain("ConvertFrom-Json");
+    expect(corpo).toMatch(/autoCommit\s+-is\s+\[bool\]/);
+  });
+});
+
+describe("instalar.ps1: pasta de passagem única, nunca a Anvilore.novo fixa (achado P1 do Codex)", () => {
+  test("Dado AnvBaixarKit, Quando leio o código, Então não usa o nome fixo Anvilore.novo e cria uma pasta única ao lado do destino", () => {
+    const corpo = funcao("AnvBaixarKit");
+    expect(corpo).not.toMatch(/Anvilore\.novo/);
+    expect(corpo).toMatch(/AnvCriarStaging -Pai \(Split-Path -Parent \$Pasta\)/);
+  });
+
+  test("Dado AnvBaixarKit, Quando leio a limpeza, Então ela vem de um finally que só apaga o que esta execução criou", () => {
+    const corpo = funcao("AnvBaixarKit");
+    expect(corpo).toMatch(/finally \{[^}]*Remove-Item -LiteralPath \$staging/);
+    expect(corpo.indexOf("AnvCriarStaging")).toBeLessThan(corpo.indexOf("Remove-Item"));
+  });
+
+  test("Dado AnvCriarStaging, Quando leio o código, Então o nome tem sufixo aleatório, a criação falha se já existe e nada é apagado", () => {
+    const corpo = funcao("AnvCriarStaging");
+    expect(corpo).not.toBe("");
+    expect(corpo).toMatch(/NewGuid/);
+    expect(corpo).toMatch(/New-Item -ItemType Directory -Path \$candidato -ErrorAction Stop/);
+    expect(corpo).not.toMatch(/New-Item[^\n]*-Force[^\n]*\$candidato/);
+    expect(corpo).not.toContain("Remove-Item");
+  });
+
+  test("Dado o instalador inteiro, Quando procuro o nome fixo Anvilore.novo, Então só existe o prefixo com sufixo aleatório", () => {
+    expect(codigo).not.toMatch(/Anvilore\.novo['"]/);
+  });
+});

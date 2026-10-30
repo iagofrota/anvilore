@@ -208,7 +208,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       Get-ChildItem $script:P1 -Recurse -Filter '*.lnk' -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
       Get-ChildItem $script:Pasta1 -Recurse -Filter 'abrir.ps1' -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
     }
-    It 'não sobrou pasta de passagem' { Test-Path (Join-Path $script:P1 'Anvilore.novo') | Should -BeFalse }
+    It 'não sobrou pasta de passagem' { @(Get-ChildItem -LiteralPath $script:P1 -Filter 'Anvilore.novo*' -Force -ErrorAction SilentlyContinue) | Should -BeNullOrEmpty }
   }
 
   Context 'reinstalar (cenário 4)' {
@@ -230,6 +230,67 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $p = (Get-Item HKCU:\Environment).GetValue('Path', '', 'DoNotExpandEnvironmentNames') -split ';'
       @($p | Where-Object { $_ -eq "$($script:P1)\.bun\bin" }).Count | Should -Be 1
     }
+  }
+
+  Context 'pasta Anvilore.novo da pessoa nunca é apagada (achado P1 do Codex)' {
+    # Dado um perfil com uma pasta Anvilore.novo da pessoa, com um arquivo dentro; Quando o instalador baixa o kit (pasta padrão,
+    # pasta escolhida por ANVILORE_PASTA, ou uma instalação que falha na assinatura); Então a Anvilore.novo e o arquivo continuam
+    # iguais, e nenhuma pasta de passagem sobra.
+    BeforeAll {
+      function script:PerfilComNovo($nome) {
+        $p = Perfil $nome
+        New-Item -ItemType Directory (Join-Path $p 'Anvilore.novo') -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $p 'Anvilore.novo\do-usuario.txt'), "meu trabalho`n")
+        return $p
+      }
+      function script:IntactaNovo($p) { [IO.File]::ReadAllText((Join-Path $p 'Anvilore.novo\do-usuario.txt')) }
+      function script:Sobras($p) { @(Get-ChildItem -LiteralPath $p -Filter 'Anvilore.novo-*' -Force -ErrorAction SilentlyContinue) }
+    }
+    It 'instalação nova na pasta padrão deixa a Anvilore.novo da pessoa intacta' {
+      $p = PerfilComNovo 'novo-padrao'
+      $r = Rodar $p $script:OrigemBoa $script:Release $script:PathComAgente
+      $r.Codigo | Should -Be 0
+      IntactaNovo $p | Should -Be "meu trabalho`n"
+      Sobras $p | Should -BeNullOrEmpty
+    }
+    It 'instalação nova em outra pasta (ANVILORE_PASTA) deixa a Anvilore.novo do perfil intacta' {
+      $p = PerfilComNovo 'novo-outra'
+      $destino = Join-Path $script:Base 'destino fora do perfil'
+      Remove-Item -LiteralPath $destino -Recurse -Force -ErrorAction SilentlyContinue
+      $r = Rodar $p $script:OrigemBoa $script:Release $script:PathComAgente @{ ANVILORE_PASTA = $destino }
+      $r.Codigo | Should -Be 0
+      IntactaNovo $p | Should -Be "meu trabalho`n"
+      Test-Path (Join-Path $destino 'package.json') | Should -BeTrue
+      @(Get-ChildItem -LiteralPath $script:Base -Filter 'Anvilore.novo*' -Force -ErrorAction SilentlyContinue) | Should -BeNullOrEmpty
+    }
+    It 'instalação que falha na assinatura deixa a Anvilore.novo da pessoa intacta e não sobra pasta de passagem' {
+      $p = PerfilComNovo 'novo-falha'
+      $origem = Origem 'novo-sem-assinatura' 'sem-assinatura' $script:Boa $script:Outra
+      $r = Rodar $p $origem $script:Release $script:PathComAgente
+      $r.Codigo | Should -Be 3
+      IntactaNovo $p | Should -Be "meu trabalho`n"
+      Sobras $p | Should -BeNullOrEmpty
+      Test-Path (Join-Path $p 'Anvilore') | Should -BeFalse
+    }
+  }
+
+  Context 'reinstalar respeita o commit automático desligado (achado P2 do Codex)' {
+    # Dado uma instalação cuja pessoa desligou o commit automático (atualizacao.json com autoCommit false e sem anvilore.toml);
+    # Quando o instalador roda de novo; Então o commit automático continua desligado: anvilore.toml não aparece e o estado não muda.
+    # Dado uma instalação nova; Então o commit automático nasce ligado (coberto na instalação do zero).
+    BeforeAll {
+      $script:PAc = Perfil 'autocommit'
+      $script:RAc1 = Rodar $script:PAc $script:OrigemBoa $script:Release $script:PathComAgente
+      $script:PastaAc = Join-Path $script:PAc 'Anvilore'
+      $arq = Join-Path $script:PastaAc '.anvilore\atualizacao.json'
+      [IO.File]::WriteAllText($arq, ((Get-Content -Raw -Encoding UTF8 $arq) -replace '"autoCommit":true', '"autoCommit":false'))
+      Remove-Item -LiteralPath (Join-Path $script:PastaAc 'anvilore.toml') -Force
+      $script:RAc2 = Rodar $script:PAc $script:OrigemBoa $script:Release $script:PathComAgente
+    }
+    It 'a primeira instalação terminou completa'             { $script:RAc1.Codigo | Should -Be 0 }
+    It 'a reinstalação termina completa'                     { $script:RAc2.Codigo | Should -Be 0 }
+    It 'não religou o commit automático (sem anvilore.toml)' { Test-Path -LiteralPath (Join-Path $script:PastaAc 'anvilore.toml') | Should -BeFalse }
+    It 'mantém autoCommit false no estado'                   { (Get-Content -Raw (Join-Path $script:PastaAc '.anvilore\atualizacao.json') | ConvertFrom-Json).autoCommit | Should -BeFalse }
   }
 
   Context 'base mínima: a pasta antiga é recusada ANTES de executar qualquer coisa dela (decisão 1)' {
@@ -509,7 +570,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $r.Codigo | Should -Be 3
       $r.Saida | Should -Match 'assinatura SSH'
       Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
-      Test-Path (Join-Path $r.Perfil 'Anvilore.novo') | Should -BeFalse
+      @(Get-ChildItem -LiteralPath $r.Perfil -Filter 'Anvilore.novo*' -Force -ErrorAction SilentlyContinue) | Should -BeNullOrEmpty
     }
     foreach ($c in @(@{ N = 'sem assinatura'; M = 'sem-assinatura' }, @{ N = 'outra chave'; M = 'outra-chave' }, @{ N = 'nome da tag trocado'; M = 'nome-trocado' })) {
       It "recusa a tag $($c.N)" -TestCases @($c) {
@@ -519,7 +580,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
         $r.Codigo | Should -Be 3
         $r.Saida | Should -Match 'conferência de segurança'
         Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
-        Test-Path (Join-Path $r.Perfil 'Anvilore.novo') | Should -BeFalse
+        @(Get-ChildItem -LiteralPath $r.Perfil -Filter 'Anvilore.novo*' -Force -ErrorAction SilentlyContinue) | Should -BeNullOrEmpty
       }
     }
     It 'o arquivo de apoio ANVILORE_ASSINANTES é ignorado quando há chave embutida (a de fora não vale)' {
@@ -533,7 +594,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $r.Codigo | Should -Be 3
       $r.Saida | Should -Match 'chave de assinatura'
       Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
-      Test-Path (Join-Path $r.Perfil 'Anvilore.novo') | Should -BeFalse
+      @(Get-ChildItem -LiteralPath $r.Perfil -Filter 'Anvilore.novo*' -Force -ErrorAction SilentlyContinue) | Should -BeNullOrEmpty
     }
   }
 
@@ -579,7 +640,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $r.Codigo | Should -Be 3
       Test-Path $c.Marcador | Should -BeFalse
       Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
-      Test-Path (Join-Path $r.Perfil 'Anvilore.novo') | Should -BeFalse
+      @(Get-ChildItem -LiteralPath $r.Perfil -Filter 'Anvilore.novo*' -Force -ErrorAction SilentlyContinue) | Should -BeNullOrEmpty
     }
     It 'A1: o mesmo filtro com tag válida: instala e o filtro só roda depois da autenticação' {
       $c = ConfigComFiltro 'bom'
@@ -653,7 +714,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $r.Codigo | Should -Be 3
       Test-Path $c.Marcador | Should -BeFalse
       Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
-      Test-Path (Join-Path $r.Perfil 'Anvilore.novo') | Should -BeFalse
+      @(Get-ChildItem -LiteralPath $r.Perfil -Filter 'Anvilore.novo*' -Force -ErrorAction SilentlyContinue) | Should -BeNullOrEmpty
     }
     It 'A5: com ANVILORE_VERSAO (clone): recusa e o helper não roda' {
       $origem = Origem 'a5-clone' 'assinada' $script:Boa $script:Outra
@@ -662,7 +723,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $r.Codigo | Should -Be 3
       Test-Path $c.Marcador | Should -BeFalse
       Test-Path (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
-      Test-Path (Join-Path $r.Perfil 'Anvilore.novo') | Should -BeFalse
+      @(Get-ChildItem -LiteralPath $r.Perfil -Filter 'Anvilore.novo*' -Force -ErrorAction SilentlyContinue) | Should -BeNullOrEmpty
     }
   }
 

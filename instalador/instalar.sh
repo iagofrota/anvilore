@@ -77,6 +77,8 @@ BUN_GERENCIADO=0
 AUTO_COMMIT=1
 INSTALACAO_NOVA=1
 RG_FALTA=0
+PATH_PERSISTIDO=""
+PATH_ATOMICO_TMP=""
 AVISOS=""
 ULTIMA_SAIDA=""
 MOTIVO=""
@@ -107,6 +109,7 @@ mover_registro() {
 
 limpar() {
   [ -n "$CLONE_TMP" ] && [ -d "$CLONE_TMP" ] && rm -rf "$CLONE_TMP"
+  [ -n "$PATH_ATOMICO_TMP" ] && [ -f "$PATH_ATOMICO_TMP" ] && rm -f -- "$PATH_ATOMICO_TMP"
   [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ] && [ "$LOG" != "$TMP_DIR/instalacao.log" ] && rm -rf "$TMP_DIR"
   return 0
 }
@@ -415,6 +418,107 @@ passo_rg() {
 }
 
 # ---------------------------------------------------------------------------------------------------------------
+# PATH persistente (depois do Bun e do rg)
+# ---------------------------------------------------------------------------------------------------------------
+# Os hooks dos agentes chamam `bun` pelo PATH, e o rg também. Exportar o PATH só neste processo some quando o instalador acaba: numa
+# conta cujo shell não tem ~/.local/bin no PATH, os hooks falhariam. Como os instaladores do Bun e do rustup, grava um bloco
+# marcado que acrescenta ~/.local/bin (e ~/.bun/bin, se o Bun é o gerenciado) ao PATH só quando a pasta ainda não está nele.
+# ~/.profile sempre (cria se faltar); os outros só se já existem. Se o bloco já está lá, o arquivo não é tocado; o resto do arquivo
+# nunca é reescrito (só se acrescenta no fim).
+
+MARCA_PATH_INICIO="# >>> Anvilore: PATH >>>"
+MARCA_PATH_FIM="# <<< Anvilore: PATH <<<"
+
+bloco_path() {
+  printf '%s\n' "$MARCA_PATH_INICIO"
+  printf '%s\n' '# Acrescentado pelo instalador do Anvilore para um terminal novo achar o bun e o rg. Pode apagar o bloco inteiro.'
+  printf '%s\n' 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) PATH="$HOME/.local/bin:$PATH" ;; esac'
+  [ "$BUN_GERENCIADO" = "1" ] && printf '%s\n' 'case ":$PATH:" in *":$HOME/.bun/bin:"*) ;; *) PATH="$HOME/.bun/bin:$PATH" ;; esac'
+  printf '%s\n' 'export PATH'
+  printf '%s\n' "$MARCA_PATH_FIM"
+}
+
+# 0 = o bloco esperado está no arquivo; 1 = falha ao gravar; 2 = symlink recusado.
+acrescentar_bloco_path() {
+  local arq="$1" bloco temporario script codigo
+  # Recusa symlink: o replace atômico substituiria o link, e seguir o alvo pode editar um arquivo compartilhado fora do HOME.
+  [ -L "$arq" ] && return 2
+  bloco=$(bloco_path)
+  temporario=$(mktemp "$(dirname "$arq")/.anvilore-path.XXXXXX") || return 1
+  PATH_ATOMICO_TMP="$temporario"
+  if [ -e "$arq" ] && ! cp -p -- "$arq" "$temporario"; then rm -f -- "$temporario"; PATH_ATOMICO_TMP=""; return 1; fi
+  script="$TMP_DIR/persistir-path.mjs"
+  cat >"$script" <<'ANVILORE_FIM_PATH'
+import { readFileSync, writeFileSync } from "node:fs";
+const origem = process.env.ANVILORE_PATH_ORIGEM;
+const temporario = process.env.ANVILORE_PATH_TEMP;
+const bloco = Buffer.from(`${process.env.ANVILORE_PATH_BLOCO}\n`);
+const inicio = Buffer.from("# >>> Anvilore: PATH >>>");
+const fim = Buffer.from("# <<< Anvilore: PATH <<<");
+let bytes = Buffer.alloc(0);
+try { bytes = readFileSync(origem); } catch {}
+const linhas = [];
+for (let comeco = 0, i = 0; i < bytes.length; i++) {
+  if (bytes[i] === 10) { linhas.push({ comeco, conteudo: i, depois: i + 1 }); comeco = i + 1; }
+  if (i === bytes.length - 1 && comeco < bytes.length) linhas.push({ comeco, conteudo: bytes.length, depois: bytes.length });
+}
+if (bytes.length && bytes[bytes.length - 1] !== 10 && linhas.length === 0) linhas.push({ comeco: 0, conteudo: bytes.length, depois: bytes.length });
+const textoLinha = linha => bytes.subarray(linha.comeco, linha.conteudo).toString("utf8").replace(/\r$/, "");
+const inicios = linhas.filter(linha => Buffer.from(textoLinha(linha)).equals(inicio));
+const finais = linhas.filter(linha => Buffer.from(textoLinha(linha)).equals(fim));
+const semMarcadores = inicios.length === 0 && finais.length === 0;
+const parUnico = inicios.length === 1 && finais.length === 1 && inicios[0].comeco < finais[0].comeco;
+if (!semMarcadores && !parUnico) process.exit(3);
+const primeiro = inicios[0];
+const final = parUnico ? finais[0] : undefined;
+if (parUnico && primeiro && final) {
+  const atual = bytes.subarray(primeiro.comeco, final.depois);
+  if (atual.equals(bloco)) process.exit(10);
+}
+let prefixo, sufixo;
+if (primeiro) {
+  prefixo = bytes.subarray(0, primeiro.comeco);
+  sufixo = final ? bytes.subarray(final.depois) : Buffer.alloc(0);
+} else {
+  prefixo = bytes;
+  sufixo = Buffer.alloc(0);
+}
+let separador = Buffer.alloc(0);
+if (prefixo.length) separador = prefixo[prefixo.length - 1] === 10 ? Buffer.from("\n") : Buffer.from("\n\n");
+writeFileSync(temporario, Buffer.concat([prefixo, separador, bloco, sufixo]));
+ANVILORE_FIM_PATH
+  ANVILORE_PATH_ORIGEM="$arq" ANVILORE_PATH_TEMP="$temporario" ANVILORE_PATH_BLOCO="$bloco" bun "$script"
+  codigo=$?
+  if [ "$codigo" -eq 10 ]; then rm -f -- "$temporario"; PATH_ATOMICO_TMP=""; return 0; fi
+  if [ "$codigo" -eq 3 ]; then rm -f -- "$temporario"; PATH_ATOMICO_TMP=""; return 3; fi
+  if [ "$codigo" -ne 0 ] || ! mv -f -- "$temporario" "$arq"; then rm -f -- "$temporario"; PATH_ATOMICO_TMP=""; return 1; fi
+  PATH_ATOMICO_TMP=""
+  return 0
+}
+
+persistir_path() {
+  local nome arq codigo
+  for nome in .profile .bash_profile .bash_login .bashrc .zshrc; do
+    arq="$HOME/$nome"
+    if [ "$nome" != ".profile" ] && [ ! -f "$arq" ]; then continue; fi
+    if [ -L "$arq" ]; then
+      avisar "não acrescentei o PATH em ~/$nome porque é um symlink; configure-o manualmente no arquivo de destino."
+    else
+      acrescentar_bloco_path "$arq"
+      codigo=$?
+      if [ "$codigo" -eq 0 ]; then
+        PATH_PERSISTIDO="${PATH_PERSISTIDO:+$PATH_PERSISTIDO }~/$nome"
+        registrar "path: bloco do Anvilore em $arq"
+      elif [ "$codigo" -eq 3 ]; then
+        avisar "o bloco do Anvilore em ~/$nome está incompleto ou tem marcadores repetidos; não alterei o arquivo. Corrija os marcadores à mão."
+      else
+        avisar "não consegui acrescentar ~/.local/bin ao PATH em ~/$nome (sem permissão de escrita). Um terminal novo pode não achar o comando bun: acrescente a esse arquivo a linha  export PATH=\"\$HOME/.local/bin:\$PATH\""
+      fi
+    fi
+  done
+}
+
+# ---------------------------------------------------------------------------------------------------------------
 # Passos 5 e 6 — pasta, download do kit e assinatura da tag
 # ---------------------------------------------------------------------------------------------------------------
 
@@ -653,8 +757,11 @@ passo_baixar_kit() {
   origem="${ANVILORE_ORIGEM:-$REPO_OFICIAL}"
   pai=$(dirname "$PASTA")
   mkdir -p "$pai" || falhar "não consegui criar $pai."
-  CLONE_TMP="$pai/.anvilore-baixando.$$"
-  rm -rf "$CLONE_TMP"
+  # Pasta de passagem NOVA (mkdir sem -p falha se o caminho existe): nunca apaga nem reaproveita algo que já estava lá. Só depois de
+  # criada ela vira CLONE_TMP, que é o que a limpeza de saída apaga.
+  local tmp="$pai/.anvilore-baixando.$$.$RANDOM"
+  mkdir "$tmp" || falhar "não consegui criar uma pasta temporária nova em $pai."
+  CLONE_TMP="$tmp"
   dizer "Baixando o Anvilore $TAG..."
   HOOKS_VAZIO="$TMP_DIR/sem-hooks"
   mkdir -p "$HOOKS_VAZIO" || falhar "não consegui criar uma pasta temporária."
@@ -875,8 +982,8 @@ passo_atualizar_existente() {
     registrar "instalação anterior não terminou: retomando como instalação nova"
   elif [ -f "$PASTA/.anvilore/atualizacao.json" ]; then
     grep -Eq '"bunGerenciado": *true' "$PASTA/.anvilore/atualizacao.json" && BUN_GERENCIADO=1
-    # Escolha da pessoa (ou do atualizador): só mantém o commit automático se o estado diz que está ligado.
-    grep -Eq '"autoCommit": *true' "$PASTA/.anvilore/atualizacao.json" || AUTO_COMMIT=0
+    # Escolha da pessoa (ou do atualizador): só mantém commit automático se o JSON válido contém autoCommit booleano true.
+    if ! ANVILORE_ESTADO_JSON="$PASTA/.anvilore/atualizacao.json" bun -e 'import { readFileSync } from "node:fs"; let estado; try { estado = JSON.parse(readFileSync(process.env.ANVILORE_ESTADO_JSON, "utf8")); } catch {} process.exit(estado?.autoCommit === true ? 0 : 1);'; then AUTO_COMMIT=0; fi
   fi
   # O atualizador da pasta confere a tag com o seguranca/assinantes que a pasta já tem, e uma instalação que ficou para trás
   # na troca de chave não conhece a chave nova. Entrega a ela as chaves embutidas deste instalador pela opção
@@ -924,7 +1031,9 @@ passo_final() {
     else proximo="Próximo passo: abra o Claude Code (ou o seu agente) na pasta Anvilore."; fi
   fi
   [ "$RG_FALTA" -eq 1 ] && linha1="$linha1 (sem rg: a busca da skill query fica indisponível)"
-  printf '\n%s\nOnde está: %s\n%s Feche e abra o terminal e o agente para o PATH novo valer.\n' "$linha1" "$PASTA" "$proximo"
+  local fechar="Feche e abra o terminal e o agente para o PATH novo valer."
+  [ -n "$PATH_PERSISTIDO" ] && fechar="Um terminal novo já acha o comando bun (ajustei o PATH em $PATH_PERSISTIDO). Feche e abra o terminal e o agente para valer."
+  printf '\n%s\nOnde está: %s\n%s %s\n' "$linha1" "$PASTA" "$proximo" "$fechar"
   registrar "resumo: $linha1 | $PASTA | $proximo"
   registrar "fim: $([ "$parcial" -eq 1 ] && echo parcial || echo completo)"
 }
@@ -952,6 +1061,7 @@ principal() {
   passo_agentes
   passo_configurar
   passo_estado
+  persistir_path
   passo_final
   terminar 0
 }

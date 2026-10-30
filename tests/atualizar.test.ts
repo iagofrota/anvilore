@@ -176,6 +176,21 @@ test("Dado SCHEMA.md ignorado preservado na migração, Quando checkout --force 
 const temFerramentas = Boolean(Bun.which("git") && Bun.which("ssh-keygen"));
 // 30 s: no Windows do CI cada cenário com Git real levou de 2 a 4 s, perto do limite padrão de 5 s.
 const real = (nome: string, corpo: () => Promise<void>) => (temFerramentas ? test : test.skip)(nome, corpo, 30_000);
+
+// Roda `corpo` com um gitconfig global temporário (GIT_CONFIG_GLOBAL), nunca com o gitconfig do HOME de quem roda os testes.
+async function comGitconfigGlobal(pai: string, conteudo: string, corpo: () => Promise<void>): Promise<void> {
+  const arquivo = join(pai, "gitconfig-global-do-teste");
+  await writeFile(arquivo, conteudo);
+  const antes = { global: process.env.GIT_CONFIG_GLOBAL, sistema: process.env.GIT_CONFIG_NOSYSTEM };
+  process.env.GIT_CONFIG_GLOBAL = arquivo;
+  process.env.GIT_CONFIG_NOSYSTEM = "1";
+  try {
+    await corpo();
+  } finally {
+    if (antes.global !== undefined) process.env.GIT_CONFIG_GLOBAL = antes.global; else delete process.env.GIT_CONFIG_GLOBAL;
+    if (antes.sistema !== undefined) process.env.GIT_CONFIG_NOSYSTEM = antes.sistema; else delete process.env.GIT_CONFIG_NOSYSTEM;
+  }
+}
 const CONFIG = [".claude", ".codex", ".agents", ".gemini", ".github", "anvilore.toml"];
 const kits: Kit[] = [];
 afterAll(async () => { for (const kit of kits) await kit.limpar(); });
@@ -884,12 +899,7 @@ describe("atualizador com Git real: só aceita assinatura SSH na tag", () => {
     k.ok(["config", "gpg.program", arq]);
     k.ok(["update-ref", "-d", "refs/tags/v0.3.2"]);
 
-    const homeGitconfig = join(process.env.HOME ?? tmpdir(), ".gitconfig");
-    let gitconfigAntes: string | null = null;
-    try {
-      if (existsSync(homeGitconfig)) gitconfigAntes = await readFile(homeGitconfig, "utf8");
-      await writeFile(homeGitconfig, `[gpg]\n\tprogram = ${arq}\n`);
-
+    await comGitconfigGlobal(k.pai, `[gpg]\n\tprogram = ${arq}\n`, async () => {
       k.publicar(["v0.3.2"]);
       const pathAntes = process.env.PATH;
       process.env.PATH = `${pastaBin}:${pathAntes}`;
@@ -904,10 +914,7 @@ describe("atualizador com Git real: só aceita assinatura SSH na tag", () => {
       } finally {
         process.env.PATH = pathAntes;
       }
-    } finally {
-      if (gitconfigAntes !== null) await writeFile(homeGitconfig, gitconfigAntes);
-      else await rm(homeGitconfig, { force: true });
-    }
+    });
   });
 
   real("Dado tag com assinatura x509 falsa e gpgsm aprovador no PATH, Quando aplico, Então recusa por não ter assinatura SSH e devolve a ref", async () => {
@@ -921,12 +928,7 @@ describe("atualizador com Git real: só aceita assinatura SSH na tag", () => {
     k.ok(["config", "gpg.x509.program", arq]);
     k.ok(["update-ref", "-d", "refs/tags/v0.3.2"]);
 
-    const homeGitconfig = join(process.env.HOME ?? tmpdir(), ".gitconfig");
-    let gitconfigAntes: string | null = null;
-    try {
-      if (existsSync(homeGitconfig)) gitconfigAntes = await readFile(homeGitconfig, "utf8");
-      await writeFile(homeGitconfig, `[gpg "x509"]\n\tprogram = ${arq}\n[gpg]\n\tx509program = ${arq}\n`);
-
+    await comGitconfigGlobal(k.pai, `[gpg "x509"]\n\tprogram = ${arq}\n[gpg]\n\tx509program = ${arq}\n`, async () => {
       k.publicar(["v0.3.2"]);
       const pathAntes = process.env.PATH;
       process.env.PATH = `${pastaBin}:${pathAntes}`;
@@ -941,10 +943,7 @@ describe("atualizador com Git real: só aceita assinatura SSH na tag", () => {
       } finally {
         process.env.PATH = pathAntes;
       }
-    } finally {
-      if (gitconfigAntes !== null) await writeFile(homeGitconfig, gitconfigAntes);
-      else await rm(homeGitconfig, { force: true });
-    }
+    });
   });
 
   real("Dado GIT_CONFIG_GLOBAL hostil e GNUPGHOME apontando para diretório inválido, Quando aplico, Então o resultado não é alterado pelas variáveis de ambiente", async () => {
@@ -1012,12 +1011,7 @@ describe("atualizador com Git real: só aceita assinatura SSH na tag", () => {
     const fakeScript = `#!/bin/sh\nfor arg in "$@"; do\n  if [ "$arg" = "find-principals" ]; then\n    echo "teste@localhost"\n    exit 0\n  fi\ndone\necho 'Good "git" signature for teste@localhost with ED25519 key SHA256:FAKE'\nexit 0\n`;
     await writeFile(fakeSshKeygen, fakeScript, { mode: 0o755 });
 
-    const homeGitconfig = join(process.env.HOME ?? tmpdir(), ".gitconfig");
-    let gitconfigAntes: string | null = null;
-    try {
-      if (existsSync(homeGitconfig)) gitconfigAntes = await readFile(homeGitconfig, "utf8");
-      await writeFile(homeGitconfig, `[gpg "ssh"]\n\tprogram = ${fakeSshKeygen}\n`);
-
+    await comGitconfigGlobal(k.pai, `[gpg "ssh"]\n\tprogram = ${fakeSshKeygen}\n`, async () => {
       k.publicar(["v0.3.2"]);
       const executar = (args: string[]) => args[0] === "fetch"
         ? k.git(["-c", `url.${espelho}.insteadOf=https://github.com/iagofrota/anvilore.git`, ...args])
@@ -1026,10 +1020,7 @@ describe("atualizador com Git real: só aceita assinatura SSH na tag", () => {
       await expect(atualizar("aplicar", k.deps({ executar }))).rejects.toThrow("git verify-tag recusou a tag v0.3.2");
       await semMudanca(k, "0.3.2");
       expect(k.git(["rev-parse", "--verify", "-q", "refs/tags/v0.3.2"]).codigo).not.toBe(0);
-    } finally {
-      if (gitconfigAntes !== null) await writeFile(homeGitconfig, gitconfigAntes);
-      else await rm(homeGitconfig, { force: true });
-    }
+    });
   });
 
   test("Dado verificarAssinaturaTag com tag SSH, Quando executa verify-tag, Então o argv contém gpg.program, gpg.openpgp.program, gpg.x509.program e gpg.ssh.program fixados", async () => {

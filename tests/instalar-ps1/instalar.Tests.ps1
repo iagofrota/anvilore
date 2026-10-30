@@ -706,3 +706,54 @@ Describe 'AnvVersaoDaPastaAtendeMinima (a pasta instalada contra a versão míni
     AnvVersaoDaPastaAtendeMinima -Versao 'abc' -Minima '0.3.1' | Should -BeFalse
   }
 }
+
+Describe 'AnvAutoCommitDaPasta (a reinstalação respeita a escolha da pessoa)' {
+  # Dado uma pasta nova; Então o commit automático nasce ligado.
+  # Dado uma pasta já instalada; Então vale o autoCommit do atualizacao.json, e sem esse estado legível fica desligado.
+  BeforeAll {
+    function script:PastaComEstado($conteudo) {
+      $p = Join-Path ([IO.Path]::GetTempPath()) ('anv-ac-' + [guid]::NewGuid().ToString('N'))
+      New-Item -ItemType Directory (Join-Path $p '.anvilore') -Force | Out-Null
+      if ($null -ne $conteudo) { [IO.File]::WriteAllText((Join-Path $p '.anvilore\atualizacao.json'), $conteudo) }
+      return $p
+    }
+  }
+  It 'instalação nova liga'                          { AnvAutoCommitDaPasta -Pasta (PastaComEstado $null) -JaInstalado $false | Should -BeTrue }
+  It 'instalação nova ignora estado antigo na pasta' { AnvAutoCommitDaPasta -Pasta (PastaComEstado '{"autoCommit":false}') -JaInstalado $false | Should -BeTrue }
+  It 'reinstalação com autoCommit true mantém ligado' { AnvAutoCommitDaPasta -Pasta (PastaComEstado '{"versao":1,"autoCommit":true}') -JaInstalado $true | Should -BeTrue }
+  It 'reinstalação com autoCommit false mantém desligado' { AnvAutoCommitDaPasta -Pasta (PastaComEstado '{"versao":1,"autoCommit":false}') -JaInstalado $true | Should -BeFalse }
+  It 'reinstalação sem a chave deixa desligado'      { AnvAutoCommitDaPasta -Pasta (PastaComEstado '{"versao":1}') -JaInstalado $true | Should -BeFalse }
+  It 'reinstalação com estado ilegível deixa desligado' { AnvAutoCommitDaPasta -Pasta (PastaComEstado 'lixo') -JaInstalado $true | Should -BeFalse }
+  It 'reinstalação com JSON malformado que contém autoCommit true deixa desligado' { AnvAutoCommitDaPasta -Pasta (PastaComEstado '{"autoCommit":true,') -JaInstalado $true | Should -BeFalse }
+  It 'reinstalação sem atualizacao.json (a primeira rodada parou antes) liga' { AnvAutoCommitDaPasta -Pasta (PastaComEstado $null) -JaInstalado $true | Should -BeTrue }
+}
+
+Describe 'AnvCriarStaging (pasta de passagem única, achado P1 do Codex)' {
+  # Dado uma pasta com uma Anvilore.novo da pessoa; Quando crio a pasta de passagem; Então ela é nova, única, ao lado do destino,
+  # e a Anvilore.novo da pessoa (e o que há dentro) continua intacta. Duas chamadas dão duas pastas diferentes.
+  BeforeAll {
+    $script:Pai = Join-Path ([IO.Path]::GetTempPath()) ('anv-stg-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory (Join-Path $script:Pai 'Anvilore.novo') -Force | Out-Null
+    [IO.File]::WriteAllText((Join-Path $script:Pai 'Anvilore.novo\do-usuario.txt'), 'não apague')
+  }
+  AfterAll { Remove-Item -LiteralPath $script:Pai -Recurse -Force -ErrorAction SilentlyContinue }
+  It 'cria uma pasta nova dentro do pai, com nome diferente de Anvilore.novo' {
+    $s = AnvCriarStaging -Pai $script:Pai
+    (Test-Path -LiteralPath $s -PathType Container) | Should -BeTrue
+    (Split-Path -Parent $s) | Should -Be $script:Pai
+    (Split-Path -Leaf $s) | Should -Not -Be 'Anvilore.novo'
+    (Split-Path -Leaf $s) | Should -Match '^Anvilore\.novo-[0-9a-f]{12}$'
+  }
+  It 'duas chamadas dão pastas diferentes' {
+    (AnvCriarStaging -Pai $script:Pai) | Should -Not -Be (AnvCriarStaging -Pai $script:Pai)
+  }
+  It 'não mexe na Anvilore.novo que já existia' {
+    [void](AnvCriarStaging -Pai $script:Pai)
+    [IO.File]::ReadAllText((Join-Path $script:Pai 'Anvilore.novo\do-usuario.txt')) | Should -Be 'não apague'
+  }
+  It 'cria o pai quando ele ainda não existe' {
+    $filho = Join-Path $script:Pai 'ainda\nao\existe'
+    $s = AnvCriarStaging -Pai $filho
+    (Test-Path -LiteralPath $s -PathType Container) | Should -BeTrue
+  }
+}

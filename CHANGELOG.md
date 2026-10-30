@@ -42,6 +42,12 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
+- `instalar.ps1` não apaga mais uma pasta `Anvilore.novo` que a pessoa tinha: o download vai para uma pasta de passagem nova e única ao lado do destino, e só ela é limpa, no sucesso e na falha. O `instalar.sh` também não apaga mais nada antes do clone.
+- No Linux, o `instalar.sh` deixa `~/.local/bin` (e `~/.bun/bin`, se o Bun é o gerenciado) no PATH de um terminal novo, com um bloco marcado em `~/.profile` (e em `~/.bashrc`, `~/.zshrc`, `~/.bash_profile` e `~/.bash_login` se já existem). Antes, os hooks dos agentes podiam não achar o `bun` depois que o instalador terminava.
+- `instalar.ps1` não religa mais o commit automático ao reinstalar: só a instalação nova o liga, e a reinstalação respeita a escolha gravada.
+- Os dois instaladores só mantêm o commit automático ligado quando `atualizacao.json` é JSON válido e `autoCommit` é booleano `true`; estado inválido ou valor de outro tipo fica desligado.
+- O bloco de PATH do Linux é gravado por substituição atômica e preserva as permissões. Com um único par de marcadores, conteúdo alterado é reparado; marcador sem par ou duplicado deixa o arquivo intacto e gera aviso. Arquivos de shell que são symlinks também ficam intactos e recebem aviso.
+- Os testes do atualizador não escrevem mais no `~/.gitconfig` de quem os roda: usam um arquivo temporário escolhido por `GIT_CONFIG_GLOBAL`.
 - O Início continua carregando quando `wiki/` não existe: mostra o diagnóstico de saúde, os atalhos e os arquivos de `raw/` sem ingestão.
 - Wikilinks e a lista de Relacionados da Nota resolvem o slug para o caminho real; destinos ausentes ou ambíguos aparecem sem navegação.
 - O atalho de lacuna abre o Chat com o texto da dúvida preenchido e aguarda a confirmação antes de enviar.
