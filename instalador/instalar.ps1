@@ -990,8 +990,8 @@ function AnvAutoCommitDaPasta {
   if (-not $JaInstalado) { return $true }
   $arquivo = Join-Path $Pasta '.anvilore\atualizacao.json'
   if (-not (Test-Path -LiteralPath $arquivo -PathType Leaf)) { return $true }
-  try { $texto = [IO.File]::ReadAllText($arquivo) } catch { return $false }
-  return [bool]($texto -match '"autoCommit"\s*:\s*true')
+  try { $estado = [IO.File]::ReadAllText($arquivo) | ConvertFrom-Json -ErrorAction Stop } catch { return $false }
+  return [bool]($estado.autoCommit -is [bool] -and $estado.autoCommit)
 }
 
 # Passo 9. Só cria; nunca sobrescreve a escolha da pessoa.

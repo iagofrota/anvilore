@@ -78,6 +78,7 @@ AUTO_COMMIT=1
 INSTALACAO_NOVA=1
 RG_FALTA=0
 PATH_PERSISTIDO=""
+PATH_ATOMICO_TMP=""
 AVISOS=""
 ULTIMA_SAIDA=""
 MOTIVO=""
@@ -108,6 +109,7 @@ mover_registro() {
 
 limpar() {
   [ -n "$CLONE_TMP" ] && [ -d "$CLONE_TMP" ] && rm -rf "$CLONE_TMP"
+  [ -n "$PATH_ATOMICO_TMP" ] && [ -f "$PATH_ATOMICO_TMP" ] && rm -f -- "$PATH_ATOMICO_TMP"
   [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ] && [ "$LOG" != "$TMP_DIR/instalacao.log" ] && rm -rf "$TMP_DIR"
   return 0
 }
@@ -436,16 +438,58 @@ bloco_path() {
   printf '%s\n' "$MARCA_PATH_FIM"
 }
 
-# 0 = o bloco está no arquivo (já estava ou entrou agora); 1 = não consegui escrever.
+# 0 = o bloco esperado está no arquivo; 1 = falha ao gravar; 2 = symlink recusado.
 acrescentar_bloco_path() {
-  local arq="$1" bloco
-  if [ -f "$arq" ] && grep -qF "$MARCA_PATH_INICIO" "$arq" 2>/dev/null; then return 0; fi
+  local arq="$1" bloco temporario script codigo
+  # Recusa symlink: o replace atômico substituiria o link, e seguir o alvo pode editar um arquivo compartilhado fora do HOME.
+  [ -L "$arq" ] && return 2
   bloco=$(bloco_path)
-  {
-    # Arquivo que não termina em quebra de linha: fecha a última linha antes do bloco.
-    if [ -s "$arq" ] && [ -n "$(tail -c1 "$arq" 2>/dev/null)" ]; then printf '\n'; fi
-    printf '\n%s\n' "$bloco"
-  } 2>/dev/null >>"$arq"
+  temporario=$(mktemp "$(dirname "$arq")/.anvilore-path.XXXXXX") || return 1
+  PATH_ATOMICO_TMP="$temporario"
+  if [ -e "$arq" ] && ! cp -p -- "$arq" "$temporario"; then rm -f -- "$temporario"; PATH_ATOMICO_TMP=""; return 1; fi
+  script="$TMP_DIR/persistir-path.mjs"
+  cat >"$script" <<'ANVILORE_FIM_PATH'
+import { readFileSync, writeFileSync } from "node:fs";
+const origem = process.env.ANVILORE_PATH_ORIGEM;
+const temporario = process.env.ANVILORE_PATH_TEMP;
+const bloco = Buffer.from(`${process.env.ANVILORE_PATH_BLOCO}\n`);
+const inicio = Buffer.from("# >>> Anvilore: PATH >>>");
+const fim = Buffer.from("# <<< Anvilore: PATH <<<");
+let bytes = Buffer.alloc(0);
+try { bytes = readFileSync(origem); } catch {}
+const linhas = [];
+for (let comeco = 0, i = 0; i < bytes.length; i++) {
+  if (bytes[i] === 10) { linhas.push({ comeco, conteudo: i, depois: i + 1 }); comeco = i + 1; }
+  if (i === bytes.length - 1 && comeco < bytes.length) linhas.push({ comeco, conteudo: bytes.length, depois: bytes.length });
+}
+if (bytes.length && bytes[bytes.length - 1] !== 10 && linhas.length === 0) linhas.push({ comeco: 0, conteudo: bytes.length, depois: bytes.length });
+const textoLinha = linha => bytes.subarray(linha.comeco, linha.conteudo).toString("utf8").replace(/\r$/, "");
+const inicios = linhas.filter(linha => Buffer.from(textoLinha(linha)).equals(inicio));
+const finais = linhas.filter(linha => Buffer.from(textoLinha(linha)).equals(fim));
+const primeiro = inicios[0];
+const final = primeiro && finais.find(linha => linha.comeco > primeiro.comeco);
+if (inicios.length === 1 && finais.length === 1 && primeiro && final) {
+  const atual = bytes.subarray(primeiro.comeco, final.depois);
+  if (atual.equals(bloco)) process.exit(10);
+}
+let prefixo, sufixo;
+if (primeiro) {
+  prefixo = bytes.subarray(0, primeiro.comeco);
+  sufixo = final ? bytes.subarray(final.depois) : Buffer.alloc(0);
+} else {
+  prefixo = bytes;
+  sufixo = Buffer.alloc(0);
+}
+let separador = Buffer.alloc(0);
+if (prefixo.length) separador = prefixo[prefixo.length - 1] === 10 ? Buffer.from("\n") : Buffer.from("\n\n");
+writeFileSync(temporario, Buffer.concat([prefixo, separador, bloco, sufixo]));
+ANVILORE_FIM_PATH
+  ANVILORE_PATH_ORIGEM="$arq" ANVILORE_PATH_TEMP="$temporario" ANVILORE_PATH_BLOCO="$bloco" bun "$script"
+  codigo=$?
+  if [ "$codigo" -eq 10 ]; then rm -f -- "$temporario"; PATH_ATOMICO_TMP=""; return 0; fi
+  if [ "$codigo" -ne 0 ] || ! mv -f -- "$temporario" "$arq"; then rm -f -- "$temporario"; PATH_ATOMICO_TMP=""; return 1; fi
+  PATH_ATOMICO_TMP=""
+  return 0
 }
 
 persistir_path() {
@@ -453,7 +497,9 @@ persistir_path() {
   for nome in .profile .bash_profile .bash_login .bashrc .zshrc; do
     arq="$HOME/$nome"
     if [ "$nome" != ".profile" ] && [ ! -f "$arq" ]; then continue; fi
-    if acrescentar_bloco_path "$arq"; then
+    if [ -L "$arq" ]; then
+      avisar "não acrescentei o PATH em ~/$nome porque é um symlink; configure-o manualmente no arquivo de destino."
+    elif acrescentar_bloco_path "$arq"; then
       PATH_PERSISTIDO="${PATH_PERSISTIDO:+$PATH_PERSISTIDO }~/$nome"
       registrar "path: bloco do Anvilore em $arq"
     else
@@ -926,8 +972,8 @@ passo_atualizar_existente() {
     registrar "instalação anterior não terminou: retomando como instalação nova"
   elif [ -f "$PASTA/.anvilore/atualizacao.json" ]; then
     grep -Eq '"bunGerenciado": *true' "$PASTA/.anvilore/atualizacao.json" && BUN_GERENCIADO=1
-    # Escolha da pessoa (ou do atualizador): só mantém o commit automático se o estado diz que está ligado.
-    grep -Eq '"autoCommit": *true' "$PASTA/.anvilore/atualizacao.json" || AUTO_COMMIT=0
+    # Escolha da pessoa (ou do atualizador): só mantém commit automático se o JSON válido contém autoCommit booleano true.
+    if ! ANVILORE_ESTADO_JSON="$PASTA/.anvilore/atualizacao.json" bun -e 'import { readFileSync } from "node:fs"; let estado; try { estado = JSON.parse(readFileSync(process.env.ANVILORE_ESTADO_JSON, "utf8")); } catch {} process.exit(estado?.autoCommit === true ? 0 : 1);'; then AUTO_COMMIT=0; fi
   fi
   # O atualizador da pasta confere a tag com o seguranca/assinantes que a pasta já tem, e uma instalação que ficou para trás
   # na troca de chave não conhece a chave nova. Entrega a ela as chaves embutidas deste instalador pela opção

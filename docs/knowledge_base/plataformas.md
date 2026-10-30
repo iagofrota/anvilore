@@ -255,14 +255,22 @@ Onde cada coisa fica (Linux):
   instalador não sobrevive a ele. No fim da instalação (`persistir_path` em `instalador/instalar.sh`) o script acrescenta, no fim de
   cada arquivo acima, um bloco entre `# >>> Anvilore: PATH >>>` e `# <<< Anvilore: PATH <<<` que põe ~/.local/bin (e ~/.bun/bin,
   se o Bun é o gerenciado) no PATH só quando a pasta ainda não está nele, como fazem os instaladores do Bun e do rustup. Reinstalar
-  não duplica (bloco já presente: o arquivo nem é aberto para escrita) e o resto do arquivo nunca é reescrito. Arquivo sem permissão
-  de escrita vira aviso em linguagem simples, não erro. O resumo final diz que um terminal novo já acha o comando. Os hooks
+  não duplica: o bloco só conta como presente quando os dois marcadores e todo o conteúdo esperado conferem. Bloco interrompido ou
+  alterado é substituído, mantendo intactos os bytes antes e depois dele. A cópia temporária fica no mesmo diretório, preserva as
+  permissões, e `mv` publica a alteração atomicamente. Arquivo de shell que seja symlink não é alterado; o instalador avisa para
+  configurar manualmente o destino do link. Arquivo sem permissão de escrita vira aviso em linguagem simples, não erro. O resumo
+  final diz que um terminal novo já acha o comando. Os hooks
   continuam chamando `bun` pelo PATH, sem caminho absoluto. O `doctor` e o `--conferir` não precisam saber disso: eles olham o PATH
   do terminal em que rodam, que num terminal novo já traz o bloco. ~/.bash_profile e ~/.bash_login entram porque o bash de login
   ignora o ~/.profile quando um deles existe. **Não provado:** `fish` e `zsh` de login sem ~/.zshrc (o zsh só lê o ~/.zshrc em
   shell interativo), e sessões gráficas que não passam por um shell de login (o PATH do ambiente gráfico não muda).
 - **Pasta de passagem do download.** O clone vai para `.anvilore-baixando.<pid>.<aleatório>` ao lado do destino, criada com `mkdir`
   (que falha se o caminho existe) e sem `rm -rf` antes: nada que já estava lá é apagado. Só o que o próprio script criou é limpo.
+
+- **Commit automático na reinstalação.** O campo autoCommit no estado de atualização só é considerado ligado quando o arquivo é JSON válido
+  e a propriedade é o booleano `true`. Valor ausente, outro tipo, JSON inválido ou erro de leitura mantém o recurso desligado;
+  arquivo ausente ainda significa uma instalação que parou antes de gravar o estado e usa o padrão ligado. O shell usa o Bun já
+  necessário ao instalador para fazer o parse; o PowerShell usa `ConvertFrom-Json`.
 
 - **Manifesto e chave dentro do script.** `instalador/dependencias.json` (versão, URL oficial e SHA-256 de Bun, rg
   e PortableGit por plataforma) e a chave pública (arquivo seguranca/assinantes, ainda sem chave real) vão
