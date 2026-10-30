@@ -8,6 +8,7 @@ import { criarChave } from "./apoio/kit-atualizavel";
 // PLANO §2 passo 4 e cenário 36 para o instalar.ps1: o build da release embute o manifesto e a chave pública no script do
 // Windows com o mesmo mecanismo do instalar.sh, só que a região é um here-string do PowerShell.
 
+const BASE = "0.3.0\n";
 const raiz = resolve(import.meta.dir, "..");
 const pastas: string[] = [];
 afterAll(async () => { await Promise.all(pastas.map(p => rm(p, { recursive: true, force: true }))); });
@@ -26,38 +27,38 @@ test("Dado um arquivo .ps1 ou .sh, Quando pergunto o dialeto, Então a extensão
 });
 
 test("Dado o modelo do instalar.ps1 do repositório, Quando leio o que ele embute, Então não traz manifesto nem chave", async () => {
-  expect(lerEmbutidos(await modelo(), "ps1")).toEqual({ manifesto: "", assinantes: "" });
+  expect(lerEmbutidos(await modelo(), "ps1")).toEqual({ manifesto: "", assinantes: "", baseMinima: "" });
 });
 
 test("Dado o modelo do instalar.ps1, Quando embuto manifesto e chave, Então a cópia embutida é igual aos arquivos (cenário 36)", async () => {
   const assinantes = await assinantesDescartaveis();
-  const pronto = embutirInstalador(await modelo(), await manifesto(), assinantes, "ps1");
-  expect(lerEmbutidos(pronto, "ps1")).toEqual({ manifesto: await manifesto(), assinantes });
-  expect(conferirEmbutidos(pronto, await manifesto(), assinantes, "ps1")).toEqual([]);
+  const pronto = embutirInstalador(await modelo(), await manifesto(), assinantes, BASE, "ps1");
+  expect(lerEmbutidos(pronto, "ps1")).toEqual({ manifesto: await manifesto(), assinantes, baseMinima: BASE });
+  expect(conferirEmbutidos(pronto, await manifesto(), assinantes, BASE, "ps1")).toEqual([]);
   expect(pronto).toContain("$script:AnvManifestoEmbutido = @'\n{");
 });
 
 test("Dado um script já embutido, Quando embuto de novo, Então é idempotente e o resto do script não muda", async () => {
   const assinantes = await assinantesDescartaveis();
-  const uma = embutirInstalador(await modelo(), await manifesto(), assinantes, "ps1");
-  expect(embutirInstalador(uma, await manifesto(), assinantes, "ps1")).toBe(uma);
+  const uma = embutirInstalador(await modelo(), await manifesto(), assinantes, BASE, "ps1");
+  expect(embutirInstalador(uma, await manifesto(), assinantes, BASE, "ps1")).toBe(uma);
   const semRegioes = (t: string) => t.replace(/# >>> ANVILORE:(\w+)[\s\S]*?# <<< ANVILORE:\1\n/g, "");
   expect(semRegioes(uma)).toBe(semRegioes(await modelo()));
 });
 
 test("Dado manifesto diferente do embutido, Quando confiro, Então aponta a diferença", async () => {
   const assinantes = await assinantesDescartaveis();
-  const pronto = embutirInstalador(await modelo(), await manifesto(), assinantes, "ps1");
-  expect(conferirEmbutidos(pronto, (await manifesto()).replace("15.2.0", "15.2.1"), assinantes, "ps1").join("\n")).toContain("manifesto embutido difere");
-  expect(conferirEmbutidos(pronto, await manifesto(), "outra\n", "ps1").join("\n")).toContain("chave embutida difere");
+  const pronto = embutirInstalador(await modelo(), await manifesto(), assinantes, BASE, "ps1");
+  expect(conferirEmbutidos(pronto, (await manifesto()).replace("15.2.0", "15.2.1"), assinantes, BASE, "ps1").join("\n")).toContain("manifesto embutido difere");
+  expect(conferirEmbutidos(pronto, await manifesto(), "outra\n", BASE, "ps1").join("\n")).toContain("chave embutida difere");
 });
 
 test("Dado conteúdo com CRLF ou sem chave, Quando embuto, Então recusa", async () => {
   const assinantes = await assinantesDescartaveis();
   const m = await modelo(), real = await manifesto();
   const json = JSON.stringify({ formato: 1, dependencias: {} });
-  expect(() => embutirInstalador(m, `${json}\r\n`, assinantes, "ps1")).toThrow("retorno de carro");
-  expect(() => embutirInstalador(m, real, "", "ps1")).toThrow("assinantes vazio");
+  expect(() => embutirInstalador(m, `${json}\r\n`, assinantes, BASE, "ps1")).toThrow("retorno de carro");
+  expect(() => embutirInstalador(m, real, "", BASE, "ps1")).toThrow("assinantes vazio");
 });
 
 test("Dado a linha de comando com --modelo .ps1, Quando gero e confiro, Então o arquivo gerado é o instalar.ps1 embutido", async () => {

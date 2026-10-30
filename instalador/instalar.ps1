@@ -34,7 +34,13 @@ $script:AnvManifestoEmbutido = @'
 $script:AnvAssinantesEmbutido = @'
 '@
 # <<< ANVILORE:ASSINANTES
+# >>> ANVILORE:BASE_MINIMA (preenchido na release por scripts/embutir-instalador.ts; não edite)
+$script:AnvBaseMinimaEmbutida = @'
+'@
+# <<< ANVILORE:BASE_MINIMA
 
+$script:AnvSemVerSimples = '^(?:0|[1-9][0-9]{0,8})\.(?:0|[1-9][0-9]{0,8})\.(?:0|[1-9][0-9]{0,8})\z'
+$script:AnvMsgPastaNova = 'Instale o Anvilore numa pasta nova e peça ao seu agente para trazer a sua wiki para lá de forma conferida, fazendo antes uma cópia de segurança dela.'
 $script:AnvOrigemPadrao = 'https://github.com/iagofrota/anvilore.git'
 $script:AnvChaveEnv = 'HKCU:\Environment'
 $script:AnvLogPendente = @()
@@ -596,11 +602,65 @@ function AnvGarantirRg {
   return $true
 }
 
+# Pasta instalada = a estrutura do kit (.git, AGENTS.md, src\cli.ts, skills\). O mesmo critério do instalar.sh. Não exige o
+# estado da atualização (uma pasta de antes do atualizador, como a v0.2.0, não o tem e PRECISA cair no teste da base mínima,
+# com a mensagem certa, em vez de ser tratada como "outra coisa") nem o conteúdo do package.json (a versão é lida depois,
+# pela base mínima, e package.json ausente ou ilegível é um motivo de recusa, não de pasta desconhecida).
 function AnvEhInstalacao {
   param([string]$Pasta)
-  $pkg = Join-Path $Pasta 'package.json'
-  if (-not (Test-Path -LiteralPath (Join-Path $Pasta '.git')) -or -not (Test-Path -LiteralPath $pkg)) { return $false }
-  return ((Get-Content -Raw -Encoding UTF8 -LiteralPath $pkg) -match '"name"\s*:\s*"anvilore"')
+  return ((Test-Path -LiteralPath (Join-Path $Pasta '.git') -PathType Container) -and
+    (Test-Path -LiteralPath (Join-Path $Pasta 'AGENTS.md') -PathType Leaf) -and
+    (Test-Path -LiteralPath (Join-Path $Pasta 'src\cli.ts') -PathType Leaf) -and
+    (Test-Path -LiteralPath (Join-Path $Pasta 'skills') -PathType Container))
+}
+
+# ---------------------------------------------------------------- base mínima
+
+# A menor versão do Anvilore que este instalador aceita reinstalar (a primeira versão assinada), embutida na release.
+# Só vale um X.Y.Z (sem v, pré-release nem metadado de build); vazia ou inválida: nulo, e o instalador não reinstala.
+function AnvBaseMinima {
+  param([string]$Embutido = $script:AnvBaseMinimaEmbutida)
+  $t = $Embutido -replace '\r?\n\z', ''
+  if ($t -cmatch $script:AnvSemVerSimples) { return $t }
+  return $null
+}
+
+# A versão do package.json da pasta, ou nulo. Só lê o arquivo como texto: nada da pasta é executado, importado nem carregado
+# (nem Bun, nem Git, nem script). Ausente, pasta no lugar do arquivo, bytes que não são UTF-8, JSON inválido, raiz que não é
+# objeto, version que não é texto ou que não é um X.Y.Z (pré-release, v na frente, zero à esquerda) valem nulo.
+function AnvLerVersaoDaPasta {
+  param([string]$Pasta)
+  try {
+    $bytes = [System.IO.File]::ReadAllBytes((Join-Path $Pasta 'package.json'))
+    $texto = (New-Object System.Text.UTF8Encoding($false, $true)).GetString($bytes).TrimStart([char]0xFEFF)
+    $pacote = ConvertFrom-Json -InputObject $texto
+  } catch { return $null }
+  if ($pacote -isnot [System.Management.Automation.PSCustomObject]) { return $null }
+  $propriedade = $pacote.PSObject.Properties['version']
+  if (-not $propriedade -or $propriedade.Value -isnot [string]) { return $null }
+  if ($propriedade.Value -cnotmatch $script:AnvSemVerSimples) { return $null }
+  return $propriedade.Value
+}
+
+# @{ Ok; Motivo = '' | 'antiga' | 'desconhecida'; Versao }. Menor que a base: antiga. Não lida ou não reconhecida: desconhecida.
+function AnvVerificarBaseMinima {
+  param([string]$Pasta, [string]$Base)
+  $versao = AnvLerVersaoDaPasta -Pasta $Pasta
+  if (-not $versao) { return @{ Ok = $false; Motivo = 'desconhecida'; Versao = '' } }
+  if ((AnvCompararVersao $versao $Base) -lt 0) { return @{ Ok = $false; Motivo = 'antiga'; Versao = $versao } }
+  return @{ Ok = $true; Motivo = ''; Versao = $versao }
+}
+
+# Linguagem simples, sem comando técnico. 'atualizador' é a defesa em profundidade: o atualizador da pasta respondeu com o uso (código 2).
+function AnvMensagemBaseMinima {
+  param([string]$Pasta, $Resultado, [string]$Base)
+  if ($Resultado.Motivo -eq 'antiga') {
+    return "A pasta $Pasta tem o Anvilore na versão $($Resultado.Versao), anterior à primeira versão assinada ($Base). Por segurança, não executei nada dela e nada foi mudado. $script:AnvMsgPastaNova"
+  }
+  if ($Resultado.Motivo -eq 'atualizador') {
+    return "O atualizador dessa pasta é de uma versão anterior à primeira versão assinada e não sabe receber as chaves do instalador; nada foi mudado. $script:AnvMsgPastaNova"
+  }
+  return "Não reconheço a versão do Anvilore na pasta $Pasta (o package.json está ausente, ilegível ou não é uma versão publicada). Por segurança, não executei nada dela e nada foi mudado. $script:AnvMsgPastaNova"
 }
 
 function AnvEscolherPasta {
@@ -799,6 +859,12 @@ function AnvPassos {
 
     # 6 · kit
     if ($jaInstalado) {
+      # Base mínima: lê a versão da pasta SEM executar nada dela e recusa se for menor que a primeira versão assinada (ou se não
+      # puder ser lida). Vem antes de qualquer escrita na pasta (o registro) e de qualquer execução (o atualizador, o Bun).
+      $base = AnvBaseMinima
+      if (-not $base) { AnvParar 3 'Este instalador não traz a base mínima (a primeira versão assinada), então não consigo saber se uma pasta antiga é segura. Por segurança, não mexi em nada. Baixe o instalador oficial de novo.' }
+      $verificacao = AnvVerificarBaseMinima -Pasta $pasta -Base $base
+      if (-not $verificacao.Ok) { AnvParar 1 (AnvMensagemBaseMinima -Pasta $pasta -Resultado $verificacao -Base $base) }
       AnvEscrever "Já existe uma instalação em $pasta. Só vou conferir o que falta; nada da pasta é sobrescrito."
       AnvDefinirLog -Pasta $pasta
       $versao = ''
@@ -813,7 +879,7 @@ function AnvPassos {
       $at = AnvExecutar $bun @('src/cli.ts', 'atualizar', '--assinantes-do-instalador', $assinReinstalacao) $pasta
       # Código 2 = uso inválido: o atualizador da pasta é de uma versão que não conhece a opção. Não esconde o erro nem segue
       # como se tivesse conferido (nada foi mudado).
-      if ($at.Codigo -eq 2) { AnvParar 1 'A pasta tem uma versão antiga do Anvilore que não sabe receber as chaves do instalador; nada foi mudado. Peça ao seu agente para atualizar o Anvilore dessa pasta pelo comando de atualização dela e rode este instalador de novo.' }
+      if ($at.Codigo -eq 2) { AnvParar 1 (AnvMensagemBaseMinima -Pasta $pasta -Resultado @{ Motivo = 'atualizador' } -Base $base) }
       if ($at.Codigo -eq 0) { AnvEscrever ('Atualização: ' + (($at.Saida -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 1))) }
       else { AnvAviso ('não atualizei agora (' + (($at.Saida -split "`n" | Select-Object -First 1)) + '). Segui com a versão instalada.') }
       $v = AnvExecutar $git.Exe @('-C', $pasta, 'describe', '--tags', '--exact-match')

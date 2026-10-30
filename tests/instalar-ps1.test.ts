@@ -62,9 +62,10 @@ describe("instalar.ps1: requisitos do passo a passo", () => {
   });
 
   test("Dado o instalador sem build de release, Então as regiões embutidas estão vazias: sem chave, nada é confiável", () => {
-    expect(lerEmbutidos(texto, "ps1")).toEqual({ manifesto: "", assinantes: "" });
+    expect(lerEmbutidos(texto, "ps1")).toEqual({ manifesto: "", assinantes: "", baseMinima: "" });
     expect(texto).toMatch(/# >>> ANVILORE:MANIFESTO[^\n]*\n\$script:AnvManifestoEmbutido = @'\n'@\n# <<< ANVILORE:MANIFESTO/);
     expect(texto).toMatch(/# >>> ANVILORE:ASSINANTES[^\n]*\n\$script:AnvAssinantesEmbutido = @'\n'@\n# <<< ANVILORE:ASSINANTES/);
+    expect(texto).toMatch(/# >>> ANVILORE:BASE_MINIMA[^\n]*\n\$script:AnvBaseMinimaEmbutida = @'\n'@\n# <<< ANVILORE:BASE_MINIMA/);
   });
 });
 
@@ -107,8 +108,41 @@ describe("instalar.ps1: transporte do git antes da assinatura (A5) e chaves da r
   test("Dado o atualizador antigo da pasta que devolve 2 (uso) para a opção, Então o instalador para com mensagem simples e não segue como atualizado (R1)", () => {
     const trecho = /\$jaInstalado\) \{[\s\S]*?\} else \{/.exec(codigo)?.[0] ?? "";
     expect(trecho).toMatch(/\$at\.Codigo -eq 2/);
-    expect(trecho).toContain("A pasta tem uma versão antiga do Anvilore que não sabe receber as chaves do instalador; nada foi mudado");
-    expect(trecho).toMatch(/AnvParar 1 /);
+    expect(trecho).toMatch(/AnvParar 1 \(AnvMensagemBaseMinima[^\n]*'atualizador'/);
+    const mensagem = funcao("AnvMensagemBaseMinima");
+    expect(mensagem).toContain("anterior à primeira versão assinada e não sabe receber as chaves do instalador; nada foi mudado");
+    expect(codigo).toContain("numa pasta nova");
+    expect(trecho + mensagem).not.toContain("pelo comando de atualização dela");
+  });
+
+  test("Dado uma pasta já instalada, Quando o instalador decide reinstalar, Então lê e compara a versão com a base mínima ANTES de gravar o registro na pasta e de executar o atualizador (decisão 1)", () => {
+    const trecho = /\$jaInstalado\) \{[\s\S]*?\} else \{/.exec(codigo)?.[0] ?? "";
+    const verifica = trecho.indexOf("AnvVerificarBaseMinima");
+    expect(verifica).toBeGreaterThan(-1);
+    expect(trecho.indexOf("AnvBaseMinima")).toBeGreaterThan(-1);
+    expect(trecho.indexOf("AnvMensagemBaseMinima")).toBeGreaterThan(verifica);
+    expect(trecho).toMatch(/AnvParar 1 \(AnvMensagemBaseMinima/);
+    // Nada que escreva ou execute na pasta vem antes da verificação.
+    for (const antes of ["AnvDefinirLog", "AnvExecutar", "AnvEscrever \"Já existe"]) expect(trecho.indexOf(antes)).toBeGreaterThan(verifica);
+  });
+
+  test("Dado a leitura da versão da pasta, Então só lê o package.json como texto (nem Bun, nem Git, nem dot-source da pasta)", () => {
+    const corpo = /function AnvLerVersaoDaPasta \{[\s\S]*?\n\}/.exec(codigo)?.[0] ?? "";
+    expect(corpo).toContain("package.json");
+    expect(corpo).toMatch(/ConvertFrom-Json/);
+    expect(corpo).not.toMatch(/AnvExecutar|bun|git|Invoke-Expression|iex|& \$|\. \$/i);
+  });
+
+  test("Dado a pasta instalada, Então o critério é a estrutura do kit (.git, AGENTS.md, src\\cli.ts, skills) e não o estado nem o package.json", () => {
+    const corpo = /function AnvEhInstalacao \{[\s\S]*?\n\}/.exec(codigo)?.[0] ?? "";
+    for (const parte of [".git", "AGENTS.md", "src\\cli.ts", "skills"]) expect(corpo).toContain(parte);
+    expect(corpo).not.toMatch(/atualizacao\.json|package\.json/);
+  });
+
+  test("Dado o instalador sem a base mínima embutida, Quando reinstala, Então para (código 3) como faz sem a chave", () => {
+    const trecho = /\$jaInstalado\) \{[\s\S]*?\} else \{/.exec(codigo)?.[0] ?? "";
+    expect(trecho).toMatch(/AnvParar 3 /);
+    expect(codigo).toContain("AnvBaseMinimaEmbutida");
   });
 });
 

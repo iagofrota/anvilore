@@ -241,6 +241,119 @@ Describe 'AnvEscolherPasta (ANVILORE_PASTA)' {
   }
 }
 
+Describe 'AnvEhInstalacao (critério igual ao do instalar.sh: estrutura do kit)' {
+  # Dado uma pasta; Quando o instalador decide se é uma instalação do Anvilore; Então vale a estrutura do kit (.git, AGENTS.md,
+  # src\cli.ts, skills\), sem exigir o estado da atualização nem o conteúdo do package.json (a versão é lida depois, pela base mínima).
+  BeforeEach {
+    $script:K = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory (Join-Path $script:K '.git'), (Join-Path $script:K 'src'), (Join-Path $script:K 'skills') -Force | Out-Null
+    Set-Content (Join-Path $script:K 'AGENTS.md') 'contrato'
+    Set-Content (Join-Path $script:K 'src\cli.ts') 'x'
+  }
+  It 'pasta com a estrutura do kit é instalação, mesmo sem o estado da atualização e sem package.json' {
+    AnvEhInstalacao -Pasta $script:K | Should -BeTrue
+  }
+  It 'package.json ilegível não muda a classificação' {
+    New-Item -ItemType Directory (Join-Path $script:K 'package.json') | Out-Null
+    AnvEhInstalacao -Pasta $script:K | Should -BeTrue
+  }
+  It 'sem .git não é' { Remove-Item (Join-Path $script:K '.git') -Recurse -Force; AnvEhInstalacao -Pasta $script:K | Should -BeFalse }
+  It 'sem AGENTS.md não é' { Remove-Item (Join-Path $script:K 'AGENTS.md'); AnvEhInstalacao -Pasta $script:K | Should -BeFalse }
+  It 'sem src\cli.ts não é' { Remove-Item (Join-Path $script:K 'src\cli.ts'); AnvEhInstalacao -Pasta $script:K | Should -BeFalse }
+  It 'sem skills\ não é' { Remove-Item (Join-Path $script:K 'skills') -Recurse -Force; AnvEhInstalacao -Pasta $script:K | Should -BeFalse }
+  It 'pasta de outra coisa com package.json anvilore não é' {
+    $o = Join-Path $TestDrive 'outra-coisa'; New-Item -ItemType Directory (Join-Path $o '.git') -Force | Out-Null
+    Set-Content (Join-Path $o 'package.json') '{"name":"anvilore","version":"0.2.0"}'
+    AnvEhInstalacao -Pasta $o | Should -BeFalse
+  }
+}
+
+Describe 'AnvBaseMinima (a versão mínima embutida no instalador)' {
+  # Dado o instalador; Quando pede a base mínima; Então só uma versão X.Y.Z vale. Vazia ou inválida: nulo (o instalador recusa reinstalar).
+  It 'versão válida' { AnvBaseMinima -Embutido "0.3.0`n" | Should -Be '0.3.0' }
+  It 'sem quebra de linha final também' { AnvBaseMinima -Embutido '0.3.0' | Should -Be '0.3.0' }
+  It 'vazia: nulo' { AnvBaseMinima -Embutido '' | Should -BeNullOrEmpty }
+  It 'pré-release: nulo' { AnvBaseMinima -Embutido '0.3.0-rc.1' | Should -BeNullOrEmpty }
+  It 'texto: nulo' { AnvBaseMinima -Embutido 'nova' | Should -BeNullOrEmpty }
+  It 'duas linhas: nulo' { AnvBaseMinima -Embutido "0.3.0`n0.4.0" | Should -BeNullOrEmpty }
+}
+
+Describe 'AnvLerVersaoDaPasta (lê o package.json sem executar nada da pasta)' {
+  BeforeEach {
+    $script:V = Join-Path $TestDrive ([guid]::NewGuid().ToString('N')); New-Item -ItemType Directory $script:V | Out-Null
+    $script:Marca = Join-Path $TestDrive 'marcador-leitura'; Remove-Item $script:Marca -ErrorAction SilentlyContinue
+    # Se a leitura executasse o cli.ts ou o bunfig.toml da pasta, o marcador apareceria.
+    New-Item -ItemType Directory (Join-Path $script:V 'src') | Out-Null
+    Set-Content (Join-Path $script:V 'src\cli.ts') "require('fs').writeFileSync('$($script:Marca -replace '\\','/')', 'x')"
+  }
+  It 'lê a versão e não executa nada' {
+    Set-Content (Join-Path $script:V 'package.json') '{"name":"anvilore","version":"0.3.0"}'
+    AnvLerVersaoDaPasta -Pasta $script:V | Should -Be '0.3.0'
+    Test-Path $script:Marca | Should -BeFalse
+  }
+  It 'aceita BOM no começo' {
+    [IO.File]::WriteAllBytes((Join-Path $script:V 'package.json'), ([byte[]](0xEF,0xBB,0xBF) + [Text.Encoding]::UTF8.GetBytes('{"version":"1.2.3"}')))
+    AnvLerVersaoDaPasta -Pasta $script:V | Should -Be '1.2.3'
+  }
+  It 'ausente: nulo' { AnvLerVersaoDaPasta -Pasta $script:V | Should -BeNullOrEmpty }
+  It 'pasta no lugar do arquivo: nulo' { New-Item -ItemType Directory (Join-Path $script:V 'package.json') | Out-Null; AnvLerVersaoDaPasta -Pasta $script:V | Should -BeNullOrEmpty }
+  It 'bytes que não são texto: nulo' { [IO.File]::WriteAllBytes((Join-Path $script:V 'package.json'), [byte[]](0xFF,0xFE,0x00,0x80,0x7B)); AnvLerVersaoDaPasta -Pasta $script:V | Should -BeNullOrEmpty }
+  It 'que não é JSON: nulo' { Set-Content (Join-Path $script:V 'package.json') '{ nao e json'; AnvLerVersaoDaPasta -Pasta $script:V | Should -BeNullOrEmpty }
+  It 'lista: nulo' { Set-Content (Join-Path $script:V 'package.json') '[]'; AnvLerVersaoDaPasta -Pasta $script:V | Should -BeNullOrEmpty }
+  It 'sem version: nulo' { Set-Content (Join-Path $script:V 'package.json') '{"name":"anvilore"}'; AnvLerVersaoDaPasta -Pasta $script:V | Should -BeNullOrEmpty }
+  It 'version só dentro de dependencies: nulo' { Set-Content (Join-Path $script:V 'package.json') '{"dependencies":{"version":"9.9.9"}}'; AnvLerVersaoDaPasta -Pasta $script:V | Should -BeNullOrEmpty }
+  It 'version número: nulo' { Set-Content (Join-Path $script:V 'package.json') '{"version":3}'; AnvLerVersaoDaPasta -Pasta $script:V | Should -BeNullOrEmpty }
+}
+
+Describe 'AnvVerificarBaseMinima (menor, ausente, inválida e pré-release recusam; igual ou maior segue)' {
+  BeforeEach { $script:W = Join-Path $TestDrive ([guid]::NewGuid().ToString('N')); New-Item -ItemType Directory $script:W | Out-Null }
+  It '<nome>' -ForEach @(
+    @{ nome = 'igual à base segue';                    json = '{"version":"0.3.0"}';          base = '0.3.0'; ok = $true;  motivo = '' }
+    @{ nome = 'patch maior segue';                     json = '{"version":"0.3.1"}';          base = '0.3.0'; ok = $true;  motivo = '' }
+    @{ nome = '0.10.0 contra 0.9.0 segue (número)';    json = '{"version":"0.10.0"}';         base = '0.9.0'; ok = $true;  motivo = '' }
+    @{ nome = 'major maior segue';                     json = '{"version":"1.0.0"}';          base = '0.3.0'; ok = $true;  motivo = '' }
+    @{ nome = 'v0.2.0 recusa como antiga';             json = '{"version":"0.2.0"}';          base = '0.3.0'; ok = $false; motivo = 'antiga' }
+    @{ nome = '0.8.9 contra 0.9.0 recusa como antiga'; json = '{"version":"0.8.9"}';          base = '0.9.0'; ok = $false; motivo = 'antiga' }
+    @{ nome = 'pré-release acima da base recusa';      json = '{"version":"0.3.1-beta"}';     base = '0.3.0'; ok = $false; motivo = 'desconhecida' }
+    @{ nome = 'pré-release da base recusa';            json = '{"version":"0.3.0-rc.1"}';     base = '0.3.0'; ok = $false; motivo = 'desconhecida' }
+    @{ nome = 'metadado de build recusa';              json = '{"version":"0.3.0+abc"}';      base = '0.3.0'; ok = $false; motivo = 'desconhecida' }
+    @{ nome = 'com v na frente recusa';                json = '{"version":"v0.3.0"}';         base = '0.3.0'; ok = $false; motivo = 'desconhecida' }
+    @{ nome = 'só major.minor recusa';                 json = '{"version":"0.3"}';            base = '0.3.0'; ok = $false; motivo = 'desconhecida' }
+    @{ nome = 'zero à esquerda recusa';                json = '{"version":"0.03.0"}';         base = '0.3.0'; ok = $false; motivo = 'desconhecida' }
+    @{ nome = 'duas linhas recusa';                    json = '{"version":"0.3.0\n9.9.9"}';   base = '0.3.0'; ok = $false; motivo = 'desconhecida' }
+    @{ nome = 'número gigante recusa';                 json = '{"version":"99999999999999999999.0.0"}'; base = '0.3.0'; ok = $false; motivo = 'desconhecida' }
+  ) {
+    Set-Content (Join-Path $script:W 'package.json') $json
+    $r = AnvVerificarBaseMinima -Pasta $script:W -Base $base
+    $r.Ok | Should -Be $ok
+    $r.Motivo | Should -Be $motivo
+  }
+  It 'package.json ausente recusa como desconhecida' {
+    $r = AnvVerificarBaseMinima -Pasta $script:W -Base '0.3.0'
+    $r.Ok | Should -BeFalse
+    $r.Motivo | Should -Be 'desconhecida'
+  }
+}
+
+Describe 'AnvMensagemBaseMinima (linguagem simples, sem comando técnico)' {
+  It 'versão antiga: diz a versão, a primeira assinada, que nada foi mudado e o caminho da pasta nova' {
+    $m = AnvMensagemBaseMinima -Pasta 'C:\Anvilore' -Resultado @{ Ok = $false; Motivo = 'antiga'; Versao = '0.2.0' } -Base '0.3.0'
+    $m | Should -Match 'anterior à primeira versão assinada'
+    $m | Should -Match '0\.2\.0'
+    $m | Should -Match 'nada foi mudado'
+    $m | Should -Match 'numa pasta nova'
+    $m | Should -Match 'de forma conferida'
+    $m | Should -Match 'cópia de segurança'
+    $m | Should -Not -Match 'bun |cli\.ts|atualizar'
+  }
+  It 'versão desconhecida: diz que não reconhece e dá o mesmo caminho' {
+    $m = AnvMensagemBaseMinima -Pasta 'C:\Anvilore' -Resultado @{ Ok = $false; Motivo = 'desconhecida'; Versao = '' } -Base '0.3.0'
+    $m | Should -Match 'Não reconheço a versão do Anvilore'
+    $m | Should -Match 'nada foi mudado'
+    $m | Should -Match 'numa pasta nova'
+  }
+}
+
 Describe 'AnvConfirmar' {
   AfterEach { Remove-Item Env:ANVILORE_SEM_PERGUNTAS -ErrorAction SilentlyContinue }
   # Dado ANVILORE_SEM_PERGUNTAS=1 (CI); Quando o instalador pergunta; Então responde o padrão, sem esperar.

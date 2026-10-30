@@ -108,9 +108,15 @@ caminho da privada.)
 A versão `0.2.0` não tem atualizador nem seguranca/assinantes (conferido na tag: nenhum dos dois
 existe nela). Portanto:
 
-1. A primeira versão que traz o atualizador **e** a chave pública é aplicada à mão por quem a tem
-   (veja "Atenção" no `CHANGELOG.md`: `bun src/cli.ts migrar-rastreio --puxar`). Assine a tag dela
-   também, para que se possa conferir.
+1. A primeira versão que traz o atualizador **e** a chave pública é a **base mínima**: o número dela
+   vai para `instalador/base-minima` no preparo da release (o valor de hoje, `0.3.0`, é provisório) e
+   os instaladores o embutem. **Não há release de transição**: uma pasta anterior (a `0.2.0` ou um
+   clone intermediário) não é atualizada no lugar e o CLI antigo dela nunca é executado para descobrir
+   se serve. Os instaladores leem a versão do `package.json` da pasta como texto e, se for menor que a
+   base (ou ausente, ilegível, inválida, pré-release), recusam antes de tocar em qualquer coisa. Quem
+   tem uma pasta anterior instala numa pasta nova e pede ao agente para trazer a wiki de forma
+   conferida, com cópia de segurança antes; essa migração assistida ainda não é uma ferramenta
+   (backlog). Assine a tag da base mínima também, para que se possa conferir.
 2. **Só depois** dela, as versões seguintes (assinadas pela chave que já está nas máquinas) são
    verificadas e aplicadas pelo atualizador.
 3. Se uma versão for assinada por uma chave que **não** está no arquivo do kit instalado, ela é
@@ -121,7 +127,7 @@ Sem seguranca/assinantes (ausente, vazio ou ilegível), o kit recusa toda candid
 
 **Segurança no bootstrap do instalador:** conferir apenas a tag Git não autentica o instalador
 executado por quem instala pela primeira vez. Para fechar a cadeia de confiança antes da primeira execução:
-1. A chave pública embutida no instalador gerado precisa ser idêntica a seguranca/assinantes (conferida por `bun scripts/embutir-instalador.ts --conferir <script>`).
+1. A chave pública e a base mínima embutidas no instalador gerado precisam ser idênticas a seguranca/assinantes e a instalador/base-minima (conferidas por `bun scripts/embutir-instalador.ts --conferir <script>`).
 2. Cada instalador gerado (dist/instalar.sh e dist/instalar.ps1) deve ter seu SHA-256 e sua assinatura SSH (`ssh-keygen -Y sign -n file`) publicados junto da release.
 3. Quem baixa o instalador confere o hash e a assinatura (`ssh-keygen -Y verify`) contra a chave pública obtida por canal independente **fora do repositório e fora do GitHub** (o README do próprio repositório não é canal independente; a âncora deve residir fora desse domínio, como site pessoal do mantenedor ou registro público verificado — definir qual será esse canal é uma pendência do dono antes da publicação da primeira versão).
 
@@ -172,7 +178,7 @@ por vez**.
    registrada. Não publique se houver vulnerabilidades em aberto na cadeia (como execução de
    filtros antes da verificação da tag ou configuração global interferindo no verificador).
 8. **Gerar e conferir os instaladores (quando U3/U4 entrarem na main).**
-   Gere os scripts com manifesto e assinantes embutidos:
+   Gere os scripts com manifesto, assinantes e base mínima (`instalador/base-minima`, um `X.Y.Z`; sem valor válido o comando recusa gerar) embutidos:
 
    ```bash
    bun scripts/embutir-instalador.ts --modelo instalador/instalar.sh --assinantes seguranca/assinantes --saida dist/instalar.sh
@@ -181,7 +187,7 @@ por vez**.
    bun scripts/embutir-instalador.ts --conferir dist/instalar.ps1 --assinantes seguranca/assinantes
    ```
 
-   O `--conferir` confirma que a chave embutida e o manifesto batem exatamente com seguranca/assinantes e instalador/dependencias.json. (Nota: este passo passa a valer quando as branches U3 e U4 forem mescladas na `main`).
+   O `--conferir` confirma que a chave, o manifesto e a base mínima embutidos batem exatamente com seguranca/assinantes, instalador/dependencias.json e instalador/base-minima. (Nota: este passo passa a valer quando as branches U3 e U4 forem mescladas na `main`).
 9. **Assinar e gerar hashes dos instaladores.**
    Gere o hash SHA-256 (executado dentro de `dist` para que o checksum registre apenas o nome do arquivo, permitindo conferência na pasta de download) e a assinatura SSH (`ssh-keygen -Y sign -n file`) de cada instalador gerado:
 
@@ -434,6 +440,8 @@ recusar as tags novas (chave desconhecida).
 **Recuperação de instalações que ficaram para trás:**
 Se alguma máquina não recebeu a versão de transição e a rotação avançou para a chave nova, o atualizador automático daquela máquina recusa a versão (chave desconhecida).
 **Nunca faça `git checkout` manual direto**: o checkout manual pula o atualizador, não executa a migração de rastreio (`atualizacao/migracoes.json`) e pode sobrescrever ou remover arquivos pessoais (`raw/`, `wiki/`, `SCHEMA.md`).
+
+Isto vale para pastas **na base mínima ou acima dela**. Uma pasta **anterior** à base mínima (a `0.2.0` ou um clone intermediário) o instalador recusa antes de executar qualquer coisa dela; para essas, o caminho é "pasta nova + migração assistida": instalar o Anvilore numa pasta nova com o instalador verificado e pedir ao agente que traga a wiki de lá para cá de forma conferida (cópia de segurança antes, conferência depois), sem apagar nem renomear a pasta original. Não use `git checkout` nem `migrar-rastreio --puxar` como bootstrap: eles não provam a cadeia de assinatura. A ferramenta que automatize essa migração é backlog.
 
 O caminho seguro de recuperação é a **reinstalação com o instalador verificado**:
 Baixe o instalador da versão mais recente (`<dist/instalar.sh>` quando U3 entrar ou `<dist/instalar.ps1>` quando U4 entrar), confira seu hash SHA-256 e sua assinatura SSH contra a chave pública obtida por canal independente fora do GitHub (veja "Segurança no bootstrap"), e execute-o. O instalador preserva os dados pessoais existentes e atualiza a chave em seguranca/assinantes.
