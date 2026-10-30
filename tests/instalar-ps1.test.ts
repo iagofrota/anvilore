@@ -172,6 +172,15 @@ describe("CI do instalador do Windows", () => {
     expect(job).toContain("tests/instalar-ps1/instalar.Tests.ps1");
     expect(job).toContain("tests/instalar-ps1/e2e.Tests.ps1");
   });
+
+  // No CI de uma tag publicada, o checkout traz a v0.3.0 (sem o objeto anotado); clonada junto, ela vence a v0.0.1 de prova
+  // e o instalador recusa "a versão não é uma tag anotada". A origem de prova só pode ter as tags que o próprio teste cria.
+  test("Dado o CI de uma tag publicada, Quando monto a origem de prova, Então o clone não leva as tags do checkout", () => {
+    const e2e = readFileSync(join(raiz, "tests/instalar-ps1/e2e.Tests.ps1"), "utf8");
+    const clones = e2e.split("\n").filter(linha => /GitCmd clone\b/.test(linha));
+    expect(clones.length).toBeGreaterThan(0);
+    for (const linha of clones) expect(linha).toContain("--no-tags");
+  });
 });
 
 describe("instalar.ps1: estado das chaves no site (decisão 2 do parecer de release)", () => {
