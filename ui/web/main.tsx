@@ -2,9 +2,11 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { Rascunho } from "../../src/lib/ui-fila";
 import { api } from "./api";
+import { Biblioteca } from "./biblioteca";
 import { Chat, type EstadoDaIngestao } from "./chat";
 import { Inicio } from "./inicio";
 import { lerRota } from "./navegacao";
+import { Nota } from "./nota";
 import { diffLinhas, ErroApi, indiceVizinho } from "./revisao";
 import { Shell } from "./shell";
 import "./styles.css";
@@ -61,7 +63,9 @@ function Aplicacao() {
   return <Shell rota={rota} conversas={estado?.conversas ?? []} agente={estado?.agente ?? "Agente"} aviso={atualizador}>
     {rota.tela === "revisao" ? <Revisao tema={tema} alternarTema={alternarTema} />
       : rota.tela === "chat" ? <Chat id={rota.id} estado={estado} recarregarEstado={recarregarEstado} abrir={abrir} tema={tema} alternarTema={alternarTema} />
-        : <Inicio tema={tema} alternarTema={alternarTema} />}
+        : rota.tela === "biblioteca" ? <Biblioteca tema={tema} alternarTema={alternarTema} />
+          : rota.tela === "nota" ? <Nota caminho={rota.id} tema={tema} alternarTema={alternarTema} />
+            : <Inicio tema={tema} alternarTema={alternarTema} />}
   </Shell>;
 }
 

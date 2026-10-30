@@ -11,10 +11,18 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Added
 
+- Telas de Biblioteca e Nota na interface web (`anvilore ui`):
+  - Biblioteca (`#/biblioteca`): catálogo de páginas da wiki com abas por tipo, contadores, filtros por status (rascunho / aprovada), área e tags, além de busca por texto;
+  - Nota (`#/nota/<caminho>`): tela de leitura estrita com propriedades, corpo markdown renderizado, callouts de lacunas com link para o chat de ingestão, proveniência, backlinks e grafo local em SVG;
+  - Endpoints de leitura protegidos `GET /api/biblioteca` e `GET /api/nota?caminho=...` com barreira de token, contenção de caminhos e garantia de invariância em `wiki/` e `raw/`.
 - Tela Início em `anvilore ui`, agora a tela inicial: atalhos para ingerir e revisar, rascunhos esperando aprovação,
   atividade recente do log, saúde da wiki (o servidor roda `validar`, `auditar` e `listar-lacunas --consultar`; ninguém
   precisa rodar comando) e a lista do que está em `raw/` sem ingestão. Revisão e Chat seguem no menu. O menu e o casco
   comum das telas estão em `ui/web/navegacao.ts` e `ui/web/shell.tsx`; veja `docs/knowledge_base/interface.md`.
+
+### Security
+
+- Leitura de notas na interface web valida contenção por caminho real prévio, compõe flags de proteção (O_NOFOLLOW e O_NONBLOCK) de forma independente e trata raiz ausente como inexistência, evitando travamento em FIFOs e vazamentos antes da verificação TOCTOU (dev/ino).
 
 ### Fixed
 
