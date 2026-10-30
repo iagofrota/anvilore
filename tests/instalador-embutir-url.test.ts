@@ -104,3 +104,34 @@ test("Dado a linha de comando, Quando gero e confiro com URL de teste, Então s�
   expect(lerEmbutidos(await readFile(saida, "utf8")).urlConfianca).toBe(`${URL_CONFIANCA}\n`);
   expect(await comandoEmbutir(["--que-nao-existe"])).toBe(2);
 });
+
+// Um artefato gerado com a URL de loopback (build de TESTE) nunca pode passar na conferência de release, que roda sem flags.
+test("Dado um instalador gerado com a URL de loopback e --aceitar-url-de-teste, Quando confiro como na release (sem flags), Então recusa (sh e ps1)", async () => {
+  const pasta = await pastaNova();
+  const arq = join(pasta, "assinantes");
+  await writeFile(arq, await assinantes());
+  const rodar = (...args: string[]) => Bun.spawnSync([process.execPath, join(raiz, "scripts/embutir-instalador.ts"), ...args], { stdout: "pipe", stderr: "pipe" });
+  for (const [nome, modelo] of [["instalar.sh", MODELO_SH], ["instalar.ps1", MODELO_PS1]] as const) {
+    const origem = join(pasta, `modelo-${nome}`), saida = join(pasta, nome);
+    await writeFile(origem, modelo);
+    expect(rodar("--modelo", origem, "--assinantes", arq, "--saida", saida, "--url-confianca", LOOPBACK, "--aceitar-url-de-teste").exitCode, nome).toBe(0);
+    const release = rodar("--conferir", saida, "--assinantes", arq);
+    expect(release.exitCode, nome).toBe(1);
+    expect(release.stderr.toString(), nome).toContain(`URL de confiança embutida difere de ${URL_CONFIANCA}`);
+    expect(release.stderr.toString(), nome).toContain("http");
+    // Gerar de novo, sem flags, devolve o artefato de release (https) e a conferência passa.
+    expect(rodar("--modelo", origem, "--assinantes", arq, "--saida", saida).exitCode, nome).toBe(0);
+    expect(rodar("--conferir", saida, "--assinantes", arq).exitCode, nome).toBe(0);
+  }
+});
+
+// O procedimento de release é o que o agente segue; ele precisa mandar conferir os instaladores PUBLICADOS sem as flags de teste.
+test("Dado o procedimento de release, Quando leio, Então manda conferir sem --url-confianca e sem --aceitar-url-de-teste e proíbe a flag de teste", async () => {
+  const skill = await readFile(join(raiz, "docs/release/SKILL.md"), "utf8");
+  const passo = skill.split("\n").find(l => l.includes("embutir instalador")) ?? "";
+  expect(passo).not.toBe("");
+  expect(passo).not.toContain("--aceitar-url-de-teste");
+  expect(passo).not.toContain("--url-confianca");
+  expect(skill).toMatch(/sem `--url-confianca` e sem `--aceitar-url-de-teste`/);
+  expect(skill).toMatch(/nunca use `--aceitar-url-de-teste` numa release/i);
+});
