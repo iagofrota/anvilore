@@ -9,6 +9,7 @@ export type EstadoDaIngestao = { agente: string; areas: string[]; conversas: Res
 
 type Propriedades = {
   id?: string;
+  lacuna?: string;
   estado: EstadoDaIngestao | null;
   recarregarEstado: () => Promise<void>;
   abrir: (id?: string) => void;
@@ -22,7 +23,7 @@ function mensagem(erro: unknown, padrao: string): string {
   return erro instanceof Error ? erro.message : padrao;
 }
 
-export function Chat({ id, estado, recarregarEstado, abrir, tema, alternarTema }: Propriedades) {
+export function Chat({ id, lacuna, estado, recarregarEstado, abrir, tema, alternarTema }: Propriedades) {
   const [conversa, setConversa] = useState<Conversa | null>(null);
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
@@ -103,7 +104,7 @@ export function Chat({ id, estado, recarregarEstado, abrir, tema, alternarTema }
       <section className="thread" aria-label="Conversa da ingestão">
         <div className="thread-scroll">
           {erro && <div className="alert" role="alert">{erro}</div>}
-          {!conversa ? (id ? <div className="loading">Abrindo a ingestão…</div> : <NovaIngestao estado={estado} aoCriar={async (criada, motivo) => { avisoAoAbrir.current = motivo ?? ""; await recarregarEstado(); abrir(criada.id); }} />)
+          {!conversa ? (id ? <div className="loading">Abrindo a ingestão…</div> : <NovaIngestao lacuna={lacuna} estado={estado} aoCriar={async (criada, motivo) => { avisoAoAbrir.current = motivo ?? ""; await recarregarEstado(); abrir(criada.id); }} />)
             : <ConversaDaIngestao conversa={conversa} agente={estado?.agente ?? "Agente"} ocupado={ocupado} takeaways={takeaways} paginas={paginas} comentario={comentario} acoes={acoes} />}
         </div>
       </section>
@@ -112,15 +113,16 @@ export function Chat({ id, estado, recarregarEstado, abrir, tema, alternarTema }
   </main>;
 }
 
-function NovaIngestao({ estado, aoCriar }: { estado: EstadoDaIngestao | null; aoCriar: (conversa: Conversa, motivo?: string) => Promise<void> }) {
+function NovaIngestao({ lacuna, estado, aoCriar }: { lacuna?: string; estado: EstadoDaIngestao | null; aoCriar: (conversa: Conversa, motivo?: string) => Promise<void> }) {
   const [area, setArea] = useState("");
   const [arquivo, setArquivo] = useState<File | null>(null);
-  const [texto, setTexto] = useState("");
+  const [texto, setTexto] = useState(lacuna ?? "");
   const [arrastando, setArrastando] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState("");
   const areas = estado?.areas ?? [];
   useEffect(() => { if (!area && areas.length) setArea(areas[0]!); }, [area, areas]);
+  useEffect(() => { setTexto(lacuna ?? ""); }, [lacuna]);
 
   const ingerir = async () => {
     setEnviando(true);

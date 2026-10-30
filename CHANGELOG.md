@@ -44,6 +44,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 - O Início continua carregando quando `wiki/` não existe: mostra o diagnóstico de saúde, os atalhos e os arquivos de `raw/` sem ingestão.
 - Wikilinks e a lista de Relacionados da Nota resolvem o slug para o caminho real; destinos ausentes ou ambíguos aparecem sem navegação.
+- O atalho de lacuna abre o Chat com o texto da dúvida preenchido e aguarda a confirmação antes de enviar.
 - Ao recriar o índice estrutural sem exemplos, `init` e `instalar` não incluem a área nem a página de exemplo. O manifesto da atualização declara os arquivos e esqueletos pessoais que deixam o rastreio na transição N→N+1.
 
 ### Atenção
