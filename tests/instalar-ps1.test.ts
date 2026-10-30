@@ -257,3 +257,30 @@ describe("instalar.ps1: commit automático só na instalação nova (achado P2 d
     expect(corpo).toMatch(/-not \$JaInstalado/);
   });
 });
+
+describe("instalar.ps1: pasta de passagem única, nunca a Anvilore.novo fixa (achado P1 do Codex)", () => {
+  test("Dado AnvBaixarKit, Quando leio o código, Então não usa o nome fixo Anvilore.novo e cria uma pasta única ao lado do destino", () => {
+    const corpo = funcao("AnvBaixarKit");
+    expect(corpo).not.toContain("Anvilore.novo");
+    expect(corpo).toMatch(/AnvCriarStaging -Pai \(Split-Path -Parent \$Pasta\)/);
+  });
+
+  test("Dado AnvBaixarKit, Quando leio a limpeza, Então ela vem de um finally que só apaga o que esta execução criou", () => {
+    const corpo = funcao("AnvBaixarKit");
+    expect(corpo).toMatch(/finally \{[^}]*Remove-Item -LiteralPath \$staging/);
+    expect(corpo.indexOf("AnvCriarStaging")).toBeLessThan(corpo.indexOf("Remove-Item"));
+  });
+
+  test("Dado AnvCriarStaging, Quando leio o código, Então o nome tem sufixo aleatório, a criação falha se já existe e nada é apagado", () => {
+    const corpo = funcao("AnvCriarStaging");
+    expect(corpo).not.toBe("");
+    expect(corpo).toMatch(/NewGuid/);
+    expect(corpo).toMatch(/New-Item -ItemType Directory -Path \$candidato -ErrorAction Stop/);
+    expect(corpo).not.toMatch(/New-Item[^\n]*-Force[^\n]*\$candidato/);
+    expect(corpo).not.toContain("Remove-Item");
+  });
+
+  test("Dado o instalador inteiro, Quando procuro Remove-Item sobre Anvilore.novo, Então não há", () => {
+    expect(codigo).not.toMatch(/Anvilore\.novo/);
+  });
+});
