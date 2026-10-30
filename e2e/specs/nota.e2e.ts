@@ -55,6 +55,22 @@ test("[I6-07] Dado uma página com callouts de lacuna e contradição Quando a N
   await expect(linkBusca).toHaveAttribute("href", /#\/chat\?lacuna=/);
 });
 
+test("[I6-12] Dado uma lacuna na Nota Quando peço para buscar fonte no Chat Então a dúvida aparece preenchida sem envio automático", async ({ page, app, vault }) => {
+  await vault.escrever("wiki/pessoal/concepts/com-lacuna-chat.md", [
+    "---", "type: concept", "slug: com-lacuna-chat", "title: Nota com lacuna", "---", "",
+    "> [!gap] Falta definir o orçamento e conferir a fonte", "",
+  ].join("\n"));
+  const envios: string[] = [];
+  page.on("request", requisicao => {
+    if (requisicao.method() === "POST" && new URL(requisicao.url()).pathname === "/api/fontes") envios.push(requisicao.url());
+  });
+  await page.goto(`${app.url}#/nota/pessoal/concepts/com-lacuna-chat.md`);
+  await page.getByRole("link", { name: "Buscar fonte no Chat" }).click();
+  await expect(page).toHaveURL(/#\/chat\?lacuna=/);
+  await expect(page.getByLabel("Texto da fonte")).toHaveValue("Falta definir o orçamento e conferir a fonte");
+  expect(envios).toEqual([]);
+});
+
 test("[I6-08] Dado uma página com proveniência completa Quando abro a Nota Então vejo fonte, gerador e verificação", async ({ page, app, vault }) => {
   await vault.escrever("raw/pessoal/origem.md", "conteúdo original da fonte");
   await vault.escrever("wiki/pessoal/concepts/proveniente.md", [

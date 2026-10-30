@@ -17,6 +17,12 @@ test("Dado endereços de Revisão, Chat, Biblioteca e Nota Quando leio a rota En
   expect(lerRota("#/nota/pessoal/conceitos/padrao.md")).toEqual({ tela: "nota", id: "pessoal/conceitos/padrao.md" });
 });
 
+test("Dado um endereço do Chat com lacuna Quando leio e monto a rota Então preserva o texto na query do hash", () => {
+  const lacuna = "Falta definir o orçamento e conferir a fonte";
+  expect(lerRota(`#/chat?lacuna=${encodeURIComponent(lacuna)}`)).toEqual({ tela: "chat", lacuna });
+  expect(hashDaRota({ tela: "chat", lacuna })).toBe(`#/chat?lacuna=${encodeURIComponent(lacuna)}`);
+});
+
 test("Dado id de conversa com caractere fora do padrão Quando leio a rota Então ignora o id", () => {
   expect(lerRota("#/chat/../../x")).toEqual({ tela: "chat" });
   expect(lerRota("#/chat/ABC")).toEqual({ tela: "chat" });
