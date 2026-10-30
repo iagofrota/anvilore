@@ -428,9 +428,11 @@ embutir sempre preenche com a constante e recusa se o modelo não a tem):
   entrega ao atualizador, pela opção `--assinantes-do-instalador`, só as linhas embutidas autorizadas pela lista; e uma
   pasta instalada **abaixo da `versaoMinima`** da lista também é recusada sem executar nada dela.
 - No sh a consulta é `curl --proto =https --max-redirs 0 --max-time 15 --max-filesize 65536` com `Cache-Control` e
-  `Pragma`; no ps1, `Invoke-WebRequest -MaximumRedirection 0 -TimeoutSec 15`. O documento é validado de forma estrita nos dois.
+  `Pragma`; no ps1, `HttpWebRequest` sem redirecionamento, com 15 s no total, lendo o corpo em blocos e abortando ao passar de 64 KiB. O documento é validado de forma estrita nos dois e nome de campo repetido o recusa (também no atualizador).
 - Build de **teste**: `--url-confianca http://127.0.0.1:<porta>/... --aceitar-url-de-teste` (só loopback; qualquer outro
-  http é recusado pelo embutir e pelo `--conferir`). Os testes usam `scripts/servir-confianca-teste.ts`.
+  http é recusado pelo embutir e pelo `--conferir`). Os testes usam `scripts/servir-confianca-teste.ts`. **Nunca numa
+  release:** o par de flags de teste serve só para gerar e conferir artefatos de teste; a conferência da release roda
+  SEM `--url-confianca` e SEM `--aceitar-url-de-teste`, e um instalador com a URL de loopback é recusado nela.
 
 ## Rotação e revogação da chave
 
@@ -470,7 +472,8 @@ O que dá para fazer:
 - Quem **já** aplicou uma versão assinada pela chave roubada pode voltar com `--voltar`, se foi a última
   atualização.
 
-O que **não** dá (confirmado no código; não há lista de revogação nem canal fora da banda):
+O que **não** dá (confirmado no código; não existe revogação retroativa para versões e instaladores ANTIGOS, que não fazem a
+consulta ao confianca.json, nem canal fora da banda para eles):
 
 - O kit só confia no arquivo que já tem. Se a chave comprometida era a **única**, nenhuma versão nova
   assinada por outra chave é aceita, e uma versão assinada pela comprometida seria aceita (inclusive
