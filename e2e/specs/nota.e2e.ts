@@ -69,6 +69,8 @@ test("[I6-12] Dado uma lacuna na Nota Quando peço para buscar fonte no Chat Ent
   await expect(page).toHaveURL(/#\/chat\?lacuna=/);
   await expect(page.getByLabel("Texto da fonte")).toHaveValue("Falta definir o orçamento e conferir a fonte");
   expect(envios).toEqual([]);
+  await page.evaluate(() => { window.location.hash = "#/chat?lacuna=Outra%20d%C3%BAvida"; });
+  await expect(page.getByLabel("Texto da fonte")).toHaveValue("Outra dúvida");
 });
 
 test("[I6-08] Dado uma página com proveniência completa Quando abro a Nota Então vejo fonte, gerador e verificação", async ({ page, app, vault }) => {
