@@ -464,6 +464,7 @@ export async function carregarNota(
     setErro("Caminho da nota não informado.");
     return;
   }
+  setErro("");
   setCarregando(true);
   const leitura = await leitor(caminho);
   if (leitura.erro !== undefined) setErro(leitura.erro);
