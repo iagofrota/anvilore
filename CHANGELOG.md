@@ -58,6 +58,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   `--conferir`, prova que a cópia embutida é igual aos arquivos. Sem chave válida não gera.
 - Job `instalar-linux` (`.github/workflows/instalar-linux.yml`) e `scripts/provar-instalar-linux.sh`: instalação do zero
   e reexecução num HOME vazio, em Linux x64 e arm64, com o manifesto real.
+- Procedimento de release na knowledge base (`docs/knowledge_base/release.md`): preparar a versão, assinar a tag com SSH, o que o kit instalado exige para aceitá-la, release ruim e rotação da chave, mais o texto da skill `/release` (`docs/release/SKILL.md`), que para antes de cada ação pública e pede o "sim" do dono.
 - `anvilore atualizar [--verificar | --voltar | --estado]`: verifica releases publicadas, compara SemVer/canal,
   confere a assinatura SSH com a confiança local — e que o nome assinado da tag é a versão anunciada, sem
   tag leve nem aninhada — e aplica com estado retomável. Antes do checkout, recusa a versão
