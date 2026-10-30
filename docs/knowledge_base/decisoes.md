@@ -1,5 +1,6 @@
 ---
 generated: 2026-10-28
+verified: 2026-10-30
 ---
 
 # Decisões
@@ -183,7 +184,7 @@ Para a linhagem do método e a argumentação completa das posições de design,
   com `--verificar`, `--voltar` e `--estado` (`src/comandos/atualizar.ts`, `src/cli.ts`).
 - A tag candidata é buscada sem tags implícitas e verificada por `git verify-tag` com SSH e o arquivo
   de assinantes do kit instalado. Sem o arquivo de assinantes seguranca/assinantes local, a atualização recusa a candidata;
-  não há chave pública real versionada nesta entrega. A chave privada não é usada pelo atualizador.
+  a chave pública real do dono entra na 0.3.0. A chave privada não é usada pelo atualizador.
   O atualizador aceita exclusivamente assinatura SSH (`-----BEGIN SSH SIGNATURE-----`), fixa
   `gpg.ssh.program=ssh-keygen` e desliga os verificadores OpenPGP/x509 no `git verify-tag`,
   barrando programas aprovadores locais e assinaturas não-SSH.
@@ -270,7 +271,7 @@ Para a linhagem do método e a argumentação completa das posições de design,
 - `anvilore ui` mostra o estado recente, o resumo da versão do changelog, as ações de verificação/aplicação/
   reversão e o botão de retomada (`src/ui/servidor/servidor.ts`, `ui/web/main.tsx`).
 - A documentação descreve o código atual da fatia U2 e ainda aguarda revisão humana. A primeira
-  operação real depende da chave pública do dono no arquivo seguranca/assinantes.
+  operação real usa a chave pública do dono no arquivo seguranca/assinantes, a partir da 0.3.0.
 
 ## Estado das chaves fora do GitHub (revogação)
 

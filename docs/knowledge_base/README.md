@@ -1,5 +1,6 @@
 ---
 generated: 2026-10-27
+verified: 2026-10-30
 ---
 
 # Knowledge base do Anvilore
