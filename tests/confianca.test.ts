@@ -46,7 +46,24 @@ describe("confianca.json: formato e validação estrita", () => {
     ["versaoMinima com build", valido({ versaoMinima: "0.3.0+x" })],
     ["versaoMinima com prefixo v", valido({ versaoMinima: "v0.3.0" })],
     ["versaoMinima incompleta", valido({ versaoMinima: "0.3" })],
+    ["versaoMinima com número de 10 dígitos", valido({ versaoMinima: "1234567890.0.0" })],
+    ["versaoMinima com zero à esquerda", valido({ versaoMinima: "01.0.0" })],
+    // Nome repetido: o JSON.parse ficaria com a última ocorrência; o instalar.sh recusa, então o atualizador também tem de recusar.
+    ["repete chaves (a última sem a fingerprint revogada)", `{"formato":1,"chaves":["${FP2}"],"chaves":["${FP}"],"versaoMinima":"0.3.0"}`],
+    ["repete chaves (a primeira só com a fingerprint revogada)", `{"chaves":["${FP}"],"formato":1,"chaves":["${FP2}"],"versaoMinima":"0.3.0"}`],
+    ["repete formato", `{"formato":1,"formato":1,"chaves":["${FP}"],"versaoMinima":"0.3.0"}`],
+    ["repete versaoMinima", `{"formato":1,"chaves":["${FP}"],"versaoMinima":"0.3.0","versaoMinima":"0.4.0"}`],
+    ["repete um nome escrito com escape unicode", `{"formato":1,"chaves":["${FP}"],"versaoMinima":"0.3.0","versaoMinim\u0061":"0.1.0"}`],
+    ["repete um nome dentro de um objeto aninhado", `{"formato":1,"chaves":["${FP}"],"versaoMinima":"0.3.0","x":{"a":1,"a":2}}`],
   ];
+  test("Dado versaoMinima com 9 dígitos por número, Quando valido, Então aceita (mesmo limite dos instaladores)", () => {
+    expect(validarConfianca(valido({ versaoMinima: "999999999.999999999.999999999" })).versaoMinima).toBe("999999999.999999999.999999999");
+  });
+
+  test("Dado um nome repetido, Quando valido, Então o motivo diz que o nome está repetido", () => {
+    expect(() => validarConfianca(`{"formato":1,"chaves":["${FP}"],"chaves":["${FP2}"],"versaoMinima":"0.3.0"}`)).toThrow(/repetid/);
+  });
+
   for (const [caso, texto] of ruins) {
     test(`Dado um documento que ${caso}, Quando valido, Então recusa`, () => {
       expect(() => validarConfianca(texto)).toThrow();
