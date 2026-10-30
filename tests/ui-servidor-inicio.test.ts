@@ -60,7 +60,7 @@ test("Dado a pasta wiki ausente Quando peço /api/inicio Então recebo 200 com d
     fontes: { caminho: string }[];
   };
   expect(corpo.saude.validar.ok).toBe(false);
-  expect(corpo.saude.validar.outrosErros.join(" ")).toMatch(/ENOENT|não existe|no such file/i);
+  expect(corpo.saude.validar.outrosErros.join(" ")).toMatch(/diretorio nao encontrado/i);
   expect(corpo.rascunhos.total).toBe(0);
   expect(corpo.fontes).toEqual([{ caminho: "raw/pessoal/solta.md", area: "pessoal", bytes: 5 }]);
 });

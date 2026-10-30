@@ -42,6 +42,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
+- O Início continua carregando quando `wiki/` não existe: mostra o diagnóstico de saúde, os atalhos e os arquivos de `raw/` sem ingestão.
 - Ao recriar o índice estrutural sem exemplos, `init` e `instalar` não incluem a área nem a página de exemplo. O manifesto da atualização declara os arquivos e esqueletos pessoais que deixam o rastreio na transição N→N+1.
 
 ### Atenção

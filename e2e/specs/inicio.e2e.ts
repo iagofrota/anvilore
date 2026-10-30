@@ -161,7 +161,7 @@ test("[I5-11] Dado a pasta wiki ausente Quando abro o Início Então vejo o diag
   expect((await resposta).status()).toBe(200);
   const saude = page.getByRole("region", { name: "Saúde da wiki" });
   await expect(saude).toBeVisible();
-  await expect(saude).toContainText(/ENOENT|não existe|no such file/i);
+  await expect(saude).toContainText(/diretorio nao encontrado/i);
   await expect(page.getByRole("link", { name: "Ingerir uma fonte" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Revisar rascunhos" })).toBeVisible();
   await expect(page.getByText("Lendo a wiki…")).toHaveCount(0);

@@ -38,6 +38,9 @@ forma síncrona, então a carga a paga uma vez só, e cada carga vê a wiki como
 `GET /api/saude`, que valida na hora. As duas rotas exigem o token e o Host local, como as demais
 (`src/ui/servidor/servidor.ts`).
 
+Se `wiki/` não existe, o Início ainda recebe a resposta normal: o cartão de saúde mostra o diagnóstico da pasta ausente,
+os atalhos continuam disponíveis e as fontes de `raw/` aparecem como sem ingestão (`src/lib/ui-inicio.ts`).
+
 ## O que a Biblioteca mostra
 
 A Biblioteca lista o acervo completo da wiki (`GET /api/biblioteca`, `listarBiblioteca` em `src/lib/ui-biblioteca.ts`):
