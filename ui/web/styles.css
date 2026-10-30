@@ -437,6 +437,7 @@ a.approve-button, a.secondary-button { text-decoration: none; }
 .note-body blockquote { margin: 0; padding: 8px 16px; border-left: 3px solid var(--line-strong); background: var(--subtle); color: var(--fg-2); border-radius: 0 6px 6px 0; }
 a.wl { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 a.wl:hover { opacity: 0.85; }
+.wl.quebrado { color: var(--danger); text-decoration: line-through; text-decoration-style: dotted; }
 
 .note-callout { display: flex; gap: 12px; padding: 12px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--subtle); margin: 6px 0; }
 .note-callout.gap { border-color: var(--line-strong); }

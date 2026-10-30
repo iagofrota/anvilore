@@ -192,6 +192,7 @@ describe("ui-web: PainelDaNota", () => {
     expect(links.some(e => e.props.href === "#/nota/trabalho/concepts/destino.md" && texto(e).includes("Destino"))).toBe(true);
     expect(links.some(e => e.props.href === "#/nota/duplicado.md")).toBe(false);
     expect(texto(arvore)).toContain("duplicado");
+    expect(achar(arvore, e => e.type === "span" && e.props.className === "wl quebrado" && e.props["aria-disabled"] === "true")).toHaveLength(2);
   });
 
   test("renderiza seção de proveniência com fonte bruta", () => {

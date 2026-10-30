@@ -467,7 +467,7 @@ export async function obterNota(
   }
 
   const caminhosPorSlug = new Map<string, string[]>();
-  for (const arq of [caminhoRelativo, ...todosArquivos]) {
+  for (const arq of [caminhoRelativo, ...todosArquivos.filter(arq => arq !== caminhoRelativo)]) {
     const slugDaPagina = basename(arq, ".md");
     const chave = chaveDeNome(slugDaPagina);
     caminhosPorSlug.set(chave, [...(caminhosPorSlug.get(chave) ?? []), arq]);
