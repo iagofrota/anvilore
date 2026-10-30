@@ -184,6 +184,17 @@ Para a linhagem do método e a argumentação completa das posições de design,
 - A tag candidata é buscada sem tags implícitas e verificada por `git verify-tag` com SSH e o arquivo
   de assinantes do kit instalado. Sem o arquivo de assinantes seguranca/assinantes local, a atualização recusa a candidata;
   não há chave pública real versionada nesta entrega. A chave privada não é usada pelo atualizador.
+  O atualizador aceita exclusivamente assinatura SSH (`-----BEGIN SSH SIGNATURE-----`), fixa
+  `gpg.ssh.program=ssh-keygen` e desliga os verificadores OpenPGP/x509 no `git verify-tag`,
+  barrando programas aprovadores locais e assinaturas não-SSH.
+  O `fetch` (`guardaDeRede` em `src/lib/atualizacao.ts`) só abre o protocolo da origem oficial (`GIT_ALLOW_PROTOCOL`), zera o
+  `credential.helper` e não pergunta senha: a configuração global não abre `ext::` antes de a tag ser autenticada.
+  Com a opção interna `anvilore atualizar --assinantes-do-instalador <arquivo>` (o instalador entrega as chaves embutidas dele), o
+  `verify-tag` usa só esse arquivo no lugar do arquivo seguranca/assinantes local; ausente, vazio ou ilegível recusa. O arquivo local
+  não é editado: vem do commit verificado. A opção só vale ao aplicar (com `--verificar`, `--voltar` ou `--estado` é uso inválido,
+  código 2) e não aparece na mensagem de "Uso:". O atualizador não lê variável de ambiente para isso: uma atualização manual ou
+  agendada que herdasse a variável trocaria a âncora por acidente. Alcance: a opção não prova que quem chamou é o instalador (um
+  processo local hostil pode passá-la, assim como poderia trocar o PATH); o ganho é que a âncora não é mais herdada por acidente.
 - O arquivo seguranca/assinantes usa o formato OpenSSH `allowed_signers`, uma entrada por linha:
   `<principal> [opções] <tipo-da-chave> <chave-pública-base64> [comentário]`. Para as tags Git, a entrada
   deve incluir `namespaces="git"` nas opções e o principal deve corresponder ao e-mail de assinatura Git
@@ -260,3 +271,16 @@ Para a linhagem do método e a argumentação completa das posições de design,
   reversão e o botão de retomada (`src/ui/servidor/servidor.ts`, `ui/web/main.tsx`).
 - A documentação descreve o código atual da fatia U2 e ainda aguarda revisão humana. A primeira
   operação real depende da chave pública do dono no arquivo seguranca/assinantes.
+
+## Instalador do Linux (instalar.sh)
+
+- O instalador é um script bash único (`instalador/instalar.sh`) e a release embute nele o manifesto de dependências e
+  a chave pública (`scripts/embutir-instalador.ts`). Motivo: ele precisa dos dois antes de clonar o kit, e a única
+  confiança inicial é a do HTTPS do GitHub ao baixar o script; daí em diante só entra o que o dono assinou.
+- Sem chave embutida válida o script recusa instalar. Não há chave de mentira no modelo do repositório.
+- Só vale assinatura SSH. O `git verify-tag` escolhe o verificador pelo tipo de assinatura que a tag traz; por isso o
+  script exige o bloco SSH e desliga os programas de gpg e x509, para o chaveiro da pessoa nunca entrar na decisão.
+- Respostas por /dev/tty e `ANVILORE_SEM_PERGUNTAS=1`; sem terminal usa os padrões. Instalar o Claude Code é sempre
+  uma pergunta (D7), nunca padrão silencioso.
+- O Bun baixado vai para ~/.bun/bin e ganha um link em ~/.local/bin/bun, porque os hooks chamam `bun` pelo PATH
+  e uma sessão aberta antes do instalador não enxerga o PATH novo (prova U0, item 16).

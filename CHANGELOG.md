@@ -23,6 +23,20 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 ### Security
 
 - Leitura de notas na interface web valida contenção por caminho real prévio, compõe flags de proteção (O_NOFOLLOW e O_NONBLOCK) de forma independente e trata raiz ausente como inexistência, evitando travamento em FIFOs e vazamentos antes da verificação TOCTOU (dev/ino).
+- O atualizador exige exclusivamente assinatura SSH na tag candidata (`-----BEGIN SSH SIGNATURE-----`), fixa `gpg.ssh.program=ssh-keygen` e desabilita programas OpenPGP e x509 (`gpg.program`, `gpg.openpgp.program`, `gpg.x509.program` apontados para comando inexistente no `verify-tag`), impedindo que tags com assinaturas OpenPGP, x509 ou verificadores SSH customizados no `.gitconfig` aprovem tags não confiáveis.
+- O `fetch` do atualizador (e qualquer `ls-remote`, `clone` ou `pull`) roda com `GIT_ALLOW_PROTOCOL` só do protocolo da origem oficial (https; ssh se o clone foi feito por ssh), `credential.helper` zerado, `GIT_ASKPASS` vazio e `GIT_TERMINAL_PROMPT=0`: um `protocol.ext.allow=always` com `url.<ext::programa>.insteadOf` na configuração global não executa código antes da assinatura. A configuração global continua valendo no resto (proxy, por exemplo).
+- O atualizador aceita o arquivo de chaves confiáveis que o instalador entrega pela opção interna `--assinantes-do-instalador <arquivo>` e, com ele, confere a tag **só** contra esse arquivo (não soma com o `seguranca/assinantes` da pasta). Assim uma instalação que ficou para trás na troca de chave recebe a versão nova ao rodar o instalador de novo, sem editar arquivo do kit. Arquivo ausente, vazio ou ilegível recusa a versão com mensagem simples; nunca volta ao arquivo local. O atualizador **não lê nenhuma variável de ambiente** para isso: uma atualização manual ou agendada nunca troca as chaves por herança do ambiente. A opção só vale ao aplicar (junto de `--verificar`, `--voltar` ou `--estado` é uso inválido, código 2). Alcance: a opção não prova que quem chamou é o instalador (um processo local hostil pode passá-la, assim como poderia trocar o `PATH`); o ganho é que a âncora de confiança deixa de ser herdada por acidente.
+- `instalar.sh` não grava nenhum arquivo da candidata antes de autenticar a tag: o clone é `--no-checkout`, os hooks ficam
+  desligados no staging (`core.hooksPath` vazio) e o checkout do commit verificado só vem depois da assinatura. Assim
+  filtros do git (como o do git-lfs) e hooks da configuração global não rodam sobre conteúdo não autenticado.
+- `instalar.sh` fixa o verificador SSH (`gpg.ssh.program=ssh-keygen`) no `verify-tag`: um programa aprovador na
+  configuração global do git não consegue mais aceitar uma tag assinada por chave fora dos assinantes.
+- `instalar.sh` só deixa o git falar com a rede (`ls-remote` e `clone`) pelo protocolo da origem: `GIT_ALLOW_PROTOCOL` vale mais
+  que qualquer `protocol.<nome>.allow` da configuração global, então um `url.<ext::programa>.insteadOf` não executa nada
+  antes da assinatura. O `credential.helper` é zerado e não há pergunta de senha nem de terminal nessas chamadas.
+- `instalar.ps1`: `ls-remote` e `clone` passam por `AnvExecutarRede`: `GIT_ALLOW_PROTOCOL` só com o protocolo da origem, `credential.helper` e `core.askPass` zerados, `GIT_ASKPASS` apontando para `false` e `GIT_TERMINAL_PROMPT=0`, tudo só durante a chamada (o ambiente volta ao que era). Um `protocol.ext.allow=always` com `url.<ext::programa>.insteadOf` na configuração global não executa nada; o instalador recusa (código 3). Ao reinstalar numa pasta já instalada, entrega ao atualizador as chaves embutidas pela opção `--assinantes-do-instalador <arquivo>` (só nessa chamada; **não** por variável de ambiente, que uma atualização manual ou agendada herdaria sem querer). Alcance: a opção não prova que quem chamou é o instalador (um processo local hostil pode passá-la, assim como poderia trocar o `PATH`); o ganho é que a âncora não é mais herdada por acidente. Se o atualizador da pasta for de uma versão antiga, que não conhece a opção (responde com o uso, código 2), o instalador para com uma mensagem simples ("A pasta tem uma versão antiga do Anvilore que não sabe receber as chaves do instalador; nada foi mudado"), com saída diferente de zero, sem tocar HEAD nem arquivos.
+- Rodar o `instalar.sh` numa pasta já instalada passa pelo atualizador do kit, que agora fixa o verificador SSH: um `gpg.ssh.program` aprovador na configuração global não faz a reinstalação aplicar uma tag assinada por chave fora dos assinantes (`tests/instalar-sh-reinstalacao.test.ts`).
+- Ao rodar o `instalar.sh` numa pasta já instalada, ele entrega ao atualizador as chaves de assinatura embutidas nele pela opção `--assinantes-do-instalador <arquivo>` (só nessa chamada; **não** por variável de ambiente, que uma atualização manual ou agendada herdaria sem querer): uma instalação que ficou para trás na troca de chave passa a receber a versão nova, sem editar o `seguranca/assinantes` da pasta. Alcance: a opção não prova que quem chamou é o instalador (um processo local hostil pode passá-la, assim como poderia trocar o `PATH`); o ganho é que a âncora não é mais herdada por acidente. Se o atualizador da pasta for de uma versão antiga, que não conhece a opção (responde com o uso, código 2), o instalador para com uma mensagem simples ("A pasta tem uma versão antiga do Anvilore que não sabe receber as chaves do instalador; nada foi mudado"), com saída diferente de zero, sem tocar HEAD nem arquivos.
 
 ### Fixed
 
@@ -46,6 +60,17 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Added
 
+- `instalador/instalar.sh`: instalador do Linux (x64 e arm64), base do macOS. Instala o que falta (git, Bun e rg, com
+  SHA-256 conferido contra `instalador/dependencias.json`), baixa a última release, **só aceita a tag se a assinatura
+  SSH bater com a chave embutida no próprio script**, liga os agentes que a pessoa tem, grava o estado da atualização
+  e roda o `doctor`. Responde por /dev/tty (`curl | bash`), aceita `ANVILORE_SEM_PERGUNTAS=1` e `ANVILORE_ORIGEM`, termina
+  "parcial" sem agente e continua sem rg. Rodar de novo numa pasta instalada só confere e atualiza. O atalho do menu é
+  da próxima fatia (`criar_atalho` ainda não faz nada).
+- `instalador/dependencias.json`: manifesto de Bun, rg e PortableGit por plataforma (URL oficial e SHA-256 conferidos).
+- `scripts/embutir-instalador.ts`: gera o `instalar.sh` da release com o manifesto e a chave pública embutidos e, com
+  `--conferir`, prova que a cópia embutida é igual aos arquivos. Sem chave válida não gera.
+- Job `instalar-linux` (`.github/workflows/instalar-linux.yml`) e `scripts/provar-instalar-linux.sh`: instalação do zero
+  e reexecução num HOME vazio, em Linux x64 e arm64, com o manifesto real.
 - Procedimento de release na knowledge base (`docs/knowledge_base/release.md`): preparar a versão, assinar a tag com SSH, o que o kit instalado exige para aceitá-la, release ruim e rotação da chave, mais o texto da skill `/release` (`docs/release/SKILL.md`), que para antes de cada ação pública e pede o "sim" do dono.
 - `anvilore atualizar [--verificar | --voltar | --estado]`: verifica releases publicadas, compara SemVer/canal,
   confere a assinatura SSH com a confiança local — e que o nome assinado da tag é a versão anunciada, sem
@@ -126,6 +151,16 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
   abertura dos caminhos citados. Divergências ficam explícitas no quadro, sem mudar a busca.
   Registra primeiro o PATH original; se faltar `rg`, usa uma versão fixa conferida por SHA-256
   apenas no diretório temporário do ensaio e a remove ao terminar.
+- `instalador/instalar.ps1`: instalador do Windows 10/11 x64, sem administrador. Usa o Git da pessoa ou baixa o
+  PortableGit, instala Bun e rg com SHA-256 conferido contra `instalador/dependencias.json`, baixa a última release,
+  **só aceita a tag se a assinatura SSH bater com a chave embutida no próprio script**, liga os agentes, grava o estado
+  da atualização, roda o `doctor` e deixa o resultado em `$LASTEXITCODE` (0 completo, 10 sem agente, 1 falhou, 2, 3 e 4
+  para sistema, assinatura e download). Não pede administrador, não chama `exit`, grava o `PATH` do usuário sem expandir
+  `%VARIÁVEL%` (com `reg.exe` em Constrained Language Mode), clona com `core.autocrlf=false` e escreve UTF-8. O atalho do
+  Menu Iniciar é da próxima fatia (`AnvCriarAtalho` ainda não faz nada).
+- `instalar.ps1`: a candidata é clonada sem checkout e sem hooks, e seus arquivos só são gravados depois de a assinatura SSH passar; o `verify-tag` fixa `gpg.ssh.program=ssh-keygen` e desliga gpg/x509 (filtros, hooks e verificadores da configuração global do git da pessoa não ajudam uma tag falsa).
+- `scripts/embutir-instalador.ts` também embute o manifesto e a chave no `instalar.ps1` (`--modelo instalador/instalar.ps1`).
+- Job `instalar-ps1` no CI (`windows-latest`): testes Pester das funções e prova de ponta a ponta num perfil vazio.
 
 ### Changed
 

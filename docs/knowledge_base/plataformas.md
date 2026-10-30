@@ -226,11 +226,127 @@ chamada Raw seria bloqueada (falha fechada, de propósito). O hook
 (`src/comandos/hook-proteger-raw.ts`) usa `estaEmRaw`: Raw/a.md é bloqueado em qualquer sistema,
 e no Linux isso é falso positivo aceito. Veja [governanca.md](governanca.md).
 
+## Instalador do Linux (instalar.sh)
+
+Fatia U3 dos instaladores. O script (`instalador/instalar.sh`) instala o kit em Linux x64 e arm64 e é a base
+do macOS (que ainda recusa com mensagem simples). Ele faz os passos 1 a 9, 11 e 12 do plano: confere o sistema,
+instala o que falta (git, `ssh-keygen`, `unzip`, Bun e rg), baixa a última release, **confere a assinatura da tag**,
+liga os agentes que a pessoa tem, grava o estado da atualização, roda o `doctor` e termina com três linhas: o
+que foi instalado, onde está e o próximo passo. O atalho (passo 10) é da fatia U6: o script só tem a função
+`criar_atalho`, vazia, com o contrato escrito no comentário.
+
+Onde cada coisa fica (Linux):
+
+```
+~/Anvilore/                    kit e dados (clone da tag assinada); registro em .anvilore/instalacao.log
+~/.bun/bin/bun                 só se o Bun do sistema faltava ou era mais velho (marca bunGerenciado no estado)
+~/.local/bin/bun               link para o de cima, para sessões novas acharem o bun
+~/.local/bin/rg                só se o rg faltava (zip/tar do manifesto, SHA-256 conferido)
+```
+
+- **Manifesto e chave dentro do script.** `instalador/dependencias.json` (versão, URL oficial e SHA-256 de Bun, rg
+  e PortableGit por plataforma) e a chave pública (arquivo seguranca/assinantes, ainda sem chave real) vão
+  embutidos no instalar.sh pela release: `scripts/embutir-instalador.ts` gera o script e, com `--conferir`,
+  prova que a cópia embutida é igual aos arquivos. O instalar.sh do repositório é só o modelo: sem manifesto e sem
+  chave válida ele recusa instalar e explica. O manifesto traz uma entrada por linha para o `awk` do script ler
+  (não há `jq` nem Python garantidos); `tests/instalador-manifesto.test.ts` trava esse formato.
+- **Assinatura.** O clone é `--no-checkout` e os hooks ficam desligados (`core.hooksPath` vazio) até a assinatura passar: nenhum
+  arquivo da candidata é gravado, e nenhum filtro do git ou hook da configuração global roda sobre ela. O script confere:
+  que a tag é anotada, que tem bloco de assinatura SSH (OpenPGP e x509 são recusados e os programas de gpg ficam
+  desligados), que `git verify-tag` aprova com a chave embutida (com `gpg.ssh.program=ssh-keygen` fixado no comando, para a configuração global não escolher o verificador), que o nome assinado é o da tag, que ela aponta
+  direto para um commit e que o `HEAD` baixado é esse commit. Só então faz o `checkout` desse commit. Falhou: apaga o que baixou, não liga agente nenhum
+  e diz por quê. O mesmo critério do atualizador (`src/lib/atualizacao.ts`).
+- **Transporte.** `ls-remote` e `clone` rodam em `git_rede`: `GIT_ALLOW_PROTOCOL` só com o protocolo da origem (https; `file` ou `ssh` quando a origem é trocada nos testes), `credential.helper` zerado, `GIT_ASKPASS` vazio e `GIT_TERMINAL_PROMPT=0`. A configuração global não abre `ext::` nem `fd::` antes da assinatura, e o resto dela (proxy, por exemplo) continua valendo.
+- **Reinstalação.** Numa pasta já instalada o script roda o atualizador dela, passando as chaves embutidas pela opção interna `--assinantes-do-instalador <arquivo>` (arquivo temporário, só nessa chamada; não por variável de ambiente): o atualizador confere a tag contra elas e não contra o arquivo seguranca/assinantes antigo da pasta, que não conhece uma chave nova. Nada é gravado na pasta por causa disso. A opção não prova que quem chamou é o instalador (um processo local hostil pode passá-la, assim como poderia trocar o PATH); o ganho é que a âncora não é mais herdada por acidente numa atualização manual ou agendada. Se o atualizador da pasta é antigo e devolve código 2 ("Uso:") para a opção, o instalador para com uma mensagem simples e saída diferente de zero, sem mexer na pasta.
+- **Perguntas.** Respostas vêm de /dev/tty, porque `curl | bash` ocupa a entrada. Sem terminal, ou com
+  `ANVILORE_SEM_PERGUNTAS=1`, vale a resposta padrão (instalar pacotes que faltam: sim; instalar o Claude Code:
+  não, salvo `ANVILORE_INSTALAR_CLAUDE=sim`). `ANVILORE_ESPERAR_ENTER=1` faz o script esperar Enter no fim, para a
+  janela de um atalho com `Terminal=true` não fechar antes de a pessoa ler o resumo.
+- **Variáveis para teste e QA:** `ANVILORE_ORIGEM` (clonar de um repositório local), `ANVILORE_VERSAO` (uma tag
+  específica) e `ANVILORE_PASTA`. O `ANVILORE_DESTINO` do kit não é usado aqui, para não confundir a pasta do kit com a
+  pasta de uma wiki.
+- **Pasta que já é instalação** (tem `.git`, `AGENTS.md`, `src/cli.ts`, `skills/` e o estado em
+  .anvilore/atualizacao.json) vira "atualizar": roda `anvilore atualizar` e `instalar` de novo, sem sobrescrever o
+  que é da pessoa nem as escolhas gravadas (modo, canal, commit automático desligado) e não recria a área da wiki que
+  ela apagou; só a primeira instalação cria as áreas padrão. Se a primeira rodada caiu no meio, a seguinte a termina
+  como instalação nova (marcador instalacao-em-andamento). Pasta que existe e é outra coisa: pergunta outro nome, ou
+  para (sem terminal), sem tocar em nada.
+- **Sem agente:** o kit fica instalado, o `doctor` sai 1 e o resultado é "parcial", com exit 0. **Sem rg:** a
+  instalação continua e o resumo avisa que a busca da skill `query` fica indisponível.
+- **Pacotes do sistema:** `git`, `curl`, `ssh-keygen` (pacote `openssh-client`, `openssh-clients` ou `openssh`) e
+  `unzip` (só se o Bun precisa ser baixado). Falta algum: pergunta e usa `sudo` com `apt`, `dnf`, `pacman` ou
+  `zypper`. O pacote `.deb`/`.rpm` da fatia U9 deve declarar `openssh-client` como dependência, além do plano.
+
+Provas: `tests/instalar-sh.test.ts`, `tests/instalar-sh-funcoes.test.ts` (inclui pseudoterminal) e
+`tests/instalar-sh-kit-real.test.ts` (kit de verdade, com rede para o npm), todos em HOME vazio e com tag assinada
+por chave descartável. **Não provado aqui:** `curl | bash` contra o GitHub real (a primeira release assinada ainda não
+existe), `sudo` e gerenciadores de pacote reais (os testes usam substitutos), o login do Claude Code, e distribuições
+que não sejam as do CI.
+
+## Instalador do Windows (instalar.ps1)
+
+Fatia U4 dos instaladores. O script (`instalador/instalar.ps1`) instala o kit no Windows 10/11 x64 **sem administrador**
+e faz os passos 1 a 9, 11 e 12 do plano, na mesma ordem do `instalador/instalar.sh`: confere o sistema; usa o Git da pessoa (2.34 ou
+mais novo e com o bash do Git for Windows) ou baixa o PortableGit para `%LOCALAPPDATA%\Anvilore\git`; garante o Bun
+(`%USERPROFILE%\.bun\bin`) e o rg (`%LOCALAPPDATA%\Anvilore\bin`) com SHA-256 do manifesto; baixa a última release,
+**confere a assinatura da tag**; liga os agentes, grava o estado da atualização (o arquivo atualizacao.json, na pasta .anvilore), roda o `doctor` e termina com o resumo.
+O passo 10 (atalhos) é da fatia U6: o script só tem `AnvCriarAtalho`, que não cria nada e devolve `$false` (igual ao
+`criar_atalho` do `instalador/instalar.sh`). Não existe `abrir.ps1` ainda.
+
+- **Como chamar.** `irm <url> | iex` ou `powershell -NoProfile -Command "& ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 'instalar.ps1')))"`.
+  Não use `-ExecutionPolicy Bypass -File`: uma política de grupo vence o parâmetro (PROVA-U0 item 3). O script **nunca chama
+  `exit`** (num `irm | iex` fecharia o terminal da pessoa); o resultado fica em `$LASTEXITCODE`: 0 completo, 10 parcial (sem
+  agente), 1 falhou, 2 sistema não suportado, 3 assinatura que não confere, 4 download de dependência falhou ou não confere.
+- **Acentos.** O arquivo é UTF-8 **sem BOM** e quem o lê usa `-Encoding UTF8`. O Windows PowerShell 5.1 lê arquivo sem BOM
+  como ANSI, e os bytes `0x84` e `0x91`-`0x94` viram aspas tipográficas, que o PowerShell trata como aspas de verdade: o
+  primeiro CI deste instalador quebrou assim, por causa de um travessão. Por isso o script não usa travessão nem `Ó`/`Ô`
+  (`tests/instalar-ps1.test.ts` trava isso) e define `[Console]::OutputEncoding` como UTF-8 (com `chcp 65001` quando o
+  modo de linguagem não deixa).
+- **Constrained Language Mode.** O script lê `$ExecutionContext.SessionState.LanguageMode`; se não for `FullLanguage`,
+  grava o `PATH` e as variáveis do usuário com `reg.exe` (os métodos .NET do registro e `SetEnvironmentVariable` ficam
+  bloqueados). No modo normal ele grava no registro mantendo o tipo `REG_EXPAND_SZ` e **sem expandir** `%VARIÁVEL%` do
+  `PATH` da pessoa, e avisa o Explorer da mudança. O `PATH` do processo também recebe as pastas, para os passos seguintes.
+- **Origem e assinatura.** `ANVILORE_ORIGEM` troca a origem (CI e QA usam um repositório local); `ANVILORE_VERSAO`, `ANVILORE_PASTA`,
+  `ANVILORE_INSTALAR_CLAUDE` e `ANVILORE_ESPERAR_ENTER` têm os mesmos nomes do Linux. O clone usa `-c core.autocrlf=false` e
+  vai primeiro para `Anvilore.novo`; só depois de conferido é movido para o lugar. A conferência é a do `instalador/instalar.sh`: a tag
+  é anotada, tem bloco `-----BEGIN SSH SIGNATURE-----` (OpenPGP e x509 são recusados), `git verify-tag` aprova com a chave
+  embutida, o nome assinado é o da tag, ela aponta para um commit e o commit é o do `HEAD`. Falhou: apaga o que baixou e
+  não liga agente nenhum. Correções da revisão de segurança (A1 e A2), no mesmo desenho do `instalador/instalar.sh`: o clone é
+  `--no-checkout` e todo comando git do staging leva `core.hooksPath` para uma pasta vazia, então nenhum filtro (smudge,
+  git-lfs) nem hook da configuração global da pessoa roda sobre a candidata antes da assinatura; só depois dela vem o
+  `checkout --force --detach` do commit verificado. O `verify-tag` fixa `gpg.format=ssh`, `gpg.ssh.program=ssh-keygen`,
+  `gpg.program=false`, `gpg.openpgp.program=false` e `gpg.x509.program=false`: um `gpg.ssh.program` aprovador no
+  `.gitconfig` não aprova mais a tag de uma chave que não é a embutida. Continua pelo `PATH` (A3, backlog).
+  O transporte (A5) também é fixado: `ls-remote` e `clone` rodam com `GIT_ALLOW_PROTOCOL` só do protocolo da origem, helper de credencial e askpass zerados e sem prompt (o ambiente volta ao valor anterior ao fim da chamada); numa pasta já instalada o instalador passa as chaves embutidas ao atualizador pela opção interna `--assinantes-do-instalador <arquivo>` (não por variável de ambiente; a opção não prova quem chamou, só evita que a âncora seja herdada por acidente numa atualização manual ou agendada). Se o atualizador da pasta é antigo e devolve código 2 ("Uso:") para a opção, o instalador para com mensagem simples e saída diferente de zero, sem mexer na pasta.
+- **Manifesto e chave.** Vêm embutidos pela release (`bun scripts/embutir-instalador.ts --modelo instalador/instalar.ps1`,
+  e `--conferir` prova que a cópia é igual aos arquivos). O `instalar.ps1` do repositório é só o modelo: sem chave embutida
+  ele **recusa instalar** (código 3). `ANVILORE_MANIFESTO` e `ANVILORE_ASSINANTES` (arquivos) só valem com a região
+  correspondente vazia; numa release são ignorados, e há teste para isso.
+- **Sem agente.** Nenhuma CLI no `PATH` e a oferta do Claude Code recusada (ou modo sem perguntas): o kit fica instalado e o
+  código é 10, com "instale um agente e rode o instalador de novo". Reinstalar numa pasta já instalada só confere e roda
+  `atualizar`, sem sobrescrever nada.
+- **Bun gerenciado.** Se o instalador pôs o Bun, grava `bunGerenciado: true` no estado da atualização (o atualizador só mexe
+  no Bun nesse caso); um marcador (o arquivo bun-gerenciado.txt, em %LOCALAPPDATA%\Anvilore) guarda isso se a instalação parar no meio.
+
+Provas (job `instalar-ps1` do CI, `windows-latest`, Windows PowerShell 5.1): `tests/instalar-ps1/instalar.Tests.ps1` (funções,
+Pester) e `tests/instalar-ps1/e2e.Tests.ps1` (o script de verdade, num perfil vazio com espaço no nome, contra um repositório
+local com tag assinada por chave descartável criada no teste, usando o instalador **embutido pelo mesmo mecanismo da
+release**). Os cenários cobertos: instalação do zero sem Git, Bun nem rg (baixa e confere os três), reinstalar sem mexer em
+`raw/`, tag sem assinatura, de outra chave, com o nome trocado e com assinatura OpenPGP falsa (com um `gpg` de mentira que
+aprovaria tudo), filtro de checkout e hook na configuração global, `gpg.ssh.program` aprovador (A1 e A2; cada um provado
+com uma mutação que desfaz a correção e derruba o teste), instalador sem chave, `ANVILORE_ASSINANTES` ignorado numa release, sem agente, hash adulterado, versão e
+pasta pedidas. `tests/instalar-ps1.test.ts` e `tests/instalador-embutir-ps1.test.ts` (Bun) guardam o contrato estático e o
+embutir. **Não provado:** execução como usuário sem administrador (o runner é administrador; o plano da U0 já provou a
+extração e o uso sem admin), duplo clique e SmartScreen, Explorer e terminais já abertos com o `PATH` novo, Constrained
+Language Mode **real** (AppLocker/WDAC; os testes só forçam o caminho do `reg.exe`), CPU sem AVX2 (o Bun "baseline" só é
+tentado se o normal não abrir), o instalador oficial do Claude Code, `irm | iex` contra o GitHub real (a primeira release
+assinada ainda não existe) e a janela real com acentos.
+
 ## O que esta página não afirma
 
 - Que o CI da Onda 1 esteja verde nos três sistemas; só a fundação tem execução confirmada acima.
 - Qualquer número de latência no Windows ou no macOS; só o Linux local foi medido.
-- Que o instalador funcione fora do Linux.
+- Que o instalador funcione fora do Linux e do Windows x64 (e, no Windows, só o que o CI do `instalar-ps1` provou, listado acima).
 
 Quando o CI rodar e provar ou desmentir cada risco, ajuste a linha correspondente e peça a revisão
 por pessoa (veja [contribuindo.md](contribuindo.md)).

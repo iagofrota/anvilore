@@ -31,6 +31,8 @@ export type DependenciasAtualizacao = {
   versaoBun?: () => Promise<string | undefined>;
   // Atualiza o Bun instalado pelo Anvilore para pelo menos `minima` (D9). Sem ele, a tag que pede Bun mais novo é recusada.
   atualizarBun?: (raiz: string, minima: string) => Promise<number>;
+  // Arquivo de chaves confiáveis entregue pelo instalador (`--assinantes-do-instalador`). Só vale ao aplicar; veja verificarAssinaturaTag.
+  assinantesDoInstalador?: string;
 };
 
 type EstadoAtualizador = "ocioso" | "baixada" | "aplicando" | "revertendo" | "recusada" | "reversao-incompleta" | "migracao-incompleta";
@@ -127,9 +129,30 @@ const codigoFs = (e: unknown) => (e as NodeJS.ErrnoException).code;
 const ausente = (e: unknown) => codigoFs(e) === "ENOENT" || codigoFs(e) === "ENOTDIR";
 const motivo = (e: unknown) => e instanceof Error ? e.message : String(e);
 
+// Chamadas que falam com a rede ANTES de a assinatura da tag passar. Valem o que o atualizador decide, não a configuração
+// global da pessoa: GIT_ALLOW_PROTOCOL vence qualquer protocol.<nome>.allow (um protocol.ext.allow=always deixaria um
+// `url.<ext::programa>.insteadOf` executar código), o helper de credencial é zerado e nenhum programa de senha nem
+// prompt de terminal é chamado. Só o protocolo da origem oficial (https; ssh se a pessoa clonou por ssh). A config
+// global continua valendo no resto (proxy em http.proxy, por exemplo).
+const VERBOS_DE_REDE = new Set(["fetch", "ls-remote", "clone", "pull"]);
+const ORIGENS_SSH = new Set(["git@github.com:iagofrota/anvilore.git", "ssh://git@github.com/iagofrota/anvilore.git"]);
+export function guardaDeRede(args: string[], env: NodeJS.ProcessEnv, origem?: string): { args: string[]; env: NodeJS.ProcessEnv } {
+  if (!VERBOS_DE_REDE.has(args[0] ?? "")) return { args, env };
+  return {
+    args: ["-c", "credential.helper=", "-c", "core.askPass=", ...args],
+    env: { ...env, GIT_ALLOW_PROTOCOL: origem !== undefined && ORIGENS_SSH.has(origem) ? "ssh" : "https", GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" },
+  };
+}
+
 // Sem `trim`: a saída de `status`/`diff -z` começa com caracteres significativos.
-function execPadrao(args: string[], cwd: string) {
-  const p = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+// `env: process.env` explícito: sem ele o Bun não repassa ao git o que o processo mudou em process.env depois de subir.
+export function execPadrao(args: string[], cwd: string) {
+  // O valor CRU de remote.origin.url (o `get-url` expandiria um insteadOf) decide o protocolo permitido.
+  const origem = VERBOS_DE_REDE.has(args[0] ?? "")
+    ? Bun.spawnSync(["git", "-C", cwd, "config", "--get", "remote.origin.url"], { stdout: "pipe", stderr: "pipe", env: process.env }).stdout.toString().trim()
+    : undefined;
+  const g = guardaDeRede(args, process.env, origem);
+  const p = Bun.spawnSync(["git", "-C", cwd, ...g.args], { stdout: "pipe", stderr: "pipe", env: g.env });
   return { codigo: p.exitCode, saida: `${p.stdout.toString()}${p.stderr.toString()}` };
 }
 function erro(assunto: string, detalhe: string) { return new Error(`${assunto}: ${detalhe}`); }
@@ -604,16 +627,38 @@ async function bunExigido(raiz: string, commit: string, tag: string, exec: Exec,
 }
 
 // `objeto`: o id já resolvido de refs/tags/<tag>, para que o objeto verificado seja o mesmo lido depois.
-export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = execPadrao, objeto: string = tag): string | undefined {
-  const allow = join(raiz, "seguranca/assinantes");
+//
+// O instalador pode entregar o arquivo de chaves confiáveis da própria execução pela opção `--assinantes-do-instalador`: numa
+// pasta que ficou para trás na troca de chave, o seguranca/assinantes local só conhece a chave antiga. Com ele, vale ESSE
+// arquivo no lugar do local (não se somam); ausente, vazio ou ilegível recusa, nunca cai de volta no local. O ambiente
+// NÃO é lido: uma atualização manual ou agendada que herdasse uma variável trocaria a âncora de confiança por acidente.
+// A opção não prova quem a passou (um processo local hostil também poderia); o ganho é não herdá-la sem querer.
+export const OPCAO_ASSINANTES_DO_INSTALADOR = "--assinantes-do-instalador";
+export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = execPadrao, objeto: string = tag, doInstalador?: string): string | undefined {
+  const allow = doInstalador === undefined ? join(raiz, "seguranca/assinantes") : doInstalador === "" ? "" : resolve(doInstalador);
   let tamanho: number;
+  const semChaves = `o instalador não entregou as chaves confiáveis (arquivo ausente, vazio ou ilegível); a versão ${tag} foi recusada e nada mudou. Rode o instalador de novo.`;
   try { const st = statSync(allow); if (!st.isFile()) throw Object.assign(new Error("não é arquivo"), { code: "EISDIR" }); tamanho = st.size; }
   catch (e) {
+    if (doInstalador !== undefined) return semChaves;
     if (codigoFs(e) === "ENOENT") return `seguranca/assinantes ausente; tag candidata recusada. Configure no kit instalado (antes da atualização) uma linha OpenSSH allowed_signers com principal igual ao e-mail de assinatura Git, opção namespaces="git" e chave pública SSH aprovada; veja docs/knowledge_base/decisoes.md.`;
     return "seguranca/assinantes ilegível; tag candidata recusada. Confira permissões e formato OpenSSH allowed_signers; veja docs/knowledge_base/decisoes.md.";
   }
+  if (tamanho === 0 && doInstalador !== undefined) return semChaves;
   if (tamanho === 0) return `seguranca/assinantes vazio; tag candidata recusada. Configure no kit instalado (antes da atualização) uma linha OpenSSH allowed_signers com principal igual ao e-mail de assinatura Git, opção namespaces="git" e chave pública SSH aprovada; veja docs/knowledge_base/decisoes.md.`;
-  const r = exec(["-c", "gpg.format=ssh", "-c", `gpg.ssh.allowedSignersFile=${allow}`, "verify-tag", objeto], raiz);
+  const cat = exec(["cat-file", "tag", objeto], raiz);
+  if (cat.codigo !== 0 || !cat.saida.split(/\r?\n/).includes("-----BEGIN SSH SIGNATURE-----")) {
+    return `git verify-tag recusou a tag ${tag}: a tag não tem assinatura SSH. Confira o formato de seguranca/assinantes, o principal (e-mail de assinatura Git) e a chave pública ancorada no kit instalado antes da atualização.`;
+  }
+  const r = exec([
+    "-c", "gpg.format=ssh",
+    "-c", "gpg.ssh.program=ssh-keygen",
+    "-c", "gpg.program=anvilore-sem-gpg",
+    "-c", "gpg.openpgp.program=anvilore-sem-gpg",
+    "-c", "gpg.x509.program=anvilore-sem-gpg",
+    "-c", `gpg.ssh.allowedSignersFile=${allow}`,
+    "verify-tag", objeto,
+  ], raiz);
   return r.codigo === 0 ? undefined : `git verify-tag recusou a tag ${tag}: assinatura inválida ou signatário desconhecido. Confira o formato de seguranca/assinantes, o principal (e-mail de assinatura Git) e a chave pública ancorada no kit instalado antes da atualização; a chave da candidata não é confiável. ${r.saida.trim()}`;
 }
 // `verify-tag` só prova que o objeto foi assinado; não que o NOME assinado é o da ref. Um espelho pode publicar
@@ -932,7 +977,7 @@ export async function atualizar(acao: "verificar" | "voltar" | "estado" | "autom
     let assinada: ReturnType<typeof identidadeDaTag>;
     try {
       assinada = ref.codigo !== 0 || !COMMIT.test(objeto) ? `a tag ${release.tag} não existe depois do fetch; recusada.`
-        : verificarAssinaturaTag(raiz, release.tag, exec, objeto) ?? identidadeDaTag(raiz, release.tag, exec, objeto);
+        : verificarAssinaturaTag(raiz, release.tag, exec, objeto, acao === "aplicar" ? deps.assinantesDoInstalador : undefined) ?? identidadeDaTag(raiz, release.tag, exec, objeto);
     } catch (e) { await devolverRef(); throw e; }
     const bad = typeof assinada === "string" ? assinada
       : assinada.versao !== release.versao ? `a release anuncia ${release.versao}, mas a tag assinada é ${assinada.versao}; recusada.`
@@ -953,8 +998,17 @@ export async function atualizar(acao: "verificar" | "voltar" | "estado" | "autom
 }
 
 export async function comandoAtualizar(args: string[], deps: DependenciasAtualizacao = {}): Promise<number> {
-  const modos = args.filter(a => a.startsWith("--"));
-  if (args.some(a => !["--verificar", "--voltar", "--estado"].includes(a)) || modos.length > 1) { console.error("Uso: anvilore atualizar [--verificar | --voltar | --estado]"); return 2; }
+  const uso = () => { console.error("Uso: anvilore atualizar [--verificar | --voltar | --estado]"); return 2; };
+  // A opção interna (valor em seguida) sai da lista antes da conferência dos modos; só vale ao aplicar.
+  const resto: string[] = [];
+  let assinantes: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] !== OPCAO_ASSINANTES_DO_INSTALADOR) { resto.push(args[i]!); continue; }
+    if (assinantes !== undefined || i + 1 >= args.length || args[i + 1]!.startsWith("--")) return uso();
+    assinantes = args[++i]!;
+  }
+  const modos = resto.filter(a => a.startsWith("--"));
+  if (resto.some(a => !["--verificar", "--voltar", "--estado"].includes(a)) || modos.length > 1 || (assinantes !== undefined && modos.length)) return uso();
   const acao = modos[0] === "--voltar" ? "voltar" : modos[0] === "--estado" ? "estado" : modos[0] === "--verificar" ? "verificar" : "aplicar";
-  try { console.log(await atualizar(acao, deps)); return 0; } catch (e) { console.error(`atualizar: ${(e as Error).message}`); return 1; }
+  try { console.log(await atualizar(acao, assinantes === undefined ? deps : { ...deps, assinantesDoInstalador: assinantes })); return 0; } catch (e) { console.error(`atualizar: ${(e as Error).message}`); return 1; }
 }
