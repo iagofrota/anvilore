@@ -204,6 +204,11 @@ describe("instalar.ps1: estado das chaves no site (decisão 2 do parecer de rele
     expect(busca).toContain("ContentLength");
     // O tempo total (não só cada leitura) tem teto de 15 s.
     expect(busca).toContain("Stopwatch");
+    expect(busca).toContain("$restante = 15000 - [int][Math]::Ceiling($relogio.Elapsed.TotalMilliseconds)");
+    expect(busca).toContain("$fluxo.ReadTimeout = $restante");
+    expect(busca).toContain("catch [System.IO.IOException] { $req.Abort(); throw 'tempo limite' }");
+    expect(busca).toContain("if ($restante -le 0) { $req.Abort(); throw 'tempo limite' }");
+    expect(busca).toContain("$memoria.Dispose()");
     for (const nome of ["AnvConsultarConfianca", "AnvLerConfiancaHttp"]) {
       expect(funcao(nome), nome).not.toContain("Invoke-WebRequest");
       expect(funcao(nome), nome).not.toContain("RawContentLength");

@@ -392,7 +392,7 @@ arquivo pequeno publicado fora do GitHub: `https://anvilore.iagofrota.com.br/con
 - Validação estrita: campo extra, tipo errado, `formato` diferente de 1, `chaves` vazia ou repetida, fingerprint
   fora de `SHA256:<43 caracteres base64>` ou `versaoMinima` com pré-release recusam.
 - A consulta é HTTPS com certificado validado, **sem seguir redirecionamento** (redirect = recusa), com
-  `Cache-Control: no-cache` e `Pragma: no-cache`, limite de 15 s e 64 KiB. Não há cache local nem fallback
+  `Cache-Control: no-cache` e `Pragma: no-cache`, prazo total de parede de 15 s e 64 KiB. Não há cache local nem fallback
   offline. Falha de rede, TLS, HTTP diferente de 200, formato ou tamanho: a atualização para com "não consegui
   conferir a lista atual de chaves em <URL>; nada mudou; tente de novo mais tarde" e a versão instalada fica.
 - Antes do `verify-tag`, o atualizador monta um allowed_signers **temporário** só com as linhas das âncoras
@@ -428,7 +428,7 @@ embutir sempre preenche com a constante e recusa se o modelo não a tem):
   entrega ao atualizador, pela opção `--assinantes-do-instalador`, só as linhas embutidas autorizadas pela lista; e uma
   pasta instalada **abaixo da `versaoMinima`** da lista também é recusada sem executar nada dela.
 - No sh a consulta é `curl --proto =https --max-redirs 0 --max-time 15 --max-filesize 65536` com `Cache-Control` e
-  `Pragma`; no ps1, `HttpWebRequest` sem redirecionamento, com 15 s no total, lendo o corpo em blocos e abortando ao passar de 64 KiB. O documento é validado de forma estrita nos dois e nome de campo repetido o recusa (também no atualizador).
+  `Pragma`; no ps1, `HttpWebRequest` sem redirecionamento, com 15 s de parede no total (incluindo cabeçalhos e leituras), lendo o corpo em blocos e abortando ao passar de 64 KiB. O `curl --max-time 15` do sh também limita o tempo total. O documento é validado de forma estrita nos dois e recusa nome repetido ou qualquer barra invertida (`\`), inclusive escapes JSON; o atualizador aplica a mesma regra.
 - Build de **teste**: `--url-confianca http://127.0.0.1:<porta>/... --aceitar-url-de-teste` (só loopback; qualquer outro
   http é recusado pelo embutir e pelo `--conferir`). Os testes usam `scripts/servir-confianca-teste.ts`. **Nunca numa
   release:** o par de flags de teste serve só para gerar e conferir artefatos de teste; a conferência da release roda

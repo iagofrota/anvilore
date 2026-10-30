@@ -7,6 +7,7 @@ import { join } from "node:path";
 //   <pasta>/confianca.json  o que /confianca.json devolve, lido a cada requisição (o teste o reescreve)
 //   <pasta>/status          (opcional) código HTTP a devolver no lugar do 200; 3xx devolve um redirecionamento
 //   <pasta>/modo            (opcional) "infinito": /confianca.json devolve espaços sem parar (sem content-length, ~800 KB/s);
+//                           "prazo": espera 12 s pelos cabeçalhos, envia 1 byte após 1 s e mantém a conexão aberta;
 //                           <pasta>/enviados guarda os bytes já enviados, para provar que o cliente abortou no limite de 64 KiB
 //   <pasta>/porta           escrito ao subir: a porta escolhida
 //   <pasta>/requisicoes.log uma linha JSON por requisição: { rota, cacheControl, pragma }
@@ -16,7 +17,7 @@ if (!pasta) { console.error("uso: bun scripts/servir-confianca-teste.ts <pasta>"
 const servidor = Bun.serve({
   hostname: "127.0.0.1",
   port: 0,
-  fetch(req) {
+  async fetch(req) {
     const rota = new URL(req.url).pathname;
     appendFileSync(join(pasta, "requisicoes.log"), `${JSON.stringify({ rota, cacheControl: req.headers.get("cache-control"), pragma: req.headers.get("pragma") })}\n`);
     if (rota === "/outro.json") return new Response(readFileSync(join(pasta, "confianca.json")));
@@ -26,6 +27,16 @@ const servidor = Bun.serve({
       const bloco = new Uint8Array(4096).fill(32);
       const corpo = new ReadableStream<Uint8Array>({
         async pull(controle) { await Bun.sleep(5); enviados += bloco.length; writeFileSync(join(pasta, "enviados"), String(enviados)); controle.enqueue(bloco); },
+      });
+      return new Response(corpo, { headers: { "content-type": "application/json" } });
+    }
+    if (existsSync(join(pasta, "modo")) && readFileSync(join(pasta, "modo"), "utf8").trim() === "prazo") {
+      await Bun.sleep(12_000);
+      const corpo = new ReadableStream<Uint8Array>({
+        async start(controle) {
+          await Bun.sleep(1_000);
+          controle.enqueue(new Uint8Array([123]));
+        },
       });
       return new Response(corpo, { headers: { "content-type": "application/json" } });
     }

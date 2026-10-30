@@ -403,6 +403,11 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $script:Rc5Segundos = $cron.Elapsed.TotalSeconds
       Start-Sleep -Milliseconds 500
       $script:Rc5Enviados = [long](Get-Content -Raw (Join-Path $script:ConfDir 'enviados')).Trim()
+      ModoDoSite 'prazo'
+      $cron = [Diagnostics.Stopwatch]::StartNew()
+      $script:Rc6 = Rodar (Perfil 'prazo-total') $script:OrigemBoa $script:Release $script:PathEstado
+      $cron.Stop()
+      $script:Rc6Segundos = $cron.Elapsed.TotalSeconds
       ModoDoSite $null
       Publicar @($script:Boa.Fingerprint, $script:Outra.Fingerprint)
     }
@@ -428,6 +433,12 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $script:Rc5Enviados | Should -BeLessThan 1048576
       $script:Rc5Segundos | Should -BeLessThan 12
       Test-Path (Join-Path $script:Rc5.Perfil 'Anvilore') | Should -BeFalse
+    }
+    It 'cabeçalhos e byte perto do prazo: encerra até 20 s (15 s mais 5 s de inicialização) e não cria a pasta' {
+      $script:Rc6.Codigo | Should -Not -Be 0
+      $script:Rc6.Saida | Should -Match 'não consegui conferir a lista atual de chaves'
+      $script:Rc6Segundos | Should -BeLessThan 20
+      Test-Path (Join-Path $script:Rc6.Perfil 'Anvilore') | Should -BeFalse
     }
     It 'versão mínima acima da tag: recusa antes de baixar' {
       $script:Rc4.Codigo | Should -Not -Be 0
