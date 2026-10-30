@@ -195,19 +195,12 @@ A tag é `vX.Y.Z` ou `X.Y.Z`: o CI tira o `v` da frente e o resto precisa ser Se
 à esquerda em `1.02.3` ou `1.2.3-01`; pré-release `-rc.1` e metadados `+build.7` aceitos). Qualquer
 outra forma (`release-1`, `v1.0`) faz a etapa reprovar.
 
-A trava roda depois que a tag existe, então ela sinaliza mas não impede. Por isso o procedimento
-tem esta ordem:
-
-1. Passe o conteúdo de `[Unreleased]` para a seção `## [x.y.z] - AAAA-MM-DD` do `CHANGELOG.md`, com
-   o que foi entregue e o que não foi resolvido, e deixe `[Unreleased]` vazio acima dela.
-2. Rode `bun run checar` e `bun src/cli.ts checar-docs`. Os dois devem sair com 0.
-3. Rode `bun src/cli.ts checar-release x.y.z` **na sua máquina, antes de criar a tag**. Ele deve
-   sair com 0. Se reprovar, corrija antes de seguir; não crie a tag para ver o que o CI diz.
-4. Confirme que o CI está **verde em Ubuntu, Windows e macOS no commit que vai receber a tag**. É
-   a única prova de que a base roda nos três sistemas; antes disso, é só hipótese. Faça isso antes
-   da tag, nunca depois.
-5. Só então peça a aprovação do dono do projeto. A tag e a release saem apenas com o "sim"
-   explícito dele.
+A trava roda depois que a tag existe, então ela sinaliza mas não impede. Por isso a ordem importa:
+CHANGELOG, `bun run checar`, `bun src/cli.ts checar-docs`, `checar-release x.y.z` na sua máquina
+**antes** de criar a tag, CI verde em Ubuntu, Windows e macOS no commit que vai receber a tag, e só
+então o pedido de aprovação ao dono. O procedimento completo, com a assinatura SSH da tag, o que o
+kit instalado exige para aceitá-la e o que fazer com uma release ruim, está em
+[release.md](release.md).
 
 A seção `[0.1.0]` já está preenchida. Enquanto nenhuma página desta pasta tiver sido revisada por
 pessoa, `checar-release 0.1.0` reprova, e o motivo é só a falta de `verified`. Isso é o
