@@ -253,6 +253,22 @@ describe("ui-web: PainelDaNota", () => {
     expect(erroRecebido).toBe("Página inexistente");
   });
 
+  test("Dado erro ao carregar uma nota Quando começo a carregar outra que existe Então limpo o erro antigo", async () => {
+    let notaRecebida: DetalhesDaNota | null = null;
+    let carregandoRecebido = false;
+    let erroRecebido = "Página inexistente";
+    await carregarNota(
+      "pessoal/conceitos/existente.md",
+      nota => { notaRecebida = nota; },
+      carregando => { carregandoRecebido = carregando; },
+      erro => { erroRecebido = erro; },
+      async () => ({ valor: notaExemplo }),
+    );
+    expect(carregandoRecebido).toBe(false);
+    expect(erroRecebido).toBe("");
+    expect(notaRecebida).toEqual(notaExemplo);
+  });
+
   test("renderToStaticMarkup de Nota monta sem quebrar com e sem caminho", () => {
     const html = renderToStaticMarkup(<Nota tema="claro" alternarTema={() => {}} caminho="pessoal/conceitos/padrao.md" />);
     expect(html).toContain("Nota");

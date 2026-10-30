@@ -73,6 +73,18 @@ test("[I6-12] Dado uma lacuna na Nota Quando peço para buscar fonte no Chat Ent
   await expect(page.getByLabel("Texto da fonte")).toHaveValue("Outra dúvida");
 });
 
+test("[I6-13] Dado erro ao abrir uma nota Quando navego para uma nota existente Então leio a página sem o erro anterior", async ({ page, app, vault }) => {
+  await vault.escrever("wiki/pessoal/concepts/nota-existente.md", [
+    "---", "type: concept", "slug: nota-existente", "title: Nota existente", "---", "",
+    "Conteúdo disponível.", "",
+  ].join("\n"));
+  await page.goto(`${app.url}#/nota/pessoal/concepts/nota-ausente.md`);
+  await expect(page.getByRole("alert")).toContainText("Página não encontrada");
+  await page.evaluate(() => { window.location.hash = "#/nota/pessoal/concepts/nota-existente.md"; });
+  await expect(page.getByRole("heading", { name: "Nota existente", level: 1 })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
 test("[I6-08] Dado uma página com proveniência completa Quando abro a Nota Então vejo fonte, gerador e verificação", async ({ page, app, vault }) => {
   await vault.escrever("raw/pessoal/origem.md", "conteúdo original da fonte");
   await vault.escrever("wiki/pessoal/concepts/proveniente.md", [
