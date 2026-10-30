@@ -187,7 +187,7 @@ por vez**.
    bun scripts/embutir-instalador.ts --conferir dist/instalar.ps1 --assinantes seguranca/assinantes
    ```
 
-   O `--conferir` confirma que a chave, o manifesto e a base mínima embutidos batem exatamente com seguranca/assinantes, instalador/dependencias.json e instalador/base-minima. (Nota: este passo passa a valer quando as branches U3 e U4 forem mescladas na `main`).
+   O `--conferir` confirma que a chave, o manifesto, a base mínima e a URL da lista de chaves embutidos batem exatamente com seguranca/assinantes, instalador/dependencias.json, instalador/base-minima e a constante de src/lib/confianca.ts (sempre https; o modelo sem a região URL_CONFIANCA é recusado). (Nota: este passo passa a valer quando as branches U3 e U4 forem mescladas na `main`).
 9. **Assinar e gerar hashes dos instaladores.**
    Gere o hash SHA-256 (executado dentro de `dist` para que o checksum registre apenas o nome do arquivo, permitindo conferência na pasta de download) e a assinatura SSH (`ssh-keygen -Y sign -n file`) de cada instalador gerado:
 
@@ -416,8 +416,21 @@ arquivo pequeno publicado fora do GitHub: `https://anvilore.iagofrota.com.br/con
 
 Limites: a proteção assume domínio, TLS e Cloudflare íntegros (um host comprometido junto da chave de
 assinatura serve o estado que quiser); o site fora do ar impede atualizar, não usar a wiki atual; e um
-atualizador que saiu sem esta consulta nunca a ganha depois. Os instaladores fazem a mesma consulta (instalação
-nova e reinstalação) — veja "Instalador do Linux" e "Instalador do Windows" quando a integração deles entrar.
+atualizador que saiu sem esta consulta nunca a ganha depois.
+
+Os instaladores (instalar.sh e instalar.ps1) fazem a mesma consulta, com a URL **embutida** (região URL_CONFIANCA, que o
+embutir sempre preenche com a constante e recusa se o modelo não a tem):
+
+- **Instalação nova:** consulta depois de descobrir a tag e **antes de baixar** o kit; só a interseção da chave embutida com
+  a lista vai ao `verify-tag`; chave fora da lista, versão da tag abaixo da `versaoMinima` ou falha da consulta param sem
+  criar a pasta. A obtenção do próprio instalador deve ser conferida com a chave que a lista autoriza agora.
+- **Reinstalação:** vem **depois** da base mínima (lida sem executar a pasta) e **antes** de qualquer execução da pasta;
+  entrega ao atualizador, pela opção `--assinantes-do-instalador`, só as linhas embutidas autorizadas pela lista; e uma
+  pasta instalada **abaixo da `versaoMinima`** da lista também é recusada sem executar nada dela.
+- No sh a consulta é `curl --proto =https --max-redirs 0 --max-time 15 --max-filesize 65536` com `Cache-Control` e
+  `Pragma`; no ps1, `Invoke-WebRequest -MaximumRedirection 0 -TimeoutSec 15`. O documento é validado de forma estrita nos dois.
+- Build de **teste**: `--url-confianca http://127.0.0.1:<porta>/... --aceitar-url-de-teste` (só loopback; qualquer outro
+  http é recusado pelo embutir e pelo `--conferir`). Os testes usam `scripts/servir-confianca-teste.ts`.
 
 ## Rotação e revogação da chave
 

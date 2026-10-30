@@ -280,7 +280,7 @@ tinha. **Por quê:** a assinatura SSH só prova a chave, e um arquivo de assinan
 nunca revoga (a circularidade da seção "Atualização automática do kit"). Um arquivo estático em domínio do dono,
 sem servidor nem chave a mais, dá o veto atual. **Escolhas:** URL fixa (constante de build, sem ambiente);
 site fora do ar para a atualização, não a wiki; sem cache nem fallback; o site não acrescenta chave. **Custo:**
-o dono mantém o arquivo e o purge; vale só para quem já tem a consulta (parecer de segurança de 2026-10-29, seção 2, fora do repositório). Guia: `docs/knowledge_base/release.md`, "Estado das chaves no site".
+o dono mantém o arquivo e o purge; os instaladores consultam antes da tag e antes de executar a pasta (e recusam pasta abaixo da `versaoMinima`, como a base mínima); vale só para quem já tem a consulta (parecer de segurança de 2026-10-29, seção 2, fora do repositório). Guia: `docs/knowledge_base/release.md`, "Estado das chaves no site".
 
 ## Instalador do Linux (instalar.sh)
 

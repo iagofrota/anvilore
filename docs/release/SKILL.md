@@ -39,7 +39,7 @@ mostre só o que decide algo.
    - `bun run checar`, `bun src/cli.ts checar-docs`, `bun src/cli.ts checar-release X.Y.Z`;
    - checklist de segurança: nenhum achado de segurança ALTO ou MÉDIO aberto nos instaladores ou no atualizador, com revisão de outro modelo registrada;
    - **base mínima** (`instalador/base-minima`, uma linha `X.Y.Z`): na **primeira release assinada** ela recebe o número dessa release (hoje o valor é o provisório `0.3.0`; confira com o dono que é o mesmo do `package.json` que vai sair). Nas seguintes não muda sem decisão do dono (subir a base deixa pastas antigas recusadas pelo instalador). Sem `X.Y.Z` válido o embutir recusa gerar;
-   - instaladores (quando U3/U4 entrarem na `main`): embutir instalador (`bun scripts/embutir-instalador.ts`; embute manifesto, chave e base mínima), conferir com `--conferir` (confere os três), gerar `sha256` dentro de `dist` (`cd dist && sha256sum ...`) e assinar com `ssh-keygen -Y sign -n file`;
+   - instaladores (quando U3/U4 entrarem na `main`): embutir instalador (`bun scripts/embutir-instalador.ts`; embute manifesto, chave, base mínima e a URL da lista de chaves; a URL é a constante de `src/lib/confianca.ts`, sempre https), conferir com `--conferir` (confere os quatro), gerar `sha256` dentro de `dist` (`cd dist && sha256sum ...`) e assinar com `ssh-keygen -Y sign -n file`;
    - **`checar-release` reprovando por falta de `verified` é esperado** até o dono revisar as páginas:
      diga quais páginas faltam e pare. Nunca ponha `verified`.
 3. **Entrar na `main`.** Enviar a branch, abrir o PR e mesclar são ações públicas: peça o "sim" de
