@@ -255,6 +255,8 @@ describe("instalar.ps1: commit automático só na instalação nova (achado P2 d
     expect(corpo).toMatch(/atualizacao\.json/);
     expect(corpo).toMatch(/autoCommit/);
     expect(corpo).toMatch(/-not \$JaInstalado/);
+    expect(corpo).toContain("ConvertFrom-Json");
+    expect(corpo).toMatch(/autoCommit\s+-is\s+\[bool\]/);
   });
 });
 

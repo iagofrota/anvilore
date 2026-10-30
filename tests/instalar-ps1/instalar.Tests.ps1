@@ -724,6 +724,7 @@ Describe 'AnvAutoCommitDaPasta (a reinstalação respeita a escolha da pessoa)' 
   It 'reinstalação com autoCommit false mantém desligado' { AnvAutoCommitDaPasta -Pasta (PastaComEstado '{"versao":1,"autoCommit":false}') -JaInstalado $true | Should -BeFalse }
   It 'reinstalação sem a chave deixa desligado'      { AnvAutoCommitDaPasta -Pasta (PastaComEstado '{"versao":1}') -JaInstalado $true | Should -BeFalse }
   It 'reinstalação com estado ilegível deixa desligado' { AnvAutoCommitDaPasta -Pasta (PastaComEstado 'lixo') -JaInstalado $true | Should -BeFalse }
+  It 'reinstalação com JSON malformado que contém autoCommit true deixa desligado' { AnvAutoCommitDaPasta -Pasta (PastaComEstado '{"autoCommit":true,') -JaInstalado $true | Should -BeFalse }
   It 'reinstalação sem atualizacao.json (a primeira rodada parou antes) liga' { AnvAutoCommitDaPasta -Pasta (PastaComEstado $null) -JaInstalado $true | Should -BeTrue }
 }
 

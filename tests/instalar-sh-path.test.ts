@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { criarCenario as CriarCenario, Cenario } from "./apoio/instalar-sh";
 
@@ -114,4 +114,46 @@ test.skipIf(!linux || !Bun.which("zsh"))("Dado um ~/.zshrc existente, Quando abr
   await writeFile(join(c.home, ".zshrc"), "# zshrc\n");
   expect(c.rodar().codigo).toBe(0);
   expect([join(c.home, ".bun/bin/bun"), join(c.home, ".local/bin/bun")]).toContain(terminalNovo(c.home, "command -v bun", "zsh"));
+});
+
+test.skipIf(!linux)("Dado um bloco PATH truncado no ~/.profile, Quando reinstalo, Então substitui o trecho parcial, preserva o prefixo e não duplica depois", async () => {
+  const c = await novo();
+  expect(c.rodar().codigo).toBe(0);
+  const profile = join(c.home, ".profile");
+  const prefixo = "# configuração pessoal\nexport EDITOR=vim\n";
+  await writeFile(profile, `${prefixo}${INICIO}\n# bloco truncado\ncase \":$PATH:\" in`);
+  const r = c.rodar();
+  expect(r.codigo, r.tudo).toBe(0);
+  const reparado = await readFile(profile, "utf8");
+  expect(reparado.startsWith(prefixo)).toBe(true);
+  expect(reparado.slice(prefixo.length)).toContain(INICIO);
+  expect(reparado.slice(prefixo.length)).toContain(FIM);
+  expect(reparado).not.toContain("# bloco truncado");
+  expect(ocorrencias(reparado, INICIO)).toBe(1);
+  expect(ocorrencias(reparado, FIM)).toBe(1);
+  expect(c.rodar().codigo).toBe(0);
+  expect(await readFile(profile, "utf8")).toBe(reparado);
+});
+
+test.skipIf(!linux)("Dado um arquivo de shell com permissões próprias, Quando persisto o PATH, Então preservo as permissões", async () => {
+  const c = await novo();
+  const profile = join(c.home, ".profile");
+  await writeFile(profile, "# pessoal\n");
+  await chmod(profile, 0o640);
+  const r = c.rodar();
+  expect(r.codigo, r.tudo).toBe(0);
+  expect((await stat(profile)).mode & 0o777).toBe(0o640);
+});
+
+test.skipIf(!linux)("Dado ~/.profile como symlink, Quando persisto o PATH, Então recuso sem alterar o alvo e aviso", async () => {
+  const c = await novo();
+  const alvo = join(c.pai, "dotfiles-profile");
+  const profile = join(c.home, ".profile");
+  await writeFile(alvo, "# dotfile compartilhado\n");
+  await symlink(alvo, profile);
+  const r = c.rodar();
+  expect(r.codigo, r.tudo).toBe(0);
+  expect(r.tudo).toContain("symlink");
+  expect(await readFile(alvo, "utf8")).toBe("# dotfile compartilhado\n");
+  expect((await lstat(profile)).isSymbolicLink()).toBe(true);
 });
