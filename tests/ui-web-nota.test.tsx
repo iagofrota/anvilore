@@ -179,6 +179,22 @@ describe("ui-web: PainelDaNota", () => {
     expect(linksChat.length).toBeGreaterThan(0);
   });
 
+  test("Dado caminhos resolvidos no servidor Quando renderizo wikilinks e Relacionados Então uso o caminho único e não navego por slug ambíguo", () => {
+    const nota = {
+      ...notaExemplo,
+      corpo: "[[Destino|Página certa]] e [[duplicado]].",
+      relacionados: ["Destino", "duplicado"],
+      destinosWikilinks: { Destino: "trabalho/concepts/destino.md", duplicado: null },
+    } as DetalhesDaNota;
+    const arvore = expandir(<PainelDaNota nota={nota} carregando={false} erro="" />);
+    const links = achar(arvore, e => e.type === "a");
+    expect(links.some(e => e.props.href === "#/nota/trabalho/concepts/destino.md" && texto(e).includes("Página certa"))).toBe(true);
+    expect(links.some(e => e.props.href === "#/nota/trabalho/concepts/destino.md" && texto(e).includes("Destino"))).toBe(true);
+    expect(links.some(e => e.props.href === "#/nota/duplicado.md")).toBe(false);
+    expect(texto(arvore)).toContain("duplicado");
+    expect(achar(arvore, e => e.type === "span" && e.props.className === "wl quebrado" && e.props["aria-disabled"] === "true")).toHaveLength(2);
+  });
+
   test("renderiza seção de proveniência com fonte bruta", () => {
     const arvore = expandir(<PainelDaNota nota={notaExemplo} carregando={false} erro="" />);
     const txt = texto(arvore);
@@ -235,6 +251,22 @@ describe("ui-web: PainelDaNota", () => {
       async () => ({ valor: null, erro: "Página inexistente" }),
     );
     expect(erroRecebido).toBe("Página inexistente");
+  });
+
+  test("Dado erro ao carregar uma nota Quando começo a carregar outra que existe Então limpo o erro antigo", async () => {
+    let notaRecebida: DetalhesDaNota | null = null;
+    let carregandoRecebido = false;
+    let erroRecebido = "Página inexistente";
+    await carregarNota(
+      "pessoal/conceitos/existente.md",
+      nota => { notaRecebida = nota; },
+      carregando => { carregandoRecebido = carregando; },
+      erro => { erroRecebido = erro; },
+      async () => ({ valor: notaExemplo }),
+    );
+    expect(carregandoRecebido).toBe(false);
+    expect(erroRecebido).toBe("");
+    expect(notaRecebida as DetalhesDaNota | null).toEqual(notaExemplo);
   });
 
   test("renderToStaticMarkup de Nota monta sem quebrar com e sem caminho", () => {

@@ -48,6 +48,23 @@ test("Dado rascunho, log, fonte solta e conversa aberta Quando abro o Início En
   });
 });
 
+test("Dado a pasta wiki ausente Quando peço /api/inicio Então recebo 200 com diagnóstico de saúde, atalhos e fontes", async () => {
+  rmSync(join(raiz, "wiki"), { recursive: true, force: true });
+  writeFileSync(join(raiz, "raw/pessoal/solta.md"), "texto");
+  const { chamar } = await servidor();
+  const resposta = await chamar("/api/inicio");
+  expect(resposta.status).toBe(200);
+  const corpo = await resposta.json() as {
+    saude: { validar: { ok: boolean; outrosErros: string[] }; auditoria: { erro?: string } };
+    rascunhos: { total: number };
+    fontes: { caminho: string; area: string; bytes: number }[];
+  };
+  expect(corpo.saude.validar.ok).toBe(false);
+  expect(corpo.saude.validar.outrosErros.join(" ")).toMatch(/diretorio nao encontrado/i);
+  expect(corpo.rascunhos.total).toBe(0);
+  expect(corpo.fontes).toEqual([{ caminho: "raw/pessoal/solta.md", area: "pessoal", bytes: 5 }]);
+});
+
 test("Dado conversa de ingestão em andamento Quando abro o Início Então a fonte dela aparece com o id e a conversa é listada", async () => {
   writeFileSync(join(raiz, "raw/pessoal/em-curso.md"), "x");
   const { chamar } = await servidor();

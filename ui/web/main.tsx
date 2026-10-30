@@ -62,7 +62,7 @@ function Aplicacao() {
   const atualizador = estado?.atualizador && <PainelDoAtualizador atualizador={estado.atualizador} mensagem={mensagemAtualizador} operando={operandoAtualizador} acionar={acionarAtualizador} />;
   return <Shell rota={rota} conversas={estado?.conversas ?? []} agente={estado?.agente ?? "Agente"} aviso={atualizador}>
     {rota.tela === "revisao" ? <Revisao tema={tema} alternarTema={alternarTema} />
-      : rota.tela === "chat" ? <Chat id={rota.id} estado={estado} recarregarEstado={recarregarEstado} abrir={abrir} tema={tema} alternarTema={alternarTema} />
+      : rota.tela === "chat" ? <Chat id={rota.id} lacuna={rota.lacuna} estado={estado} recarregarEstado={recarregarEstado} abrir={abrir} tema={tema} alternarTema={alternarTema} />
         : rota.tela === "biblioteca" ? <Biblioteca tema={tema} alternarTema={alternarTema} />
           : rota.tela === "nota" ? <Nota caminho={rota.id} tema={tema} alternarTema={alternarTema} />
             : <Inicio tema={tema} alternarTema={alternarTema} />}

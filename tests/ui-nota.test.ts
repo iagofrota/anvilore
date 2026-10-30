@@ -394,6 +394,22 @@ Sem relações.
       );
     });
 
+    test("Dado wikilinks por slug em outra área Quando leio a nota Então entrega caminhos únicos e marca slug ambíguo ou inexistente", async () => {
+      await mkdir(join(RAIZ, "wiki/trabalho/conceitos"), { recursive: true });
+      await mkdir(join(RAIZ, "wiki/trabalho/notas"), { recursive: true });
+      await writeFile(join(RAIZ, "wiki/pessoal/conceitos/origem.md"), `---\ntitle: Origem\ntype: conceito\n---\n\n[[Destino]] [[duplicado]] [[fantasma]]\n`);
+      await writeFile(join(RAIZ, "wiki/trabalho/conceitos/destino.md"), `---\ntitle: Destino\ntype: conceito\n---\nDestino.\n`);
+      await writeFile(join(RAIZ, "wiki/pessoal/notas/duplicado.md"), `---\ntitle: Duplicado A\ntype: nota\n---\nA.\n`);
+      await writeFile(join(RAIZ, "wiki/trabalho/notas/duplicado.md"), `---\ntitle: Duplicado B\ntype: nota\n---\nB.\n`);
+
+      const nota = await obterNota(RAIZ, "pessoal/conceitos/origem.md");
+      expect((nota as (typeof nota & { destinosWikilinks?: Record<string, string | null> }) | null)?.destinosWikilinks).toEqual({
+        Destino: "trabalho/conceitos/destino.md",
+        duplicado: null,
+        fantasma: null,
+      });
+    });
+
     test("grafo local não colapsa notas com mesmo slug (basename) em diretórios diferentes", async () => {
       await writeFile(
         join(RAIZ, "wiki/principal.md"),
