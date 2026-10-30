@@ -53,7 +53,7 @@ test.skipIf(!rodar)("Dado uma pasta instalada e gpg.ssh.program aprovador na con
   assinar(atual, confiavel.chave);
 
   const script = join(pai, "instalar.sh");
-  await writeFile(script, embutirInstalador(await readFile(join(raizDoRepo, "instalador/instalar.sh"), "utf8"), base.manifesto, confiavel.assinantes), { mode: 0o755 });
+  await writeFile(script, embutirInstalador(await readFile(join(raizDoRepo, "instalador/instalar.sh"), "utf8"), base.manifesto, confiavel.assinantes, `${pacote.version}\n`), { mode: 0o755 });
   const primeira = base.rodar({ ANVILORE_ORIGEM: origem }, [], script);
   expect(primeira.codigo, primeira.tudo).toBe(0);
 
@@ -106,7 +106,7 @@ exec ${Bun.which("git")} "$@"
   const commitTrocado = ok(["rev-parse", "HEAD"]);
   assinar(nova2, chaveNova.chave);
   const scriptNovo = join(pai, "instalar-novo.sh");
-  await writeFile(scriptNovo, embutirInstalador(await readFile(join(raizDoRepo, "instalador/instalar.sh"), "utf8"), base.manifesto, chaveNova.assinantes), { mode: 0o755 });
+  await writeFile(scriptNovo, embutirInstalador(await readFile(join(raizDoRepo, "instalador/instalar.sh"), "utf8"), base.manifesto, chaveNova.assinantes, `${pacote.version}\n`), { mode: 0o755 });
   await mkdir(join(base.pasta, "raw"), { recursive: true });
   await writeFile(join(base.pasta, "raw/nota.md"), "minha nota\n");
   const notaAntes = await readFile(join(base.pasta, "raw/nota.md"), "utf8");

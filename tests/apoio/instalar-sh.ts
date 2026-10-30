@@ -97,7 +97,8 @@ ${o.semRg ? "" : `        "linux-x64": ${rg},\n        "linux-arm64": ${rg}\n`} 
 
 export type Cenario = Awaited<ReturnType<typeof criarCenario>>;
 
-export async function criarCenario(opcoes: { agentes?: string[]; comBun?: boolean; entradas?: Entradas; versoes?: string[]; kitReal?: boolean; assinar?: boolean } = {}) {
+// baseMinima: a versão mínima embutida no instalador (padrão 0.3.0, a mesma de instalador/base-minima).
+export async function criarCenario(opcoes: { agentes?: string[]; comBun?: boolean; entradas?: Entradas; versoes?: string[]; kitReal?: boolean; assinar?: boolean; baseMinima?: string } = {}) {
   const pai = await mkdtemp(join(tmpdir(), "anvilore-sh-"));
   const home = join(pai, "home"), bin = join(pai, "bin"), tmp = join(pai, "tmp");
   await mkdir(home); await mkdir(bin); await mkdir(tmp);
@@ -116,7 +117,7 @@ export async function criarCenario(opcoes: { agentes?: string[]; comBun?: boolea
   const manifesto = await criarDependencias(pai, opcoes.entradas);
   const modelo = await readFile(join(raizDoRepo, "instalador/instalar.sh"), "utf8");
   const script = join(pai, "instalar.sh");
-  await writeFile(script, embutirInstalador(modelo, manifesto, assinantes), { mode: 0o755 });
+  await writeFile(script, embutirInstalador(modelo, manifesto, assinantes, `${opcoes.baseMinima ?? "0.3.0"}\n`), { mode: 0o755 });
 
   const env = (extra: Record<string, string> = {}): Record<string, string> => ({
     HOME: home, TMPDIR: tmp, LANG: "C.UTF-8", PATH: bin,

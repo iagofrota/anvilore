@@ -37,7 +37,7 @@ test.skipIf(!rodar)("Dado o kit real numa tag assinada, Quando instalo do zero e
   // O manifesto é o do teste (downloads por file://); o Bun do teste atende à versão pedida.
   const manifesto = base.manifesto;
   const script = join(pai, "instalar.sh");
-  await writeFile(script, embutirInstalador(await readFile(join(raizDoRepo, "instalador/instalar.sh"), "utf8"), manifesto, assinantes), { mode: 0o755 });
+  await writeFile(script, embutirInstalador(await readFile(join(raizDoRepo, "instalador/instalar.sh"), "utf8"), manifesto, assinantes, `${pacote.version}\n`), { mode: 0o755 });
   await base.comando("claude", '#!/bin/sh\ncase "$1" in --version) echo "2.1.312 (Claude Code)" ;; *) echo claude falso ;; esac\n');
   await base.comando("rg", "#!/bin/sh\necho ripgrep 15.2.0\n");
 
