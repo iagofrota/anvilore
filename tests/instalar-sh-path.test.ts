@@ -116,23 +116,29 @@ test.skipIf(!linux || !Bun.which("zsh"))("Dado um ~/.zshrc existente, Quando abr
   expect([join(c.home, ".bun/bin/bun"), join(c.home, ".local/bin/bun")]).toContain(terminalNovo(c.home, "command -v bun", "zsh"));
 });
 
-test.skipIf(!linux)("Dado um bloco PATH truncado no ~/.profile, Quando reinstalo, Então substitui o trecho parcial, preserva o prefixo e não duplica depois", async () => {
+test.skipIf(!linux)("Dado um início de bloco PATH sem fim e conteúdo da pessoa depois, Quando reinstalo, Então preserva o arquivo inteiro e avisa para corrigir à mão", async () => {
   const c = await novo();
   expect(c.rodar().codigo).toBe(0);
   const profile = join(c.home, ".profile");
   const prefixo = "# configuração pessoal\nexport EDITOR=vim\n";
-  await writeFile(profile, `${prefixo}${INICIO}\n# bloco truncado\ncase \":$PATH:\" in`);
+  const original = `${prefixo}${INICIO}\n# bloco truncado\ncase \":$PATH:\" in\nexport ANOTACAO_PESSOAL=nao-apague\n`;
+  await writeFile(profile, original);
   const r = c.rodar();
   expect(r.codigo, r.tudo).toBe(0);
-  const reparado = await readFile(profile, "utf8");
-  expect(reparado.startsWith(prefixo)).toBe(true);
-  expect(reparado.slice(prefixo.length)).toContain(INICIO);
-  expect(reparado.slice(prefixo.length)).toContain(FIM);
-  expect(reparado).not.toContain("# bloco truncado");
-  expect(ocorrencias(reparado, INICIO)).toBe(1);
-  expect(ocorrencias(reparado, FIM)).toBe(1);
+  expect(await readFile(profile, "utf8")).toBe(original);
+  expect(r.tudo).toContain("bloco do Anvilore em ~/.profile está incompleto");
+});
+
+test.skipIf(!linux)("Dado marcadores PATH duplicados em ~/.profile, Quando reinstalo, Então preserva o arquivo inteiro e avisa para corrigir à mão", async () => {
+  const c = await novo();
   expect(c.rodar().codigo).toBe(0);
-  expect(await readFile(profile, "utf8")).toBe(reparado);
+  const profile = join(c.home, ".profile");
+  const original = `# configuração pessoal\n${INICIO}\n# bloco antigo\n${FIM}\nexport UMA=1\n${INICIO}\n# bloco duplicado\n${FIM}\nexport DUAS=2\n`;
+  await writeFile(profile, original);
+  const r = c.rodar();
+  expect(r.codigo, r.tudo).toBe(0);
+  expect(await readFile(profile, "utf8")).toBe(original);
+  expect(r.tudo).toContain("bloco do Anvilore em ~/.profile está incompleto");
 });
 
 test.skipIf(!linux)("Dado um bloco PATH com os marcadores mas conteúdo alterado, Quando reinstalo, Então restaura o bloco esperado e preserva o sufixo", async () => {
