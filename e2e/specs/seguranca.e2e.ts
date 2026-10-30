@@ -60,7 +60,7 @@ for (const variante of ["raw", "area"] as const) {
       await rm(join(vault.raw, "pessoal"), { recursive: true, force: true });
       await symlink(vault.fora, join(vault.raw, "pessoal"), "dir");
     }
-    await page.goto(app.url);
+    await page.goto(`${app.url}#/chat`);
     await escolherArquivo(page, { name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
     await page.getByRole("button", { name: "Ingerir", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("aponta para fora");

@@ -4,7 +4,7 @@
 // `auth status` usa `auth`; com `--resume`, `escritor`; senão, `leitor`.
 // CLAUDE_FALSO_REGISTRO: arquivo onde cada execução acrescenta uma linha JSON com argv, cwd,
 // variáveis do Anvilore e o que chegou pelo stdin (a ponte deve deixá-lo vazio).
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 export type PassoDoFalso =
@@ -69,26 +69,37 @@ for (const passo of passos) {
     const pronto = resolve(passo.esperarArquivo.pronto);
     mkdirSync(dirname(alvo), { recursive: true });
     mkdirSync(dirname(pronto), { recursive: true });
-    if (!existsSync(alvo)) await new Promise<void>(resolveEspera => {
-      const watcher = watch(dirname(alvo), (_evento, nome) => {
-        if ((!nome || nome.toString() === alvo.split(/[\\/]/).at(-1)) && existsSync(alvo)) {
+    if (!existsSync(alvo)) {
+      await new Promise<void>((resolveEspera, rejectEspera) => {
+        const inicio = Date.now();
+        let intervalo: ReturnType<typeof setInterval> | undefined;
+        const limpar = () => {
+          if (intervalo) clearInterval(intervalo);
           process.off("SIGINT", interromper);
-          watcher.close();
+        };
+        const interromper = () => {
+          limpar();
+          process.stdout.write(JSON.stringify({ type: "result", subtype: "error_during_execution", is_error: true, terminal_reason: "aborted_streaming", result: null, session_id: passo.esperarArquivo.sessao }) + "\n");
+          process.exit(0);
+        };
+        process.once("SIGINT", interromper);
+        if (existsSync(alvo)) {
+          limpar();
           resolveEspera();
+          return;
         }
+        writeFileSync(pronto, "pronto\n");
+        intervalo = setInterval(() => {
+          if (existsSync(alvo)) {
+            limpar();
+            resolveEspera();
+          } else if (Date.now() - inicio >= 30_000) {
+            limpar();
+            rejectEspera(new Error(`o agente falso não encontrou ${alvo} em 30 s`));
+          }
+        }, 25);
       });
-      const interromper = () => {
-        watcher.close();
-        process.stdout.write(JSON.stringify({ type: "result", subtype: "error_during_execution", is_error: true, terminal_reason: "aborted_streaming", result: null, session_id: passo.esperarArquivo.sessao }) + "\n");
-        process.exit(0);
-      };
-      process.once("SIGINT", interromper);
-      if (existsSync(alvo)) {
-        process.off("SIGINT", interromper);
-        watcher.close();
-        resolveEspera();
-      } else writeFileSync(pronto, "pronto\n");
-    });
+    }
   }
   else if ("stderr" in passo) process.stderr.write(passo.stderr);
   else if ("sair" in passo) process.exit(passo.sair);

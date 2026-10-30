@@ -14,7 +14,7 @@ test("[C11][C16][C18][C20][C05][C06] Dado uma fonte escolhida Quando a pessoa co
   const relatorio = relatorioValido();
   await test.step("[C11] abrir a interface e enviar a fonte pela tela", async () => {
     await vault.escrever("wiki/pessoal/index.md", "# Pessoal\n\n- [[segundo-cerebro]]\n- [[llm-wiki]]\n");
-    await page.goto(app.url);
+    await page.goto(`${app.url}#/chat`);
     await expect(page.getByRole("navigation", { name: "Telas" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Revisão" })).toBeVisible();
     await guardarEvidencias(page, "chat");
@@ -142,7 +142,7 @@ test.describe("[C17] relatório de leitura inválido", () => {
   test("Dado um relatório que cita trecho inexistente Quando a leitura termina Então nada é escrito e a falha persiste ao recarregar", async ({ page, app, oraculo, vault }) => {
     await vault.escrever("wiki/pessoal/index.md", "# Pessoal\n\n- [[segundo-cerebro]]\n");
     const antes = await instantaneo(vault.wiki);
-    await page.goto(app.url);
+    await page.goto(`${app.url}#/chat`);
     await escolherArquivo(page, { name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
     await page.getByRole("button", { name: "Ingerir", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("O relatório do leitor não passou na conferência. Nada foi escrito.");
@@ -165,7 +165,7 @@ test.describe("[C19] exibir a recusa e conferir o contrato enviado", () => {
   test.use({ roteiro: roteiroComRecusaRaw() });
   test("Dado o escritor falso tenta gravar em raw Quando a ferramenta devolve recusa Então a tela a mostra e os bytes continuam iguais", async ({ page, app, agente, vault }) => {
     const original = Buffer.from(FONTE);
-    await page.goto(app.url);
+    await page.goto(`${app.url}#/chat`);
     await escolherArquivo(page, { name: "llm-wiki.md", mimeType: "text/markdown", buffer: original });
     await page.getByRole("button", { name: "Ingerir", exact: true }).click();
     await expect(page.getByRole("button", { name: "Pode seguir" })).toBeVisible();
@@ -187,7 +187,7 @@ test.describe("[C21] fechamento encontra erro além de rascunhos", () => {
   test.use({ roteiro: roteiroComFechamentoComErro() });
   test("Dado uma página gerada com wikilink quebrado Quando o fechamento roda Então a interface mostra erro e permite abrir Revisão", async ({ page, app, vault }) => {
     await vault.escrever("wiki/pessoal/index.md", "# Pessoal\n\n- [[segundo-cerebro]]\n- [[problema]]\n");
-    await page.goto(app.url);
+    await page.goto(`${app.url}#/chat`);
     await escolherArquivo(page, { name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
     await page.getByRole("button", { name: "Ingerir", exact: true }).click();
     await expect(page.getByRole("button", { name: "Pode seguir" })).toBeVisible();
@@ -203,7 +203,7 @@ test.describe("[C21] fechamento encontra erro além de rascunhos", () => {
 });
 
 test("[C22] Dado a leitura terminada e aguardando a decisão Quando recarrego a interface Então a conversa volta na mesma parada sem nova leitura", async ({ page, app, agente, oraculo, vault }) => {
-  await page.goto(app.url);
+  await page.goto(`${app.url}#/chat`);
   await escolherArquivo(page, { name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
   await page.getByRole("button", { name: "Ingerir", exact: true }).click();
   await expect(page.getByRole("button", { name: "Pode seguir" })).toBeVisible();
@@ -230,7 +230,7 @@ test("[C22] Dado a leitura terminada e aguardando a decisão Quando recarrego a 
 test.describe("[C22] variante: recarregar enquanto o leitor está rodando", () => {
   test.use({ roteiro: roteiroComLeitorParado("reload") });
   test("Dado a leitura parada numa barreira Quando recarrego Então retomo o estado sem iniciar outro leitor", async ({ page, app, agente, oraculo }) => {
-    await page.goto(app.url);
+    await page.goto(`${app.url}#/chat`);
     await escolherArquivo(page, { name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
     const fonteEnviada = page.waitForResponse(resposta => chamada("/api/fontes")(new URL(resposta.url())) && resposta.request().method() === "POST");
     await page.getByRole("button", { name: "Ingerir", exact: true }).click();
@@ -250,7 +250,7 @@ test.describe("[C23] cancelamento enquanto o leitor trabalha", () => {
   test.use({ roteiro: roteiroComLeitorParado("cancel-leitor") });
   test("Dado o leitor esperando a barreira Quando cancelo Então a conversa termina sem escrita", async ({ page, app, agente, oraculo, vault }) => {
     const antesWiki = await instantaneo(vault.wiki);
-    await page.goto(app.url);
+    await page.goto(`${app.url}#/chat`);
     await escolherArquivo(page, { name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
     const fonteEnviada = page.waitForResponse(resposta => chamada("/api/fontes")(new URL(resposta.url())) && resposta.request().method() === "POST");
     await page.getByRole("button", { name: "Ingerir", exact: true }).click();
@@ -271,7 +271,7 @@ test.describe("[C23] cancelamento enquanto o escritor trabalha", () => {
   test.use({ roteiro: roteiroComEscritorParado("cancel-escritor") });
   test("Dado o escritor gravou um rascunho e espera a barreira Quando cancelo Então a escrita existente permanece como rascunho", async ({ page, app, agente, oraculo, vault }) => {
     await vault.escrever("wiki/pessoal/index.md", "# Pessoal\n\n- [[segundo-cerebro]]\n- [[parcial]]\n");
-    await page.goto(app.url);
+    await page.goto(`${app.url}#/chat`);
     await escolherArquivo(page, { name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
     await page.getByRole("button", { name: "Ingerir", exact: true }).click();
     await expect(page.getByRole("button", { name: "Pode seguir" })).toBeVisible();
@@ -293,7 +293,7 @@ test.describe("[C24] agente indisponível", () => {
   test.describe("sem login", () => {
     test.use({ roteiro: roteiroSemLogin() });
     test("Dado Claude Code sem sessão Quando envio uma fonte Então a UI mostra como resolver sem iniciar leitura", async ({ page, app, agente, oraculo, vault }) => {
-      await page.goto(app.url);
+      await page.goto(`${app.url}#/chat`);
       await escolherArquivo(page, { name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
       const wikiAntes = await instantaneo(vault.wiki);
       const lendo = page.waitForResponse(resposta => /\/api\/conversas\/[a-z0-9-]+\/ler$/.test(new URL(resposta.url()).pathname) && resposta.request().method() === "POST");
@@ -315,7 +315,7 @@ test.describe("[C24] agente indisponível", () => {
   test.describe("comando ausente", () => {
     test.use({ agenteAusente: true });
     test("Dado Claude Code não está no PATH Quando envio uma fonte Então a UI mostra que o agente não foi encontrado", async ({ page, app, agente, oraculo, vault }) => {
-      await page.goto(app.url);
+      await page.goto(`${app.url}#/chat`);
       await escolherArquivo(page, { name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
       const wikiAntes = await instantaneo(vault.wiki);
       const lendo = page.waitForResponse(resposta => /\/api\/conversas\/[a-z0-9-]+\/ler$/.test(new URL(resposta.url()).pathname) && resposta.request().method() === "POST");

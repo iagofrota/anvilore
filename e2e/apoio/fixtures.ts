@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, watch } from "node:fs";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
@@ -85,13 +85,13 @@ export const test = base.extend<Fixtures & Options>({
       liberar: async nome => writeFile(join(diretorio, `${nome}.liberar`), "continuar\n"),
       pronto: async nome => {
         const caminho = join(diretorio, `${nome}.pronto`);
-        if (existsSync(caminho)) return;
-        await new Promise<void>(resolvePronto => {
-          const watcher = watch(dirname(caminho), (_evento, arquivo) => {
-            if ((!arquivo || arquivo.toString() === `${nome}.pronto`) && existsSync(caminho)) { watcher.close(); resolvePronto(); }
-          });
-          if (existsSync(caminho)) { watcher.close(); resolvePronto(); }
-        });
+        const inicio = Date.now();
+        while (!existsSync(caminho)) {
+          if (Date.now() - inicio >= 30_000) {
+            throw new Error(`o agente falso não sinalizou ${nome}.pronto em 30 s`);
+          }
+          await new Promise<void>(resolve => setTimeout(resolve, 25));
+        }
       },
     };
     await use(agente);
