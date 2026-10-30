@@ -77,7 +77,7 @@ test.skipIf(!linux)("Dado o Bun baixado pelo instalador, Quando abro um terminal
   const c = await novo({ comBun: false });
   const r = c.rodar();
   expect(r.codigo, r.tudo).toBe(0);
-  expect(terminalNovo(c.home, "command -v bun")).toBe(join(c.home, ".local/bin/bun"));
+  expect([join(c.home, ".bun/bin/bun"), join(c.home, ".local/bin/bun")]).toContain(terminalNovo(c.home, "command -v bun"));
   expect(terminalNovo(c.home, "command -v rg")).toBe(join(c.home, ".local/bin/rg"));
 });
 

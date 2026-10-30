@@ -77,6 +77,7 @@ BUN_GERENCIADO=0
 AUTO_COMMIT=1
 INSTALACAO_NOVA=1
 RG_FALTA=0
+PATH_PERSISTIDO=""
 AVISOS=""
 ULTIMA_SAIDA=""
 MOTIVO=""
@@ -412,6 +413,53 @@ passo_rg() {
   esac
   RG_FALTA=1
   avisar "sem o rg, a busca da skill query fica indisponível. Instale o ripgrep (rg) e rode este instalador de novo."
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# PATH persistente (depois do Bun e do rg)
+# ---------------------------------------------------------------------------------------------------------------
+# Os hooks dos agentes chamam `bun` pelo PATH, e o rg também. Exportar o PATH só neste processo some quando o instalador acaba: numa
+# conta cujo shell não tem ~/.local/bin no PATH, os hooks falhariam. Como os instaladores do Bun e do rustup, grava um bloco
+# marcado que acrescenta ~/.local/bin (e ~/.bun/bin, se o Bun é o gerenciado) ao PATH só quando a pasta ainda não está nele.
+# ~/.profile sempre (cria se faltar); os outros só se já existem. Se o bloco já está lá, o arquivo não é tocado; o resto do arquivo
+# nunca é reescrito (só se acrescenta no fim).
+
+MARCA_PATH_INICIO="# >>> Anvilore: PATH >>>"
+MARCA_PATH_FIM="# <<< Anvilore: PATH <<<"
+
+bloco_path() {
+  printf '%s\n' "$MARCA_PATH_INICIO"
+  printf '%s\n' '# Acrescentado pelo instalador do Anvilore para um terminal novo achar o bun e o rg. Pode apagar o bloco inteiro.'
+  printf '%s\n' 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) PATH="$HOME/.local/bin:$PATH" ;; esac'
+  [ "$BUN_GERENCIADO" = "1" ] && printf '%s\n' 'case ":$PATH:" in *":$HOME/.bun/bin:"*) ;; *) PATH="$HOME/.bun/bin:$PATH" ;; esac'
+  printf '%s\n' 'export PATH'
+  printf '%s\n' "$MARCA_PATH_FIM"
+}
+
+# 0 = o bloco está no arquivo (já estava ou entrou agora); 1 = não consegui escrever.
+acrescentar_bloco_path() {
+  local arq="$1" bloco
+  if [ -f "$arq" ] && grep -qF "$MARCA_PATH_INICIO" "$arq" 2>/dev/null; then return 0; fi
+  bloco=$(bloco_path)
+  {
+    # Arquivo que não termina em quebra de linha: fecha a última linha antes do bloco.
+    if [ -s "$arq" ] && [ -n "$(tail -c1 "$arq" 2>/dev/null)" ]; then printf '\n'; fi
+    printf '\n%s\n' "$bloco"
+  } 2>/dev/null >>"$arq"
+}
+
+persistir_path() {
+  local nome arq
+  for nome in .profile .bash_profile .bash_login .bashrc .zshrc; do
+    arq="$HOME/$nome"
+    if [ "$nome" != ".profile" ] && [ ! -f "$arq" ]; then continue; fi
+    if acrescentar_bloco_path "$arq"; then
+      PATH_PERSISTIDO="${PATH_PERSISTIDO:+$PATH_PERSISTIDO }~/$nome"
+      registrar "path: bloco do Anvilore em $arq"
+    else
+      avisar "não consegui acrescentar ~/.local/bin ao PATH em ~/$nome (sem permissão de escrita). Um terminal novo pode não achar o comando bun: acrescente a esse arquivo a linha  export PATH=\"\$HOME/.local/bin:\$PATH\""
+    fi
+  done
 }
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -927,7 +975,9 @@ passo_final() {
     else proximo="Próximo passo: abra o Claude Code (ou o seu agente) na pasta Anvilore."; fi
   fi
   [ "$RG_FALTA" -eq 1 ] && linha1="$linha1 (sem rg: a busca da skill query fica indisponível)"
-  printf '\n%s\nOnde está: %s\n%s Feche e abra o terminal e o agente para o PATH novo valer.\n' "$linha1" "$PASTA" "$proximo"
+  local fechar="Feche e abra o terminal e o agente para o PATH novo valer."
+  [ -n "$PATH_PERSISTIDO" ] && fechar="Um terminal novo já acha o comando bun (ajustei o PATH em $PATH_PERSISTIDO). Feche e abra o terminal e o agente para valer."
+  printf '\n%s\nOnde está: %s\n%s %s\n' "$linha1" "$PASTA" "$proximo" "$fechar"
   registrar "resumo: $linha1 | $PASTA | $proximo"
   registrar "fim: $([ "$parcial" -eq 1 ] && echo parcial || echo completo)"
 }
@@ -955,6 +1005,7 @@ principal() {
   passo_agentes
   passo_configurar
   passo_estado
+  persistir_path
   passo_final
   terminar 0
 }
