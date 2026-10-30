@@ -53,7 +53,9 @@ describe("confianca.json: formato e validação estrita", () => {
     ["repete chaves (a primeira só com a fingerprint revogada)", `{"chaves":["${FP}"],"formato":1,"chaves":["${FP2}"],"versaoMinima":"0.3.0"}`],
     ["repete formato", `{"formato":1,"formato":1,"chaves":["${FP}"],"versaoMinima":"0.3.0"}`],
     ["repete versaoMinima", `{"formato":1,"chaves":["${FP}"],"versaoMinima":"0.3.0","versaoMinima":"0.4.0"}`],
-    ["repete um nome escrito com escape unicode", `{"formato":1,"chaves":["${FP}"],"versaoMinima":"0.3.0","versaoMinim\u0061":"0.1.0"}`],
+    ["repete um nome escrito com escape unicode", String.raw`{"formato":1,"chaves":["${FP}"],"versaoMinima":"0.3.0","versaoMinim\u0061":"0.1.0"}`],
+    ["escape em fingerprint", String.raw`{"formato":1,"chaves":["SHA256:\u0041${"A".repeat(42)}"],"versaoMinima":"0.3.0"}`],
+    ["escape em versaoMinima", String.raw`{"formato":1,"chaves":["${FP}"],"versaoMinima":"0.\u0033.0"}`],
     ["repete um nome dentro de um objeto aninhado", `{"formato":1,"chaves":["${FP}"],"versaoMinima":"0.3.0","x":{"a":1,"a":2}}`],
   ];
   test("Dado versaoMinima com 9 dígitos por número, Quando valido, Então aceita (mesmo limite dos instaladores)", () => {
