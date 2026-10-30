@@ -102,6 +102,19 @@ for (const [caso, preparar] of FALHAS) {
   });
 }
 
+test.skipIf(!linux)("Dado um site que responde sem parar, Quando instalo, Então aborta no limite de 64 KiB (não baixa o corpo inteiro) e recusa", async () => {
+  const c = await novo({ agentes: ["claude"] });
+  await c.servidor.modo("infinito");
+  const inicio = Date.now();
+  const r = c.rodar();
+  expect(r.codigo, r.tudo).not.toBe(0);
+  expect(r.tudo).toContain(FRASE);
+  expect(Date.now() - inicio).toBeLessThan(10_000);
+  await Bun.sleep(300);
+  expect(await c.servidor.enviados()).toBeLessThan(1024 * 1024);
+  await SEM_INSTALAR(c);
+});
+
 test.skipIf(!linux)("Dado o servidor do site fora do ar, Quando instalo, Então recusa com a mensagem simples e não cria a pasta", async () => {
   const c = await novo({ agentes: ["claude"] });
   await c.servidor.parar();

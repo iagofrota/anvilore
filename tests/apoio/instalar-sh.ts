@@ -69,6 +69,9 @@ export async function iniciarServidorConfianca(chaves: string[], versaoMinima = 
     pasta, url: `http://127.0.0.1:${porta}/confianca.json`,
     publicar: (texto: string | object) => writeFile(arquivo, typeof texto === "string" ? texto : JSON.stringify(texto)),
     status: (codigo?: number) => codigo === undefined ? rm(join(pasta, "status"), { force: true }) : writeFile(join(pasta, "status"), String(codigo)),
+    // "infinito": o servidor responde sem parar; `enviados` devolve os bytes que já saíram (o cliente tem de abortar em 64 KiB).
+    modo: (m?: string) => m === undefined ? rm(join(pasta, "modo"), { force: true }) : writeFile(join(pasta, "modo"), m),
+    enviados: async () => Number(await readFile(join(pasta, "enviados"), "utf8").catch(() => "0")),
     requisicoes: async () => (await readFile(join(pasta, "requisicoes.log"), "utf8").catch(() => "")).trim().split("\n").filter(Boolean).map(l => JSON.parse(l) as { rota: string; cacheControl: string | null; pragma: string | null }),
     parar: async () => { proc.kill(); await proc.exited; await rm(pasta, { recursive: true, force: true }); },
   };

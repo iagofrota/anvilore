@@ -103,6 +103,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       [IO.File]::WriteAllText((Join-Path $script:ConfDir 'confianca.json'), $j)
     }
     function script:StatusDoSite($codigo) { [IO.File]::WriteAllText((Join-Path $script:ConfDir 'status'), "$codigo") }
+    function script:ModoDoSite($modo) { if ($modo) { [IO.File]::WriteAllText((Join-Path $script:ConfDir 'modo'), $modo) } else { Remove-Item (Join-Path $script:ConfDir 'modo') -ErrorAction SilentlyContinue } }
     function script:Requisicoes { $f = Join-Path $script:ConfDir 'requisicoes.log'; if (Test-Path $f) { @(Get-Content $f).Count } else { 0 } }
     Publicar @($script:Boa.Fingerprint, $script:Outra.Fingerprint)
     $bun = (Get-Command bun).Source
@@ -393,6 +394,16 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $script:Rc3 = Rodar (Perfil 'site-404') $script:OrigemBoa $script:Release $script:PathEstado
       Publicar @($script:Boa.Fingerprint) '99.0.0'
       $script:Rc4 = Rodar (Perfil 'versao-minima') $script:OrigemBoa $script:Release $script:PathEstado
+      # Site que responde sem parar: o instalador tem de abortar ao passar de 64 KiB (o servidor registra os bytes que saíram).
+      Publicar @($script:Boa.Fingerprint, $script:Outra.Fingerprint)
+      ModoDoSite 'infinito'
+      $cron = [Diagnostics.Stopwatch]::StartNew()
+      $script:Rc5 = Rodar (Perfil 'corpo-infinito') $script:OrigemBoa $script:Release $script:PathEstado
+      $cron.Stop()
+      $script:Rc5Segundos = $cron.Elapsed.TotalSeconds
+      Start-Sleep -Milliseconds 500
+      $script:Rc5Enviados = [long](Get-Content -Raw (Join-Path $script:ConfDir 'enviados')).Trim()
+      ModoDoSite $null
       Publicar @($script:Boa.Fingerprint, $script:Outra.Fingerprint)
     }
     It 'chave retirada da lista: recusa, diz que o instalador está desatualizado e não cria a pasta' {
@@ -410,6 +421,13 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $script:Rc3.Codigo | Should -Not -Be 0
       $script:Rc3.Saida | Should -Match 'não consegui conferir a lista atual de chaves'
       Test-Path (Join-Path $script:Rc3.Perfil 'Anvilore') | Should -BeFalse
+    }
+    It 'resposta sem fim: aborta no limite de 64 KiB, recusa com a mensagem simples e não cria a pasta' {
+      $script:Rc5.Codigo | Should -Not -Be 0
+      $script:Rc5.Saida | Should -Match 'não consegui conferir a lista atual de chaves'
+      $script:Rc5Enviados | Should -BeLessThan 1048576
+      $script:Rc5Segundos | Should -BeLessThan 12
+      Test-Path (Join-Path $script:Rc5.Perfil 'Anvilore') | Should -BeFalse
     }
     It 'versão mínima acima da tag: recusa antes de baixar' {
       $script:Rc4.Codigo | Should -Not -Be 0

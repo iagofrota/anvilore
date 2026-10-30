@@ -584,7 +584,14 @@ Describe 'estado das chaves: URL, documento, fingerprint e interseção' {
       '{"formato":1,"chaves":["' + $script:FpA.ToLowerInvariant() + '"],"versaoMinima":"0.3.0"}',
       '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":"0.3.0-rc.1"}',
       '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":"v0.3.0"}',
-      '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":3}'
+      '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":3}',
+      '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":"1234567890.0.0"}',
+      # Nome repetido (a lista é a autoridade de revogação: documento ambíguo falha fechado, igual ao instalar.sh e ao atualizador).
+      '{"formato":1,"chaves":["' + $script:FpB + '"],"chaves":["' + $script:FpA + '"],"versaoMinima":"0.3.0"}',
+      '{"chaves":["' + $script:FpA + '"],"formato":1,"chaves":["' + $script:FpB + '"],"versaoMinima":"0.3.0"}',
+      '{"formato":1,"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":"0.3.0"}',
+      '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":"0.3.0","versaoMinima":"0.4.0"}',
+      '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":"0.3.0","versaoMinim\u0061":"0.1.0"}'
     )
     foreach ($t in $ruins) { (AnvValidarConfianca -Texto $t) | Should -BeNullOrEmpty }
   }
@@ -628,7 +635,6 @@ Describe 'AnvConsultarConfianca (busca da lista)' {
     $casos = @(
       { & $script:Resp 404 'nada' }, { & $script:Resp 302 '' }, { & $script:Resp 500 'erro' }, { throw 'falha de TLS' },
       { & $script:Resp 200 '{' }, { & $script:Resp 200 '{"formato":2,"chaves":[],"versaoMinima":"0.0.0"}' },
-      { [pscustomobject]@{ StatusCode = 200; Content = $script:Doc; RawContentLength = 70000 } },
       { & $script:Resp 200 ($script:Doc + (' ' * 70000)) }
     )
     foreach ($b in $casos) {

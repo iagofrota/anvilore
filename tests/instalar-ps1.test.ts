@@ -175,20 +175,46 @@ describe("CI do instalador do Windows", () => {
 });
 
 describe("instalar.ps1: estado das chaves no site (decisão 2 do parecer de release)", () => {
-  test("Dado a consulta, Quando leio o código, Então usa Invoke-WebRequest sem seguir redirecionamento, sem cache, com tempo limite e tamanho máximo, e não lê o ambiente", () => {
-    const corpo = funcao("AnvConsultarConfianca");
+  test("Dado a consulta, Quando leio o código, Então não segue redirecionamento, não usa cache, tem tempo limite e não lê o ambiente", () => {
+    const corpo = funcao("AnvLerConfiancaHttp");
     expect(corpo).not.toBe("");
-    expect(corpo).toContain("Invoke-WebRequest");
-    expect(corpo).toContain("-MaximumRedirection 0");
-    expect(corpo).toContain("-TimeoutSec 15");
-    expect(corpo).toContain("-UseBasicParsing");
-    expect(corpo).toContain("'Cache-Control' = 'no-cache'");
-    expect(corpo).toContain("'Pragma' = 'no-cache'");
-    expect(corpo).toContain("$script:AnvLimiteConfianca");
+    expect(corpo).toContain("[System.Net.HttpWebRequest]::Create");
+    expect(corpo).toContain("AllowAutoRedirect = $false");
+    expect(corpo).toContain("Timeout = 15000");
+    expect(corpo).toContain("ReadWriteTimeout = 15000");
+    const consulta = funcao("AnvConsultarConfianca");
+    expect(consulta).toContain("'Cache-Control' = 'no-cache'");
+    expect(consulta).toContain("'Pragma' = 'no-cache'");
+    expect(consulta).toContain("AnvLerConfiancaHttp");
     expect(codigo).toMatch(/\$script:AnvLimiteConfianca = 65536\b/);
-    for (const nome of ["AnvUrlConfianca", "AnvConsultarConfianca", "AnvConferirEstadoDasChaves", "AnvValidarConfianca"]) {
+    for (const nome of ["AnvUrlConfianca", "AnvConsultarConfianca", "AnvLerConfiancaHttp", "AnvConferirEstadoDasChaves", "AnvValidarConfianca"]) {
       expect(funcao(nome), nome).not.toMatch(/AnvVariavel|\$env:|GetEnvironmentVariable/);
     }
+  });
+
+  test("Dado o limite de 64 KiB, Quando leio a busca, Então os bytes são contados DURANTE a leitura do stream e o pedido é abortado (não há Invoke-WebRequest nem .Content)", () => {
+    const busca = funcao("AnvLerConfiancaHttp");
+    expect(busca).toContain("GetResponseStream()");
+    expect(busca).toMatch(/\.Read\(\$bloco, 0, /);
+    expect(busca).toContain("$script:AnvLimiteConfianca");
+    expect(busca).toContain(".Abort()");
+    expect(busca).toContain("maior que o limite");
+    // Um Content-Length acima do limite também recusa antes de ler.
+    expect(busca).toContain("ContentLength");
+    // O tempo total (não só cada leitura) tem teto de 15 s.
+    expect(busca).toContain("Stopwatch");
+    for (const nome of ["AnvConsultarConfianca", "AnvLerConfiancaHttp"]) {
+      expect(funcao(nome), nome).not.toContain("Invoke-WebRequest");
+      expect(funcao(nome), nome).not.toContain("RawContentLength");
+    }
+  });
+
+  test("Dado o documento, Quando leio AnvValidarConfianca, Então recusa nome repetido contando os nomes no texto bruto e recusa escape", () => {
+    const corpo = funcao("AnvValidarConfianca");
+    for (const nome of ["chaves", "formato", "versaoMinima"]) expect(corpo, nome).toContain(`"${nome}"`);
+    expect(corpo).toMatch(/\[regex\]::Matches\(\$Texto/);
+    expect(corpo).toMatch(/-ne 1/);
+    expect(corpo).toContain(".Contains('\\')");
   });
 
   test("Dado a instalação nova, Quando leio AnvBaixarKit, Então a lista de chaves é consultada antes do clone e a verificação usa a interseção", () => {
