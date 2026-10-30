@@ -108,3 +108,10 @@ test.skipIf(!linux || process.getuid?.() === 0)("Dado um ~/.profile que não ace
   expect(r.tudo).toContain("não consegui acrescentar");
   expect(await readFile(join(c.home, ".profile"), "utf8")).toBe("# somente leitura\n");
 });
+
+test.skipIf(!linux || !Bun.which("zsh"))("Dado um ~/.zshrc existente, Quando abro um zsh novo (env -i, PATH do sistema), Então o comando bun é achado", async () => {
+  const c = await novo({ comBun: false });
+  await writeFile(join(c.home, ".zshrc"), "# zshrc\n");
+  expect(c.rodar().codigo).toBe(0);
+  expect([join(c.home, ".bun/bin/bun"), join(c.home, ".local/bin/bun")]).toContain(terminalNovo(c.home, "command -v bun", "zsh"));
+});

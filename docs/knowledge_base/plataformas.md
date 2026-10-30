@@ -248,7 +248,21 @@ Onde cada coisa fica (Linux):
 ~/.bun/bin/bun                 só se o Bun do sistema faltava ou era mais velho (marca bunGerenciado no estado)
 ~/.local/bin/bun               link para o de cima, para sessões novas acharem o bun
 ~/.local/bin/rg                só se o rg faltava (zip/tar do manifesto, SHA-256 conferido)
+~/.profile                     bloco marcado "Anvilore: PATH" (criado se faltar); idem em ~/.bashrc, ~/.zshrc, ~/.bash_profile e ~/.bash_login, só se já existem
 ```
+
+- **PATH persistente.** Os hooks dos agentes chamam `bun` pelo PATH (e a busca chama `rg`), e exportar o PATH só no processo do
+  instalador não sobrevive a ele. No fim da instalação (`persistir_path` em `instalador/instalar.sh`) o script acrescenta, no fim de
+  cada arquivo acima, um bloco entre `# >>> Anvilore: PATH >>>` e `# <<< Anvilore: PATH <<<` que põe ~/.local/bin (e ~/.bun/bin,
+  se o Bun é o gerenciado) no PATH só quando a pasta ainda não está nele, como fazem os instaladores do Bun e do rustup. Reinstalar
+  não duplica (bloco já presente: o arquivo nem é aberto para escrita) e o resto do arquivo nunca é reescrito. Arquivo sem permissão
+  de escrita vira aviso em linguagem simples, não erro. O resumo final diz que um terminal novo já acha o comando. Os hooks
+  continuam chamando `bun` pelo PATH, sem caminho absoluto. O `doctor` e o `--conferir` não precisam saber disso: eles olham o PATH
+  do terminal em que rodam, que num terminal novo já traz o bloco. ~/.bash_profile e ~/.bash_login entram porque o bash de login
+  ignora o ~/.profile quando um deles existe. **Não provado:** `fish` e `zsh` de login sem ~/.zshrc (o zsh só lê o ~/.zshrc em
+  shell interativo), e sessões gráficas que não passam por um shell de login (o PATH do ambiente gráfico não muda).
+- **Pasta de passagem do download.** O clone vai para `.anvilore-baixando.<pid>.<aleatório>` ao lado do destino, criada com `mkdir`
+  (que falha se o caminho existe) e sem `rm -rf` antes: nada que já estava lá é apagado. Só o que o próprio script criou é limpo.
 
 - **Manifesto e chave dentro do script.** `instalador/dependencias.json` (versão, URL oficial e SHA-256 de Bun, rg
   e PortableGit por plataforma) e a chave pública (arquivo seguranca/assinantes, ainda sem chave real) vão
@@ -314,9 +328,14 @@ O passo 10 (atalhos) é da fatia U6: o script só tem `AnvCriarAtalho`, que não
   grava o `PATH` e as variáveis do usuário com `reg.exe` (os métodos .NET do registro e `SetEnvironmentVariable` ficam
   bloqueados). No modo normal ele grava no registro mantendo o tipo `REG_EXPAND_SZ` e **sem expandir** `%VARIÁVEL%` do
   `PATH` da pessoa, e avisa o Explorer da mudança. O `PATH` do processo também recebe as pastas, para os passos seguintes.
+- **Commit automático.** A instalação nova liga (`--auto-commit`); a reinstalação respeita o `autoCommit` do .anvilore/atualizacao.json
+  (`AnvAutoCommitDaPasta`), como o instalador/instalar.sh: desligado pela pessoa continua desligado, e estado ilegível ou sem a chave também deixa
+  desligado. Sem atualizacao.json (a primeira rodada parou antes de gravá-lo), liga como numa instalação nova.
 - **Origem e assinatura.** `ANVILORE_ORIGEM` troca a origem (CI e QA usam um repositório local); `ANVILORE_VERSAO`, `ANVILORE_PASTA`,
   `ANVILORE_INSTALAR_CLAUDE` e `ANVILORE_ESPERAR_ENTER` têm os mesmos nomes do Linux. O clone usa `-c core.autocrlf=false` e
-  vai primeiro para `Anvilore.novo`; só depois de conferido é movido para o lugar. A conferência é a do `instalador/instalar.sh`: a tag
+  vai primeiro para uma pasta de passagem única (`Anvilore.novo-<12 caracteres aleatórios>`, criada por `AnvCriarStaging` ao lado do
+  destino, no mesmo volume, e que falha se o nome já existe); só depois de conferido é movido para o lugar. Uma pasta `Anvilore.novo`
+  da pessoa nunca é tocada, e a limpeza (`finally` em `AnvBaixarKit`) apaga só a pasta que esta execução criou, no sucesso e na falha. A conferência é a do `instalador/instalar.sh`: a tag
   é anotada, tem bloco `-----BEGIN SSH SIGNATURE-----` (OpenPGP e x509 são recusados), `git verify-tag` aprova com a chave
   embutida, o nome assinado é o da tag, ela aponta para um commit e o commit é o do `HEAD`. Falhou: apaga o que baixou e
   não liga agente nenhum. Correções da revisão de segurança (A1 e A2), no mesmo desenho do `instalador/instalar.sh`: o clone é
