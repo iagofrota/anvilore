@@ -1,5 +1,6 @@
 ---
 generated: 2026-10-29
+verified: 2026-10-30
 ---
 
 # Como publicar uma release
@@ -129,7 +130,7 @@ Sem seguranca/assinantes (ausente, vazio ou ilegível), o kit recusa toda candid
 executado por quem instala pela primeira vez. Para fechar a cadeia de confiança antes da primeira execução:
 1. A chave pública e a base mínima embutidas no instalador gerado precisam ser idênticas a seguranca/assinantes e a instalador/base-minima (conferidas por `bun scripts/embutir-instalador.ts --conferir <script>`).
 2. Cada instalador gerado (dist/instalar.sh e dist/instalar.ps1) deve ter seu SHA-256 e sua assinatura SSH (`ssh-keygen -Y sign -n file`) publicados junto da release.
-3. Quem baixa o instalador confere o hash e a assinatura (`ssh-keygen -Y verify`) contra a chave pública obtida por canal independente **fora do repositório e fora do GitHub** (o README do próprio repositório não é canal independente; a âncora deve residir fora desse domínio, como site pessoal do mantenedor ou registro público verificado — definir qual será esse canal é uma pendência do dono antes da publicação da primeira versão).
+3. Quem baixa o instalador confere o hash e a assinatura (`ssh-keygen -Y verify`) contra a chave pública obtida por canal independente **fora do repositório e fora do GitHub** (o README do próprio repositório não é canal independente; a âncora deve residir fora desse domínio, como site pessoal do mantenedor ou registro público verificado ; o canal é o site do Anvilore, https://anvilore.iagofrota.com.br, que mostra a impressão digital e serve o arquivo `assinantes` (decisão do dono, 2026-10-30)).
 
 ## Passo a passo de cada release
 
@@ -177,7 +178,7 @@ por vez**.
    segurança ALTO ou MÉDIO aberto nos instaladores ou no atualizador, com revisão de outro modelo
    registrada. Não publique se houver vulnerabilidades em aberto na cadeia (como execução de
    filtros antes da verificação da tag ou configuração global interferindo no verificador).
-8. **Gerar e conferir os instaladores (quando U3/U4 entrarem na main).**
+8. **Gerar e conferir os instaladores.**
    Gere os scripts com manifesto, assinantes e base mínima (`instalador/base-minima`, um `X.Y.Z`; sem valor válido o comando recusa gerar) embutidos:
 
    ```bash
@@ -187,7 +188,7 @@ por vez**.
    bun scripts/embutir-instalador.ts --conferir dist/instalar.ps1 --assinantes seguranca/assinantes
    ```
 
-   O `--conferir` confirma que a chave, o manifesto, a base mínima e a URL da lista de chaves embutidos batem exatamente com seguranca/assinantes, instalador/dependencias.json, instalador/base-minima e a constante de src/lib/confianca.ts (sempre https; o modelo sem a região URL_CONFIANCA é recusado). (Nota: este passo passa a valer quando as branches U3 e U4 forem mescladas na `main`).
+   O `--conferir` confirma que a chave, o manifesto, a base mínima e a URL da lista de chaves embutidos batem exatamente com seguranca/assinantes, instalador/dependencias.json, instalador/base-minima e a constante de src/lib/confianca.ts (sempre https; o modelo sem a região URL_CONFIANCA é recusado).
 9. **Assinar e gerar hashes dos instaladores.**
    Gere o hash SHA-256 (executado dentro de `dist` para que o checksum registre apenas o nome do arquivo, permitindo conferência na pasta de download) e a assinatura SSH (`ssh-keygen -Y sign -n file`) de cada instalador gerado:
 
@@ -289,7 +290,7 @@ O `ls-remote` mostra dois ids: o da tag e, com `^{}`, o do commit da release. Os
 diferentes (tag anotada) e o segundo tem de ser `<COMMIT>`. O CI roda `checar-release` na tag
 (`.github/workflows/ci.yml`, última etapa do job `testes`).
 
-**Ação 3 — criar a release no GitHub.** As notas saem da seção do CHANGELOG. Quando U3/U4 entrarem na `main`, envie também os instaladores gerados com seus hashes e assinaturas SSH como assets:
+**Ação 3 — criar a release no GitHub.** As notas saem da seção do CHANGELOG. Envie também os instaladores gerados com seus hashes e assinaturas SSH como assets:
 
 ```bash
 awk -v v="X.Y.Z" '$0 ~ "^## \\[" v "\\]" {f=1; next} /^## /{f=0} f' CHANGELOG.md > <ARQUIVO-DE-NOTAS>
@@ -305,7 +306,7 @@ gh release create vX.Y.Z dist/instalar.sh dist/instalar.sh.sha256 dist/instalar.
   tirar o posto da versão mais nova.
 
 **Como quem instala confere o instalador antes de executar (canal independente):**
-Quem faz o primeiro download obtém a chave pública por canal independente **fora do GitHub e fora do repositório** (o README do repositório não é canal independente, pois um atacante que comprometesse o repositório alteraria o instalador e o README juntos; a âncora deve ser externa, como site do mantenedor ou registro público verificado — definir qual será esse canal externo é pendência do dono). A pessoa grava essa chave em um arquivo local `assinantes` (ex.: `echo "<EMAIL-DO-MANTENEDOR> namespaces=\"file\" <CHAVE-PUBLICA>" > assinantes` ou sem a opção de namespace).
+Quem faz o primeiro download obtém a chave pública por canal independente **fora do GitHub e fora do repositório** (o README do repositório não é canal independente, pois um atacante que comprometesse o repositório alteraria o instalador e o README juntos; a âncora deve ser externa, como site do mantenedor ou registro público verificado ; o canal é o site do Anvilore, https://anvilore.iagofrota.com.br, que mostra a impressão digital e serve o arquivo `assinantes` (decisão do dono, 2026-10-30)). A pessoa grava essa chave em um arquivo local `assinantes` (ex.: `echo "<EMAIL-DO-MANTENEDOR> namespaces=\"file\" <CHAVE-PUBLICA>" > assinantes` ou sem a opção de namespace).
 A pessoa confere o hash SHA-256 e a assinatura SSH antes de rodar:
 
 No Linux:
@@ -459,7 +460,7 @@ Se alguma máquina não recebeu a versão de transição e a rotação avançou 
 Isto vale para pastas **na base mínima ou acima dela**. Uma pasta **anterior** à base mínima (a `0.2.0` ou um clone intermediário) o instalador recusa antes de executar qualquer coisa dela; para essas, o caminho é "pasta nova + migração assistida": instalar o Anvilore numa pasta nova com o instalador verificado e pedir ao agente que traga a wiki de lá para cá de forma conferida (cópia de segurança antes, conferência depois), sem apagar nem renomear a pasta original. Não use `git checkout` nem `migrar-rastreio --puxar` como bootstrap: eles não provam a cadeia de assinatura. A ferramenta que automatize essa migração é backlog.
 
 O caminho seguro de recuperação é a **reinstalação com o instalador verificado**:
-Baixe o instalador da versão mais recente (`<dist/instalar.sh>` quando U3 entrar ou `<dist/instalar.ps1>` quando U4 entrar), confira seu hash SHA-256 e sua assinatura SSH contra a chave pública obtida por canal independente fora do GitHub (veja "Segurança no bootstrap"), e execute-o. O instalador preserva os dados pessoais existentes e atualiza a chave em seguranca/assinantes.
+Baixe o instalador da versão mais recente (instalar.sh no Linux ou instalar.ps1 no Windows), confira seu hash SHA-256 e sua assinatura SSH contra a chave pública obtida por canal independente fora do GitHub (veja "Segurança no bootstrap"), e execute-o. O instalador preserva os dados pessoais existentes e atualiza a chave em seguranca/assinantes.
 
 A recuperação manual via edição local de seguranca/assinantes e atualização foi retirada porque qualquer alteração no arquivo é preservada pelo atualizador (via `listarModificados` e `restaurarPessoais` em `src/lib/atualizacao.ts`, linhas 749 e 778), o que deixaria a chave adicionada permanentemente e impediria rotações e revogações futuras.
 

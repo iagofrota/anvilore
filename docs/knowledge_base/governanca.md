@@ -1,5 +1,6 @@
 ---
 generated: 2026-10-27
+verified: 2026-10-30
 ---
 
 # Governança: padrões, guardrails e o que ainda não é imposto

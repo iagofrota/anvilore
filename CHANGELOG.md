@@ -9,6 +9,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-30
+
 ### Added
 
 - Telas de Biblioteca e Nota na interface web (`anvilore ui`):

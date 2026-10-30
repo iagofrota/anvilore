@@ -1,5 +1,6 @@
 ---
 generated: 2026-10-27
+verified: 2026-10-30
 ---
 
 # Plataformas
@@ -10,7 +11,7 @@ do que ainda é só hipótese.
 
 ## Estado de hoje
 
-- O `README.md` ainda diz que o suporte é só Linux. O hook antigo em bash, que declarava "Alvo
+- O `README.md` cita Linux, Windows e macOS e avisa que o Windows só é testado no CI. O hook antigo em bash, que declarava "Alvo
   declarado: Linux", foi substituído por `anvilore hook proteger-raw` (`src/comandos/hook-proteger-raw.ts`). O instalador já está em TypeScript no Bun:
   `src/comandos/instalar.ts`, com caminhos de `node:path` e links de `node:fs/promises`.
 - O hook em TypeScript não depende de `jq` nem de `python3`, só do Bun. O
@@ -275,7 +276,7 @@ Onde cada coisa fica (Linux):
   necessário ao instalador para fazer o parse; o PowerShell usa `ConvertFrom-Json`.
 
 - **Manifesto e chave dentro do script.** `instalador/dependencias.json` (versão, URL oficial e SHA-256 de Bun, rg
-  e PortableGit por plataforma) e a chave pública (arquivo seguranca/assinantes, ainda sem chave real) vão
+  e PortableGit por plataforma) e a chave pública (arquivo seguranca/assinantes, com a chave real do dono desde a 0.3.0) vão
   embutidos no instalar.sh pela release, junto com a **base mínima** (`instalador/base-minima`, um `X.Y.Z`): `scripts/embutir-instalador.ts` gera o script e, com `--conferir`,
   prova que a cópia embutida é igual aos arquivos. O instalar.sh do repositório é só o modelo: sem manifesto e sem
   chave válida ele recusa instalar e explica. O manifesto traz uma entrada por linha para o `awk` do script ler
