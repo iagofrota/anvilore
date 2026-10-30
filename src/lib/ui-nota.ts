@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { open, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { lerFrontmatter, linhasDe } from "./frontmatter";
+import { chaveDeNome } from "./caminhos";
 import { estadoAprovacaoHumana } from "./okf";
 import { ehCaminhoDeNotaValido } from "./ui-biblioteca";
 import { caminhoWiki } from "./wiki-repo";
@@ -75,6 +76,7 @@ export type DetalhesDaNota = {
   proveniencia: Proveniencia;
   fontes: Fonte[];
   relacionados: string[];
+  destinosWikilinks?: Record<string, string | null>;
   lacunas: Lacuna[];
   backlinks: Backlink[];
   grafoLocal: GrafoLocal;
@@ -464,6 +466,19 @@ export async function obterNota(
     }
   }
 
+  const caminhosPorSlug = new Map<string, string[]>();
+  for (const arq of [caminhoRelativo, ...todosArquivos]) {
+    const slugDaPagina = basename(arq, ".md");
+    const chave = chaveDeNome(slugDaPagina);
+    caminhosPorSlug.set(chave, [...(caminhosPorSlug.get(chave) ?? []), arq]);
+  }
+  const destinosWikilinks: Record<string, string | null> = {};
+  for (const referencia of saidas) {
+    const alvo = referencia.split("#")[0]!.trim();
+    const caminhos = caminhosPorSlug.get(chaveDeNome(alvo));
+    destinosWikilinks[alvo] = caminhos?.length === 1 ? caminhos[0]! : null;
+  }
+
   // Grafo local: nó atual + vizinhos diretos (saídas + entradas) indexados pelo caminho relativo
   const vizinhos = new Set<string>([caminhoRelativo]);
   for (const s of saidas) {
@@ -529,6 +544,7 @@ export async function obterNota(
     proveniencia,
     fontes: fontesBrutas,
     relacionados: Array.from(saidasSet),
+    destinosWikilinks,
     lacunas,
     backlinks,
     grafoLocal: {

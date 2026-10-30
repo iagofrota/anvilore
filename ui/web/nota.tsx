@@ -23,7 +23,7 @@ export function formatarData(dataIso?: string): string {
   }
 }
 
-export function renderizarTextoComWikilinks(texto: string): React.ReactNode {
+export function renderizarTextoComWikilinks(texto: string, destinos?: Record<string, string | null>): React.ReactNode {
   const partes: React.ReactNode[] = [];
   const regex = /(\[\[[^\]\n|]+(?:\|[^\]\n]+)?\]\]|\*\*[^*]+\*\*|`[^`]+`)/g;
   let ultimoIndice = 0;
@@ -37,14 +37,10 @@ export function renderizarTextoComWikilinks(texto: string): React.ReactNode {
     if (token.startsWith("[[")) {
       const semColchetes = token.slice(2, -2);
       const pipe = semColchetes.indexOf("|");
-      const alvo = (pipe >= 0 ? semColchetes.slice(0, pipe) : semColchetes).trim();
+      const alvoCompleto = (pipe >= 0 ? semColchetes.slice(0, pipe) : semColchetes).trim();
+      const alvo = alvoCompleto.split("#")[0]!.trim();
       const rotulo = (pipe >= 0 ? semColchetes.slice(pipe + 1) : alvo).trim();
-      const destino = alvo.endsWith(".md") ? alvo : `${alvo}.md`;
-      partes.push(
-        <a key={`${match.index}-${alvo}`} className="wl" href={`#/nota/${destino}`}>
-          {rotulo}
-        </a>,
-      );
+      partes.push(linkWikilink(alvo, rotulo, destinos, `${match.index}-${alvo}`));
     } else if (token.startsWith("**")) {
       partes.push(<strong key={`strong-${match.index}`}>{token.slice(2, -2)}</strong>);
     } else if (token.startsWith("`")) {
@@ -58,7 +54,19 @@ export function renderizarTextoComWikilinks(texto: string): React.ReactNode {
   return partes.length > 0 ? partes : texto;
 }
 
-export function renderizarCorpoMarkdown(corpo: string): React.ReactNode[] {
+function linkWikilink(alvo: string, rotulo: string, destinos: Record<string, string | null> | undefined, key: string) {
+  if (destinos !== undefined) {
+    const caminhoResolvido = destinos[alvo];
+    if (caminhoResolvido === undefined || caminhoResolvido === null) {
+      return <span key={key} className="wl quebrado" aria-disabled="true">{rotulo}</span>;
+    }
+    return <a key={key} className="wl" href={`#/nota/${caminhoResolvido}`}>{rotulo}</a>;
+  }
+  const caminho = alvo.endsWith(".md") ? alvo : `${alvo}.md`;
+  return <a key={key} className="wl" href={`#/nota/${caminho}`}>{rotulo}</a>;
+}
+
+export function renderizarCorpoMarkdown(corpo: string, destinos?: Record<string, string | null>): React.ReactNode[] {
   const linhas = corpo.split(/\r?\n/);
   const elementos: React.ReactNode[] = [];
   let i = 0;
@@ -88,7 +96,7 @@ export function renderizarCorpoMarkdown(corpo: string): React.ReactNode[] {
           </svg>
           <div className="note-callout-body">
             <span className="mono note-callout-type">{tipo === "gap" ? "LACUNA" : "CONTRADIÇÃO"}</span>
-            <p>{renderizarTextoComWikilinks(partes.join(" "))}</p>
+            <p>{renderizarTextoComWikilinks(partes.join(" "), destinos)}</p>
             <a href={`#/chat?lacuna=${encodeURIComponent(partes.join(" "))}`} className="note-gap-link callout-chat-btn callout-botao-chat">Buscar fonte no Chat</a>
           </div>
         </aside>,
@@ -106,7 +114,7 @@ export function renderizarCorpoMarkdown(corpo: string): React.ReactNode[] {
       }
       elementos.push(
         <blockquote key={`quote-${i}`}>
-          {renderizarTextoComWikilinks(citacoes.join(" "))}
+          {renderizarTextoComWikilinks(citacoes.join(" "), destinos)}
         </blockquote>,
       );
       continue;
@@ -114,17 +122,17 @@ export function renderizarCorpoMarkdown(corpo: string): React.ReactNode[] {
 
     // Títulos
     if (linha.startsWith("# ")) {
-      elementos.push(<h1 key={`h1-${i}`}>{renderizarTextoComWikilinks(linha.slice(2))}</h1>);
+      elementos.push(<h1 key={`h1-${i}`}>{renderizarTextoComWikilinks(linha.slice(2), destinos)}</h1>);
       i++;
       continue;
     }
     if (linha.startsWith("## ")) {
-      elementos.push(<h2 key={`h2-${i}`}>{renderizarTextoComWikilinks(linha.slice(3))}</h2>);
+      elementos.push(<h2 key={`h2-${i}`}>{renderizarTextoComWikilinks(linha.slice(3), destinos)}</h2>);
       i++;
       continue;
     }
     if (linha.startsWith("### ")) {
-      elementos.push(<h3 key={`h3-${i}`}>{renderizarTextoComWikilinks(linha.slice(4))}</h3>);
+      elementos.push(<h3 key={`h3-${i}`}>{renderizarTextoComWikilinks(linha.slice(4), destinos)}</h3>);
       i++;
       continue;
     }
@@ -134,7 +142,7 @@ export function renderizarCorpoMarkdown(corpo: string): React.ReactNode[] {
       const itens: React.ReactNode[] = [];
       while (i < linhas.length && /^[-*]\s+(.*)$/.test(linhas[i]!)) {
         const m = /^[-*]\s+(.*)$/.exec(linhas[i]!);
-        if (m) itens.push(<li key={`li-${i}`}>{renderizarTextoComWikilinks(m[1]!)}</li>);
+        if (m) itens.push(<li key={`li-${i}`}>{renderizarTextoComWikilinks(m[1]!, destinos)}</li>);
         i++;
       }
       elementos.push(<ul key={`ul-${i}`}>{itens}</ul>);
@@ -148,7 +156,7 @@ export function renderizarCorpoMarkdown(corpo: string): React.ReactNode[] {
     }
 
     // Parágrafo comum
-    elementos.push(<p key={`p-${i}`}>{renderizarTextoComWikilinks(linha)}</p>);
+    elementos.push(<p key={`p-${i}`}>{renderizarTextoComWikilinks(linha, destinos)}</p>);
     i++;
   }
 
@@ -370,11 +378,10 @@ export function PainelDaNota({
                 <>
                   <span className="note-prop-label">Relacionados</span>
                   <span className="note-prop-val note-related-list">
-                    {nota.relacionados.map((rel) => (
-                      <a key={rel} className="wl" href={`#/nota/${rel.endsWith(".md") ? rel : `${rel}.md`}`}>
-                        {rel}
-                      </a>
-                    ))}
+                {nota.relacionados.map((rel) => {
+                  const alvo = rel.split("#")[0]!.trim();
+                  return linkWikilink(alvo, rel, nota.destinosWikilinks, rel);
+                })}
                   </span>
                 </>
               )}
@@ -386,7 +393,7 @@ export function PainelDaNota({
             </div>
 
             <div className="note-body">
-              {renderizarCorpoMarkdown(nota.corpo)}
+              {renderizarCorpoMarkdown(nota.corpo, nota.destinosWikilinks)}
             </div>
           </article>
         </div>

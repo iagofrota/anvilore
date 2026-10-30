@@ -135,7 +135,7 @@ test("[I6-11] Dado wikilink por slug para página em área Quando clico Então a
 
   await page.goto(`${app.url}#/nota/pessoal/concepts/origem-link.md`);
   const href = "#/nota/trabalho/concepts/destino-certo.md";
-  await expect(page.locator(".note-related-list").getByRole("link", { name: "Destino certo" })).toHaveAttribute("href", href);
+  await expect(page.locator(".note-related-list").getByRole("link", { name: "destino-certo" })).toHaveAttribute("href", href);
   const destino = page.locator(".note-body").getByRole("link", { name: "Destino certo" });
   await expect(destino).toHaveAttribute("href", href);
   await destino.click();
