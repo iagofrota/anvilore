@@ -540,3 +540,163 @@ Describe 'transporte do git antes da assinatura (A5)' {
     Remove-Item Env:ANV_TESTE_A -ErrorAction SilentlyContinue
   }
 }
+
+# Estado das chaves fora do GitHub (PARECER-SOL §2): a lista que o dono publica no site; o instalador só vale a interseção dela
+# com as chaves embutidas. O comportamento de ponta a ponta (servidor de loopback, reinstalação) está em e2e.Tests.ps1.
+Describe 'estado das chaves: URL, documento, fingerprint e interseção' {
+  BeforeAll {
+    $script:FpA = 'SHA256:/JgFK5PwZmasglTqgzoAjmXPyJUZMG00A2M8/094SLc'
+    $script:FpB = 'SHA256:dqanDdeEV020uGcmGitbT6dlSS+jHYoL2XMmXUpqCD8'
+    $script:LinhaA = 'unit@anvilore.test namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILzBKzpYMJNV3yvlaRIPDKwIjuHnYW4sJuBuwlXqU8+v'
+    $script:LinhaB = 'unit2@anvilore.test namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKtLPcuTLjTVuWPqqPiG59ATxI72uAjPUaFxMdT9LV2X unit2'
+    $script:Lista = { param($chaves, $minima = '0.0.0') (@{ formato = 1; chaves = $chaves; versaoMinima = $minima } | ConvertTo-Json -Compress) }
+  }
+
+  # Dado o endereço embutido; Quando o leio; Então só vale https (ou http em loopback, do build de teste), numa linha só.
+  It 'AnvUrlConfianca aceita https e http em 127.0.0.1' {
+    AnvUrlConfianca -Embutido "https://anvilore.iagofrota.com.br/confianca.json`n" | Should -Be 'https://anvilore.iagofrota.com.br/confianca.json'
+    AnvUrlConfianca -Embutido 'http://127.0.0.1:8123/confianca.json' | Should -Be 'http://127.0.0.1:8123/confianca.json'
+  }
+  It 'AnvUrlConfianca recusa vazio, http fora de loopback, espaço, usuário, consulta e duas linhas' {
+    foreach ($u in @('', "`n", 'http://anvilore.iagofrota.com.br/confianca.json', 'http://localhost:1/x', 'http://127.0.0.2/x', 'https://exemplo.com/a b', 'https://u:s@exemplo.com/x', 'https://exemplo.com/x?a=1', "https://exemplo.com/x`nhttps://outro.com/y", 'ftp://exemplo.com/x', 'exemplo.com/x')) {
+      AnvUrlConfianca -Embutido $u | Should -BeNullOrEmpty
+    }
+  }
+
+  It 'AnvValidarConfianca aceita o documento certo' {
+    $c = AnvValidarConfianca -Texto (& $script:Lista @($script:FpA, $script:FpB) '0.3.0')
+    $c | Should -Not -BeNullOrEmpty
+    @($c.Chaves) | Should -Be @($script:FpA, $script:FpB)
+    $c.VersaoMinima | Should -Be '0.3.0'
+  }
+  It 'AnvValidarConfianca recusa campo extra, tipo errado, formato 2, chaves vazia ou repetida, fingerprint torta e versão com pré-release' {
+    $ruins = @(
+      '{', '[]', 'null', '"texto"',
+      '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":"0.3.0","extra":1}',
+      '{"formato":1,"chaves":["' + $script:FpA + '"]}',
+      '{"formato":"1","chaves":["' + $script:FpA + '"],"versaoMinima":"0.3.0"}',
+      '{"formato":2,"chaves":["' + $script:FpA + '"],"versaoMinima":"0.3.0"}',
+      '{"formato":1,"chaves":[],"versaoMinima":"0.3.0"}',
+      '{"formato":1,"chaves":"' + $script:FpA + '","versaoMinima":"0.3.0"}',
+      '{"formato":1,"chaves":[1],"versaoMinima":"0.3.0"}',
+      '{"formato":1,"chaves":["' + $script:FpA + '","' + $script:FpA + '"],"versaoMinima":"0.3.0"}',
+      '{"formato":1,"chaves":["SHA256:curta"],"versaoMinima":"0.3.0"}',
+      '{"formato":1,"chaves":["' + $script:FpA.ToLowerInvariant() + '"],"versaoMinima":"0.3.0"}',
+      '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":"0.3.0-rc.1"}',
+      '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":"v0.3.0"}',
+      '{"formato":1,"chaves":["' + $script:FpA + '"],"versaoMinima":3}'
+    )
+    foreach ($t in $ruins) { (AnvValidarConfianca -Texto $t) | Should -BeNullOrEmpty }
+  }
+
+  # Dado a linha de uma chave; Quando calculo a fingerprint; Então é a que o `ssh-keygen -lf` mostra.
+  It 'AnvImpressaoDaLinha bate com a do ssh-keygen (com opções antes da chave e comentário depois)' {
+    AnvImpressaoDaLinha -Linha $script:LinhaA | Should -Be $script:FpA
+    AnvImpressaoDaLinha -Linha $script:LinhaB | Should -Be $script:FpB
+  }
+  It 'AnvImpressaoDaLinha: comentário, linha em branco e chave torta não têm fingerprint' {
+    foreach ($l in @('', '# ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILzBKzpYMJNV3yvlaRIPDKwIjuHnYW4sJuBuwlXqU8+v', 'so texto', 'x ssh-ed25519', 'x ssh-ed25519 nao_e_base64!', 'x ssh-ed25519 AAAA')) {
+      AnvImpressaoDaLinha -Linha $l | Should -BeNullOrEmpty
+    }
+  }
+  It 'AnvFiltrarAssinantes guarda só as linhas cuja fingerprint está na lista (a interseção)' {
+    $texto = "# âncoras`n$($script:LinhaA)`n$($script:LinhaB)`n"
+    AnvFiltrarAssinantes -Texto $texto -Chaves @($script:FpA) | Should -Be "$($script:LinhaA)`n"
+    AnvFiltrarAssinantes -Texto $texto -Chaves @($script:FpB, ('SHA256:' + ('Z' * 43))) | Should -Be "$($script:LinhaB)`n"
+    AnvFiltrarAssinantes -Texto $texto -Chaves @($script:FpA, $script:FpB) | Should -Be "$($script:LinhaA)`n$($script:LinhaB)`n"
+    AnvFiltrarAssinantes -Texto $script:LinhaA -Chaves @($script:FpB) | Should -BeNullOrEmpty
+  }
+}
+
+Describe 'AnvConsultarConfianca (busca da lista)' {
+  BeforeAll {
+    $script:Doc = '{"formato":1,"chaves":["SHA256:/JgFK5PwZmasglTqgzoAjmXPyJUZMG00A2M8/094SLc"],"versaoMinima":"0.3.0"}'
+    $script:Url = 'https://anvilore.iagofrota.com.br/confianca.json'
+    $script:Resp = { param($status, $conteudo) [pscustomobject]@{ StatusCode = $status; Content = $conteudo; RawContentLength = $conteudo.Length } }
+  }
+  It 'devolve o documento quando o site responde 200 e pede sem cache' {
+    $script:Visto = $null
+    $r = AnvConsultarConfianca -Url $script:Url -Buscar { param($u, $cabecalhos) $script:Visto = @{ Url = $u; Cabecalhos = $cabecalhos }; & $script:Resp 200 $script:Doc }
+    $r.Ok | Should -BeTrue
+    @($r.Chaves).Count | Should -Be 1
+    $r.VersaoMinima | Should -Be '0.3.0'
+    $script:Visto.Url | Should -Be $script:Url
+    $script:Visto.Cabecalhos['Cache-Control'] | Should -Be 'no-cache'
+    $script:Visto.Cabecalhos['Pragma'] | Should -Be 'no-cache'
+  }
+  It 'recusa HTTP diferente de 200, redirecionamento, erro de rede/TLS, documento inválido e resposta grande, com a mensagem simples' {
+    $casos = @(
+      { & $script:Resp 404 'nada' }, { & $script:Resp 302 '' }, { & $script:Resp 500 'erro' }, { throw 'falha de TLS' },
+      { & $script:Resp 200 '{' }, { & $script:Resp 200 '{"formato":2,"chaves":[],"versaoMinima":"0.0.0"}' },
+      { [pscustomobject]@{ StatusCode = 200; Content = $script:Doc; RawContentLength = 70000 } },
+      { & $script:Resp 200 ($script:Doc + (' ' * 70000)) }
+    )
+    foreach ($b in $casos) {
+      $r = AnvConsultarConfianca -Url $script:Url -Buscar $b
+      $r.Ok | Should -BeFalse
+      $r.Motivo | Should -Match 'não consegui conferir a lista atual de chaves'
+      $r.Motivo | Should -Match 'nada mudou'
+      $r.Motivo | Should -Match ([regex]::Escape($script:Url))
+    }
+  }
+}
+
+Describe 'AnvConferirEstadoDasChaves (consulta + interseção + versão mínima)' {
+  BeforeAll {
+    $script:FpA = 'SHA256:/JgFK5PwZmasglTqgzoAjmXPyJUZMG00A2M8/094SLc'
+    $script:FpB = 'SHA256:dqanDdeEV020uGcmGitbT6dlSS+jHYoL2XMmXUpqCD8'
+    $script:LinhaA = 'unit@anvilore.test namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILzBKzpYMJNV3yvlaRIPDKwIjuHnYW4sJuBuwlXqU8+v'
+    $script:LinhaB = 'unit2@anvilore.test namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKtLPcuTLjTVuWPqqPiG59ATxI72uAjPUaFxMdT9LV2X'
+    $script:Servir = { param($chaves, $minima = '0.0.0') $j = (@{ formato = 1; chaves = $chaves; versaoMinima = $minima } | ConvertTo-Json -Compress); { param($u, $c) [pscustomobject]@{ StatusCode = 200; Content = $j; RawContentLength = $j.Length } }.GetNewClosure() }
+    $script:Ancoras = "$($script:LinhaA)`n$($script:LinhaB)`n"
+    $script:UrlOk = 'https://anvilore.iagofrota.com.br/confianca.json'
+  }
+  It 'chave na lista: devolve só as linhas permitidas' {
+    $r = AnvConferirEstadoDasChaves -Tag 'v0.3.0' -Url $script:UrlOk -Assinantes $script:Ancoras -Buscar (& $script:Servir @($script:FpA))
+    $r.Ok | Should -BeTrue
+    $r.Assinantes | Should -Be "$($script:LinhaA)`n"
+  }
+  It 'lista sem nenhuma chave embutida (chave retirada): recusa dizendo que o instalador está desatualizado' {
+    $r = AnvConferirEstadoDasChaves -Tag 'v0.3.0' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar (& $script:Servir @($script:FpB))
+    $r.Ok | Should -BeFalse
+    $r.Motivo | Should -Match 'não inclui a chave de assinatura deste instalador'
+  }
+  It 'o site nunca acrescenta chave: chave da lista que não está nas âncoras não entra' {
+    $r = AnvConferirEstadoDasChaves -Tag 'v0.3.0' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar (& $script:Servir @($script:FpA, $script:FpB))
+    $r.Assinantes | Should -Be "$($script:LinhaA)`n"
+  }
+  It 'versão mínima: candidata abaixo recusa; igual ou acima passa; pré-release da mínima recusa; sem tag (reinstalação) não compara' {
+    (AnvConferirEstadoDasChaves -Tag 'v0.3.0' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar (& $script:Servir @($script:FpA) '0.3.1')).Ok | Should -BeFalse
+    (AnvConferirEstadoDasChaves -Tag 'v0.3.0' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar (& $script:Servir @($script:FpA) '0.3.1')).Motivo | Should -Match 'exige a versão 0.3.1'
+    (AnvConferirEstadoDasChaves -Tag 'v0.3.1' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar (& $script:Servir @($script:FpA) '0.3.1')).Ok | Should -BeTrue
+    (AnvConferirEstadoDasChaves -Tag 'v0.10.0' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar (& $script:Servir @($script:FpA) '0.9.0')).Ok | Should -BeTrue
+    (AnvConferirEstadoDasChaves -Tag 'v0.3.1-rc.1' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar (& $script:Servir @($script:FpA) '0.3.1')).Ok | Should -BeFalse
+    (AnvConferirEstadoDasChaves -Tag '' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar (& $script:Servir @($script:FpA) '9.9.9')).Ok | Should -BeTrue
+  }
+  It 'sem URL embutida válida ou sem chave embutida: recusa sem consultar' {
+    $script:Chamou = $false
+    $busca = { param($u, $c) $script:Chamou = $true; [pscustomobject]@{ StatusCode = 200; Content = '{}'; RawContentLength = 2 } }
+    (AnvConferirEstadoDasChaves -Tag 'v0.3.0' -Url '' -Assinantes $script:LinhaA -Buscar $busca).Ok | Should -BeFalse
+    (AnvConferirEstadoDasChaves -Tag 'v0.3.0' -Url 'http://exemplo.com/x' -Assinantes $script:LinhaA -Buscar $busca).Ok | Should -BeFalse
+    $script:Chamou | Should -BeFalse
+  }
+  It 'falha da consulta: recusa com a mensagem simples' {
+    $r = AnvConferirEstadoDasChaves -Tag 'v0.3.0' -Url $script:UrlOk -Assinantes $script:LinhaA -Buscar { throw 'sem rede' }
+    $r.Ok | Should -BeFalse
+    $r.Motivo | Should -Match 'não consegui conferir a lista atual de chaves'
+  }
+}
+
+Describe 'AnvVersaoDaPastaAtendeMinima (a pasta instalada contra a versão mínima da lista)' {
+  It 'abaixo da mínima recusa; igual ou acima passa; comparação por número' {
+    AnvVersaoDaPastaAtendeMinima -Versao '0.3.0' -Minima '0.3.1' | Should -BeFalse
+    AnvVersaoDaPastaAtendeMinima -Versao '0.3.1' -Minima '0.3.1' | Should -BeTrue
+    AnvVersaoDaPastaAtendeMinima -Versao '0.10.0' -Minima '0.9.0' | Should -BeTrue
+    AnvVersaoDaPastaAtendeMinima -Versao '0.9.0' -Minima '0.10.0' | Should -BeFalse
+  }
+  It 'versão ou mínima que não é X.Y.Z recusa (nunca assume que passa)' {
+    AnvVersaoDaPastaAtendeMinima -Versao '' -Minima '0.3.1' | Should -BeFalse
+    AnvVersaoDaPastaAtendeMinima -Versao '0.3.0' -Minima '' | Should -BeFalse
+    AnvVersaoDaPastaAtendeMinima -Versao 'abc' -Minima '0.3.1' | Should -BeFalse
+  }
+}

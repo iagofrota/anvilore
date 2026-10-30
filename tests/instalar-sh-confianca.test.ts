@@ -167,6 +167,24 @@ test.skipIf(!linux)("Dado uma pasta anterior à base mínima e o site fora do ar
   expect((await c.servidor.requisicoes()).length).toBe(antes);
 });
 
+test.skipIf(!linux)("Dado a pasta instalada abaixo da versaoMinima do site, Quando reinstalo, Então recusa antes de executar qualquer coisa dela; na versão mínima ou acima, segue", async () => {
+  const c = await novo({ agentes: ["claude"] });
+  expect(c.rodar().codigo).toBe(0);
+  const cabeca = c.kit.git(["-C", c.pasta, "rev-parse", "HEAD"]).saida.trim();
+  const chamadas = (await c.chamadas()).length;
+  await c.servidor.publicar({ formato: 1, chaves: [c.kit.fingerprint], versaoMinima: "0.3.1" });
+  const r = c.rodar({ STUB_ATUALIZAR_CODIGO: "0" });
+  expect(r.codigo, r.tudo).not.toBe(0);
+  expect(r.tudo).toContain("versão 0.3.0");
+  expect(r.tudo).toContain("exige a versão 0.3.1");
+  expect(r.tudo).toContain("não executei nada dela");
+  expect(r.tudo).not.toContain("Pronto");
+  expect((await c.chamadas()).length).toBe(chamadas);
+  expect(c.kit.git(["-C", c.pasta, "rev-parse", "HEAD"]).saida.trim()).toBe(cabeca);
+  await c.servidor.publicar({ formato: 1, chaves: [c.kit.fingerprint], versaoMinima: "0.3.0" });
+  expect(c.rodar({ STUB_ATUALIZAR_CODIGO: "0" }).codigo).toBe(0);
+});
+
 test.skipIf(!linux)("Dado um instalador sem a URL embutida, ou com http fora de loopback, Quando rodo, Então recusa antes de qualquer passo", async () => {
   const c = await novo({ agentes: ["claude"] });
   const original = await readFile(c.script, "utf8");

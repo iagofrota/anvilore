@@ -66,6 +66,7 @@ describe("instalar.ps1: requisitos do passo a passo", () => {
     expect(texto).toMatch(/# >>> ANVILORE:MANIFESTO[^\n]*\n\$script:AnvManifestoEmbutido = @'\n'@\n# <<< ANVILORE:MANIFESTO/);
     expect(texto).toMatch(/# >>> ANVILORE:ASSINANTES[^\n]*\n\$script:AnvAssinantesEmbutido = @'\n'@\n# <<< ANVILORE:ASSINANTES/);
     expect(texto).toMatch(/# >>> ANVILORE:BASE_MINIMA[^\n]*\n\$script:AnvBaseMinimaEmbutida = @'\n'@\n# <<< ANVILORE:BASE_MINIMA/);
+    expect(texto).toMatch(/# >>> ANVILORE:URL_CONFIANCA[^\n]*\n\$script:AnvUrlConfiancaEmbutida = @'\n'@\n# <<< ANVILORE:URL_CONFIANCA/);
   });
 });
 
@@ -170,5 +171,39 @@ describe("CI do instalador do Windows", () => {
     expect(job).toContain("windows-latest");
     expect(job).toContain("tests/instalar-ps1/instalar.Tests.ps1");
     expect(job).toContain("tests/instalar-ps1/e2e.Tests.ps1");
+  });
+});
+
+describe("instalar.ps1: estado das chaves no site (decisão 2 do parecer de release)", () => {
+  test("Dado a consulta, Quando leio o código, Então usa Invoke-WebRequest sem seguir redirecionamento, sem cache, com tempo limite e tamanho máximo, e não lê o ambiente", () => {
+    const corpo = funcao("AnvConsultarConfianca");
+    expect(corpo).not.toBe("");
+    expect(corpo).toContain("Invoke-WebRequest");
+    expect(corpo).toContain("-MaximumRedirection 0");
+    expect(corpo).toContain("-TimeoutSec 15");
+    expect(corpo).toContain("-UseBasicParsing");
+    expect(corpo).toContain("'Cache-Control' = 'no-cache'");
+    expect(corpo).toContain("'Pragma' = 'no-cache'");
+    expect(corpo).toContain("65536");
+    for (const nome of ["AnvUrlConfianca", "AnvConsultarConfianca", "AnvConferirEstadoDasChaves", "AnvValidarConfianca"]) {
+      expect(funcao(nome), nome).not.toMatch(/AnvVariavel|\$env:|GetEnvironmentVariable/);
+    }
+  });
+
+  test("Dado a instalação nova, Quando leio AnvBaixarKit, Então a lista de chaves é consultada antes do clone e a verificação usa a interseção", () => {
+    const corpo = funcao("AnvBaixarKit");
+    expect(corpo.indexOf("AnvConferirEstadoDasChaves")).toBeGreaterThan(-1);
+    expect(corpo.indexOf("AnvConferirEstadoDasChaves")).toBeLessThan(corpo.indexOf("AnvArgsClone"));
+    expect(corpo).toMatch(/Set-Content -LiteralPath \$assinFile -Value \$estadoChaves\.Assinantes/);
+  });
+
+  test("Dado a reinstalação, Quando leio AnvPassos, Então a base mínima vem antes da lista, que vem antes de executar o atualizador da pasta", () => {
+    const corpo = funcao("AnvPassos");
+    const base = corpo.indexOf("AnvVerificarBaseMinima -Pasta"), lista = corpo.indexOf("AnvConferirEstadoDasChaves"), atualizar = corpo.indexOf("'atualizar', '--assinantes-do-instalador'");
+    expect(base).toBeGreaterThan(-1);
+    expect(lista).toBeGreaterThan(base);
+    expect(atualizar).toBeGreaterThan(lista);
+    expect(corpo).toMatch(/AnvVersaoDaPastaAtendeMinima -Versao \$verificacao\.Versao -Minima/);
+    expect(corpo).toMatch(/Set-Content -LiteralPath \$assinReinstalacao -Value \$estadoChaves\.Assinantes/);
   });
 });
