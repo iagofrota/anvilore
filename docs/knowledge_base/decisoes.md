@@ -278,6 +278,13 @@ Para a linhagem do método e a argumentação completa das posições de design,
   a chave pública (`scripts/embutir-instalador.ts`). Motivo: ele precisa dos dois antes de clonar o kit, e a única
   confiança inicial é a do HTTPS do GitHub ao baixar o script; daí em diante só entra o que o dono assinou.
 - Sem chave embutida válida o script recusa instalar. Não há chave de mentira no modelo do repositório.
+- A primeira release assinada é a **base mínima** (`instalador/base-minima`, embutida como o manifesto e a chave), sem release de
+  transição. Motivo: a `0.2.0` não tem atualizador nem âncora de confiança, então publicar outra tag não cria confiança nas
+  máquinas antigas, e executar o CLI da pasta para descobrir se ela serve é executar código não autenticado. Os dois
+  instaladores leem a versão do `package.json` como texto e recusam, antes de executar qualquer coisa da pasta, o que for menor,
+  ausente, ilegível, inválido ou pré-release. O arquivo próprio (e não um campo do `instalador/dependencias.json`) evita mexer no formato que
+  o `awk` do instalar.sh lê. Migração dos dados de uma pasta antiga: pasta nova + migração conferida, ferramenta no backlog
+  (parecer em specs/release/PARECER-SOL-DECISOES-RELEASE.md, seção 1).
 - Só vale assinatura SSH. O `git verify-tag` escolhe o verificador pelo tipo de assinatura que a tag traz; por isso o
   script exige o bloco SSH e desliga os programas de gpg e x509, para o chaveiro da pessoa nunca entrar na decisão.
 - Respostas por /dev/tty e `ANVILORE_SEM_PERGUNTAS=1`; sem terminal usa os padrões. Instalar o Claude Code é sempre

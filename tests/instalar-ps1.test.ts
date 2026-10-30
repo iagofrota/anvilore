@@ -108,10 +108,11 @@ describe("instalar.ps1: transporte do git antes da assinatura (A5) e chaves da r
   test("Dado o atualizador antigo da pasta que devolve 2 (uso) para a opção, Então o instalador para com mensagem simples e não segue como atualizado (R1)", () => {
     const trecho = /\$jaInstalado\) \{[\s\S]*?\} else \{/.exec(codigo)?.[0] ?? "";
     expect(trecho).toMatch(/\$at\.Codigo -eq 2/);
-    expect(trecho).toContain("anterior à primeira versão assinada e não sabe receber as chaves do instalador; nada foi mudado");
-    expect(trecho).toContain("numa pasta nova");
-    expect(trecho).not.toContain("pelo comando de atualização dela");
-    expect(trecho).toMatch(/AnvParar 1 /);
+    expect(trecho).toMatch(/AnvParar 1 \(AnvMensagemBaseMinima[^\n]*'atualizador'/);
+    const mensagem = funcao("AnvMensagemBaseMinima");
+    expect(mensagem).toContain("anterior à primeira versão assinada e não sabe receber as chaves do instalador; nada foi mudado");
+    expect(codigo).toContain("numa pasta nova");
+    expect(trecho + mensagem).not.toContain("pelo comando de atualização dela");
   });
 
   test("Dado uma pasta já instalada, Quando o instalador decide reinstalar, Então lê e compara a versão com a base mínima ANTES de gravar o registro na pasta e de executar o atualizador (decisão 1)", () => {

@@ -17,9 +17,11 @@
 #   ANVILORE_INSTALAR_CLAUDE=sim|nao   responde de antemão se instala o Claude Code quando não há agente nenhum.
 #   ANVILORE_ESPERAR_ENTER=1   espera Enter antes de terminar (janela com Terminal=true, para a pessoa ler o resumo).
 #
-# Segurança: o manifesto de dependências (instalador/dependencias.json) e a chave pública (seguranca/assinantes) vêm
-# EMBUTIDOS neste arquivo pela release (scripts/embutir-instalador.ts). Sem chave embutida válida o script recusa
-# instalar. Nenhum segredo é pedido, lido ou gravado; o login dos agentes é da pessoa.
+# Segurança: o manifesto de dependências (instalador/dependencias.json), a chave pública (seguranca/assinantes) e a base mínima
+# (instalador/base-minima) vêm EMBUTIDOS neste arquivo pela release (scripts/embutir-instalador.ts). Sem chave embutida válida
+# o script recusa instalar. Numa pasta já instalada, a versão dela é lida do package.json SEM executar nada da pasta e, se for
+# menor que a base mínima (ou não puder ser lida), o script recusa antes de tocar em qualquer coisa. Nenhum segredo é pedido,
+# lido ou gravado; o login dos agentes é da pessoa.
 #
 # `curl | bash` ocupa a entrada padrão: tudo mora em funções, o script só roda na última linha, e as respostas
 # vêm de /dev/tty.
@@ -44,6 +46,11 @@ assinantes_embutidas() {
   :
 }
 # <<< ANVILORE:ASSINANTES
+# >>> ANVILORE:BASE_MINIMA (preenchido na release por scripts/embutir-instalador.ts; não edite)
+base_minima_embutida() {
+  :
+}
+# <<< ANVILORE:BASE_MINIMA
 
 # ---------------------------------------------------------------------------------------------------------------
 # Registro e mensagens
@@ -175,6 +182,9 @@ conferir_embutidos() {
   fi
   if ! chave_embutida_valida; then
     falhar "este instalar.sh não traz a chave de assinatura do Anvilore, então não tenho como conferir que o kit é o do Iago. Recusei instalar. Use o instalar.sh da release."
+  fi
+  if ! semver_simples "$(base_minima_embutida)"; then
+    falhar "este instalar.sh não traz a base mínima (a primeira versão assinada), então não tenho como saber se uma pasta antiga é segura. Recusei instalar. Use o instalar.sh da release."
   fi
 }
 
@@ -396,8 +406,12 @@ passo_rg() {
 # Passos 5 e 6 — pasta, download do kit e assinatura da tag
 # ---------------------------------------------------------------------------------------------------------------
 
+# Pasta instalada = a estrutura do kit (.git, AGENTS.md, src/cli.ts, skills/). O mesmo critério do instalar.ps1. Não exige o
+# estado da atualização (uma pasta de antes do atualizador, como a v0.2.0, não o tem e PRECISA cair no teste da base mínima,
+# com a mensagem certa, em vez de ser tratada como "outra coisa") nem o conteúdo do package.json (a versão é lida depois,
+# pela base mínima, e package.json ausente ou ilegível é um motivo de recusa, não de pasta desconhecida).
 eh_instalacao() {
-  [ -d "$1/.git" ] && [ -f "$1/AGENTS.md" ] && [ -f "$1/src/cli.ts" ] && [ -d "$1/skills" ] && [ -f "$1/.anvilore/atualizacao.json" ]
+  [ -d "$1/.git" ] && [ -f "$1/AGENTS.md" ] && [ -f "$1/src/cli.ts" ] && [ -d "$1/skills" ]
 }
 
 # nova | instalacao | outra
@@ -674,6 +688,63 @@ criar_atalho() {
 # Instalação já existente: vira "atualizar"
 # ---------------------------------------------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------------------------------------------
+# Base mínima: a pasta instalada é lida (sem executar nada dela) ANTES de qualquer outro passo sobre ela
+# ---------------------------------------------------------------------------------------------------------------
+
+# 0 se $1 é uma versão X.Y.Z (sem v, pré-release, metadado de build nem zero à esquerda; até 9 dígitos por número).
+# `[[ =~ ]]` compara a string inteira: um valor com quebra de linha no meio não passa.
+semver_simples() {
+  [[ "$1" =~ ^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]]
+}
+
+# 0 se $1 >= $2 (as duas já validadas por semver_simples); a conta é por número, não por texto (0.10.0 > 0.9.0).
+semver_maior_ou_igual() {
+  local -a a b
+  IFS=. read -r -a a <<<"$1"
+  IFS=. read -r -a b <<<"$2"
+  local i
+  for i in 0 1 2; do
+    [ "${a[$i]}" -gt "${b[$i]}" ] && return 0
+    [ "${a[$i]}" -lt "${b[$i]}" ] && return 1
+  done
+  return 0
+}
+
+# Imprime a versão do package.json da pasta ($1) se ela for um X.Y.Z; senão, nada. SÓ LÊ O ARQUIVO COMO TEXTO: o Bun roda um
+# trecho do próprio instalador, com a pasta de trabalho na pasta temporária (o bunfig.toml da pasta instalada não é carregado)
+# e nada é importado, instalado nem executado a partir da pasta. A pasta nem sequer é a pasta atual do processo.
+versao_da_pasta() {
+  local saida
+  saida=$(cd "$TMP_DIR" 2>/dev/null && ANV_PACOTE="$1/package.json" bun --no-install -e '
+    try {
+      const texto = new TextDecoder("utf-8", { fatal: true }).decode(require("node:fs").readFileSync(process.env.ANV_PACOTE));
+      const pacote = JSON.parse(texto);
+      const v = pacote !== null && typeof pacote === "object" && !Array.isArray(pacote) ? pacote.version : undefined;
+      if (typeof v === "string") process.stdout.write(v + "#");
+    } catch {}
+  ' 2>/dev/null)
+  # O "#" no fim impede que o $(...) engula uma quebra de linha final da versão (que então não passaria no semver_simples).
+  case "$saida" in *"#") saida="${saida%"#"}" ;; *) return 0 ;; esac
+  semver_simples "$saida" && printf '%s' "$saida"
+  return 0
+}
+
+MSG_PASTA_NOVA="Instale o Anvilore numa pasta nova e peça ao seu agente para trazer a sua wiki para lá de forma conferida, fazendo antes uma cópia de segurança dela."
+
+passo_conferir_base_minima() {
+  local base versao
+  base=$(base_minima_embutida)
+  versao=$(versao_da_pasta "$PASTA")
+  registrar "base mínima: $base ; versão da pasta: ${versao:-não reconhecida}"
+  if [ -z "$versao" ]; then
+    falhar "Não reconheço a versão do Anvilore na pasta $PASTA (o package.json está ausente, ilegível ou não é uma versão publicada). Por segurança, não executei nada dela e nada foi mudado. $MSG_PASTA_NOVA"
+  fi
+  if ! semver_maior_ou_igual "$versao" "$base"; then
+    falhar "A pasta $PASTA tem o Anvilore na versão $versao, anterior à primeira versão assinada ($base). Por segurança, não executei nada dela e nada foi mudado. $MSG_PASTA_NOVA"
+  fi
+}
+
 passo_atualizar_existente() {
   local primeira assinantes codigo
   mover_registro "$PASTA"
@@ -701,7 +772,7 @@ passo_atualizar_existente() {
     # Código 2 = uso inválido: o atualizador da pasta é de uma versão que não conhece a opção. Não esconde o erro nem segue
     # como se tivesse conferido (nada foi mudado).
     if [ "$codigo" -eq 2 ]; then
-      falhar "A pasta tem uma versão antiga do Anvilore que não sabe receber as chaves do instalador; nada foi mudado. Peça ao seu agente para atualizar o Anvilore dessa pasta pelo comando de atualização dela e rode este instalador de novo."
+      falhar "O atualizador dessa pasta é de uma versão anterior à primeira versão assinada e não sabe receber as chaves do instalador; nada foi mudado. $MSG_PASTA_NOVA"
     fi
     primeira=$(printf '%s\n' "$ULTIMA_SAIDA" | head -n1)
     avisar "não atualizei agora (${primeira:-sem detalhes}). Segui com a versão instalada."
@@ -757,7 +828,7 @@ principal() {
   passo_git_e_bun
   passo_rg
   passo_pasta
-  if [ "$SITUACAO_PASTA" = "instalacao" ]; then passo_atualizar_existente; else passo_baixar_kit; fi
+  if [ "$SITUACAO_PASTA" = "instalacao" ]; then passo_conferir_base_minima; passo_atualizar_existente; else passo_baixar_kit; fi
   passo_agentes
   passo_configurar
   passo_estado

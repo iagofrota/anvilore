@@ -257,10 +257,10 @@ Describe 'AnvEhInstalacao (critério igual ao do instalar.sh: estrutura do kit)'
     New-Item -ItemType Directory (Join-Path $script:K 'package.json') | Out-Null
     AnvEhInstalacao -Pasta $script:K | Should -BeTrue
   }
-  It 'sem .git não é' { Remove-Item (Join-Path $script:K '.git') -Recurse; AnvEhInstalacao -Pasta $script:K | Should -BeFalse }
+  It 'sem .git não é' { Remove-Item (Join-Path $script:K '.git') -Recurse -Force; AnvEhInstalacao -Pasta $script:K | Should -BeFalse }
   It 'sem AGENTS.md não é' { Remove-Item (Join-Path $script:K 'AGENTS.md'); AnvEhInstalacao -Pasta $script:K | Should -BeFalse }
   It 'sem src\cli.ts não é' { Remove-Item (Join-Path $script:K 'src\cli.ts'); AnvEhInstalacao -Pasta $script:K | Should -BeFalse }
-  It 'sem skills\ não é' { Remove-Item (Join-Path $script:K 'skills') -Recurse; AnvEhInstalacao -Pasta $script:K | Should -BeFalse }
+  It 'sem skills\ não é' { Remove-Item (Join-Path $script:K 'skills') -Recurse -Force; AnvEhInstalacao -Pasta $script:K | Should -BeFalse }
   It 'pasta de outra coisa com package.json anvilore não é' {
     $o = Join-Path $TestDrive 'outra-coisa'; New-Item -ItemType Directory (Join-Path $o '.git') -Force | Out-Null
     Set-Content (Join-Path $o 'package.json') '{"name":"anvilore","version":"0.2.0"}'
