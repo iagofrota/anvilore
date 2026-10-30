@@ -50,7 +50,8 @@ Peças que existem hoje no repositório:
 | O que protege a wiki hoje? O que não protege? Há risco de vazamento? | [governanca.md](governanca.md) |
 | Funciona em Windows e macOS? O que pode dar errado? | [plataformas.md](plataformas.md) |
 | Como a interface local (`anvilore ui`) é montada? Como acrescento uma tela? | [interface.md](interface.md) |
-| Como rodo os testes? Como entrego uma mudança? Como sai uma release? | [contribuindo.md](contribuindo.md) |
+| Como rodo os testes? Como entrego uma mudança? O que trava uma release? | [contribuindo.md](contribuindo.md) |
+| Como publico uma versão? Como assino a tag? O que o kit instalado exige? E se a release sair ruim ou a chave vazar? | [release.md](release.md) |
 | Quanto tempo leva a primeira experiência? O que quebrou nos ensaios? A skill de ingestão funciona em outro agente? | [perguntas-frequentes.md](perguntas-frequentes.md) |
 
 ## Páginas a escrever
