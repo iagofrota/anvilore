@@ -266,7 +266,7 @@ describe("ui-web: PainelDaNota", () => {
     );
     expect(carregandoRecebido).toBe(false);
     expect(erroRecebido).toBe("");
-    expect(notaRecebida).toEqual(notaExemplo);
+    expect(notaRecebida as DetalhesDaNota | null).toEqual(notaExemplo);
   });
 
   test("renderToStaticMarkup de Nota monta sem quebrar com e sem caminho", () => {
