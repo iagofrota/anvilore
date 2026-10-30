@@ -16,15 +16,48 @@ export type Confianca = { formato: 1; chaves: string[]; versaoMinima: string };
 export type BuscarConfianca = (url: string, init: RequestInit) => Promise<Response>;
 
 const FINGERPRINT = /^SHA256:[A-Za-z0-9+/]{43}$/;
-const VERSAO_MINIMA = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+// Até 9 dígitos por número, o mesmo limite do instalar.sh e do instalar.ps1: o que um recusa, os três recusam.
+const VERSAO_MINIMA = /^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})$/;
 const CAMPOS = ["chaves", "formato", "versaoMinima"];
 
 export const mensagemDeFalhaDaConsulta = `não consegui conferir a lista atual de chaves em ${URL_CONFIANCA}; nada mudou; tente de novo mais tarde`;
 
-// Validação estrita: campo extra, tipo errado ou formato desconhecido recusam.
+// `JSON.parse` fica com a última de duas propriedades de mesmo nome e `Object.keys` já não mostra a repetição; uma lista
+// ambígua tem de falhar fechada (o instalar.sh também recusa). Varre o texto, já válido como JSON, guardando os nomes de
+// cada objeto; o nome é decodificado, então "versaoMinima" conta como repetição de "versaoMinima".
+function temNomeRepetido(texto: string): boolean {
+  const nomes: (Set<string> | null)[] = [];
+  const cadeia = /"(?:[^"\\]|\\.)*"/y;
+  let esperaNome = false;
+  for (let i = 0; i < texto.length; ) {
+    const c = texto[i]!;
+    if (c === '"') {
+      cadeia.lastIndex = i;
+      const m = cadeia.exec(texto)!;
+      i += m[0].length;
+      const topo = nomes[nomes.length - 1];
+      if (esperaNome && topo) {
+        const nome = JSON.parse(m[0]) as string;
+        if (topo.has(nome)) return true;
+        topo.add(nome);
+        esperaNome = false;
+      }
+      continue;
+    }
+    if (c === "{") { nomes.push(new Set()); esperaNome = true; }
+    else if (c === "[") { nomes.push(null); esperaNome = false; }
+    else if (c === "}" || c === "]") { nomes.pop(); esperaNome = false; }
+    else if (c === ",") esperaNome = nomes[nomes.length - 1] instanceof Set;
+    i++;
+  }
+  return false;
+}
+
+// Validação estrita: campo extra, nome repetido, tipo errado ou formato desconhecido recusam.
 export function validarConfianca(texto: string): Confianca {
   let valor: unknown;
   try { valor = JSON.parse(texto); } catch { throw new Error("não é JSON válido"); }
+  if (temNomeRepetido(texto)) throw new Error("nome de campo repetido");
   if (typeof valor !== "object" || valor === null || Array.isArray(valor)) throw new Error("não é um objeto");
   const o = valor as Record<string, unknown>;
   if (Object.keys(o).sort().join() !== CAMPOS.join()) throw new Error("campos diferentes de formato, chaves e versaoMinima");
