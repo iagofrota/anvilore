@@ -50,6 +50,7 @@ test("Dado opção desconhecida, Quando invoca o comando atualizar, Então mostr
     expect(c.erros.join("\n")).toContain("Uso: anvilore atualizar");
   } finally { c.restaurar(); }
 });
+// 30 s nos testes com git/ssh-keygen reais fora do `real`: no Windows do CI passam de 5 s (o limite padrão do Bun).
 test("Dado allow_signers ausente, vazio ou inválido, Quando verifica uma tag, Então recusa e orienta a configuração", async () => {
   if (!Bun.which("git")) return;
   const raiz = await mkdtemp(join(tmpdir(), "anvilore-signers-invalidos-"));
@@ -69,7 +70,7 @@ test("Dado allow_signers ausente, vazio ou inválido, Quando verifica uma tag, E
     expect(verificarAssinaturaTag(raiz, "v0.3.1", git)).toContain("git verify-tag recusou");
     expect(verificarAssinaturaTag(raiz, "v0.3.1", git)).toContain("principal");
   } finally { await rm(raiz, { recursive: true, force: true }); }
-});
+}, 30_000);
 
 test("Dado tags SSH descartáveis, Quando a confiança vem do commit anterior, Então ignora assinante da candidata e detecta assinatura adulterada", async () => {
   if (!Bun.which("ssh-keygen") || !Bun.which("git")) return;
@@ -136,7 +137,7 @@ test("Dado tags SSH descartáveis, Quando a confiança vem do commit anterior, E
     expect(git(["update-ref", "refs/tags/v0.3.0", objeto.saida]).codigo).toBe(0);
     expect(verificarAssinaturaTag(raiz, "v0.3.0", git)).toContain("assinatura inválida");
   } finally { await rm(raiz, { recursive: true, force: true }); }
-});
+}, 30_000);
 
 test("Dado SCHEMA.md ignorado preservado na migração, Quando checkout --force volta a sobrescrevê-lo, Então devolverTudo restaura a cópia conferida", async () => {
   if (!Bun.which("git")) return;
@@ -165,7 +166,7 @@ test("Dado SCHEMA.md ignorado preservado na migração, Quando checkout --force 
     expect(restored.problemas).toEqual([]);
     expect(await readFile(join(raiz, "SCHEMA.md"), "utf8")).toBe("contrato da pessoa\n");
   } finally { await rm(raiz, { recursive: true, force: true }); }
-});
+}, 30_000);
 
 // ---------------------------------------------------------------------------------------------------------------
 // Cenários com Git, checkout e tags SSH reais (tests/apoio/kit-atualizavel.ts). Só rede e, quando dito, instalar,

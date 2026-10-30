@@ -708,6 +708,13 @@ function AnvUrlConfianca {
 # formato diferente de 1, chaves vazia ou repetida e versão com pré-release valem nulo.
 function AnvValidarConfianca {
   param([string]$Texto)
+  # Nome repetido falha fechado (o ConvertFrom-Json do PS 5.1 não distingue qual ocorrência vale). Cada nome tem de aparecer uma
+  # só vez no texto bruto, como no instalar.sh; um documento legítimo não tem barra invertida, então um escape (que poderia
+  # esconder um nome repetido, como "versaoMinim\u0061") também é recusado.
+  if ($Texto.Contains('\')) { return $null }
+  foreach ($n in @('"chaves"', '"formato"', '"versaoMinima"')) {
+    if ([regex]::Matches($Texto, $n + '\s*:').Count -ne 1) { return $null }
+  }
   try { $j = ConvertFrom-Json -InputObject $Texto -ErrorAction Stop } catch { return $null }
   if ($j -isnot [System.Management.Automation.PSCustomObject]) { return $null }
   $nomes = @($j.PSObject.Properties | ForEach-Object { $_.Name })
@@ -726,20 +733,53 @@ function AnvValidarConfianca {
   return [pscustomobject]@{ Chaves = [string[]]@($c); VersaoMinima = $v }
 }
 
+# Busca a lista com HttpWebRequest e devolve StatusCode e Content (texto). O limite de 64 KiB vale DURANTE a leitura: o stream é
+# lido em blocos e o pedido é abortado ao passar do limite (o Invoke-WebRequest materializa o corpo inteiro antes de qualquer
+# conferência). Sem seguir redirecionamento (3xx volta como resposta e é recusado por quem chama), 15 s no total.
+function AnvLerConfiancaHttp {
+  param([string]$Url, [hashtable]$Cabecalhos)
+  $relogio = [System.Diagnostics.Stopwatch]::StartNew()
+  $req = [System.Net.HttpWebRequest][System.Net.WebRequest]::Create($Url)
+  $req.Method = 'GET'
+  $req.AllowAutoRedirect = $false
+  $req.Timeout = 15000
+  $req.ReadWriteTimeout = 15000
+  $req.AutomaticDecompression = [System.Net.DecompressionMethods]::None
+  $req.UserAgent = 'Anvilore-instalador'
+  foreach ($k in $Cabecalhos.Keys) { $req.Headers[$k] = $Cabecalhos[$k] }
+  $resposta = $null
+  try {
+    try { $resposta = $req.GetResponse() }
+    catch [System.Net.WebException] { if ($_.Exception.Response) { $resposta = $_.Exception.Response } else { throw } }
+    $status = [int]$resposta.StatusCode
+    if ($status -ne 200) { return [pscustomobject]@{ StatusCode = $status; Content = '' } }
+    if ($resposta.ContentLength -gt $script:AnvLimiteConfianca) { $req.Abort(); throw 'resposta maior que o limite' }
+    $fluxo = $resposta.GetResponseStream()
+    $memoria = New-Object System.IO.MemoryStream
+    $bloco = New-Object byte[] 4096
+    while ($true) {
+      $n = $fluxo.Read($bloco, 0, $bloco.Length)
+      if ($n -le 0) { break }
+      $memoria.Write($bloco, 0, $n)
+      if ($memoria.Length -gt $script:AnvLimiteConfianca) { $req.Abort(); throw 'resposta maior que o limite' }
+      if ($relogio.ElapsedMilliseconds -gt 15000) { $req.Abort(); throw 'tempo limite' }
+    }
+    $texto = (New-Object System.Text.UTF8Encoding($false, $true)).GetString($memoria.ToArray())
+    return [pscustomobject]@{ StatusCode = $status; Content = $texto }
+  } finally { if ($resposta) { try { $resposta.Close() } catch { } } }
+}
+
 # Consulta a lista. Ok = $true com Chaves e VersaoMinima, ou Ok = $false com a Mensagem simples. Sem seguir redirecionamento
-# (redirect = recusa), com Cache-Control e Pragma no-cache, 15 s e 64 KiB. `-Buscar` só para teste: recebe a URL e os cabeçalhos.
+# (redirect = recusa), com Cache-Control e Pragma no-cache, 15 s e 64 KiB (AnvLerConfiancaHttp). `-Buscar` só para teste: recebe
+# a URL e os cabeçalhos.
 function AnvConsultarConfianca {
   param([string]$Url, [scriptblock]$Buscar = $null)
   $falha = "não consegui conferir a lista atual de chaves em $Url; nada mudou; tente de novo mais tarde."
   $cabecalhos = @{ 'Cache-Control' = 'no-cache'; 'Pragma' = 'no-cache' }
   try {
     if ($Buscar) { $r = & $Buscar $Url $cabecalhos }
-    else {
-      $ProgressPreference = 'SilentlyContinue'
-      $r = Invoke-WebRequest -Uri $Url -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 15 -Headers $cabecalhos -ErrorAction Stop
-    }
+    else { $r = AnvLerConfiancaHttp -Url $Url -Cabecalhos $cabecalhos }
     if ([int]$r.StatusCode -ne 200) { throw "HTTP $($r.StatusCode)" }
-    if ($r.RawContentLength -gt $script:AnvLimiteConfianca) { throw 'resposta maior que o limite' }
     $conteudo = $r.Content
     if ($conteudo -is [byte[]]) { $conteudo = (New-Object System.Text.UTF8Encoding($false, $true)).GetString($conteudo) }
     $conteudo = [string]$conteudo

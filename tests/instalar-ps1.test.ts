@@ -178,7 +178,7 @@ describe("instalar.ps1: estado das chaves no site (decisão 2 do parecer de rele
   test("Dado a consulta, Quando leio o código, Então não segue redirecionamento, não usa cache, tem tempo limite e não lê o ambiente", () => {
     const corpo = funcao("AnvLerConfiancaHttp");
     expect(corpo).not.toBe("");
-    expect(corpo).toContain("[System.Net.HttpWebRequest]::Create");
+    expect(corpo).toContain("[System.Net.HttpWebRequest][System.Net.WebRequest]::Create($Url)");
     expect(corpo).toContain("AllowAutoRedirect = $false");
     expect(corpo).toContain("Timeout = 15000");
     expect(corpo).toContain("ReadWriteTimeout = 15000");
