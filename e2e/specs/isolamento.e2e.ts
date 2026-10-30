@@ -54,7 +54,7 @@ test("[isolamento] Dado o ambiente do servidor com ANVILORE_WIKI Quando ele sobe
 test.describe("[isolamento] encerramento do servidor", () => {
   test.use({ roteiro: roteiroComLeitorParado("encerrar") });
   test("Dado o leitor rodando Quando o servidor recebe SIGTERM Então o processo do agente deixa de existir", async ({ page, app, agente, vault }) => {
-    await page.goto(app.url);
+    await page.goto(`${app.url}#/chat`);
     await escolherArquivo(page, { name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
     await page.getByRole("button", { name: "Ingerir", exact: true }).click();
     await agente.pronto("encerrar");

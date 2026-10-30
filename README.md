@@ -139,7 +139,8 @@ Com o clone configurado:
    > campos obrigatórios num `anvilore.toml` (veja o `SCHEMA.md`).
 
 Para ingerir e revisar numa tela local, execute `anvilore ui`. A página abre no
-navegador. No chat, solte um arquivo (ou cole um texto), escolha a área e aperte
+navegador, no Início: rascunhos esperando você, atividade recente, a saúde da wiki
+e as fontes de `raw/` que ainda não foram ingeridas. No chat, solte um arquivo (ou cole um texto), escolha a área e aperte
 **Ingerir**: o Claude Code lê com a conta em que você já entrou, para nos
 takeaways para você decidir o que entra e só então escreve. Na Revisão, use
 **Aprovar** ou a tecla `A`, e `J`/`K` para navegar.

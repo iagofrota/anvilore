@@ -9,8 +9,20 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Added
+
+- Telas de Biblioteca e Nota na interface web (`anvilore ui`):
+  - Biblioteca (`#/biblioteca`): catálogo de páginas da wiki com abas por tipo, contadores, filtros por status (rascunho / aprovada), área e tags, além de busca por texto;
+  - Nota (`#/nota/<caminho>`): tela de leitura estrita com propriedades, corpo markdown renderizado, callouts de lacunas com link para o chat de ingestão, proveniência, backlinks e grafo local em SVG;
+  - Endpoints de leitura protegidos `GET /api/biblioteca` e `GET /api/nota?caminho=...` com barreira de token, contenção de caminhos e garantia de invariância em `wiki/` e `raw/`.
+- Tela Início em `anvilore ui`, agora a tela inicial: atalhos para ingerir e revisar, rascunhos esperando aprovação,
+  atividade recente do log, saúde da wiki (o servidor roda `validar`, `auditar` e `listar-lacunas --consultar`; ninguém
+  precisa rodar comando) e a lista do que está em `raw/` sem ingestão. Revisão e Chat seguem no menu. O menu e o casco
+  comum das telas estão em `ui/web/navegacao.ts` e `ui/web/shell.tsx`; veja `docs/knowledge_base/interface.md`.
+
 ### Security
 
+- Leitura de notas na interface web valida contenção por caminho real prévio, compõe flags de proteção (O_NOFOLLOW e O_NONBLOCK) de forma independente e trata raiz ausente como inexistência, evitando travamento em FIFOs e vazamentos antes da verificação TOCTOU (dev/ino).
 - O atualizador exige exclusivamente assinatura SSH na tag candidata (`-----BEGIN SSH SIGNATURE-----`), fixa `gpg.ssh.program=ssh-keygen` e desabilita programas OpenPGP e x509 (`gpg.program`, `gpg.openpgp.program`, `gpg.x509.program` apontados para comando inexistente no `verify-tag`), impedindo que tags com assinaturas OpenPGP, x509 ou verificadores SSH customizados no `.gitconfig` aprovem tags não confiáveis.
 - O `fetch` do atualizador (e qualquer `ls-remote`, `clone` ou `pull`) roda com `GIT_ALLOW_PROTOCOL` só do protocolo da origem oficial (https; ssh se o clone foi feito por ssh), `credential.helper` zerado, `GIT_ASKPASS` vazio e `GIT_TERMINAL_PROMPT=0`: um `protocol.ext.allow=always` com `url.<ext::programa>.insteadOf` na configuração global não executa código antes da assinatura. A configuração global continua valendo no resto (proxy, por exemplo).
 - O atualizador aceita o arquivo de chaves confiáveis que o instalador entrega pela opção interna `--assinantes-do-instalador <arquivo>` e, com ele, confere a tag **só** contra esse arquivo (não soma com o `seguranca/assinantes` da pasta). Assim uma instalação que ficou para trás na troca de chave recebe a versão nova ao rodar o instalador de novo, sem editar arquivo do kit. Arquivo ausente, vazio ou ilegível recusa a versão com mensagem simples; nunca volta ao arquivo local. O atualizador **não lê nenhuma variável de ambiente** para isso: uma atualização manual ou agendada nunca troca as chaves por herança do ambiente. A opção só vale ao aplicar (junto de `--verificar`, `--voltar` ou `--estado` é uso inválido, código 2). Alcance: a opção não prova que quem chamou é o instalador (um processo local hostil pode passá-la, assim como poderia trocar o `PATH`); o ganho é que a âncora de confiança deixa de ser herdada por acidente.
