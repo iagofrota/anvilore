@@ -966,6 +966,18 @@ function AnvCriarAtalho {
   return $false
 }
 
+# Passo 8. Instalação nova liga o commit automático (D6). Reinstalação respeita a escolha da pessoa, gravada em autoCommit do
+# atualizacao.json (como o instalar.sh): estado sem a chave ligada ou ilegível deixa desligado; sem estado nenhum (a primeira rodada
+# parou antes do passo 9), liga como numa instalação nova.
+function AnvAutoCommitDaPasta {
+  param([string]$Pasta, [bool]$JaInstalado)
+  if (-not $JaInstalado) { return $true }
+  $arquivo = Join-Path $Pasta '.anvilore\atualizacao.json'
+  if (-not (Test-Path -LiteralPath $arquivo -PathType Leaf)) { return $true }
+  try { $texto = [IO.File]::ReadAllText($arquivo) } catch { return $false }
+  return [bool]($texto -match '"autoCommit"\s*:\s*true')
+}
+
 # Passo 9. Só cria; nunca sobrescreve a escolha da pessoa.
 function AnvGravarAtualizacao {
   param([string]$Pasta, [bool]$BunGerenciado)
@@ -1096,7 +1108,9 @@ function AnvPassos {
     # 8 · dependências do kit e configuração dos agentes (commit automático ligado, backup no GitHub desligado - D6)
     $dep = AnvExecutar $bun @('install', '--frozen-lockfile') $pasta
     if ($dep.Codigo -ne 0) { AnvParar 1 "Não consegui instalar as dependências do kit: $($dep.Saida)" }
-    $ins = AnvExecutar $bun @('src/cli.ts', 'instalar', '--destino', $pasta, '--auto-commit') $pasta
+    $argsInstalar = @('src/cli.ts', 'instalar', '--destino', $pasta)
+    if (AnvAutoCommitDaPasta -Pasta $pasta -JaInstalado $jaInstalado) { $argsInstalar += '--auto-commit' }
+    $ins = AnvExecutar $bun $argsInstalar $pasta
     if ($ins.Codigo -ne 0) { AnvParar 1 "A configuração dos agentes falhou (código $($ins.Codigo)): $($ins.Saida)" }
     $linhaInstalados = ($ins.Saida -split "`n" | Where-Object { $_ -match '^instalados:' } | Select-Object -First 1)
     foreach ($a in $agentes) {
