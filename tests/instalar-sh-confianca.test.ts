@@ -175,7 +175,7 @@ test.skipIf(!linux)("Dado um instalador sem a URL embutida, ou com http fora de 
     await writeFile(script, original.replace(/(# >>> ANVILORE:URL_CONFIANCA[^\n]*\nurl_confianca_embutida\(\) \{\n)[\s\S]*?(\}\n# <<< ANVILORE:URL_CONFIANCA)/, (_m, a, b) => `${a}${corpo}${b}`));
     const r = c.rodar({}, [], script);
     expect(r.codigo, `${nome}: ${r.tudo}`).not.toBe(0);
-    expect(r.tudo, nome).toContain("lista de chaves");
+    expect(r.tudo, nome).toContain("lista atual de chaves");
     expect(r.tudo, nome).toContain("instalar.sh da release");
     await SEM_INSTALAR(c);
   }
