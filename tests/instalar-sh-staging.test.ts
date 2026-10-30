@@ -20,7 +20,7 @@ test("Dado instalar.sh, Quando leio passo_baixar_kit, Então a pasta de passagem
   expect(corpo).not.toBe("");
   const antesDoClone = corpo.slice(0, corpo.indexOf("clone --quiet"));
   expect(antesDoClone).not.toMatch(/rm -rf "\$CLONE_TMP"/);
-  expect(antesDoClone).toMatch(/mkdir "\$CLONE_TMP"/);
+  expect(antesDoClone).toMatch(/mkdir "\$tmp"/);
 });
 
 test.skipIf(!linux)("Dado uma pasta .anvilore-baixando.* que já existe ao lado do destino, Quando instalo (do zero), Então ela continua intacta e a instalação termina", async () => {

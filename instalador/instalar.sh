@@ -653,8 +653,11 @@ passo_baixar_kit() {
   origem="${ANVILORE_ORIGEM:-$REPO_OFICIAL}"
   pai=$(dirname "$PASTA")
   mkdir -p "$pai" || falhar "não consegui criar $pai."
-  CLONE_TMP="$pai/.anvilore-baixando.$$"
-  rm -rf "$CLONE_TMP"
+  # Pasta de passagem NOVA (mkdir sem -p falha se o caminho existe): nunca apaga nem reaproveita algo que já estava lá. Só depois de
+  # criada ela vira CLONE_TMP, que é o que a limpeza de saída apaga.
+  local tmp="$pai/.anvilore-baixando.$$.$RANDOM"
+  mkdir "$tmp" || falhar "não consegui criar uma pasta temporária nova em $pai."
+  CLONE_TMP="$tmp"
   dizer "Baixando o Anvilore $TAG..."
   HOOKS_VAZIO="$TMP_DIR/sem-hooks"
   mkdir -p "$HOOKS_VAZIO" || falhar "não consegui criar uma pasta temporária."

@@ -261,7 +261,7 @@ describe("instalar.ps1: commit automático só na instalação nova (achado P2 d
 describe("instalar.ps1: pasta de passagem única, nunca a Anvilore.novo fixa (achado P1 do Codex)", () => {
   test("Dado AnvBaixarKit, Quando leio o código, Então não usa o nome fixo Anvilore.novo e cria uma pasta única ao lado do destino", () => {
     const corpo = funcao("AnvBaixarKit");
-    expect(corpo).not.toContain("Anvilore.novo");
+    expect(corpo).not.toMatch(/Anvilore\.novo/);
     expect(corpo).toMatch(/AnvCriarStaging -Pai \(Split-Path -Parent \$Pasta\)/);
   });
 
@@ -280,7 +280,7 @@ describe("instalar.ps1: pasta de passagem única, nunca a Anvilore.novo fixa (ac
     expect(corpo).not.toContain("Remove-Item");
   });
 
-  test("Dado o instalador inteiro, Quando procuro Remove-Item sobre Anvilore.novo, Então não há", () => {
-    expect(codigo).not.toMatch(/Anvilore\.novo/);
+  test("Dado o instalador inteiro, Quando procuro o nome fixo Anvilore.novo, Então só existe o prefixo com sufixo aleatório", () => {
+    expect(codigo).not.toMatch(/Anvilore\.novo['"]/);
   });
 });

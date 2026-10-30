@@ -874,6 +874,19 @@ function AnvConferirEstadoDasChaves {
   return @{ Ok = $true; Assinantes = $permitidas; VersaoMinima = $c.VersaoMinima; Chaves = $c.Chaves }
 }
 
+# Pasta de passagem do download: NOVA e única a cada execução, ao lado do destino (mesmo volume, para o Move-Item final ser só
+# uma renomeação). Nunca reaproveita um nome nem apaga nada que já existia: New-Item sem -Force falha se o caminho existe, e
+# então sorteia outro nome. Quem chamou é o dono da pasta devolvida e o único que a apaga.
+function AnvCriarStaging {
+  param([string]$Pai)
+  if (-not (Test-Path -LiteralPath $Pai -PathType Container)) { New-Item -ItemType Directory -Path $Pai -Force | Out-Null }
+  for ($i = 0; $i -lt 5; $i++) {
+    $candidato = Join-Path $Pai ('Anvilore.novo-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
+    try { New-Item -ItemType Directory -Path $candidato -ErrorAction Stop | Out-Null; return $candidato } catch { }
+  }
+  AnvParar 1 "Não consegui criar uma pasta temporária nova em $Pai. Confira o espaço e a permissão da pasta e rode o instalador de novo."
+}
+
 function AnvBaixarKit {
   param([string]$Git, [string]$Pasta, [string]$Perfil, [string]$Temp)
   $assinantes = AnvAssinantes
@@ -893,47 +906,50 @@ function AnvBaixarKit {
   $estadoChaves = AnvConferirEstadoDasChaves -Tag $tag
   if (-not $estadoChaves.Ok) { AnvParar 3 $estadoChaves.Motivo }
   AnvEscrever "Baixando o Anvilore $tag..."
-  $staging = Join-Path $Perfil 'Anvilore.novo'
-  Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
   $assinFile = Join-Path $Temp 'assinantes'
   Set-Content -LiteralPath $assinFile -Value $estadoChaves.Assinantes -NoNewline -Encoding ASCII
   $env:GIT_TERMINAL_PROMPT = '0'
-  $clone = AnvExecutarRede -Exe $Git -Argumentos (AnvArgsClone -Origem $origem -Tag $tag -Staging $staging -HooksVazio $semHooks) -Origem $origem
-  if ($clone.Codigo -ne 0) {
-    Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
-    if (AnvRecusouTransporte $clone.Saida) { AnvParar 3 $script:AnvMensagemTransporte }
-    AnvParar 1 "Não consegui baixar o Anvilore ($tag). Confira a internet e rode o instalador de novo. $($clone.Saida)"
-  }
-  $ref = "refs/tags/$tag"
-  $razao = $null
-  $verificado = $null
-  $v = [pscustomobject]@{ Codigo = 0; Saida = '' }
-  $tipo = AnvExecutar $Git (AnvArgsStaging -HooksVazio $semHooks -Argumentos @('-C', $staging, 'cat-file', '-t', $ref))
-  $cab = AnvExecutar $Git (AnvArgsStaging -HooksVazio $semHooks -Argumentos @('-C', $staging, 'cat-file', 'tag', $ref))
-  if ($tipo.Saida.Trim() -ne 'tag') { $razao = 'a versão não é uma tag anotada' }
-  elseif (-not (AnvTemAssinaturaSsh -ConteudoDaTag $cab.Saida)) { $razao = 'a tag não tem assinatura SSH' }
-  else {
-    $v = AnvExecutar $Git (AnvArgsVerificarTag -Staging $staging -Ref $ref -Assinantes $assinFile -HooksVazio $semHooks)
-    if ($v.Codigo -ne 0) { $razao = 'a assinatura não confere com a chave do Anvilore' }
-    else {
-      $head = AnvExecutar $Git (AnvArgsStaging -HooksVazio $semHooks -Argumentos @('-C', $staging, 'rev-parse', 'HEAD'))
-      $razao = AnvIdentidadeDaTag -Cabecalho $cab.Saida -Tag $tag -Commit $head.Saida.Trim()
-      if (-not $razao) { $verificado = $head.Saida.Trim() }
+  $staging = AnvCriarStaging -Pai (Split-Path -Parent $Pasta)
+  $movido = $false
+  try {
+    $clone = AnvExecutarRede -Exe $Git -Argumentos (AnvArgsClone -Origem $origem -Tag $tag -Staging $staging -HooksVazio $semHooks) -Origem $origem
+    if ($clone.Codigo -ne 0) {
+      if (AnvRecusouTransporte $clone.Saida) { AnvParar 3 $script:AnvMensagemTransporte }
+      AnvParar 1 "Não consegui baixar o Anvilore ($tag). Confira a internet e rode o instalador de novo. $($clone.Saida)"
     }
+    $ref = "refs/tags/$tag"
+    $razao = $null
+    $verificado = $null
+    $v = [pscustomobject]@{ Codigo = 0; Saida = '' }
+    $tipo = AnvExecutar $Git (AnvArgsStaging -HooksVazio $semHooks -Argumentos @('-C', $staging, 'cat-file', '-t', $ref))
+    $cab = AnvExecutar $Git (AnvArgsStaging -HooksVazio $semHooks -Argumentos @('-C', $staging, 'cat-file', 'tag', $ref))
+    if ($tipo.Saida.Trim() -ne 'tag') { $razao = 'a versão não é uma tag anotada' }
+    elseif (-not (AnvTemAssinaturaSsh -ConteudoDaTag $cab.Saida)) { $razao = 'a tag não tem assinatura SSH' }
+    else {
+      $v = AnvExecutar $Git (AnvArgsVerificarTag -Staging $staging -Ref $ref -Assinantes $assinFile -HooksVazio $semHooks)
+      if ($v.Codigo -ne 0) { $razao = 'a assinatura não confere com a chave do Anvilore' }
+      else {
+        $head = AnvExecutar $Git (AnvArgsStaging -HooksVazio $semHooks -Argumentos @('-C', $staging, 'rev-parse', 'HEAD'))
+        $razao = AnvIdentidadeDaTag -Cabecalho $cab.Saida -Tag $tag -Commit $head.Saida.Trim()
+        if (-not $razao) { $verificado = $head.Saida.Trim() }
+      }
+    }
+    if ($razao) {
+      AnvRegistrar "verify-tag recusou $tag : $($v.Saida)"
+      AnvParar 3 "A versão $tag não passou na conferência de segurança ($razao). Apaguei o que baixei, não liguei nenhum agente e não instalei nada."
+    }
+    AnvEscrever "Assinatura da versão $tag conferida."
+    $co = AnvExecutar $Git (AnvArgsCheckout -Staging $staging -Commit $verificado)
+    if ($co.Codigo -ne 0) {
+      AnvParar 1 "Não consegui gravar os arquivos do Anvilore $tag. Apaguei o que baixei. $($co.Saida)"
+    }
+    if (Test-Path -LiteralPath $Pasta) { Remove-Item -LiteralPath $Pasta -Recurse -Force }
+    Move-Item -LiteralPath $staging -Destination $Pasta
+    $movido = $true
+  } finally {
+    # Só a pasta que ESTA execução criou: qualquer saída sem o Move-Item (recusa, falha, erro inesperado) a apaga.
+    if (-not $movido) { Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue }
   }
-  if ($razao) {
-    AnvRegistrar "verify-tag recusou $tag : $($v.Saida)"
-    Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
-    AnvParar 3 "A versão $tag não passou na conferência de segurança ($razao). Apaguei o que baixei, não liguei nenhum agente e não instalei nada."
-  }
-  AnvEscrever "Assinatura da versão $tag conferida."
-  $co = AnvExecutar $Git (AnvArgsCheckout -Staging $staging -Commit $verificado)
-  if ($co.Codigo -ne 0) {
-    Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
-    AnvParar 1 "Não consegui gravar os arquivos do Anvilore $tag. Apaguei o que baixei. $($co.Saida)"
-  }
-  if (Test-Path -LiteralPath $Pasta) { Remove-Item -LiteralPath $Pasta -Recurse -Force }
-  Move-Item -LiteralPath $staging -Destination $Pasta
   return $tag
 }
 
