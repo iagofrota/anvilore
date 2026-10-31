@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { comandoFallback, provarBuscaFallback } from "../scripts/provar-busca-fallback";
 
 test("Dado cada sistema Quando escolho o fallback Então usa a busca nativa com flags portáveis e UTF-8 no PowerShell", () => {
-  expect(comandoFallback("linux", "governança")).toBe('grep -rn -i "governança" wiki/');
-  expect(comandoFallback("darwin", "governança")).toBe('grep -rn -i "governança" wiki/');
+  expect(comandoFallback("linux", "governança")).toBe('grep -rn --exclude-dir=.git -i "governança" wiki/');
+  expect(comandoFallback("darwin", "governança")).toBe('grep -rn --exclude-dir=.git -i "governança" wiki/');
   expect(comandoFallback("win32", "governança")).toContain("Select-String -Encoding UTF8 -Pattern 'governança'");
   expect(comandoFallback("win32", "governança")).toContain('"{0}:{1}:{2}" -f $_.Path, $_.LineNumber, $_.Line');
   expect(() => comandoFallback("freebsd", "x")).toThrow(/não suportada/);
@@ -15,7 +15,8 @@ test("Dado as skills de busca e lint Quando não há rg Então orientam o fallba
   const query = readFileSync(join(import.meta.dir, "../skills/query/SKILL.md"), "utf8");
   const lint = readFileSync(join(import.meta.dir, "../skills/lint/SKILL.md"), "utf8");
   for (const skill of [query, lint]) {
-    expect(skill).toContain("grep -rn -i");
+    expect(skill).toContain("grep -rn");
+    expect(skill).toContain("--exclude-dir=.git");
     expect(skill).toContain("Select-String -Encoding UTF8");
     expect(skill.toLowerCase()).toContain("nunca pule a busca");
   }

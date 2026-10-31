@@ -6,7 +6,7 @@ type Plataforma = "linux" | "darwin" | "win32";
 
 export function comandoFallback(plataforma: string, termo: string): string {
   if (plataforma === "linux" || plataforma === "darwin") {
-    return `grep -rn -i "${termo.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}" wiki/`;
+    return `grep -rn --exclude-dir=.git -i "${termo.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}" wiki/`;
   }
   if (plataforma === "win32") {
     const padrao = termo.replaceAll("'", "''");
@@ -27,12 +27,14 @@ export function provarBuscaFallback(plataforma = process.platform): ResultadoFal
   try {
     const wiki = join(temporario, "wiki", "concepts");
     mkdirSync(wiki, { recursive: true });
+    mkdirSync(join(temporario, "wiki", ".git", "hooks"), { recursive: true });
     writeFileSync(join(temporario, ".gitignore"), "wiki/\n", "utf8");
     writeFileSync(join(wiki, "página com espaço.md"), "primeira linha\nA governança funciona.\n", "utf8");
+    writeFileSync(join(temporario, "wiki", ".git", "hooks", "pre-commit.sample"), "governança no metadado git\n", "utf8");
 
     const r = os === "win32"
       ? Bun.spawnSync([executavel, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); Set-Location -LiteralPath '${temporario.replaceAll("'", "''")}'; ${comando}`], { cwd: temporario, stdout: "pipe", stderr: "pipe" })
-      : Bun.spawnSync([executavel, "-rn", "-i", "governança", "wiki/"], { cwd: temporario, stdout: "pipe", stderr: "pipe" });
+      : Bun.spawnSync([executavel, "-rn", "--exclude-dir=.git", "-i", "governança", "wiki/"], { cwd: temporario, stdout: "pipe", stderr: "pipe" });
     const stdout = Buffer.from(r.stdout).toString("utf8").replaceAll("\r\n", "\n").trimEnd();
     const stderr = Buffer.from(r.stderr).toString("utf8").trim();
     const linhas = stdout.split("\n");

@@ -105,7 +105,7 @@ Para procurar texto em `wiki/` sem o MCP, prefira `rg --no-ignore` e use o equiv
 | Sistema | Busca por termo (com caminho, linha e texto) | Só arquivos | Palavra exata | Texto literal |
 |---|---|---|---|---|
 | Linux/macOS com `rg` | `rg --no-ignore -in "x" wiki/` | `rg --no-ignore -l -i "x" wiki/` | `rg --no-ignore -w -i "x" wiki/` | `rg --no-ignore -F "x" wiki/` |
-| Linux/macOS sem `rg` | `grep -rn -i "x" wiki/` | `grep -rl -i "x" wiki/` | `grep -rwn -i "x" wiki/` | `grep -rFn "x" wiki/` |
+| Linux/macOS sem `rg` | `grep -rn --exclude-dir=.git -i "x" wiki/` | `grep -rl --exclude-dir=.git -i "x" wiki/` | `grep -rwn --exclude-dir=.git -i "x" wiki/` | `grep -rFn --exclude-dir=.git "x" wiki/` |
 | Windows com `rg` | `rg --no-ignore -in "x" wiki/` | `rg --no-ignore -l -i "x" wiki/` | `rg --no-ignore -w -i "x" wiki/` | `rg --no-ignore -F "x" wiki/` |
 | Windows sem `rg` | <code>Get-ChildItem -Path wiki -Recurse -File -Filter *.md &#124; Select-String -Encoding UTF8 -Pattern "x" &#124; ForEach-Object { "{0}:{1}:{2}" -f $_.Path, $_.LineNumber, $_.Line }</code> | <code>Get-ChildItem -Path wiki -Recurse -File -Filter *.md &#124; Select-String -Encoding UTF8 -Pattern "x" -List &#124; Select-Object -ExpandProperty Path</code> | <code>Get-ChildItem -Path wiki -Recurse -File -Filter *.md &#124; Select-String -Encoding UTF8 -Pattern "\bx\b"</code> | <code>Get-ChildItem -Path wiki -Recurse -File -Filter *.md &#124; Select-String -Encoding UTF8 -SimpleMatch "x"</code> |
 

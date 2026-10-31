@@ -75,7 +75,9 @@ continuam sendo avaliadas.
 O formato de ocorrência é `arquivo:linha:texto`. A tabela das skills `query` e `lint` contém os
 comandos para busca normal, nomes de arquivo, palavra exata e texto literal. No PowerShell 5.1,
 `Select-String` recebe `-Encoding UTF8`; no PowerShell 7 a leitura já usa UTF-8. `grep -r` e
-`Get-ChildItem -Recurse` não leem `.gitignore`, então também encontram páginas da wiki ignorada.
+`Get-ChildItem -Recurse` não leem `.gitignore`, então também encontram páginas da wiki ignorada;
+os comandos `grep` passam `--exclude-dir=.git` para não vasculhar metadados de um repositório Git
+aninhado na wiki.
 O CI executa `scripts/provar-busca-fallback.ts` na matriz Ubuntu, macOS e Windows: cada runner
 busca um termo acentuado numa página `.md` de fixture cujo caminho tem espaço, e confere a saída
 `arquivo:linha:texto`. No Windows a prova chama Windows PowerShell 5.1 diretamente. O job imprime
