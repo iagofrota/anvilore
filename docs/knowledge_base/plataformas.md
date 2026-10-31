@@ -441,6 +441,25 @@ Language Mode **real** (AppLocker/WDAC; os testes só forçam o caminho do `reg.
 tentado se o normal não abrir), o instalador oficial do Claude Code, `irm | iex` contra o GitHub real (a primeira release
 assinada ainda não existe) e a janela real com acentos.
 
+### Setup do Windows (`AnviloreSetup.exe`)
+
+`instalador/windows/anvilore.iss` compila o `AnviloreSetup.exe` com Inno Setup. O app instala por usuário em
+`%LOCALAPPDATA%\Programs\Anvilore`, sem UAC. Inclui `instalar.ps1`, `abrir.ps1`, `anvilore.ico` e o desinstalador
+registrado em Aplicativos instalados. O atalho Anvilore fica no Menu Iniciar e na Área de Trabalho, chama o `abrir.ps1`
+empacotado por PowerShell usando `Get-Content -Raw -Encoding UTF8 | Invoke-Expression`, sem `-File` nem
+`ScriptBlock.Create`. O instalador recebe `ANVILORE_ATALHO_SETUP=1`, então não recria os atalhos alternativos na pasta
+`%USERPROFILE%\Anvilore`; o resumo orienta a abrir o atalho Anvilore. No modo silencioso o setup define
+`ANVILORE_SEM_PERGUNTAS=1`; o código 10 do instalador representa instalação parcial e não reprova o setup.
+
+O desinstalador remove apenas o app e os atalhos criados pelo Inno. Não apaga `%USERPROFILE%\Anvilore`. O ícone
+versionado foi rasterizado do `instalador/anvilore.svg` com FFmpeg (`ffmpeg -i instalador/anvilore.svg -frames:v 1
+-vf scale=48:48 -y /tmp/anvilore.png && ffmpeg -i /tmp/anvilore.png -frames:v 1 instalador/windows/anvilore.ico`).
+
+O job Windows do CI compila com o ISCC instalado no runner e roda o setup silencioso contra origem local assinada; confere
+`doctor`, atalhos e preservação da pasta ao desinstalar. Um teste força Constrained Language Mode e prova que o caminho
+`Invoke-Expression` do lançador abre com Bun falso. Isso não prova uma GPO/AppLocker/WDAC real, duplo clique no Explorer,
+SmartScreen nem Windows 11 físico. A versão vem de `Versao` no ISCC (a release pode passar `/DVersao=<tag>`).
+
 ## O que esta página não afirma
 
 - Que o CI da Onda 1 esteja verde nos três sistemas; só a fundação tem execução confirmada acima.

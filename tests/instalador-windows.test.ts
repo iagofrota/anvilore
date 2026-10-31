@@ -12,6 +12,8 @@ describe("AnviloreSetup.exe", () => {
     expect(iss).toMatch(/\{localappdata\}\\Programs\\Anvilore/i);
     expect(iss).toMatch(/Get-Content[\s\S]*Invoke-Expression|Get-Content[\s\S]*scriptblock/i);
     expect(iss).not.toMatch(/-File\b/i);
+    expect(iss).toMatch(/ExitCode\s*<>\s*10/);
+    expect(iss).toMatch(/ANVILORE_SEM_PERGUNTAS/);
   });
 
   test("Dado o desinstalador, Quando verifico os caminhos apagados, Então ele nunca remove a pasta da pessoa", () => {

@@ -978,6 +978,10 @@ function AnvOferecerClaudeCode {
 # criou. Nunca derruba a instalação: quem chama só muda a última linha do resumo.
 function AnvCriarAtalho {
   param([string]$Pasta)
+  if ((AnvVariavel 'ANVILORE_ATALHO_SETUP') -eq '1') {
+    AnvRegistrar 'atalho: criado pelo AnviloreSetup.exe'
+    return $true
+  }
   if ($ExecutionContext.SessionState.LanguageMode -eq 'ConstrainedLanguage') {
     AnvRegistrar 'atalho: Constrained Language Mode; o Inno Setup cria o atalho'
     return $false

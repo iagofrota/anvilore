@@ -428,6 +428,19 @@ Describe 'AnvBaixarComHash' {
   }
 }
 
+Describe 'AnvCriarAtalho' {
+  It 'Dado o AnviloreSetup.exe executando o instalador, Quando chega ao passo 10, Então preserva os atalhos do setup e informa sucesso' {
+    $antes = $env:ANVILORE_ATALHO_SETUP
+    try {
+      $env:ANVILORE_ATALHO_SETUP = '1'
+      (AnvCriarAtalho -Pasta 'C:\nao precisa existir') | Should -BeTrue
+    } finally {
+      if ($null -eq $antes) { Remove-Item Env:ANVILORE_ATALHO_SETUP -ErrorAction SilentlyContinue }
+      else { $env:ANVILORE_ATALHO_SETUP = $antes }
+    }
+  }
+}
+
 Describe 'AnvResultadoFinal' {
   # Dado o que ficou pronto; Quando resume; Então o código distingue completo (0) de parcial (10).
   It 'completo'                { (AnvResultadoFinal -TemAgente $true -DoctorOk $true).Codigo | Should -Be 0 }

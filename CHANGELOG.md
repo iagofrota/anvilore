@@ -12,6 +12,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 ### Added
 
 - Pacotes Linux `anvilore.deb` e `anvilore.rpm`: lançador e entrada no menu para instalações por usuário, com dependências do sistema e remoção que preserva o kit e os dados.
+- Setup do Windows `AnviloreSetup.exe` por usuário, com atalhos do Inno Setup e desinstalação que preserva a pasta da wiki.
 
 ### Fixed
 
