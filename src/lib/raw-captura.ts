@@ -35,7 +35,7 @@ async function escreverNovo(p: string, bytes: Uint8Array): Promise<void> {
 export async function gravarCaptura(raiz: string, tipo: TipoCaptura, subpasta: string | undefined, assunto: string, arquivos: Arquivo[], data = new Date(), deps: Publicador = { link }): Promise<string[]> {
   const erro = validarAssunto(assunto) ?? (subpasta === undefined ? undefined : validarSubpasta(subpasta));
   if (erro) throw new Error(erro);
-  if (!arquivos.length || arquivos.some(a => !/^[a-z0-9]+$/.test(a.ext)) || new Set(arquivos.map(a => a.ext)).size !== arquivos.length) throw new Error("extensões de captura inválidas ou repetidas");
+  if (!arquivos.length || arquivos.some(a => !/^[a-z0-9]+(?:\.[a-z0-9]+)*$/.test(a.ext)) || new Set(arquivos.map(a => a.ext)).size !== arquivos.length) throw new Error("extensões de captura inválidas ou repetidas");
   const pasta = ["raw", PASTA_DO_TIPO[tipo], ...(subpasta === undefined ? [] : [subpasta])].join("/");
   await mkdir(join(raiz, pasta), { recursive: true });
   for (let n = 1; ; n++) {

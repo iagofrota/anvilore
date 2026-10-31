@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { comandoCapturar } from "./comandos/capturar";
 import { parseArgs } from "node:util";
 import { comandoChecarDocs } from "./comandos/checar-docs";
 import { comandoChecarRelease } from "./comandos/checar-release";
@@ -41,6 +42,7 @@ export const subcomandos: TabelaDeSubcomandos = {
   "indexar-log": comandoIndexarLog,
   "listar-lacunas": comandoListarLacunas,
   "rejuntar-linhas": comandoRejuntarLinhas,
+  capturar: comandoCapturar,
   auditar: comandoAuditar,
   validar: comandoValidar,
   instalar: comandoInstalar,
