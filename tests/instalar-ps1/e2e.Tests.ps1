@@ -9,6 +9,83 @@
 
 BeforeDiscovery { $script:EhWindows = ($env:OS -eq 'Windows_NT') }
 
+Describe 'abrir.ps1 em runtime no Windows' -Skip:(-not $script:EhWindows) {
+  BeforeAll {
+    $script:AbrirRaiz = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+    $script:Abrir = Join-Path $script:AbrirRaiz 'instalador\abrir.ps1'
+    $script:AbrirBase = Join-Path $env:TEMP ('anv abrir runtime ' + [guid]::NewGuid().ToString('N'))
+    $script:AbrirPasta = Join-Path $script:AbrirBase 'instalacao'
+    $script:AbrirBin = Join-Path $script:AbrirBase 'bin'
+    $script:AbrirPathAntes = $env:Path
+    $script:AbrirPerfilAntes = $env:USERPROFILE
+    $script:AbrirLocalAntes = $env:LOCALAPPDATA
+    $script:AbrirPastaAntes = $env:ANVILORE_PASTA
+    $script:AbrirLancadorAntes = $env:ANVILORE_LANCADOR
+    New-Item -ItemType Directory -Path @((Join-Path $script:AbrirPasta '.git'), (Join-Path $script:AbrirPasta 'src'), (Join-Path $script:AbrirPasta 'skills'), $script:AbrirBin) -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $script:AbrirPasta 'AGENTS.md') -Value ''
+    Set-Content -LiteralPath (Join-Path $script:AbrirPasta 'src\cli.ts') -Value ''
+    $script:AbrirBun = Join-Path $script:AbrirBin 'bun.cmd'
+    Set-Content -LiteralPath $script:AbrirBun -Encoding ASCII -Value "@echo off`r`necho bun falso: UI`r`nexit /b 7`r`n"
+  }
+
+  BeforeEach {
+    $env:ANVILORE_PASTA = $script:AbrirPasta
+    $env:ANVILORE_LANCADOR = $script:Abrir
+    $env:USERPROFILE = $script:AbrirBase
+    $env:LOCALAPPDATA = Join-Path $script:AbrirBase 'AppData\Local'
+    $env:Path = "$script:AbrirBin;$script:AbrirPathAntes"
+  }
+
+  AfterEach {
+    $env:Path = $script:AbrirPathAntes
+    $env:USERPROFILE = $script:AbrirPerfilAntes
+    $env:LOCALAPPDATA = $script:AbrirLocalAntes
+    $env:ANVILORE_PASTA = $script:AbrirPastaAntes
+    $env:ANVILORE_LANCADOR = $script:AbrirLancadorAntes
+  }
+
+  AfterAll { Remove-Item -LiteralPath $script:AbrirBase -Recurse -Force -ErrorAction SilentlyContinue }
+
+  It 'Dado bun falso, Quando a UI termina com código 7, Então mostra o erro do lançador e aguarda Enter' {
+    Mock Read-Host { 'enter' }
+    $saida = & $script:Abrir *>&1 | Out-String
+    $saida | Should -Match 'A interface do Anvilore fechou com erro \(código 7\)'
+    Should -Invoke Read-Host -Times 1 -Exactly
+  }
+
+  It 'Dado que Bun não está no PATH, Quando abro a instalação, Então mostro o erro e aguardo Enter' {
+    $env:Path = $script:AbrirBase
+    Mock Read-Host { 'enter' }
+    $saida = & $script:Abrir *>&1 | Out-String
+    $saida | Should -Match 'Bun não encontrado'
+    Should -Invoke Read-Host -Times 1 -Exactly
+  }
+
+  It 'Dado Constrained Language Mode, Quando avalio o lançador com ScriptBlock.Create, Então reporto se o modo o permite' {
+    $comando = @'
+$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'
+function global:Read-Host { Write-Output 'READ_HOST_CALLED'; return '' }
+try {
+  $bloco = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 -LiteralPath $env:ANVILORE_LANCADOR))
+  & $bloco
+  exit 0
+} catch {
+  Write-Output 'CLM_SCRIPTBLOCK_BLOCKED'
+  exit 42
+}
+'@
+    $saida = & powershell.exe -NoProfile -NonInteractive -Command $comando 2>&1 | Out-String
+    $codigo = $LASTEXITCODE
+    if ($codigo -eq 42 -and $saida -match 'CLM_SCRIPTBLOCK_BLOCKED') {
+      Write-Warning 'CLM bloqueou ScriptBlock.Create; abrir.ps1 precisa da rota de atalho do Inno Setup.'
+    } else {
+      $codigo | Should -Be 0
+      $saida | Should -Match 'A interface do Anvilore fechou com erro \(código 7\)'
+      $saida | Should -Match 'READ_HOST_CALLED'
+    }
+  }
+}
+
 Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
   BeforeAll {
     $script:Raiz = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path

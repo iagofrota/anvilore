@@ -18,6 +18,15 @@ test("Dado o lançador PowerShell, Quando abre o instalador, Então avalia scrip
   expect(ps1.split("\n").filter(l => !l.trimStart().startsWith("#")).join("\n")).not.toMatch(/\-File\b/);
 });
 
+test("Dado o lançador PowerShell, Quando prepara a UI, Então usa USERPROFILE, PortableGit e UTF-8 compatível com CLM", () => {
+  expect(ps1).toContain("$env:USERPROFILE");
+  expect(ps1).toContain("Anvilore\\git\\cmd");
+  expect(ps1).toContain("AnvAbrirConfigurarUtf8");
+  expect(ps1).toContain("chcp.com 65001");
+  expect(ps1).toContain("Get-Command bun");
+  expect(ps1).not.toContain("[Console]::Error.WriteLine");
+});
+
 test("Dado o atalho Linux, Quando leio a criação, Então é uma entrada Anvilore que abre Terminal e chama o lançador", async () => {
   const instalador = await readFile(join(raiz, "instalador/instalar.sh"), "utf8");
   const funcao = /criar_atalho\(\) \{[\s\S]*?\n\}/.exec(instalador)?.[0] ?? "";
