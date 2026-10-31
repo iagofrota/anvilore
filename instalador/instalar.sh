@@ -906,12 +906,17 @@ escapar_exec_desktop() {
 
 # Função do atalho:
 #   - recebe a pasta da instalação ($1);
-#   - grava ~/.local/share/applications/anvilore.desktop (mesmo nome do pacote .deb/.rpm: o do usuário tem precedência
-#     e a entrada não duplica) apontando para `anvilore-abrir`;
+#   - se /usr/share/applications/anvilore.desktop existe, considera o atalho do pacote existente e não cria cópia de usuário;
+#   - caso contrário, grava ~/.local/share/applications/anvilore.desktop apontando para `anvilore-abrir`;
 #   - devolve 0 se o atalho existe ao final, 1 se não criou. Nunca derruba a instalação: quem chama só muda o texto
 #     da última linha do resumo ("abra o atalho Anvilore" ou "abra o seu agente na pasta").
 criar_atalho() {
   local pasta="$1" origem_script origem
+  local aplicativos_sistema="${ANVILORE_SYSTEM_APPLICATIONS_DIR:-/usr/share/applications}"
+  if [ -f "$aplicativos_sistema/anvilore.desktop" ]; then
+    registrar "atalho: entrada de sistema já existe em $aplicativos_sistema/anvilore.desktop; não criei cópias do usuário"
+    return 0
+  fi
   origem_script="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
   # No uso `curl | bash`, o script não tem pasta própria; os lançadores já estão no kit clonado.
   if [ -f "$pasta/instalador/anvilore-abrir" ] && [ -f "$pasta/instalador/abrir.ps1" ]; then

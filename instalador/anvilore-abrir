@@ -3,7 +3,8 @@
 set -u
 
 PASTA="${ANVILORE_PASTA:-${HOME:?HOME não definido}/Anvilore}"
-ORIGEM="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)"
+ARQUIVO_LANCADOR="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+ORIGEM="$(cd -- "$(dirname -- "$ARQUIVO_LANCADOR")" 2>/dev/null && pwd -P)"
 
 instalacao_valida() {
   [ -d "$1/.git" ] && [ -f "$1/AGENTS.md" ] && [ -f "$1/src/cli.ts" ] && [ -d "$1/skills" ]
