@@ -887,19 +887,53 @@ ANVILORE_FIM_ESTADO
 }
 
 # ---------------------------------------------------------------------------------------------------------------
-# Passo 10 — atalho "Anvilore" (NÃO é desta fatia: a U6 preenche)
+# Passo 10 — atalho "Anvilore"
 # ---------------------------------------------------------------------------------------------------------------
 
-# Ponto de chamada do atalho. Contrato para a U6:
+# Função do atalho:
 #   - recebe a pasta da instalação ($1);
 #   - grava ~/.local/share/applications/anvilore.desktop (mesmo nome do pacote .deb/.rpm: o do usuário tem precedência
-#     e a entrada não duplica) apontando para o `anvilore-abrir`;
+#     e a entrada não duplica) apontando para `anvilore-abrir`;
 #   - devolve 0 se o atalho existe ao final, 1 se não criou. Nunca derruba a instalação: quem chama só muda o texto
 #     da última linha do resumo ("abra o atalho Anvilore" ou "abra o seu agente na pasta").
-# Por enquanto não faz nada.
 criar_atalho() {
-  registrar "atalho: ponto de chamada ainda vazio (fatia U6); nada foi criado em $1"
-  return 1
+  local pasta="$1" origem_script origem
+  origem_script="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+  # No uso `curl | bash`, o script não tem pasta própria; os lançadores já estão no kit clonado.
+  if [ -f "$pasta/instalador/anvilore-abrir" ] && [ -f "$pasta/instalador/abrir.ps1" ]; then
+    origem="$pasta/instalador"
+  else
+    origem="$origem_script"
+  fi
+  local bin="$HOME/.local/bin" icones="$HOME/.local/share/icons/hicolor/scalable/apps"
+  local aplicativos="$HOME/.local/share/applications" lancador="$bin/anvilore-abrir"
+  local desktop_tmp="" exec_bin exec_pasta
+  mkdir -p "$bin" "$icones" "$aplicativos" || { registrar "atalho: não consegui criar as pastas do usuário"; return 1; }
+  if [ ! -f "$origem/anvilore-abrir" ] || [ ! -f "$origem/abrir.ps1" ]; then
+    registrar "atalho: os arquivos abrir não estão ao lado de instalar.sh"
+    return 1
+  fi
+  if [ -L "$lancador" ] || [ -L "$icones/anvilore.svg" ]; then
+    registrar "atalho: recusei substituir um symlink no lançador ou ícone do usuário"
+    return 1
+  fi
+  cp -- "$origem/anvilore-abrir" "$lancador" || { registrar "atalho: não consegui copiar anvilore-abrir"; return 1; }
+  chmod 755 "$lancador" || { registrar "atalho: não consegui tornar anvilore-abrir executável"; return 1; }
+  cp -- "$origem/anvilore.svg" "$icones/anvilore.svg" || { registrar "atalho: não consegui copiar o ícone"; return 1; }
+  # Desktop Entry usa escapes próprios; caminhos entre aspas aceitam espaços.
+  exec_bin=$(printf '%s' "$lancador" | sed 's/\\/\\\\/g; s/"/\\"/g; s/%/%%/g')
+  exec_pasta=$(printf '%s' "$pasta" | sed 's/\\/\\\\/g; s/"/\\"/g; s/%/%%/g')
+  desktop_tmp="$aplicativos/.anvilore.desktop.$$"
+  if ! {
+    printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Anvilore' 'Comment=Abra sua wiki pessoal' \
+      "Exec=env ANVILORE_PASTA=\"$exec_pasta\" \"$exec_bin\"" 'Icon=anvilore' 'Terminal=true' 'Categories=Office;Utility;' 'StartupNotify=false'
+  } >"$desktop_tmp" || ! chmod 644 "$desktop_tmp" || ! mv -f -- "$desktop_tmp" "$aplicativos/anvilore.desktop"; then
+    rm -f -- "$desktop_tmp"
+    registrar "atalho: não consegui gravar anvilore.desktop"
+    return 1
+  fi
+  registrar "atalho: ~/.local/share/applications/anvilore.desktop criado; ícone SVG em ~/.local/share/icons/hicolor/scalable/apps/anvilore.svg"
+  return 0
 }
 
 # ---------------------------------------------------------------------------------------------------------------

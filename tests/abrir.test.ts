@@ -15,7 +15,7 @@ test("Dado a distribuição, Quando procuro os lançadores, Então há um shell 
 
 test("Dado o lançador PowerShell, Quando abre o instalador, Então avalia scriptblock lido como texto e nunca usa -File", () => {
   expect(ps1).toMatch(/\[scriptblock\]::Create\(\(Get-Content -Raw -Encoding UTF8/);
-  expect(ps1).not.toMatch(/\-File\b/);
+  expect(ps1.split("\n").filter(l => !l.trimStart().startsWith("#")).join("\n")).not.toMatch(/\-File\b/);
 });
 
 test("Dado o atalho Linux, Quando leio a criação, Então é uma entrada Anvilore que abre Terminal e chama o lançador", async () => {
@@ -27,6 +27,38 @@ test("Dado o atalho Linux, Quando leio a criação, Então é uma entrada Anvilo
   expect(funcao).not.toContain("ponto de chamada ainda vazio");
 });
 
+test("Dado um HOME descartável, Quando executo criar_atalho, Então gravo o .desktop e o lançador por usuário", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-atalho-"));
+  try {
+    const home = join(base, "perfil 100% com espaço");
+    await mkdir(home);
+    const script = join(raiz, "instalador/instalar.sh");
+    const pasta = join(home, "Anvilore");
+    await mkdir(join(pasta, "instalador"), { recursive: true });
+    await writeFile(join(pasta, "instalador/anvilore-abrir"), shell);
+    await writeFile(join(pasta, "instalador/abrir.ps1"), ps1);
+    await writeFile(join(pasta, "instalador/anvilore.svg"), await readFile(join(raiz, "instalador/anvilore.svg"), "utf8"));
+    const comando = `ANVILORE_INSTALAR_CARREGAR=1; source "$1"; registrar() { :; }; criar_atalho "$2"`;
+    const proc = Bun.spawnSync(["bash", "-c", comando, "_", script, pasta], {
+      env: { ...process.env, HOME: home }, stdout: "pipe", stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    const desktop = join(home, ".local/share/applications/anvilore.desktop");
+    const texto = await readFile(desktop, "utf8");
+    expect(texto).toContain("Name=Anvilore");
+    expect(texto).toContain("Terminal=true");
+    expect(texto).toContain('Exec=env ANVILORE_PASTA="');
+    expect(texto).toContain("100%%");
+    expect(await readFile(join(home, ".local/bin/anvilore-abrir"), "utf8")).toBe(shell);
+    expect(await readFile(join(home, ".local/share/icons/hicolor/scalable/apps/anvilore.svg"), "utf8")).toContain("<svg");
+    if (Bun.which("desktop-file-validate")) {
+      const validacao = Bun.spawnSync(["desktop-file-validate", desktop], { stdout: "pipe", stderr: "pipe" });
+      expect(validacao.exitCode, validacao.stderr.toString()).toBe(0);
+    }
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
 test("Dado o instalador Windows, Quando cria o atalho, Então aponta os .lnk ao abrir.ps1", async () => {
   const instalador = await readFile(join(raiz, "instalador/instalar.ps1"), "utf8");
   const funcao = /function AnvCriarAtalho \{[\s\S]*?\n\}/.exec(instalador)?.[0] ?? "";
@@ -36,7 +68,13 @@ test("Dado o instalador Windows, Quando cria o atalho, Então aponta os .lnk ao 
   expect(funcao).not.toContain("ponto de chamada ainda vazio");
 });
 
-test("Dado uma pasta instalada e Bun falso, Quando abro no Linux e a UI falha, Então executo o CLI, mostro o erro e aguardo Enter", async () => {
+test("Dado o instalador Windows, Quando está em Constrained Language Mode, Então deixa a criação para o Inno Setup", async () => {
+  const instalador = await readFile(join(raiz, "instalador/instalar.ps1"), "utf8");
+  const funcao = /function AnvCriarAtalho \{[\s\S]*?\n\}/.exec(instalador)?.[0] ?? "";
+  expect(funcao).toMatch(/LanguageMode -eq 'ConstrainedLanguage'[\s\S]*?return \$false/);
+});
+
+test("Dado uma pasta instalada e Bun falso, Quando abro no Linux e a UI falha sem TTY, Então executo o CLI e mostro o erro", async () => {
   if (process.platform !== "linux") return;
   const base = await mkdtemp(join(tmpdir(), "anvilore-abrir-"));
   try {
@@ -61,7 +99,8 @@ test("Dado uma pasta instalada e Bun falso, Quando abro no Linux e a UI falha, E
     const saida = proc.stdout.toString() + proc.stderr.toString();
     expect(proc.exitCode).toBe(7);
     expect(saida).toContain("falha da interface");
-    expect(saida).toMatch(/Enter|fechar/i);
+    expect(shell).toMatch(/Pressione Enter para fechar esta janela/);
+    expect(shell).toContain("if [ -t 0 ]");
     expect(await readFile(chamadas, "utf8")).toContain("src/cli.ts ui");
   } finally { await rm(base, { recursive: true, force: true }); }
 });

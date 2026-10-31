@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Lançador do Anvilore para Linux. Pode morar no kit, em ~/.local/bin ou no pacote.
+set -u
+
+PASTA="${ANVILORE_PASTA:-${HOME:?HOME não definido}/Anvilore}"
+ORIGEM="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)"
+
+instalacao_valida() {
+  [ -d "$1/.git" ] && [ -f "$1/AGENTS.md" ] && [ -f "$1/src/cli.ts" ] && [ -d "$1/skills" ]
+}
+
+if ! instalacao_valida "$PASTA"; then
+  INSTALADOR=""
+  if [ -f "$ORIGEM/instalar.sh" ]; then INSTALADOR="$ORIGEM/instalar.sh"
+  elif [ -f /usr/lib/anvilore/instalar.sh ]; then INSTALADOR=/usr/lib/anvilore/instalar.sh
+  elif [ -f "$PASTA/instalador/instalar.sh" ]; then INSTALADOR="$PASTA/instalador/instalar.sh"
+  fi
+  if [ -n "$INSTALADOR" ]; then
+    ANVILORE_PASTA="$PASTA" bash "$INSTALADOR" || exit $?
+  else
+    printf '%s\n' "O Anvilore ainda não está instalado em $PASTA." "Instale pelo instalador Linux do Anvilore e abra este atalho de novo." >&2
+    exit 1
+  fi
+  if ! instalacao_valida "$PASTA"; then
+    printf '%s\n' "A instalação não foi concluída em $PASTA. Rode o instalador Linux e tente de novo." >&2
+    exit 1
+  fi
+fi
+
+export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
+cd -- "$PASTA" || { printf 'Não consegui abrir a pasta %s.\n' "$PASTA" >&2; exit 1; }
+ANVILORE_DESTINO="$PASTA" bun src/cli.ts ui
+CODIGO=$?
+if [ "$CODIGO" -ne 0 ]; then
+  printf '\nA interface do Anvilore fechou com erro (código %s). Confira a mensagem acima.\n' "$CODIGO" >&2
+  if [ -t 0 ]; then
+    printf 'Pressione Enter para fechar esta janela. ' >&2
+    IFS= read -r _ || true
+  fi
+fi
+exit "$CODIGO"

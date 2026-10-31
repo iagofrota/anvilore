@@ -204,9 +204,19 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $l | Should -Match 'fim, código 0'
     }
     It 'escreveu os acentos certos na saída' { $script:R1.Saida | Should -Match 'instalação' }
-    It 'o passo 10 não criou atalho nem abrir.ps1 (é da U6)' {
-      Get-ChildItem $script:P1 -Recurse -Filter '*.lnk' -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
-      Get-ChildItem $script:Pasta1 -Recurse -Filter 'abrir.ps1' -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+    It 'criou os atalhos do Menu Iniciar e da Área de Trabalho apontando para abrir.ps1' {
+      $menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Anvilore\Anvilore.lnk'
+      $desktop = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'Anvilore.lnk'
+      $abrir = Join-Path $script:Pasta1 'instalador\abrir.ps1'
+      Test-Path -LiteralPath $abrir | Should -BeTrue
+      foreach ($caminho in @($menu, $desktop)) {
+        Test-Path -LiteralPath $caminho | Should -BeTrue
+        $atalho = (New-Object -ComObject WScript.Shell).CreateShortcut($caminho)
+        $atalho.TargetPath | Should -Match 'powershell(\.exe)?$'
+        $atalho.Arguments | Should -Match 'Get-Content -Raw -Encoding UTF8'
+        $atalho.Arguments | Should -Match ([regex]::Escape($abrir))
+        $atalho.IconLocation | Should -Match 'powershell(\.exe)?,0'
+      }
     }
     It 'não sobrou pasta de passagem' { @(Get-ChildItem -LiteralPath $script:P1 -Filter 'Anvilore.novo*' -Force -ErrorAction SilentlyContinue) | Should -BeNullOrEmpty }
   }

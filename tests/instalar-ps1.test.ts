@@ -55,10 +55,12 @@ describe("instalar.ps1: requisitos do passo a passo", () => {
     expect(codigo).toMatch(padrao);
   });
 
-  test("Dado o passo 10 (atalhos), Então é só um ponto de chamada para a U6: sem .lnk, sem WScript.Shell e sem abrir.ps1", () => {
+  test("Dado o passo 10 (atalhos), Então há .lnk pelo WScript.Shell e o lançador abrir.ps1", () => {
     expect(codigo).toMatch(/function AnvCriarAtalho/);
-    expect(codigo).not.toMatch(/WScript\.Shell|CreateShortcut|\.lnk/);
-    expect(existsSync(join(raiz, "instalador/abrir.ps1"))).toBe(false);
+    expect(codigo).toContain("WScript.Shell");
+    expect(codigo).toContain("CreateShortcut");
+    expect(codigo).toContain("abrir.ps1");
+    expect(existsSync(join(raiz, "instalador/abrir.ps1"))).toBe(true);
   });
 
   test("Dado o instalador sem build de release, Então as regiões embutidas estão vazias: sem chave, nada é confiável", () => {

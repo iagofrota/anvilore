@@ -76,6 +76,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Added
 
+- `anvilore-abrir` (Linux) e `abrir.ps1` (Windows) abrem a interface instalada, iniciam a instalação quando há um instalador ao lado e mostram erros antes de fechar. O instalador cria o atalho Anvilore no menu do Linux e no Menu Iniciar e na Área de Trabalho do Windows.
 - `instalador/instalar.sh`: instalador do Linux (x64 e arm64), base do macOS. Instala o que falta (git, Bun e rg, com
   SHA-256 conferido contra `instalador/dependencias.json`), baixa a última release, **só aceita a tag se a assinatura
   SSH bater com a chave embutida no próprio script**, liga os agentes que a pessoa tem, grava o estado da atualização

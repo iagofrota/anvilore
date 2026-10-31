@@ -1,6 +1,5 @@
 ---
-generated: 2026-10-27
-verified: 2026-10-30
+generated: 2026-10-31
 ---
 
 # Plataformas
@@ -236,11 +235,18 @@ e no Linux isso é falso positivo aceito. Veja [governanca.md](governanca.md).
 ## Instalador do Linux (instalar.sh)
 
 Fatia U3 dos instaladores. O script (`instalador/instalar.sh`) instala o kit em Linux x64 e arm64 e é a base
-do macOS (que ainda recusa com mensagem simples). Ele faz os passos 1 a 9, 11 e 12 do plano: confere o sistema,
+do macOS (que ainda recusa com mensagem simples). Ele faz os passos 1 a 12 do plano: confere o sistema,
 instala o que falta (git, `ssh-keygen`, `unzip`, Bun e rg), baixa a última release, **confere a assinatura da tag**,
 liga os agentes que a pessoa tem, grava o estado da atualização, roda o `doctor` e termina com três linhas: o
-que foi instalado, onde está e o próximo passo. O atalho (passo 10) é da fatia U6: o script só tem a função
-`criar_atalho`, vazia, com o contrato escrito no comentário.
+que foi instalado, onde está e o próximo passo. `criar_atalho` copia o lançador Linux de `instalador/anvilore-abrir`
+para a pasta local de binários do usuário, instala `instalador/anvilore.svg` no diretório local de ícones e grava
+`anvilore.desktop` no diretório local de aplicativos com `Terminal=true`. A entrada usa o mesmo nome do pacote para
+prevalecer sobre a entrada de sistema sem duplicar o menu. `instalador/anvilore-abrir` usa a pasta Anvilore na home
+(ou `ANVILORE_PASTA`), chama `instalador/instalar.sh` ao lado do lançador ou o instalador do pacote em /usr/lib/anvilore
+quando a instalação ainda falta, e depois roda `bun src/cli.ts ui` com o Bun e os binários locais no `PATH`. Se a UI sair com erro, o lançador mostra o código e
+aguarda Enter quando há terminal. A UI abre o navegador sozinha e escolhe a primeira porta livre a partir de 4173
+(`src/ui/servidor/servidor.ts`); ela não detecta uma UI anterior, então um segundo clique inicia outro servidor na
+próxima porta livre e abre outra aba.
 
 Onde cada coisa fica (Linux):
 
@@ -319,12 +325,18 @@ que não sejam as do CI.
 ## Instalador do Windows (instalar.ps1)
 
 Fatia U4 dos instaladores. O script (`instalador/instalar.ps1`) instala o kit no Windows 10/11 x64 **sem administrador**
-e faz os passos 1 a 9, 11 e 12 do plano, na mesma ordem do `instalador/instalar.sh`: confere o sistema; usa o Git da pessoa (2.34 ou
+e faz os passos 1 a 12 do plano, na mesma ordem do `instalador/instalar.sh`: confere o sistema; usa o Git da pessoa (2.34 ou
 mais novo e com o bash do Git for Windows) ou baixa o PortableGit para `%LOCALAPPDATA%\Anvilore\git`; garante o Bun
 (`%USERPROFILE%\.bun\bin`) e o rg (`%LOCALAPPDATA%\Anvilore\bin`) com SHA-256 do manifesto; baixa a última release,
 **confere a assinatura da tag**; liga os agentes, grava o estado da atualização (o arquivo atualizacao.json, na pasta .anvilore), roda o `doctor` e termina com o resumo.
-O passo 10 (atalhos) é da fatia U6: o script só tem `AnvCriarAtalho`, que não cria nada e devolve `$false` (igual ao
-`criar_atalho` do `instalador/instalar.sh`). Não existe `abrir.ps1` ainda.
+`AnvCriarAtalho` cria `Anvilore.lnk` no Menu Iniciar e na Área de Trabalho, apontando para
+`instalador/abrir.ps1` por PowerShell com `Get-Content -Raw -Encoding UTF8` e scriptblock; não usa `-File`, para
+funcionar com GPO `AllSigned`. Em Constrained Language Mode retorna `$false` e deixa a criação para o Inno Setup da
+U7. Os atalhos usam o ícone do PowerShell. `instalador/abrir.ps1` usa a pasta Anvilore do perfil (ou `ANVILORE_PASTA`), procura
+`instalador/instalar.ps1` ao lado e, quando falta a instalação, chama seu conteúdo por scriptblock. Depois prefixa o PATH do
+processo com Bun, binários locais e rg e roda `bun src/cli.ts ui`. Se a UI sair com erro, mostra a mensagem e aguarda
+Enter. Como a UI não descobre servidor existente, cada segundo clique cria outro na próxima porta livre e abre outra
+aba.
 
 - **Como chamar.** `irm <url> | iex` ou `powershell -NoProfile -Command "& ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 'instalar.ps1')))"`.
   Não use `-ExecutionPolicy Bypass -File`: uma política de grupo vence o parâmetro (PROVA-U0 item 3). O script **nunca chama
@@ -371,7 +383,8 @@ O passo 10 (atalhos) é da fatia U6: o script só tem `AnvCriarAtalho`, que não
 Provas (job `instalar-ps1` do CI, `windows-latest`, Windows PowerShell 5.1): `tests/instalar-ps1/instalar.Tests.ps1` (funções,
 Pester) e `tests/instalar-ps1/e2e.Tests.ps1` (o script de verdade, num perfil vazio com espaço no nome, contra um repositório
 local com tag assinada por chave descartável criada no teste, usando o instalador **embutido pelo mesmo mecanismo da
-release**). Os cenários cobertos: instalação do zero sem Git, Bun nem rg (baixa e confere os três), reinstalar sem mexer em
+release**). Os cenários cobertos: instalação do zero sem Git, Bun nem rg (baixa e confere os três), criação dos atalhos do
+Menu Iniciar e da Área de Trabalho com destino e leitor UTF-8 conferidos, reinstalar sem mexer em
 `raw/`, tag sem assinatura, de outra chave, com o nome trocado e com assinatura OpenPGP falsa (com um `gpg` de mentira que
 aprovaria tudo), filtro de checkout e hook na configuração global, `gpg.ssh.program` aprovador (A1 e A2; cada um provado
 com uma mutação que desfaz a correção e derruba o teste), instalador sem chave, `ANVILORE_ASSINANTES` ignorado numa release, sem agente, hash adulterado, versão e
