@@ -3,7 +3,7 @@
 # O dono não tem Windows (D12): isto é a única prova do instalador no Windows. Cada cenário roda o script de verdade
 # em outro processo, com USERPROFILE/LOCALAPPDATA/TEMP numa pasta nova (com ESPAÇO no nome), contra um repositório
 # local com tag assinada por chave SSH descartável criada aqui. Não prova: administrador (o runner é admin),
-# duplo clique, SmartScreen, Explorer com PATH novo, Constrained Language Mode real.
+# duplo clique, SmartScreen, Explorer com PATH novo e GPO/AppLocker/WDAC reais. O CLM é simulado no teste do launcher.
 #
 # Só roda no Windows. Cenários em Dado / Quando / Então nos comentários.
 

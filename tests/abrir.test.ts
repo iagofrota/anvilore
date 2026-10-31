@@ -25,6 +25,7 @@ test("Dado o lançador PowerShell, Quando prepara a UI, Então usa USERPROFILE, 
   expect(ps1).toContain("chcp.com 65001");
   expect(ps1).toContain("Get-Command bun");
   expect(ps1).not.toContain("[Console]::Error.WriteLine");
+  expect(ps1).toMatch(/\[scriptblock\]::Create[\s\S]*?\$null = AnvAbrirConfigurarUtf8/);
 });
 
 test("Dado o atalho Linux, Quando leio a criação, Então é uma entrada Anvilore que abre Terminal e chama o lançador", async () => {
@@ -130,7 +131,7 @@ test("Dado que o pacote já tem .desktop de sistema, Quando crio_atalho, Então 
       stdout: "pipe", stderr: "pipe",
     });
     expect(proc.exitCode, proc.stderr.toString()).toBe(0);
-    expect(await readFile(registro, "utf8")).toMatch(/atalho de sistema.*não criei cópias do usuário/);
+    expect(await readFile(registro, "utf8")).toMatch(/entrada de sistema.*não criei cópias do usuário/);
     expect(await Bun.file(join(home, ".local/share/applications/anvilore.desktop")).exists()).toBe(false);
     expect(await Bun.file(join(home, ".local/bin/anvilore-abrir")).exists()).toBe(false);
   } finally { await rm(base, { recursive: true, force: true }); }
