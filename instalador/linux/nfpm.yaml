@@ -14,7 +14,7 @@ contents:
     dst: /usr/lib/anvilore/anvilore-abrir
     file_info:
       mode: 0755
-  - src: ./instalador/instalar.sh
+  - src: "${ANVILORE_INSTALAR_SH}"
     dst: /usr/lib/anvilore/instalar.sh
     file_info:
       mode: 0755
@@ -39,3 +39,20 @@ depends:
   - ca-certificates
 recommends:
   - ripgrep
+# O ssh-keygen pertence a openssh no Fedora (não a openssh-clients).
+# Overrides repetem a lista: nfpm substitui depends em vez de somar.
+overrides:
+  deb:
+    depends:
+      - git
+      - unzip
+      - curl
+      - ca-certificates
+      - openssh-client
+  rpm:
+    depends:
+      - git
+      - unzip
+      - curl
+      - ca-certificates
+      - openssh

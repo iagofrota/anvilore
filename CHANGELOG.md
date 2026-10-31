@@ -9,6 +9,14 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Added
+
+- Pacotes Linux `anvilore.deb` e `anvilore.rpm`: lançador e entrada no menu para instalações por usuário, com dependências do sistema e remoção que preserva o kit e os dados.
+
+### Fixed
+
+- Build Linux embute e confere manifesto, assinantes, base mínima e URL oficiais antes do nfpm, valida SemVer, exige `ssh-keygen` pelos pacotes da distribuição e só publica o par DEB/RPM após gerar ambos. Falhas de rede, HTTP, hash ou empacotamento encerram com erro.
+
 ## [0.3.0] - 2026-10-30
 
 ### Added
