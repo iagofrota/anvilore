@@ -1,0 +1,153 @@
+name: builds-release
+
+# O mesmo build roda no CI de branch e, depois da autenticação, no CI chamado pela tag.
+# Só artefatos de produção são transportados. Provas com chaves de teste ficam nos jobs do CI.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  scripts:
+    name: Instaladores determinísticos de produção
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - name: Preparar sem assinar (versão do pacote, nunca nome da branch)
+        run: bun scripts/lancar.ts --preparar --saida release
+      - name: Conferir os bytes e os quatro campos oficiais
+        run: |
+          bun scripts/conferir-script-release.ts release/instalar.sh
+          bun scripts/conferir-script-release.ts release/instalar.ps1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: producao-scripts
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
+
+  linux:
+    name: DEB e RPM de produção
+    needs: scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: producao-scripts
+          path: release/
+      - name: Preparar inspeção dos dois formatos
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools
+      - name: Build com versão explícita, pasta nova e script conferido
+        id: build-linux
+        shell: bash
+        run: |
+          set -euo pipefail
+          versao="$(bun -e 'console.log((await Bun.file("package.json").json()).version)')"
+          test ! -e pacotes
+          bun scripts/conferir-script-release.ts release/instalar.sh
+          bun scripts/empacotar-linux.ts --versao "$versao" --saida pacotes --instalar-sh "$PWD/release/instalar.sh"
+          test -s pacotes/anvilore.deb
+          test -s pacotes/anvilore.rpm
+          mkdir -p "$RUNNER_TEMP/inspecao-deb" "$RUNNER_TEMP/inspecao-rpm"
+          dpkg-deb -x pacotes/anvilore.deb "$RUNNER_TEMP/inspecao-deb"
+          bsdtar -xf pacotes/anvilore.rpm -C "$RUNNER_TEMP/inspecao-rpm"
+          cmp release/instalar.sh "$RUNNER_TEMP/inspecao-deb/usr/lib/anvilore/instalar.sh"
+          cmp release/instalar.sh "$RUNNER_TEMP/inspecao-rpm/usr/lib/anvilore/instalar.sh"
+          versao_deb="$(VERSAO="$versao" bun -e 'import { versaoDeb } from "./src/lib/versao-deb.ts"; console.log(versaoDeb(process.env.VERSAO ?? ""))')"
+          test "$(dpkg-deb -f pacotes/anvilore.deb Version)" = "$versao_deb"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: producao-linux
+          path: |
+            pacotes/anvilore.deb
+            pacotes/anvilore.rpm
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    name: EXE de produção
+    needs: scripts
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: producao-scripts
+          path: release/
+      - name: Conferir produção e compilar com ISCC (sem assinatura de código)
+        id: compilar-windows
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $versao = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          $instalador = (Resolve-Path -LiteralPath release/instalar.ps1).Path
+          bun scripts/conferir-script-release.ts $instalador
+          if ($LASTEXITCODE -ne 0) { throw 'Instalador de produção divergente' }
+          if (Test-Path -LiteralPath pacotes) { throw 'Use uma saída nova' }
+          $saida = Join-Path (Get-Location).Path 'pacotes'
+          $iscc = Get-ChildItem 'C:\Program Files*\Inno Setup*\ISCC.exe' | Select-Object -First 1
+          if (-not $iscc) { throw 'ISCC ausente; build não será pulado' }
+          & $iscc.FullName "/DVersao=$versao" "/DInstallerPs1=$instalador" "/O$saida" instalador/windows/anvilore.iss
+          if ($LASTEXITCODE -ne 0) { throw 'ISCC falhou' }
+          $exe = Join-Path $saida 'AnviloreSetup.exe'
+          if (-not (Test-Path -LiteralPath $exe) -or (Get-Item -LiteralPath $exe).Length -lt 1024) { throw 'EXE ausente ou vazio' }
+          $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
+          $metadados = [ordered]@{
+            Esperada = $versao
+            ProductVersion = $info.ProductVersion
+            FileVersion = $info.FileVersion
+            ProductMajorPart = $info.ProductMajorPart
+            ProductMinorPart = $info.ProductMinorPart
+            ProductBuildPart = $info.ProductBuildPart
+            ProductPrivatePart = $info.ProductPrivatePart
+            FileMajorPart = $info.FileMajorPart
+            FileMinorPart = $info.FileMinorPart
+            FileBuildPart = $info.FileBuildPart
+            FilePrivatePart = $info.FilePrivatePart
+          }
+          $metadados | ConvertTo-Json -Compress | Write-Host
+          $metadados | ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $saida 'metadados-exe.json')
+          # O Inno grava a ProductVersion de texto completada com espaços à direita; só esse preenchimento sai.
+          if (([string]$info.ProductVersion).Trim() -cne $versao) { throw 'Versão do EXE divergente' }
+      - name: Guardar EXE recusado e seus metadados para diagnóstico
+        if: failure() && steps.compilar-windows.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: diagnostico-exe-recusado
+          path: |
+            pacotes/AnviloreSetup.exe
+            pacotes/metadados-exe.json
+          if-no-files-found: warn
+          retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: producao-windows
+          path: pacotes/AnviloreSetup.exe
+          if-no-files-found: error
+          retention-days: 7

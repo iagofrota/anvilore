@@ -348,6 +348,9 @@ conferem. A versão vem do parâmetro, de `ANVILORE_VERSAO`, de uma ref GitHub *
 `package.json`, nessa ordem; toda versão precisa ser SemVer. Saem exatamente `anvilore.deb` e
 `anvilore.rpm`. Um erro de rede, HTTP, hash ou nfpm reprova o build; ambos são gerados e conferidos
 em staging antes de substituir o par anterior. Não há repositório apt/dnf: a atualização do kit segue pelo atualizador.
+No campo Version do DEB, o nfpm 2.47.0 troca por til o hífen da pré-release (`0.3.1-rc.1` vira `0.3.1~rc.1`;
+`0.3.1-rc.1+b.7` vira `0.3.1~rc.1+b.7`); o metadado de build fica igual. Saídas observadas com `dpkg-deb -f`. O job de
+produção compara esse campo com `versaoDeb` (`src/lib/versao-deb.ts`), que aplica a mesma regra.
 
 Builds de teste exigem `--teste` para usar `--assinantes`, `--base-minima` ou `--url-confianca`
 customizados; loopback HTTP fica restrito a esse modo. Produção não herda relaxamento de URL do ambiente.
@@ -476,6 +479,9 @@ ffmpeg -i /tmp/anvilore.png -frames:v 1 instalador/windows/anvilore.ico`). Outro
 embutido>`; `/O<pasta>` escolhe a saída, cujo nome é AnviloreSetup.exe. O valor padrão de InstallerPs1 é o modelo do
 repositório, que recusa instalar sem as chaves e o manifesto embutidos. Nenhuma chave real é necessária para compilar;
 os testes usam exclusivamente uma chave descartável. O build não assina o executável.
+A versão de texto vem de AppVersion. No run 41206479325 a ProductVersion lida do EXE foi `0.3.1` completada com espaços
+à direita, e as partes numéricas ficaram em 0 porque VersionInfoVersion não é definido. Por isso o job de produção
+compara a ProductVersion com a versão do package.json depois de `Trim()`, com igualdade exata.
 
 O job Windows do CI compila com o ISCC instalado no runner. `tests/instalar-ps1/setup.Tests.ps1` executa o setup com os
 códigos 0/10/1/2/3/4 e com scripts ausente ou inválido; também executa seus comandos reais com arquivo bloqueado para

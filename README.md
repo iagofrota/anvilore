@@ -38,7 +38,25 @@ curadoria humana como não-opcional, o crescimento por níveis, a ausência
 deliberada de RAG e a neutralidade de provedor de agente — está em
 [`FILOSOFIA.md`](./FILOSOFIA.md), junto com a linhagem de onde isto veio.
 
-## Começo em 5 minutos
+## Instalar
+
+**Windows:** baixe [AnviloreSetup.exe](https://github.com/iagofrota/anvilore/releases/latest/download/AnviloreSetup.exe)
+e abra. Se o navegador avisar, clique em **Manter**. Se aparecer "O Windows protegeu o computador",
+clique em **Mais informações → Executar assim mesmo**. Isso acontece porque o instalador ainda não tem assinatura digital.
+
+**Linux (Ubuntu, Mint, Debian, Fedora):** baixe [anvilore.deb](https://github.com/iagofrota/anvilore/releases/latest/download/anvilore.deb)
+(ou [anvilore.rpm](https://github.com/iagofrota/anvilore/releases/latest/download/anvilore.rpm) no Fedora).
+No Ubuntu, botão direito → **Abrir com → Centro de Aplicativos**. Depois abra **Anvilore** no menu de aplicativos.
+
+Como alternativa, há os scripts [instalar.sh](https://github.com/iagofrota/anvilore/releases/latest/download/instalar.sh)
+e [instalar.ps1](https://github.com/iagofrota/anvilore/releases/latest/download/instalar.ps1).
+Antes de executá-los, confira o hash e a assinatura SSH pelo [procedimento de verificação](docs/knowledge_base/release.md#conferir-o-instalador-antes-de-executar);
+a chave pública vem do [site do mantenedor](https://anvilore.iagofrota.com.br), fora do GitHub.
+
+Os pacotes de duplo clique chegam na versão 0.3.1; os links passam a oferecê-los quando ela for publicada.
+macOS usa a configuração do clone abaixo. O Windows é testado no CI; duplo clique e SmartScreen ainda aguardam prova numa máquina real.
+
+## Desenvolver ou configurar um clone
 
 Linux, Windows e macOS: o CI roda a verificação nos três. No Windows, por enquanto, só o CI testa: o kit ainda não
 foi provado numa máquina Windows de verdade, porque o mantenedor ainda não tem uma.

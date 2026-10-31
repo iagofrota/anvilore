@@ -1,0 +1,191 @@
+name: release
+
+# Tags só entram por este workflow; CI e builds reutilizados dependem da autenticação.
+on:
+  push:
+    tags: ["*"]
+
+permissions:
+  contents: read
+
+env:
+  TAG_ANTERIOR: v0.3.0
+  # Âncora aprovada para a 0.3.1. Pin do objeto da tag já publicada, não da candidata.
+  OBJETO_ANTERIOR: 820e143a3b555898e7c4ab498a7e702600ebfcd2
+  COMMIT_ANTERIOR: 19578a1e6f3570975137488cd03ea0537e8c6a0e
+
+jobs:
+  assinatura:
+    name: Tag e assinaturas offline dos instaladores
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: 19578a1e6f3570975137488cd03ea0537e8c6a0e
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Autenticar a tag antes de executar código da candidata
+        id: autenticar-tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "refs/tags/$TAG_ANTERIOR")" = "$OBJETO_ANTERIOR"
+          test "$(git rev-parse "refs/tags/$TAG_ANTERIOR^{commit}")" = "$COMMIT_ANTERIOR"
+          git show "$COMMIT_ANTERIOR:seguranca/assinantes" > "$RUNNER_TEMP/assinantes-anteriores"
+          git -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen \
+            -c gpg.program=false -c gpg.openpgp.program=false -c gpg.x509.program=false \
+            -c "gpg.ssh.allowedSignersFile=$RUNNER_TEMP/assinantes-anteriores" \
+            verify-tag "refs/tags/$GITHUB_REF_NAME"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - name: Consultar revogação com código da âncora antes de carregar a candidata
+        id: verificar-revogacao
+        shell: bash
+        run: |
+          set -euo pipefail
+          # HEAD ainda é a 0.3.0 fixada; nem bunfig, imports ou dependências da candidata são carregados.
+          bun -e '
+            import { consultarConfianca, filtrarAssinantes } from "./src/lib/confianca.ts";
+            const lista = await consultarConfianca();
+            const raiz = process.env.RUNNER_TEMP;
+            const ativos = filtrarAssinantes(await Bun.file(raiz + "/assinantes-anteriores").text(), lista.chaves);
+            if (!ativos.trim()) throw new Error("Nenhuma chave da âncora permanece ativa no site.");
+            await Bun.write(raiz + "/assinantes-ativos", ativos);
+          '
+          git -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen \
+            -c gpg.program=false -c gpg.openpgp.program=false -c gpg.x509.program=false \
+            -c "gpg.ssh.allowedSignersFile=$RUNNER_TEMP/assinantes-ativos" \
+            verify-tag "refs/tags/$GITHUB_REF_NAME"
+          git -c core.hooksPath=/dev/null checkout --detach "refs/tags/$GITHUB_REF_NAME^{commit}"
+      - name: Conferir identidade, revogação e assinaturas públicas no commit autenticado
+        shell: bash
+        run: bun scripts/verificar-tag-release.ts "$GITHUB_REF_NAME" "$TAG_ANTERIOR"
+      - run: bun install --frozen-lockfile
+      - name: Conferir revisão humana da documentação e notas da versão
+        shell: bash
+        run: bun src/cli.ts checar-release "${GITHUB_REF_NAME#v}"
+
+  ci:
+    name: CI completo e builds de produção
+    needs: assinatura
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
+  dependencias:
+    name: SHA-256 de cada download do manifesto
+    needs: assinatura
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun scripts/verificar-dependencias-release.ts
+
+  instalar-linux:
+    name: Instalar e reinstalar em Linux x64 e arm64
+    needs: assinatura
+    permissions:
+      contents: read
+    uses: ./.github/workflows/instalar-linux.yml
+
+  atualizar:
+    name: Preservação, migração e reversão (${{ matrix.os }})
+    needs: assinatura
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Atualização com Git real, origem local e chaves descartáveis (inclui R1-R5)
+        run: bun test tests/atualizar.test.ts tests/atualizar-isolamento-git.test.ts tests/migrar-rastreio.test.ts
+
+  assets:
+    name: Montar e autenticar a distribuição completa
+    needs: [assinatura, ci, dependencias, instalar-linux, atualizar]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: producao-scripts
+          path: dist/
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: producao-linux
+          path: dist/
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: producao-windows
+          path: dist/
+      - name: Conferir novamente as assinaturas offline e gerar os hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp instalador/assinaturas/instalar.sh.sig instalador/assinaturas/instalar.ps1.sig dist/
+          bun scripts/verificar-tag-release.ts "$GITHUB_REF_NAME" "$TAG_ANTERIOR"
+          bun scripts/montar-assets-release.ts dist "$TAG_ANTERIOR"
+          bun scripts/criar-rascunho-release.ts --tag "$GITHUB_REF_NAME" --pasta dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: distribuicao-autenticada
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  rascunho:
+    name: Criar somente rascunho (publicação pela pessoa)
+    needs: assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: distribuicao-autenticada
+          path: dist/
+      - name: Recusar transporte divergente antes da única operação de escrita
+        working-directory: dist
+        run: sha256sum -c SHA256SUMS
+      - name: Criar rascunho com tag remota existente e assets validados
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: bun scripts/criar-rascunho-release.ts --tag "$GITHUB_REF_NAME" --pasta dist --criar

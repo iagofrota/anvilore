@@ -9,19 +9,40 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-31
+
 ### Added
 
 - Pacotes Linux `anvilore.deb` e `anvilore.rpm`: lançador e entrada no menu para instalações por usuário, com dependências do sistema e remoção que preserva o kit e os dados.
 - Setup do Windows `AnviloreSetup.exe` por usuário, com atalhos do Inno Setup e desinstalação que preserva a pasta da wiki.
+- A preparação da release confere por download o SHA-256 de cada dependência dos instaladores, incluindo todas as plataformas; arquivo alterado ou indisponível impede prosseguir.
+- Novos gates conferem a tag SSH pela confiança da versão anterior e exigem pacotes completos e scripts autenticados antes de gerar os hashes da distribuição.
+- O preparo local mostra o que vai gerar antes de escrever e preserva artefatos existentes; o README orienta o download dos pacotes e os avisos do Windows e do Ubuntu.
+- O gate da tag exige também as assinaturas públicas dos scripts, feitas offline e versionadas antes da tag; o CI verifica a confiança anterior sem receber chave privada.
+- O workflow autentica a tag antes de executar a candidata, reutiliza o CI completo, constrói os pacotes com scripts conferidos e só cria um rascunho depois dos gates. A publicação continua sendo feita pela pessoa.
+- A lista de revogação do site é consultada com código da versão anterior, antes de carregar a candidata, inclusive seus preloads.
+- O rascunho também confere as notas contra a seção datada do CHANGELOG, impedindo troca do texto no transporte dos artefatos.
+- O CI das branches também executa os builds de produção; o rascunho recusa assets incompletos ou alterados e mantém os scripts assinados offline, sem chave privada no CI.
 
 ### Fixed
 
+- O build do Windows registra as versões textuais e numéricas do executável e preserva o arquivo recusado para diagnosticar divergências sem liberar a distribuição.
 - A ingestão só mostra estados já gravados em disco, preservando a parada e a retomada ao recarregar a interface.
 - Falhas ao salvar a ingestão aparecem como erro, com orientação para retomar o último estado salvo, em vez de manter a tela em uma leitura que já terminou.
 - Build Linux embute e confere manifesto, assinantes, base mínima e URL oficiais antes do nfpm, valida SemVer, exige `ssh-keygen` pelos pacotes da distribuição e só publica o par DEB/RPM após gerar ambos. Falhas de rede, HTTP, hash ou empacotamento encerram com erro.
 - Atalhos do setup Windows lembram a pasta realmente escolhida para a wiki e funcionam com `/DIR` personalizado, espaços e apóstrofos, mesmo sem variáveis herdadas do Explorer.
 - Reinstalar o setup Windows conserva o destino da wiki salvo no programa quando não há escolha explícita, tanto no modo interativo quanto no silencioso, em vez de criar outro kit na pasta padrão.
 - Setup Windows reprova falhas de leitura e sintaxe antes da instalação; mostra o resumo com pausa na janela interativa e não espera Enter no modo silencioso.
+
+### Instalar
+
+**Windows:** baixe [AnviloreSetup.exe](https://github.com/iagofrota/anvilore/releases/latest/download/AnviloreSetup.exe) e abra.
+Se o navegador avisar, clique em **Manter**. Se aparecer "O Windows protegeu o computador", clique em
+**Mais informações → Executar assim mesmo**. O instalador ainda não tem assinatura digital.
+
+**Linux (Ubuntu, Mint, Debian, Fedora):** baixe [anvilore.deb](https://github.com/iagofrota/anvilore/releases/latest/download/anvilore.deb)
+(ou [anvilore.rpm](https://github.com/iagofrota/anvilore/releases/latest/download/anvilore.rpm) no Fedora).
+No Ubuntu, botão direito → **Abrir com → Centro de Aplicativos**. Depois abra **Anvilore** no menu de aplicativos.
 
 ## [0.3.0] - 2026-10-30
 

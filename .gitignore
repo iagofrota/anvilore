@@ -24,6 +24,7 @@ __pycache__/
 
 node_modules/
 coverage/
+/dist/
 .anvilore/
 e2e/resultados/
 e2e/.cache/ms-playwright/
