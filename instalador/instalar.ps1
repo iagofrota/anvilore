@@ -979,6 +979,10 @@ function AnvOferecerClaudeCode {
 function AnvCriarAtalho {
   param([string]$Pasta)
   if ((AnvVariavel 'ANVILORE_ATALHO_SETUP') -eq '1') {
+    # A pasta pode ter mudado na pergunta sobre um destino ocupado. Persiste o valor resolvido,
+    # como dados (nunca como código), para os atalhos do Inno não dependerem do ambiente do Explorer.
+    $configSetup = AnvVariavel 'ANVILORE_CONFIG_SETUP'
+    if ($configSetup) { Set-Content -LiteralPath $configSetup -Value $Pasta -Encoding UTF8 -NoNewline -ErrorAction Stop }
     AnvRegistrar 'atalho: criado pelo AnviloreSetup.exe'
     return $true
   }

@@ -22,7 +22,9 @@ Describe 'AnviloreSetup: resultados e pausa' -Skip:(-not $script:WindowsSetup) {
     }
     function script:ExecutarSetup {
       $p = Start-Process $script:ExeSetup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR="' + $script:AppSetup + '"') -PassThru
+      $null = $p.Handle
       if (-not $p.WaitForExit(20000)) { $p.Kill(); throw 'Setup silencioso bloqueado' }
+      $p.WaitForExit()
       Write-Host "SETUP_RESULTADO instalador=$env:ANVILORE_TEST_CODIGO setup=$($p.ExitCode)"
       return $p.ExitCode
     }
@@ -45,7 +47,10 @@ Describe 'AnviloreSetup: resultados e pausa' -Skip:(-not $script:WindowsSetup) {
       try {
         if ($Bloqueado) { $trava = [IO.File]::Open($arquivo, 'Open', 'ReadWrite', 'None') }
         $p = Start-Process powershell.exe -ArgumentList $params -WorkingDirectory $dir -RedirectStandardOutput (Join-Path $dir 'out') -RedirectStandardError (Join-Path $dir 'err') -PassThru -WindowStyle Hidden
+        # No Windows PowerShell 5.1, adquirir o handle antes da espera preserva ExitCode.
+        $null = $p.Handle
         if (-not $p.WaitForExit(10000)) { $p.Kill(); throw 'Comando bloqueado' }
+        $p.WaitForExit()
         return @{ Codigo = $p.ExitCode; Saida = (Get-Content -Raw (Join-Path $dir 'out')) + (Get-Content -Raw (Join-Path $dir 'err')) }
       } finally { if ($trava) { $trava.Dispose() } }
     }
@@ -93,7 +98,7 @@ Describe 'AnviloreSetup: resultados e pausa' -Skip:(-not $script:WindowsSetup) {
   ) {
     $r = RodarComandoSetup $Texto $true $Ausente $Bloqueado
     Write-Host "PRE_EXECUCAO caso=$Caso codigo=$($r.Codigo)"
-    $r.Codigo | Should -Not -Be 0 -Because $r.Saida
+    $r.Codigo | Should -Be 1 -Because $r.Saida
   }
   It 'Dado modo interativo, Quando o instalador termina, Então recebe a opção de esperar Enter e a pausa é observável' {
     $r = RodarComandoSetup 'if ($env:ANVILORE_ESPERAR_ENTER -eq "1" -and $env:ANVILORE_SEM_PERGUNTAS -ne "1") { [void](Read-Host "resumo") }; $global:LASTEXITCODE = 0' $false

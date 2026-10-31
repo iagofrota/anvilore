@@ -29,10 +29,22 @@ Source: "..\abrir.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "anvilore.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\Anvilore\Anvilore"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -Command ""$env:ANVILORE_PASTA = Join-Path $env:USERPROFILE 'Anvilore'; $env:ANVILORE_LANCADOR = Join-Path $env:LOCALAPPDATA 'Programs\Anvilore\abrir.ps1'; Get-Content -Raw -Encoding UTF8 -LiteralPath $env:ANVILORE_LANCADOR | Invoke-Expression"""; WorkingDir: "{app}"; IconFilename: "{app}\anvilore.ico"
-Name: "{autodesktop}\Anvilore"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -Command ""$env:ANVILORE_PASTA = Join-Path $env:USERPROFILE 'Anvilore'; $env:ANVILORE_LANCADOR = Join-Path $env:LOCALAPPDATA 'Programs\Anvilore\abrir.ps1'; Get-Content -Raw -Encoding UTF8 -LiteralPath $env:ANVILORE_LANCADOR | Invoke-Expression"""; WorkingDir: "{app}"; IconFilename: "{app}\anvilore.ico"
+Name: "{autoprograms}\Anvilore\Anvilore"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -Command ""$ErrorActionPreference = 'Stop'; $env:ANVILORE_PASTA = Get-Content -Raw -Encoding UTF8 -LiteralPath '.\pasta.txt'; $env:ANVILORE_LANCADOR = (Resolve-Path -LiteralPath '.\abrir.ps1').Path; Get-Content -Raw -Encoding UTF8 -LiteralPath $env:ANVILORE_LANCADOR | Invoke-Expression"""; WorkingDir: "{app}"; IconFilename: "{app}\anvilore.ico"
+Name: "{autodesktop}\Anvilore"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -Command ""$ErrorActionPreference = 'Stop'; $env:ANVILORE_PASTA = Get-Content -Raw -Encoding UTF8 -LiteralPath '.\pasta.txt'; $env:ANVILORE_LANCADOR = (Resolve-Path -LiteralPath '.\abrir.ps1').Path; Get-Content -Raw -Encoding UTF8 -LiteralPath $env:ANVILORE_LANCADOR | Invoke-Expression"""; WorkingDir: "{app}"; IconFilename: "{app}\anvilore.ico"
+
+[UninstallDelete]
+Type: files; Name: "{app}\pasta.txt"
 
 [Code]
+var
+  ResultadoSetup: Integer;
+
+function GetCustomSetupExitCode: Integer;
+begin
+  // Uma exceção em ssPostInstall mostra o erro, mas o Inno ainda pode terminar com 0.
+  Result := ResultadoSetup;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Params: String;
@@ -41,10 +53,12 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
-    Params := '-NoLogo -NoProfile -Command "$env:ANVILORE_ATALHO_SETUP=''1''; Get-Content -Raw -Encoding UTF8 -LiteralPath ''.\instalar.ps1'' | Invoke-Expression; exit $LASTEXITCODE"';
+    ResultadoSetup := 4;
+    // O valor inicial e o catch impedem exit $null (sucesso) se a leitura ou o parse falhar.
+    Params := '-NoLogo -NoProfile -Command "$ErrorActionPreference=''Stop''; $global:LASTEXITCODE=1; $env:ANVILORE_ESPERAR_ENTER=''1''; $env:ANVILORE_ATALHO_SETUP=''1''; $env:ANVILORE_CONFIG_SETUP=Join-Path (Get-Location).Path ''pasta.txt''; try { Get-Content -Raw -Encoding UTF8 -LiteralPath ''.\instalar.ps1'' -ErrorAction Stop | Invoke-Expression -ErrorAction Stop; exit $LASTEXITCODE } catch { Write-Host $_; exit 1 }"';
     if WizardSilent then
     begin
-      Params := '-NoLogo -NoProfile -Command "$env:ANVILORE_SEM_PERGUNTAS=''1''; $env:ANVILORE_ATALHO_SETUP=''1''; Get-Content -Raw -Encoding UTF8 -LiteralPath ''.\instalar.ps1'' | Invoke-Expression; exit $LASTEXITCODE"';
+      Params := '-NoLogo -NoProfile -NonInteractive -Command "$ErrorActionPreference=''Stop''; $global:LASTEXITCODE=1; $env:ANVILORE_SEM_PERGUNTAS=''1''; $env:ANVILORE_ESPERAR_ENTER=''0''; $env:ANVILORE_ATALHO_SETUP=''1''; $env:ANVILORE_CONFIG_SETUP=Join-Path (Get-Location).Path ''pasta.txt''; try { Get-Content -Raw -Encoding UTF8 -LiteralPath ''.\instalar.ps1'' -ErrorAction Stop | Invoke-Expression -ErrorAction Stop; exit $LASTEXITCODE } catch { Write-Host $_; exit 1 }"';
       Show := SW_HIDE;
     end
     else
@@ -56,5 +70,7 @@ begin
 
     if (ExitCode <> 0) and (ExitCode <> 10) then
       RaiseException(Format('A instalação do Anvilore falhou (código %d).', [ExitCode]));
+
+    ResultadoSetup := 0;
   end;
 end;

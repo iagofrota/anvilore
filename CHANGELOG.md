@@ -19,6 +19,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - A ingestão só mostra estados já gravados em disco, preservando a parada e a retomada ao recarregar a interface.
 - Falhas ao salvar a ingestão aparecem como erro, com orientação para retomar o último estado salvo, em vez de manter a tela em uma leitura que já terminou.
 - Build Linux embute e confere manifesto, assinantes, base mínima e URL oficiais antes do nfpm, valida SemVer, exige `ssh-keygen` pelos pacotes da distribuição e só publica o par DEB/RPM após gerar ambos. Falhas de rede, HTTP, hash ou empacotamento encerram com erro.
+- Atalhos do setup Windows lembram a pasta realmente escolhida para a wiki e funcionam com `/DIR` personalizado, espaços e apóstrofos, mesmo sem variáveis herdadas do Explorer.
+- Setup Windows reprova falhas de leitura e sintaxe antes da instalação; mostra o resumo com pausa na janela interativa e não espera Enter no modo silencioso.
 
 ## [0.3.0] - 2026-10-30
 
