@@ -70,8 +70,9 @@ test("Dado a entrada desktop do sistema, Quando leio instalador/linux/anvilore.d
 test.skipIf(process.platform !== "linux" || (process.env.ANVILORE_PULAR_TESTE_NFPM === "1" && !process.env.CI))("Dado o script empacotar-linux, Quando executo o build em diretório temporário, Então gera anvilore.deb e anvilore.rpm com arquivos e permissões corretos", async () => {
   const base = await mkdtemp(join(tmpdir(), "anvilore-empacotar-"));
   try {
-    const proc = Bun.spawnSync(["bun", join(raiz, "scripts/empacotar-linux.ts"), "--saida", base, "--versao", "0.3.0"], {
+    const proc = Bun.spawnSync([process.execPath, join(raiz, "scripts/empacotar-linux.ts"), "--saida", base], {
       cwd: raiz,
+      env: { ...process.env, ANVILORE_VERSAO: "", GITHUB_REF_NAME: "feat/u9-pacotes-linux", GITHUB_REF_TYPE: "branch" },
       stdout: "pipe",
       stderr: "pipe",
     });

@@ -7,7 +7,7 @@ import { embutirInstalador, lerEmbutidos } from "../scripts/embutir-instalador";
 const raiz = resolve(import.meta.dir, "..");
 const linux = test.skipIf(process.platform !== "linux");
 
-async function cenario(rodar: (c: { base: string; cli: (args?: string[], env?: Record<string, string>) => ReturnType<typeof Bun.spawnSync>; modelo: string; manifesto: string; assinantes: string; baseMinima: string }) => Promise<void>) {
+async function cenario(rodar: (c: { base: string; cli: (args?: string[], env?: Record<string, string>) => { exitCode: number; stdout: Buffer; stderr: Buffer }; modelo: string; manifesto: string; assinantes: string; baseMinima: string }) => Promise<void>) {
   const base = await mkdtemp(join(tmpdir(), "anvilore-regressao-pacotes-"));
   try {
     const [modelo, manifesto, assinantes, baseMinima] = await Promise.all(["instalador/instalar.sh", "instalador/dependencias.json", "seguranca/assinantes", "instalador/base-minima"].map(p => readFile(join(raiz, p), "utf8")));
@@ -20,7 +20,7 @@ if (formato === 'rpm' && process.env.FALHAR_RPM) process.exit(42);
 if (!process.env.SEM_ARTEFATO) writeFileSync(destino, formato === 'deb' ? '!<arch>\\nnovo-deb' : Buffer.from('edabeedb006e6f766f2d72706d', 'hex'));
 `, { mode: 0o755 });
     const cli = (args: string[] = [], env: Record<string, string> = {}) => Bun.spawnSync([process.execPath, join(raiz, "scripts/empacotar-linux.ts"), "--saida", base, ...args], {
-      cwd: raiz, env: { ...process.env, ANVILORE_VERSAO: "", GITHUB_REF_NAME: "", NFPM_BIN: nfpm, CAPTURA: join(base, "captura"), ...env }, stdout: "pipe", stderr: "pipe",
+      cwd: raiz, env: { ...process.env, ANVILORE_VERSAO: "", GITHUB_REF_NAME: "", GITHUB_REF_TYPE: "branch", NFPM_BIN: nfpm, CAPTURA: join(base, "captura"), ...env }, stdout: "pipe", stderr: "pipe",
     });
     await rodar({ base, cli, modelo: modelo!, manifesto: manifesto!, assinantes: assinantes!, baseMinima: baseMinima! });
   } finally { await rm(base, { recursive: true, force: true }); }
@@ -92,7 +92,7 @@ for (const modo of ["404", "rede", "hash"]) linux(`Dado download nfpm com ${modo
   await writeFile(join(c.base, "anvilore.deb"), "deb-anterior");
   await writeFile(join(c.base, "anvilore.rpm"), "rpm-anterior");
   const r = Bun.spawnSync([process.execPath, "--preload", preload, join(raiz, "scripts/empacotar-linux.ts"), "--saida", c.base], {
-    cwd: raiz, env: { ...process.env, CI: "true", NFPM_BIN: "", ANVILORE_VERSAO: "", GITHUB_REF_NAME: "" }, stdout: "pipe", stderr: "pipe",
+    cwd: raiz, env: { ...process.env, CI: "true", NFPM_BIN: "", ANVILORE_VERSAO: "", GITHUB_REF_NAME: "", GITHUB_REF_TYPE: "branch" }, stdout: "pipe", stderr: "pipe",
   });
   expect(r.exitCode).toBe(1);
   expect(r.stderr.toString()).toMatch(modo === "404" ? /HTTP 404/ : modo === "rede" ? /Falha de rede/ : /SHA-256/);

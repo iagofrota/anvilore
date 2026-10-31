@@ -328,18 +328,18 @@ Baixe `anvilore.deb` no Debian/Ubuntu/Mint ou `anvilore.rpm` no Fedora. No Ubunt
 **botão direito → Abrir com → Centro de Aplicativos**. O pacote ainda não tem assinatura;
 a loja pode mostrar um aviso de pacote não verificado. Em distribuições sem esses formatos, use o instalador pelo terminal.
 
-O pacote instala o lançador e o instalador em `/usr/lib/anvilore/`, o link
-`/usr/bin/anvilore-abrir`, a entrada `/usr/share/applications/anvilore.desktop` e o ícone
-`/usr/share/icons/hicolor/scalable/apps/anvilore.svg`. Os scripts são 0755 e o desktop/ícone são 0644.
+O pacote instala o lançador e o instalador em /usr/lib/anvilore/, o link
+/usr/bin/anvilore-abrir, a entrada /usr/share/applications/anvilore.desktop e o ícone
+/usr/share/icons/hicolor/scalable/apps/anvilore.svg. Os scripts são 0755 e o desktop/ícone são 0644.
 Os únicos scripts de pós-instalação/remoção atualizam caches de desktop/ícones, tolerando ferramentas ausentes;
 não escrevem na pasta de usuário (`instalador/linux/`).
 
-O primeiro clique em **Anvilore** abre um terminal (`Terminal=true`) e instala em `~/Anvilore`
+O primeiro clique em **Anvilore** abre um terminal (`Terminal=true`) e instala em ~/Anvilore
 como a pessoa que clicou. Outra conta ganha sua própria instalação, sem sudo. Cliques seguintes
 chamam a interface sem repetir o instalador. O instalador reconhece a entrada de sistema e não cria
 outra entrada por usuário (`instalador/anvilore-abrir`, `instalador/instalar.sh`).
 Remova pela loja, `sudo apt remove anvilore` ou `sudo dnf remove anvilore`:
-o lançador, o atalho e o ícone de sistema saem; `~/Anvilore`, a wiki e as fontes continuam.
+o lançador, o atalho e o ícone de sistema saem; ~/Anvilore, a wiki e as fontes continuam.
 
 O build é `bun scripts/empacotar-linux.ts --versao 0.3.0 --saida dist` (ou o wrapper
 `scripts/empacotar-linux.sh`). Baixa nfpm 2.47.0 com SHA-256 fixo. Por padrão embute os quatro campos
@@ -353,6 +353,13 @@ Builds de teste exigem `--teste` para usar `--assinantes`, `--base-minima` ou `-
 customizados; loopback HTTP fica restrito a esse modo. Produção não herda relaxamento de URL do ambiente.
 Os testes Bun locais podem pular explicitamente o download com `ANVILORE_PULAR_TESTE_NFPM=1`,
 com aviso. Essa opção é ignorada no CI; o comando de build sempre falha se o download falhar.
+
+`scripts/provar-pacotes-linux.sh` exige Docker e instala em Ubuntu 24.04 e Fedora 44 descartáveis,
+com duas contas Unix por sistema, `doctor`, segundo clique e comparação de todo o kit após remoção.
+O job `pacotes-linux` em `.github/workflows/ci.yml` executa as duas distribuições e guarda o log.
+A prova usa origem local com tag SSH descartável, Bun real pré-fornecido e Claude falso; só a chamada
+da UI é interceptada. Não prova o menu GNOME/KDE, a janela de terminal, o navegador nem o duplo clique na loja.
+Os resultados e comandos estão em [provas-pacotes-linux.md](../provas-pacotes-linux.md).
 
 ## Instalador do Windows (instalar.ps1)
 
