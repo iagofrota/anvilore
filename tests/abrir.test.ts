@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -66,7 +66,73 @@ test("Dado um HOME descartável, Quando executo criar_atalho, Então gravo o .de
     if (Bun.which("desktop-file-validate")) {
       const validacao = Bun.spawnSync(["desktop-file-validate", desktop], { stdout: "pipe", stderr: "pipe" });
       expect(validacao.exitCode, validacao.stderr.toString()).toBe(0);
+    } else {
+      console.warn("SKIP: desktop-file-validate não está instalado; o .desktop não foi validado.");
     }
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+test("Dado o lançador do pacote por symlink, Quando instalo pela primeira vez, Então encontro instalar.sh ao lado do destino", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-symlink-pacote-"));
+  try {
+    const home = join(base, "perfil");
+    const biblioteca = join(base, "usr/lib/anvilore");
+    const bin = join(base, "usr/bin");
+    const fakeBin = join(base, "fake-bin");
+    const destino = join(biblioteca, "anvilore-abrir");
+    const link = join(bin, "anvilore-abrir");
+    const pasta = join(home, "Anvilore");
+    const chamadas = join(base, "chamadas");
+    await mkdir(home, { recursive: true });
+    await mkdir(biblioteca, { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await mkdir(fakeBin, { recursive: true });
+    await writeFile(destino, shell);
+    await chmod(destino, 0o755);
+    await symlink(destino, link);
+    await writeFile(join(biblioteca, "instalar.sh"), [
+      "#!/usr/bin/env bash",
+      'mkdir -p "$ANVILORE_PASTA/.git" "$ANVILORE_PASTA/src" "$ANVILORE_PASTA/skills"',
+      'touch "$ANVILORE_PASTA/AGENTS.md" "$ANVILORE_PASTA/src/cli.ts"',
+    ].join("\n"));
+    const bun = join(fakeBin, "bun");
+    await writeFile(bun, `#!/bin/sh\nprintf '%s\\n' "$*" >>"$ANVILORE_TEST_CHAMADAS"\n`);
+    await chmod(bun, 0o755);
+    const proc = Bun.spawnSync(["bash", link], {
+      cwd: base,
+      env: { ...process.env, HOME: home, ANVILORE_PASTA: pasta, ANVILORE_TEST_CHAMADAS: chamadas, PATH: `${fakeBin}:/usr/bin:/bin` },
+      stdout: "pipe", stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await readFile(chamadas, "utf8")).toContain("src/cli.ts ui");
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+test("Dado que o pacote já tem .desktop de sistema, Quando crio_atalho, Então não deixo uma cópia de usuário órfã", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-atalho-pacote-"));
+  try {
+    const home = join(base, "perfil");
+    const pasta = join(home, "Anvilore");
+    const sistema = join(base, "applications-sistema");
+    const registro = join(base, "registro");
+    await mkdir(join(pasta, "instalador"), { recursive: true });
+    await mkdir(sistema, { recursive: true });
+    await writeFile(join(pasta, "instalador/anvilore-abrir"), shell);
+    await writeFile(join(pasta, "instalador/abrir.ps1"), ps1);
+    await writeFile(join(pasta, "instalador/anvilore.svg"), await readFile(join(raiz, "instalador/anvilore.svg"), "utf8"));
+    await writeFile(join(sistema, "anvilore.desktop"), "[Desktop Entry]\nName=Anvilore\n");
+    const script = join(raiz, "instalador/instalar.sh");
+    const comando = `ANVILORE_INSTALAR_CARREGAR=1; source "$1"; registrar() { printf '%s\\n' "$*" >>"$ANVILORE_TEST_REGISTRO"; }; criar_atalho "$2"`;
+    const proc = Bun.spawnSync(["bash", "-c", comando, "_", script, pasta], {
+      env: { ...process.env, HOME: home, ANVILORE_SYSTEM_APPLICATIONS_DIR: sistema, ANVILORE_TEST_REGISTRO: registro },
+      stdout: "pipe", stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await readFile(registro, "utf8")).toMatch(/atalho de sistema.*não criei cópias do usuário/);
+    expect(await Bun.file(join(home, ".local/share/applications/anvilore.desktop")).exists()).toBe(false);
+    expect(await Bun.file(join(home, ".local/bin/anvilore-abrir")).exists()).toBe(false);
   } finally { await rm(base, { recursive: true, force: true }); }
 });
 
