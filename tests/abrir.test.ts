@@ -74,6 +74,13 @@ test("Dado o instalador Windows, Quando está em Constrained Language Mode, Ent�
   expect(funcao).toMatch(/LanguageMode -eq 'ConstrainedLanguage'[\s\S]*?return \$false/);
 });
 
+test("Dado que as pastas conhecidas do Windows estão vazias, Quando crio atalhos, Então uso APPDATA e USERPROFILE como fallback", async () => {
+  const instalador = await readFile(join(raiz, "instalador/instalar.ps1"), "utf8");
+  const funcao = /function AnvCriarAtalho \{[\s\S]*?\n\}/.exec(instalador)?.[0] ?? "";
+  expect(funcao).toMatch(/GetFolderPath\('Programs'\)[\s\S]*?AnvVariavel 'APPDATA'/);
+  expect(funcao).toMatch(/GetFolderPath\('DesktopDirectory'\)[\s\S]*?AnvVariavel 'USERPROFILE'/);
+});
+
 test("Dado uma pasta instalada e Bun falso, Quando abro no Linux e a UI falha sem TTY, Então executo o CLI e mostro o erro", async () => {
   if (process.platform !== "linux") return;
   const base = await mkdtemp(join(tmpdir(), "anvilore-abrir-"));

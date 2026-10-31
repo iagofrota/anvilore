@@ -205,8 +205,8 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
     }
     It 'escreveu os acentos certos na saída' { $script:R1.Saida | Should -Match 'instalação' }
     It 'criou os atalhos do Menu Iniciar e da Área de Trabalho apontando para abrir.ps1' {
-      $menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Anvilore\Anvilore.lnk'
-      $desktop = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'Anvilore.lnk'
+      $menu = Join-Path $script:P1 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Anvilore\Anvilore.lnk'
+      $desktop = Join-Path $script:P1 'Desktop\Anvilore.lnk'
       $abrir = Join-Path $script:Pasta1 'instalador\abrir.ps1'
       $log = Get-Content -Raw -Encoding UTF8 (Join-Path $script:Pasta1 '.anvilore\instalacao.log')
       Test-Path -LiteralPath $abrir | Should -BeTrue

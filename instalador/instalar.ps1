@@ -994,10 +994,22 @@ function AnvCriarAtalho {
     $abrirLiteral = $abrir.Replace("'", "''")
     $argumentos = "-NoLogo -NoProfile -Command `"`$env:ANVILORE_LANCADOR = '$abrirLiteral'; & ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 -LiteralPath `$env:ANVILORE_LANCADOR)))`""
     $shell = New-Object -ComObject WScript.Shell
-    $pastaMenu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Anvilore'
+    $programas = [Environment]::GetFolderPath('Programs')
+    if ([string]::IsNullOrWhiteSpace($programas)) {
+      $appData = AnvVariavel 'APPDATA'
+      if (-not $appData) { AnvRegistrar 'atalho: APPDATA não está definido'; return $false }
+      $programas = Join-Path $appData 'Microsoft\Windows\Start Menu\Programs'
+    }
+    $desktopDir = [Environment]::GetFolderPath('DesktopDirectory')
+    if ([string]::IsNullOrWhiteSpace($desktopDir)) {
+      $perfil = AnvVariavel 'USERPROFILE'
+      if (-not $perfil) { AnvRegistrar 'atalho: USERPROFILE não está definido'; return $false }
+      $desktopDir = Join-Path $perfil 'Desktop'
+    }
+    $pastaMenu = Join-Path $programas 'Anvilore'
     $atalhos = @(
       [pscustomobject]@{ Caminho = Join-Path $pastaMenu 'Anvilore.lnk'; Rotulo = 'Menu Iniciar' },
-      [pscustomobject]@{ Caminho = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'Anvilore.lnk'; Rotulo = 'Área de Trabalho' }
+      [pscustomobject]@{ Caminho = Join-Path $desktopDir 'Anvilore.lnk'; Rotulo = 'Área de Trabalho' }
     )
     $criados = 0
     foreach ($item in $atalhos) {
