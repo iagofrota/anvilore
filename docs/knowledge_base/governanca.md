@@ -60,7 +60,10 @@ a resolução e a conexão do fetch; a checagem prévia não fixa o endereço da
 A extração (`src/lib/extrair-texto.ts`) escolhe article, main, role=main ou body e remove navegação,
 scripts e formulários. A seleção vem antes da limpeza: cabeçalhos dentro do conteúdo principal conservam
 título, resumo, autoria e data (`tests/fixtures/captura/cabecalho-artigo.html`). Menos de 200 caracteres interrompe a captura; esse mínimo não prova completude.
-O HTML original fica ao lado do Markdown para auditoria e seu hash vai para o cabeçalho. A skill manda
+O HTML original fica ao lado do Markdown para auditoria e seu hash vai para o cabeçalho.
+Respostas textuais também conservam os bytes baixados em um irmão .original.md ou .original.txt;
+a conversão de charset afeta só a representação do leitor. Sem HTML, sha256 é o hash do texto baixado;
+com Markdown oficial e HTML, sha256 continua sendo do HTML e sha256_texto registra o texto original. A skill manda
 parar diante de fonte resumida ou cortada e usar navegador quando houver; não usa WebFetch como bruto
 (`skills/ingest/SKILL.md`). Imagens e arquivos são copiados byte a byte, acompanhados de proveniência.
 O código não interpreta a imagem nessa etapa. O frontmatter da captura registra proveniência, sem

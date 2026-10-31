@@ -11,6 +11,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
+- Páginas que oferecem texto ou Markdown também guardam o download original, preservando seus bytes e hash quando há conversão de acentos ou codificação.
+
 - A captura de páginas preserva os cabeçalhos do artigo, incluindo título, resumo, autoria e data, ao separar o conteúdo principal da navegação do site.
 
 ### Added

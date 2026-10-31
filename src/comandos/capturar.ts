@@ -63,7 +63,7 @@ export async function capturar(args: string[], raiz: string, deps: Partial<Depen
  if(comando === "link") {
   if (!fonte || pos.length !== 2 || (v.metodo !== undefined && v.metodo !== "navegador")) return falha(2,"informe o link e um método de captura válido");
   try { if(!["http:","https:"].includes(new URL(fonte).protocol)) return falha(2,"informe um link http ou https"); } catch {return falha(2,"informe um link válido");}
-  let corpo:Uint8Array; let html:Uint8Array|undefined; let titulo:string|undefined; let metodo:string;
+  let corpo:Uint8Array; let html:Uint8Array|undefined; let titulo:string|undefined; let metodo:string; let textoOriginal:{ext:string;bytes:Uint8Array}|undefined;
   if(v.metodo === "navegador") {
    if(!v.de) return falha(2,"informe o arquivo com o texto integral do navegador");
    try {corpo=(await lerForaDeRaw(v.de,raiz)).bytes;html=v.html ? (await lerForaDeRaw(v.html,raiz)).bytes : undefined;}
@@ -74,21 +74,21 @@ export async function capturar(args: string[], raiz: string, deps: Partial<Depen
    const baixar=deps.baixar ?? baixarPagina;
    try {
     const p=await baixar(fonte,{teste:v.teste});if("motivo" in p)return falha(1,p.motivo);
-    if(p.tipo === "text/plain" || p.tipo === "text/markdown") {corpo=new TextEncoder().encode(decodificar(p));metodo="texto-do-site";}
+    if(p.tipo === "text/plain" || p.tipo === "text/markdown") {textoOriginal={ext:p.tipo === "text/markdown" ? "original.md" : "original.txt",bytes:p.bytes};corpo=new TextEncoder().encode(decodificar(p));metodo="texto-do-site";}
     else {
      html=p.bytes;const textoHtml=decodificar(p);const extraido=extrairTexto(textoHtml,p.urlFinal);titulo=extraido.titulo;
      const alternativa=alternativaMarkdown(textoHtml,p.urlFinal);
      if(alternativa) {
       const a=await baixar(alternativa,{teste:v.teste});if("motivo"in a)return falha(1,a.motivo);
       if(!["text/plain","text/markdown"].includes(a.tipo))return falha(1,"a versão Markdown do site não é um texto integral");
-      corpo=new TextEncoder().encode(decodificar(a));metodo="markdown-do-site";
+      textoOriginal={ext:a.tipo === "text/markdown" ? "original.md" : "original.txt",bytes:a.bytes};corpo=new TextEncoder().encode(decodificar(a));metodo="markdown-do-site";
      } else {corpo=new TextEncoder().encode(extraido.markdown);metodo="extracao";}
     }
    } catch {return falha(1,"não foi possível extrair o texto integral da página");}
   }
   if(new TextDecoder().decode(corpo).trim().length < MIN_CARACTERES) return falha(1,"a página parece vazia ou depende de JavaScript");
-  const md=montarMd({capturado_em:agoraComOffset(data),origem:fonte,tipo:"site",contexto:contexto,sha256:sha256(html ?? corpo),metodo,titulo},corpo);
-  try {return {codigo:0,linhas:await gravarCaptura(raiz,"site",v.subpasta,assunto,[{ext:"md",bytes:md},...(html ? [{ext:"html",bytes:html}] : [])],data)};}
+  const md=montarMd({capturado_em:agoraComOffset(data),origem:fonte,tipo:"site",contexto:contexto,sha256:sha256(html ?? textoOriginal?.bytes ?? corpo),metodo,titulo,sha256_texto:html && textoOriginal ? sha256(textoOriginal.bytes) : undefined},corpo);
+  try {return {codigo:0,linhas:await gravarCaptura(raiz,"site",v.subpasta,assunto,[{ext:"md",bytes:md},...(html ? [{ext:"html",bytes:html}] : []),...(textoOriginal ? [textoOriginal] : [])],data)};}
   catch(e){return falha(1,`não foi possível guardar a captura: ${(e as Error).message}`);}
  }
  if(comando!=="nota" && comando!=="arquivo") return falha(2,"tipo de captura desconhecido");

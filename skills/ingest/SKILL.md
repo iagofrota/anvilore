@@ -69,7 +69,9 @@ resumir, reformatar nem mudar quebras de linha. Execute `anvilore capturar nota 
 
 **Página ou link:** execute `anvilore capturar link <url> --assunto <slug> [--contexto-de <contexto-temporário>]`.
 O comando prefere Markdown oficial indicado pela página; caso contrário, extrai o conteúdo principal e
-guarda também o HTML original byte a byte. Ao cair para a extração de HTML, diga isso em uma linha.
+guarda também o HTML original byte a byte. Respostas de texto ou Markdown guardam ainda um irmão
+.original.txt ou .original.md com os bytes baixados, inclusive BOM e charset; use o `.md` de proveniência
+como representação para leitura e os originais irmãos para auditoria. Ao cair para a extração de HTML, diga isso em uma linha.
 WebFetch e ferramentas que resumem são proibidos para esta etapa: resumo não é captura. Não use um modelo
 para reescrever a fonte. Se a captura vier resumida, truncada, cortada ou recusada, PARE; refaça por uma
 ferramenta integral ou explique o impedimento, sem seguir a ingestão com fonte incompleta.
