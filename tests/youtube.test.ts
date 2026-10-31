@@ -51,3 +51,14 @@ test('Dado aviso de dependência, Quando compor relatório, Então o texto não 
  const spy=spyOn(Bun,'which').mockReturnValue(null);
  try {expect(avisoYtDlp('')).not.toStartWith('AVISO:');} finally {spy.mockRestore();}
 });
+test('Dado falas iguais em tempos diferentes, Quando converter JSON3, Então preserva cada ocorrência',()=>{
+ const events=[0,2000].map(tStartMs=>({tStartMs,dDurationMs:1000,wWinId:0,segs:[{utf8:'Não.'}]}));
+ expect(textoDoJson3({events})).toBe('Não.\nNão.');
+});
+test('Dado falas sem tempos, Quando converter JSON3, Então não presume duplicação técnica',()=>{
+ expect(textoDoJson3({events:[{segs:[{utf8:'Sim.'}]},{segs:[{utf8:'Sim.'}]}]})).toBe('Sim.\nSim.');
+});
+test('Dado eventos com mesmo texto, Quando muda janela ou duração, Então preserva os eventos distintos',()=>{
+ const evento={tStartMs:0,dDurationMs:1000,wWinId:0,segs:[{utf8:'Uma fala.'}]};
+ expect(textoDoJson3({events:[evento,{...evento},{...evento,wWinId:1},{...evento,wWinId:1,dDurationMs:2000}]})).toBe('Uma fala.\nUma fala.\nUma fala.');
+});

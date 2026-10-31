@@ -17,11 +17,17 @@ export function escolherLegenda(meta: { language?: string; subtitles?: Record<st
 }
 export function textoDoJson3(json: unknown): string {
  if(!json || typeof json!=='object' || !('events'in json) || !Array.isArray(json.events))return '';
- const linhas:string[]=[];
+ const linhas:string[]=[];let anterior:string|undefined;
  for(const evento of json.events) {
   if(!evento || !Array.isArray(evento.segs))continue;
   const linha=evento.segs.map((s:unknown)=>s && typeof s==='object' && 'utf8'in s && typeof s.utf8==='string' ? s.utf8 : '').join('').trim();
-  if(linha && linha!==linhas.at(-1))linhas.push(linha);
+  if(!linha)continue;
+  const tempos=[evento.tStartMs,evento.dDurationMs,evento.wWinId];
+  const conhecida=typeof evento.tStartMs==='number' && Number.isFinite(evento.tStartMs)
+   && tempos.slice(1).every(v=>v===undefined || (typeof v==='number' && Number.isFinite(v)));
+  const assinatura=conhecida ? JSON.stringify([...tempos,linha]) : undefined;
+  if(assinatura===undefined || assinatura!==anterior)linhas.push(linha);
+  anterior=assinatura;
  }
  return linhas.join('\n');
 }

@@ -66,7 +66,9 @@ a conversão de charset afeta só a representação do leitor. Sem HTML, sha256 
 com Markdown oficial e HTML, sha256 continua sendo do HTML e sha256_texto registra o texto original. A skill manda
 parar diante de fonte resumida ou cortada e usar navegador quando houver; não usa WebFetch como bruto
 (`skills/ingest/SKILL.md`). Imagens e arquivos são copiados byte a byte, acompanhados de proveniência.
-O código não interpreta a imagem nessa etapa. O frontmatter da captura registra proveniência, sem
+O código não interpreta a imagem nessa etapa. Na transcrição JSON3, só eventos com texto e identidade
+temporal iguais (início, duração e janela) são deduplicados; falas em tempos distintos e eventos sem
+tempos são preservados (`src/lib/youtube.ts`). O frontmatter da captura registra proveniência, sem
 aprovação humana de página de wiki.
 
 ## O que hoje não é imposto

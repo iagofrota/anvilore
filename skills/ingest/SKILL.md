@@ -86,7 +86,8 @@ existir ou também falhar, pare e explique à pessoa.
 
 **Vídeo do YouTube:** execute `anvilore capturar video <url> --assunto <slug> [--contexto-de <contexto-temporário>]`.
 Links do YouTube entregues a `capturar link` seguem essa mesma rota. A legenda humana tem preferência;
-automática também serve. O idioma do vídeo vem primeiro, depois português e inglês. Sem `yt-dlp` ou
+automática também serve. Repetições de fala em tempos distintos permanecem; só duplicatas técnicas
+com a mesma identidade temporal são descartadas. O idioma do vídeo vem primeiro, depois português e inglês. Sem `yt-dlp` ou
 sem legenda disponível, pare e explique o que falta; não invente transcrição.
 
 **Imagem colada ou arquivo:** use o caminho do arquivo que o agente expõe e execute `anvilore capturar
