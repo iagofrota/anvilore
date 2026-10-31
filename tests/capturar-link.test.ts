@@ -29,3 +29,19 @@ for(const html of [false,true])test(`Dado navegador com HTML=${html}, Quando cap
  const s=await capturar(['link','https://e.test/artigo','--metodo','navegador','--de',join(r,'texto.tmp'),...(html?['--html',join(r,'html.tmp')]:[]),'--assunto','navegador'],r,deps);
  expect(s.codigo).toBe(0);const c=await lerCaptura(r,s.linhas[0]!);expect(c.corpo).toEqual(texto);expect(c.meta).toMatchObject({metodo:'navegador',sha256:sha256(html?original:texto)});expect(s.linhas.length).toBe(html?2:1);
 });
+
+test('Dado URL e contexto em arquivos, Quando capturar link, Então preserva contexto e tira só espaços e quebras da URL',async()=>{
+ const r=await wiki();const url='https://exemplo.com/raw/artigo';const contexto='  foto raw do evento\r\n"ação" 😀  ';
+ await writeFile(join(r,'url.txt'),' \r\n'+url+'\n ');await writeFile(join(r,'contexto.txt'),contexto);
+ const vistas:string[]=[];const baixar=async(u:string)=>{vistas.push(u);return{urlFinal:u,status:200,tipo:'text/plain',bytes:Buffer.from('Fonte integral '.repeat(30))};};
+ const s=await capturar(['link','--url-de',join(r,'url.txt'),'--contexto-de',join(r,'contexto.txt'),'--assunto','referencia'],r,{...deps,baixar});
+ expect(s.codigo).toBe(0);expect(vistas).toEqual([url]);expect((await lerCaptura(r,s.linhas[0]!)).meta).toMatchObject({origem:url,contexto});
+});
+for(const tipo of ['link','video'])test(`Dado URL posicional junto com url-de, Quando capturar ${tipo}, Então sai 2`,async()=>{
+ const r=await wiki();await writeFile(join(r,'url.txt'),'https://exemplo.com/raw/artigo');
+ expect((await capturar([tipo,'https://exemplo.com','--url-de',join(r,'url.txt'),'--assunto','x'],r,deps)).codigo).toBe(2);
+});
+test('Dado url-de dentro de raw, Quando capturar, Então sai 2',async()=>{
+ const r=await wiki();await writeFile(join(r,'raw/url.txt'),'https://exemplo.com');
+ expect((await capturar(['link','--url-de',join(r,'raw/url.txt'),'--assunto','x'],r,deps)).codigo).toBe(2);
+});

@@ -1,5 +1,5 @@
 import { afterEach,expect,spyOn,test } from 'bun:test';
-import { readFile,writeFile } from 'node:fs/promises';
+import { readFile,writeFile,stat } from 'node:fs/promises';
 import { dirname,join } from 'node:path';
 import { ehYoutube,escolherLegenda,textoDoJson3 } from '../src/lib/youtube';
 import { avisoYtDlp,executarYtDlp } from '../src/lib/yt-dlp';
@@ -24,13 +24,14 @@ test('Dado legendas, Quando escolher, Então prefere humana por idioma e aceita 
 test('Dado json3 com repetições e eventos vazios, Quando converter, Então junta eventos sem duplicatas',async()=>{
  const json=JSON.parse(await readFile(join(import.meta.dir,'fixtures/captura/legenda.json3'),'utf8'));expect(textoDoJson3(json)).toBe('Olá mundo\nSegunda linha\nTerceira ação');expect(textoDoJson3(null)).toBe('');
 });
-test('Dado yt-dlp falso, Quando capturar vídeo, Então grava transcrição e proveniência',async()=>{
+for(const porArquivo of [false,true])test(`Dado yt-dlp falso e url-de=${porArquivo}, Quando capturar vídeo, Então grava transcrição e proveniência`,async()=>{
  const raiz=await wiki();const chamadas:string[][]=[];
  const ytDlp=async(args:string[])=>{chamadas.push(args);if(args.includes('-J'))return {codigo:0,saida:JSON.stringify({id:'abc123',title:'Uma referência',language:'pt',subtitles:{'pt-BR':[]}})};
  const pasta=dirname(args[args.indexOf('-o')+1]!);await writeFile(join(pasta,'abc123.pt-BR.json3'),JSON.stringify({events:[{segs:[{utf8:'Legenda integral'}]}]}));return {codigo:0,saida:''};};
- const s=await capturar(['video',url,'--assunto','referencia'],raiz,{ytDlp,agora:()=>dataCaptura});expect(s.codigo).toBe(0);expect(s.linhas).toEqual(['raw/videos/2026-10-31-referencia.md']);
- const c=await lerCaptura(raiz,s.linhas[0]!);expect(c.meta).toMatchObject({titulo:'Uma referência',origem:url,idioma:'pt-BR',legenda_automatica:false,sha256:sha256(Buffer.from('Legenda integral')),metodo:'yt-dlp-json3'});expect(c.corpo.toString()).toBe('Legenda integral');expect(chamadas[1]).toContain('--write-subs');
- expect(await Bun.file(dirname(chamadas[1]![chamadas[1]!.indexOf('-o')+1]!)).exists()).toBe(false);
+ await writeFile(join(raiz,'url.txt'),' \r\n'+url+'\n ');await writeFile(join(raiz,'contexto.txt'),'legenda raw com ação\r\n');
+ const s=await capturar(['video',...(porArquivo?['--url-de',join(raiz,'url.txt')]:[url]),'--contexto-de',join(raiz,'contexto.txt'),'--assunto','referencia'],raiz,{ytDlp,agora:()=>dataCaptura});expect(s.codigo).toBe(0);expect(s.linhas).toEqual(['raw/videos/2026-10-31-referencia.md']);
+ const c=await lerCaptura(raiz,s.linhas[0]!);expect(c.meta).toMatchObject({titulo:'Uma referência',origem:url,contexto:'legenda raw com ação\r\n',idioma:'pt-BR',legenda_automatica:false,sha256:sha256(Buffer.from('Legenda integral')),metodo:'yt-dlp-json3'});expect(c.corpo.toString()).toBe('Legenda integral');expect(chamadas[1]).toContain('--write-subs');
+ expect(await stat(dirname(chamadas[1]![chamadas[1]!.indexOf('-o')+1]!)).then(()=>true,()=>false)).toBe(false);
 });
 test('Dado vídeo sem legenda, Quando capturar, Então para',async()=>{
  const s=await capturar(['video',url,'--assunto','sem-legenda'],await wiki(),{ytDlp:async()=>({codigo:0,saida:'{}'})});expect(s.codigo).toBe(1);expect(s.erro).toContain('o vídeo não tem legenda');

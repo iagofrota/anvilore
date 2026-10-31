@@ -78,7 +78,7 @@ const GIT_LEITURA = new Set([
 const FIND_ESCREVE = /^-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/;
 // Comando w/W/e de sed no começo, depois de ; ou { e com endereço opcional, ou flag w de s///.
 const SED_ESCREVE = /(?:^|[;{}\n])\s*(?:[0-9$]+(?:,[0-9$]+)?|\/[^/]*\/)?\s*[wWe]\s+\S|\/[gpiImMx0-9]*w\s*\S/;
-const MENSAGEM = "Bloqueado: `raw/` é imutável para o agente. A camada de fontes é da pessoa que cura — acrescente o arquivo à mão e peça uma ingestão.";
+const MENSAGEM = "Bloqueado: em raw/ só se acrescenta, e só pelo capturador do Anvilore (anvilore capturar). Nada que já está lá é alterado ou apagado.";
 
 function mapa(valor: unknown): valor is Mapa {
   return valor !== null && typeof valor === "object" && !Array.isArray(valor);

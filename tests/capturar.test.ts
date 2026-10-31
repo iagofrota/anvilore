@@ -10,11 +10,11 @@ afterEach(async()=>{for(const f of limpezas.splice(0)) await f();});
 async function wiki(){const w=await wikiCaptura();limpezas.push(w.limpar);return w.raiz;}
 const deps={agora:()=>dataCaptura};
 test('Dado nota CRLF com emoji, Quando capturar, Então preserva corpo, contexto e sha256',async()=>{
- const r=await wiki(); const texto=Buffer.from('Olá\r\n😀 sem fim'); await writeFile(join(r,'nota.txt'),texto);
- const s=await capturar(['nota','--de',join(r,'nota.txt'),'--assunto','ideia','--contexto',' "negócio"\n fim '],r,deps);
+ const r=await wiki(); const texto=Buffer.from('Olá\r\n😀 sem fim'); await writeFile(join(r,'nota.txt'),texto);await writeFile(join(r,'contexto.txt'),' \"negócio\"\r\n fim ');
+ const s=await capturar(['nota','--de',join(r,'nota.txt'),'--assunto','ideia','--contexto-de',join(r,'contexto.txt')],r,deps);
  expect(s.codigo).toBe(0); expect(s.linhas).toEqual(['raw/notas/2026-10-31-ideia.md']);
  const {meta,corpo}=await lerCaptura(r,s.linhas[0]!); expect(corpo).toEqual(texto);
- expect(meta).toMatchObject({tipo:'nota',origem:'chat',contexto:' "negócio"\n fim ',sha256:sha256(texto)});
+ expect(meta).toMatchObject({tipo:'nota',origem:'chat',contexto:' "negócio"\r\n fim ',sha256:sha256(texto)});
 });
 for(const [arquivo,pasta,tipo] of [['print.PNG','imagens','imagem'],['Relatório final.PDF','arquivos','arquivo']]) {
  test(`Dado ${arquivo}, Quando capturar arquivo, Então copia binário e cria contexto irmão`,async()=>{
@@ -38,10 +38,19 @@ for(const args of [[],['desconhecido'],['nota','--assunto','Conversa'],['nota','
 test('Dado CLI, Quando listar comandos, Então inclui capturar',()=>{expect(subcomandos.capturar).toBeFunction();});
 for(const existente of ['md','original.md']) test(`Dado Markdown e colisão em .${existente}, Quando capturar arquivo, Então preserva original e sufixa o par`,async()=>{
  const r=await wiki();const texto=Buffer.from('---\r\ntitle: "Original"\r\n---\r\n# Ação 😀 sem fim');
- const origem=join(r,'Referência.MD');await writeFile(origem,texto);await mkdir(join(r,'raw/arquivos'),{recursive:true});
+ const origem=join(r,'Referência.MD');await writeFile(origem,texto);await writeFile(join(r,'contexto.txt'),'Contexto literal');await mkdir(join(r,'raw/arquivos'),{recursive:true});
  const anterior=join(r,`raw/arquivos/2026-10-31-referencia.${existente}`);await writeFile(anterior,'conteúdo anterior');
- const s=await capturar(['arquivo',origem,'--assunto','referencia','--contexto','Contexto literal'],r,deps);
+ const s=await capturar(['arquivo',origem,'--assunto','referencia','--contexto-de',join(r,'contexto.txt')],r,deps);
  expect(s.codigo).toBe(0);expect(s.linhas).toEqual(['raw/arquivos/2026-10-31-referencia-2.md','raw/arquivos/2026-10-31-referencia-2.original.md']);
  expect(await readFile(join(r,s.linhas[1]!))).toEqual(texto);expect(await readFile(origem)).toEqual(texto);expect(await readFile(anterior,'utf8')).toBe('conteúdo anterior');
  const c=await lerCaptura(r,s.linhas[0]!);expect(c.meta).toMatchObject({tipo:'arquivo',origem,sha256:sha256(texto)});expect(c.corpo.toString()).toBe('Contexto literal');
+});
+
+for(const tipo of ['nota','arquivo']) test(`Dado contexto-de em raw, Quando capturar ${tipo}, Então recusa sem criar`,async()=>{
+ const r=await wiki();await writeFile(join(r,'fonte.txt'),'Fonte');await writeFile(join(r,'raw/c.txt'),'contexto');
+ const args=tipo==='nota'?['nota','--de',join(r,'fonte.txt')]:['arquivo',join(r,'fonte.txt')];
+ expect((await capturar([...args,'--assunto','x','--contexto-de',join(r,'raw/c.txt')],r,deps)).codigo).toBe(2);
+});
+test('Dado contexto em linha removido, Quando usar --contexto, Então sai 2',async()=>{
+ expect((await capturar(['nota','--de','a.txt','--assunto','x','--contexto','frase'],await wiki(),deps)).codigo).toBe(2);
 });

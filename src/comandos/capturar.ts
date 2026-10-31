@@ -21,7 +21,7 @@ export async function lerForaDeRaw(p: string, raiz: string): Promise<{caminho:st
 export async function capturar(args: string[], raiz: string, deps: Partial<Dependencias> = {}): Promise<Saida> {
  let v; let pos;
  try {
-  const parsed = parseArgs({args,allowPositionals:true,options:{de:{type:"string"},html:{type:"string"},assunto:{type:"string"},contexto:{type:"string"},subpasta:{type:"string"},metodo:{type:"string"},teste:{type:"boolean"}}});
+  const parsed = parseArgs({args,allowPositionals:true,options:{de:{type:"string"},html:{type:"string"},assunto:{type:"string"},"contexto-de":{type:"string"},"url-de":{type:"string"},subpasta:{type:"string"},metodo:{type:"string"},teste:{type:"boolean"}}});
   v=parsed.values;pos=parsed.positionals;
  } catch { return falha(2,"argumentos inválidos para capturar"); }
  try { if (!(await stat(join(raiz,"raw"))).isDirectory()) throw new Error(); }
@@ -29,7 +29,16 @@ export async function capturar(args: string[], raiz: string, deps: Partial<Depen
  const erro = validarAssunto(v.assunto ?? "") ?? (v.subpasta === undefined ? undefined : validarSubpasta(v.subpasta));
  if(erro) return falha(2,erro);
  const assunto=v.assunto!; const data=(deps.agora ?? (()=>new Date()))();
- const [comando,fonte]=pos;
+ const comando=pos[0];let fonte=pos[1];let contexto:string|undefined;
+ try {
+  if(v["contexto-de"]!==undefined) contexto=new TextDecoder("utf-8",{fatal:true}).decode((await lerForaDeRaw(v["contexto-de"],raiz)).bytes);
+  if(v["url-de"]!==undefined) {
+   if(!["link","video"].includes(comando ?? "") || pos.length!==1) return falha(2,"use uma URL posicional ou --url-de, nunca os dois juntos");
+   fonte=new TextDecoder("utf-8",{fatal:true}).decode((await lerForaDeRaw(v["url-de"],raiz)).bytes).replace(/^[ \r\n]+|[ \r\n]+$/g,"");
+   pos=[comando!,fonte];
+  }
+ } catch(e) {return falha(2,`não foi possível ler a entrada: ${(e as Error).message}`);}
+
  if(comando === "video" || (comando === "link" && fonte && ehYoutube(fonte))) {
   if(!fonte || pos.length !== 2 || !ehYoutube(fonte))return falha(2,"informe um link de vídeo do YouTube");
   const executar=deps.ytDlp ?? executarYtDlp;
@@ -46,7 +55,7 @@ export async function capturar(args: string[], raiz: string, deps: Partial<Depen
    const texto=textoDoJson3(JSON.parse(await readFile(join(pasta,arquivo),"utf8")));
    if(!texto)return falha(1,"a legenda do vídeo está vazia");
    const bytes=new TextEncoder().encode(texto);
-   const md=montarMd({capturado_em:agoraComOffset(data),origem:fonte,tipo:"video",contexto:v.contexto,sha256:sha256(bytes),metodo:"yt-dlp-json3",titulo:typeof meta.title === "string" ? meta.title : undefined,idioma:legenda.idioma,legenda_automatica:legenda.automatica},bytes);
+   const md=montarMd({capturado_em:agoraComOffset(data),origem:fonte,tipo:"video",contexto:contexto,sha256:sha256(bytes),metodo:"yt-dlp-json3",titulo:typeof meta.title === "string" ? meta.title : undefined,idioma:legenda.idioma,legenda_automatica:legenda.automatica},bytes);
    return {codigo:0,linhas:await gravarCaptura(raiz,"video",v.subpasta,assunto,[{ext:"md",bytes:md}],data)};
   } catch {return falha(1,"não foi possível capturar a legenda integral do vídeo");}
   finally {await rm(pasta,{recursive:true,force:true});}
@@ -78,7 +87,7 @@ export async function capturar(args: string[], raiz: string, deps: Partial<Depen
    } catch {return falha(1,"não foi possível extrair o texto integral da página");}
   }
   if(new TextDecoder().decode(corpo).trim().length < MIN_CARACTERES) return falha(1,"a página parece vazia ou depende de JavaScript");
-  const md=montarMd({capturado_em:agoraComOffset(data),origem:fonte,tipo:"site",contexto:v.contexto,sha256:sha256(html ?? corpo),metodo,titulo},corpo);
+  const md=montarMd({capturado_em:agoraComOffset(data),origem:fonte,tipo:"site",contexto:contexto,sha256:sha256(html ?? corpo),metodo,titulo},corpo);
   try {return {codigo:0,linhas:await gravarCaptura(raiz,"site",v.subpasta,assunto,[{ext:"md",bytes:md},...(html ? [{ext:"html",bytes:html}] : [])],data)};}
   catch(e){return falha(1,`não foi possível guardar a captura: ${(e as Error).message}`);}
  }
@@ -90,8 +99,8 @@ export async function capturar(args: string[], raiz: string, deps: Partial<Depen
  const ext=extname(entrada.caminho).slice(1).toLowerCase();
  if(comando === "arquivo" && !/^[a-z0-9]+$/.test(ext)) return falha(2,"extensão do arquivo não suportada");
  const tipo=comando === "nota" ? "nota" : EXTENSOES_IMAGEM.includes(ext) ? "imagem" : "arquivo";
- const corpo=comando === "nota" ? entrada.bytes : new TextEncoder().encode(v.contexto ?? "");
- const md=montarMd({capturado_em:agoraComOffset(data),origem:comando === "nota" ? "chat" : entrada.caminho,tipo,contexto:v.contexto,sha256:sha256(entrada.bytes)},corpo);
+ const corpo=comando === "nota" ? entrada.bytes : new TextEncoder().encode(contexto ?? "");
+ const md=montarMd({capturado_em:agoraComOffset(data),origem:comando === "nota" ? "chat" : entrada.caminho,tipo,contexto:contexto,sha256:sha256(entrada.bytes)},corpo);
  try {
   const arquivos=[{ext:"md",bytes:md},...(comando === "nota" ? [] : [{ext:ext === "md" ? "original.md" : ext,bytes:entrada.bytes}])];
   return {codigo:0,linhas:await gravarCaptura(raiz,tipo,v.subpasta,assunto,arquivos,data)};
