@@ -38,7 +38,16 @@ contra o embutimento de produção e verifica suas assinaturas SSH no namespace 
 SHA256SUMS e os hashes individuais. Os pacotes são autenticados pelo fluxo de distribuição; este gate
 não verifica assinatura de código do exe nem assinatura de deb/rpm. Os cenários estão em
 `tests/release-tag.test.ts`, `tests/release-dependencias.test.ts` e `tests/release-assets.test.ts`.
-Esses gates isolados ainda não constituem um workflow de release nem provam a execução dos pacotes.
+O workflow `.github/workflows/release.yml` já encadeia esses gates de tag, os downloads do manifesto,
+a instalação/reinstalação Linux x64/arm64 reutilizada de `.github/workflows/instalar-linux.yml` e os
+cenários de atualização/preservação/migração/reversão em Ubuntu e Windows. O gate inicial fixa o
+objeto e o commit da âncora 0.3.0 antes de executar código da candidata. A etapa de atualização
+executa `tests/atualizar.test.ts`, `tests/atualizar-isolamento-git.test.ts` e `tests/migrar-rastreio.test.ts`:
+usa Git e chaves SSH reais descartáveis, mas o CLI das versões da fixture é mínimo; isso não prova
+uma atualização entre dois pacotes publicados. O workflow ainda **não** tem builds nem rascunho,
+que dependem da integração U7/U9; todas as permissões atuais são de leitura. Os testes em
+`tests/release-workflow.test.ts` conferem o grafo e as referências de ações, não executam Actions
+nem provam os pacotes. Nenhuma execução real desse workflow de tag foi feita nesta preparação.
 
 `scripts/lancar.ts` prepara somente os scripts de produção e NOTAS.md extraído da seção datada da
 versão no CHANGELOG. Sem flags ele simula, sem escrever nem fazer rede. Com `--preparar` e

@@ -7,6 +7,7 @@ name: instalar-linux
 on:
   push:
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read
