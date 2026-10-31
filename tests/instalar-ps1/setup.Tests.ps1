@@ -43,7 +43,8 @@ Describe 'AnviloreSetup: resultados e pausa' -Skip:(-not $script:WindowsSetup) {
       if ($Registro) { Set-Content -LiteralPath (Join-Path $dir 'pasta.txt') -Encoding UTF8 -NoNewline -Value $Registro }
       $params = if ($Comando) { $Comando } else { ComandoSetup $Silencioso }
       # Mock observável fora do pipeline descartado por [void]. O restante é o comando real do .iss.
-      $params = $params.Replace('-Command "', '-Command "function global:Read-Host { Write-Host ''PAUSA_OBSERVADA''; return '''' }; ')
+      # Protocolo da captura: o filho escreve UTF-8 e o pai lê UTF-8, sem depender de OEM/ANSI do runner.
+      $params = $params.Replace('-Command "', '-Command "[Console]::OutputEncoding = [Text.Encoding]::UTF8; function global:Read-Host { Write-Host ''PAUSA_OBSERVADA''; return '''' }; ')
       $trava = $null
       try {
         if ($Bloqueado) { $trava = [IO.File]::Open($arquivo, 'Open', 'ReadWrite', 'None') }
@@ -52,7 +53,7 @@ Describe 'AnviloreSetup: resultados e pausa' -Skip:(-not $script:WindowsSetup) {
         $null = $p.Handle
         if (-not $p.WaitForExit(10000)) { $p.Kill(); throw 'Comando bloqueado' }
         $p.WaitForExit()
-        return @{ Codigo = $p.ExitCode; Saida = (Get-Content -Raw (Join-Path $dir 'out')) + (Get-Content -Raw (Join-Path $dir 'err')) }
+        return @{ Codigo = $p.ExitCode; Saida = (Get-Content -Raw -Encoding UTF8 (Join-Path $dir 'out')) + (Get-Content -Raw -Encoding UTF8 (Join-Path $dir 'err')) }
       } finally { if ($trava) { $trava.Dispose() } }
     }
   }
@@ -60,6 +61,26 @@ Describe 'AnviloreSetup: resultados e pausa' -Skip:(-not $script:WindowsSetup) {
   AfterAll {
     $env:ANVILORE_TEST_CODIGO = $script:CodigoAntesSetup
     Remove-Item -LiteralPath $script:BaseSetup -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  It 'Dado stdout nativo do PowerShell 5.1, Quando confiro bytes e páginas OEM/ANSI, Então a decodificação fiel conserva o acento' {
+    $dir = Join-Path $script:BaseSetup 'captura nativa'
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    # Controle sem o protocolo UTF-8 do helper: registra a página efetiva antes de emitir U+00ED.
+    $params = '-NoLogo -NoProfile -NonInteractive -Command "Set-Content -LiteralPath ''.\cp.txt'' -Encoding UTF8 -Value ([Console]::OutputEncoding.CodePage); Write-Host ([char]0x00ED)"'
+    $out = Join-Path $dir 'out'
+    $p = Start-Process powershell.exe -ArgumentList $params -WorkingDirectory $dir -RedirectStandardOutput $out -RedirectStandardError (Join-Path $dir 'err') -PassThru -WindowStyle Hidden
+    $null = $p.Handle
+    if (-not $p.WaitForExit(10000)) { $p.Kill(); throw 'Sonda de captura bloqueada' }
+    $p.WaitForExit()
+    $p.ExitCode | Should -Be 0
+    $cp = [int]((Get-Content -Raw -Encoding UTF8 (Join-Path $dir 'cp.txt')).Trim())
+    $bytes = [IO.File]::ReadAllBytes($out)
+    $fiel = [Text.Encoding]::GetEncoding($cp).GetString($bytes).Trim()
+    # Reproduz a leitura antiga sem Encoding para diagnosticar a diferença, sem alterar a página do sistema.
+    $antigo = (Get-Content -Raw -LiteralPath $out).Trim()
+    $pontos = ($antigo.ToCharArray() | ForEach-Object { 'U+{0:X4}' -f [int]$_ }) -join ','
+    Write-Host "CAPTURA_NATIVA cp_stdout=$cp cp_leitor_ansi=$([Text.Encoding]::Default.CodePage) bytes=$([BitConverter]::ToString($bytes)) leitura_antiga=$pontos"
+    $fiel | Should -Be 'í'
   }
   It 'Dado instalador com código <Codigo>, Quando executo o exe silencioso, Então aceito apenas completo ou parcial' -ForEach @(
     @{ Codigo = 0; Esperado = 0 }, @{ Codigo = 10; Esperado = 0 },
