@@ -5,5 +5,5 @@ export function avisoRg(path: string | undefined): string | undefined {
   const obter = process.platform === "win32" ? "Windows: winget install BurntSushi.ripgrep.MSVC"
     : process.platform === "darwin" ? "macOS: brew install ripgrep"
     : "Linux: instale o pacote ripgrep pelo gerenciador de pacotes da sua distribuição";
-  return `a skill query depende do ripgrep (rg), ausente do PATH. ${obter}. O Anvilore não instala essa ferramenta.`;
+  return `a skill query usa a ferramenta de busca do sistema sem o ripgrep (rg), então pode ficar mais lenta. Para maior velocidade, instale o ripgrep (rg): ${obter}.`;
 }

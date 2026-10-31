@@ -65,10 +65,21 @@ conhecimento descrevem a implementação e aguardam revisão do Iago.
 
 ## Busca da wiki: dependência e prova por shell
 
-A skill `query` (`skills/query/SKILL.md`) depende do **ripgrep**, executável `rg`, no PATH.
-`instalar` e `doctor` consultam o PATH e avisam quando falta; o aviso não muda o código de saída
-nem instala a ferramenta (`src/lib/rg.ts`, `src/comandos/instalar.ts`, `src/comandos/doctor.ts`;
-testes em `tests/instalar.test.ts` e `tests/doctor.test.ts`). As travas continuam sendo avaliadas.
+A skill `query` (`skills/query/SKILL.md`) prefere o ripgrep, executável `rg`, no PATH. Sem ele,
+a skill orienta o uso de `grep` no Linux/macOS ou `Select-String` no Windows; `instalar` e `doctor`
+avisam que a busca nativa pode ser mais lenta e como instalar o ripgrep (`src/lib/rg.ts`,
+`src/comandos/instalar.ts`, `src/comandos/doctor.ts`; testes em `tests/instalar.test.ts` e
+`tests/doctor.test.ts`). A instalação ainda tenta obter o `rg` quando possível, e as travas
+continuam sendo avaliadas.
+
+O formato de ocorrência é `arquivo:linha:texto`. A tabela das skills `query` e `lint` contém os
+comandos para busca normal, nomes de arquivo, palavra exata e texto literal. No PowerShell 5.1,
+`Select-String` recebe `-Encoding UTF8`; no PowerShell 7 a leitura já usa UTF-8. `grep -r` e
+`Get-ChildItem -Recurse` não leem `.gitignore`, então também encontram páginas da wiki ignorada.
+O CI executa `scripts/provar-busca-fallback.ts` na matriz Ubuntu, macOS e Windows: cada runner
+busca um termo acentuado numa página `.md` de fixture cujo caminho tem espaço, e confere a saída
+`arquivo:linha:texto`. No Windows a prova chama Windows PowerShell 5.1 diretamente. O job imprime
+o comando e a saída real para registrar o resultado por sistema.
 
 Comandos conferidos nas fontes oficiais em 2026-10-26:
 

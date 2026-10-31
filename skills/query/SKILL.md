@@ -28,15 +28,24 @@ Se o MCP de consulta do Anvilore estiver ligado (`anvilore mcp estado`), comece 
 `buscar`; abra os resultados citados com `ler`, passando o caminho e as linhas retornadas. O MCP
 consulta exclusivamente `wiki/`, informa o estado de revisão e os avisos de lacuna ou contradição.
 Use as mesmas regras de citação dos passos seguintes. Para slugs, IDs, URLs ou outra ocorrência
-literal, `rg --no-ignore` continua sendo a ferramenta indicada.
+literal, use `rg --no-ignore` ou o fallback do sistema na tabela.
 
 Se o MCP não estiver ligado, siga a busca direta abaixo.
 
-Sem o MCP, a busca aqui é direta: primeiro `wiki/index.md`, depois `rg` para confirmar onde o termo aparece.
+Sem o MCP, a busca aqui é direta: primeiro `wiki/index.md`, depois `rg` para confirmar onde o termo aparece. Se `rg` não estiver instalado, use o fallback da tabela; nunca pule a busca.
 
 ```bash
 rg --no-ignore -in "<termo-chave>" wiki/
 ```
+
+| Sistema | Busca por termo, com caminho, linha e texto | Só nomes de arquivos | Palavra exata | Texto literal |
+|---|---|---|---|---|
+| Linux/macOS com `rg` | `rg --no-ignore -in "x" wiki/` | `rg --no-ignore -l -i "x" wiki/` | `rg --no-ignore -w -i "x" wiki/` | `rg --no-ignore -F "x" wiki/` |
+| Linux/macOS sem `rg` | `grep -rn -i "x" wiki/` | `grep -rl -i "x" wiki/` | `grep -rwn -i "x" wiki/` | `grep -rFn "x" wiki/` |
+| Windows com `rg` | `rg --no-ignore -in "x" wiki/` | `rg --no-ignore -l -i "x" wiki/` | `rg --no-ignore -w -i "x" wiki/` | `rg --no-ignore -F "x" wiki/` |
+| Windows sem `rg` | <code>Get-ChildItem -Path wiki -Recurse -File -Filter *.md &#124; Select-String -Encoding UTF8 -Pattern "x" &#124; ForEach-Object { "{0}:{1}:{2}" -f $_.Path, $_.LineNumber, $_.Line }</code> | <code>Get-ChildItem -Path wiki -Recurse -File -Filter *.md &#124; Select-String -Encoding UTF8 -Pattern "x" -List &#124; Select-Object -ExpandProperty Path</code> | <code>Get-ChildItem -Path wiki -Recurse -File -Filter *.md &#124; Select-String -Encoding UTF8 -Pattern "\bx\b"</code> | <code>Get-ChildItem -Path wiki -Recurse -File -Filter *.md &#124; Select-String -Encoding UTF8 -SimpleMatch "x"</code> |
+
+No Windows PowerShell 5.1, acrescente `-Encoding UTF8` a `Select-String`; o PowerShell 7 lê UTF-8 por padrão. `grep` e `Get-ChildItem` não consultam `.gitignore`. Os fallbacks de ocorrência devem preservar o formato `arquivo:linha:texto`.
 
 O `--no-ignore` não é enfeite. A fronteira entre o esqueleto versionado e o
 conteúdo de quem usa mora em `wiki/.gitignore`, que ignora tudo (`*`) e reabre
@@ -47,7 +56,7 @@ vazio a partir da primeira página ingerida, e o vazio é indistinguível de "a
 wiki não cobre isso". Falha silenciosa é o defeito que este repositório inteiro
 existe para evitar.
 
-Trate o resultado do `rg` como **os lugares onde vale olhar**, não como a resposta — ele aponta ocorrência de texto, não relevância. Ainda cabe a você ler as seções encontradas e decidir o que de fato responde à pergunta.
+Trate os resultados da busca como **os lugares onde vale olhar**, não como a resposta — as ferramentas apontam ocorrência de texto, não relevância. Ainda cabe a você ler as seções encontradas e decidir o que de fato responde à pergunta.
 
 - **A pergunta é sobre lacunas, pendências ou "o que falta confirmar"?** Não é busca por texto — procure diretamente pelos callouts:
 
@@ -55,13 +64,14 @@ Trate o resultado do `rg` como **os lugares onde vale olhar**, não como a respo
   rg --no-ignore -n "\[\x21(gap|contradiction)\]" wiki/
   ```
 
-- **Precisa de um termo literal exato** (slug, ID, URL)? `rg --no-ignore` continua sendo a ferramenta certa.
+- **Precisa de um termo literal exato** (slug, ID, URL)? Use `rg --no-ignore -F` ou a coluna de texto literal do fallback.
 
 A expressão de callouts usa `\x21` para representar `!`. Ela foi provada em bash (inclusive
-com `set -H`), PowerShell e cmd; mantenha as aspas e as barras como estão.
+com `set -H`), PowerShell e cmd; mantenha as aspas e as barras como estão. Sem `rg`, use
+`grep -rn -E '\[!(gap|contradiction)\]' wiki/` no Linux/macOS, ou o fallback PowerShell da
+tabela com `-Pattern '\[\x21(gap|contradiction)\]'` no Windows.
 
-A busca depende do ripgrep (`rg`) no PATH. Se faltar, avise: o `anvilore instalar` e o
-`anvilore doctor` orientam como obtê-lo, sem instalá-lo automaticamente.
+Sem `rg`, a busca continua pela ferramenta nativa do sistema e pode ficar mais lenta. `anvilore instalar` e `anvilore doctor` avisam como instalar `rg` para a busca mais rápida.
 
 Termos acentuados em NFC e NFD não se equivalem nesta busca. Se necessário, procure pelo
 radical sem acento, como `tribut` ou `govern`, e leia as páginas encontradas para conferir.
@@ -175,7 +185,7 @@ No máximo uma sugestão. Não enrole.
 
 ## Regras
 
-- **Nunca pule a leitura de `wiki/index.md` seguida da busca com `rg`.** É o primeiro passo do Passo 2, sempre. Varrer com `rg` sem antes checar o índice — ou o contrário, sem depois confirmar com `rg` — é uma violação, não uma otimização.
+- **Nunca pule a leitura de `wiki/index.md` seguida da busca.** É o primeiro passo do Passo 2, sempre. Varrer sem antes checar o índice — ou o contrário, sem depois confirmar com `rg` ou o fallback nativo — é uma violação, não uma otimização.
 - **Nunca responda só da memória.** Se nenhuma página da wiki cobre o tópico, diga isso e pare. A wiki é a fonte da verdade, não seus dados de treino.
 - **Nunca abra arquivos em `raw/`.** Query opera só sobre `wiki/`. Se o usuário quiser o conteúdo bruto da fonte, sugira um ingest.
 - **Nunca modifique páginas da wiki enquanto responde**, exceto ao registrar a resposta explicitamente no Passo 5. Ler é somente leitura.

@@ -1104,7 +1104,7 @@ function AnvResultadoFinal {
   $linhas += 'Para começar:'
   $linhas += '  1. Feche este terminal e os agentes que estiverem abertos, e abra de novo.'
   $linhas += $(if ($Atalho) { '  2. Abra o atalho Anvilore no Menu Iniciar.' } else { "  2. Abra o Claude Code (ou outro agente) na pasta $Pasta." })
-  if ($SemRg) { $linhas += 'Aviso: sem o ripgrep (rg), a busca da skill de consulta fica indisponível até você instalá-lo.' }
+  if ($SemRg) { $linhas += 'Aviso: sem o ripgrep (rg), a busca da skill de consulta usa a ferramenta do sistema e pode ser mais lenta. Para maior velocidade, instale o ripgrep (rg).' }
   return [pscustomobject]@{ Codigo = 0; Linhas = $linhas }
 }
 
