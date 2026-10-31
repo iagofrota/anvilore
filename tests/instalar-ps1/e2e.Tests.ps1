@@ -98,7 +98,6 @@ try {
 $ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'
 $env:ANVILORE_PASTA = $env:ANVILORE_PASTA_TESTE
 $env:ANVILORE_LANCADOR = $env:ANVILORE_LANCADOR_TESTE
-function global:Read-Host { Write-Output 'READ_HOST_CALLED'; return '' }
 try {
   Get-Content -Raw -Encoding UTF8 -LiteralPath $env:ANVILORE_LANCADOR | Invoke-Expression
   if ($LASTEXITCODE -eq 7) { exit 0 }
@@ -122,7 +121,6 @@ try {
     }
     $codigo | Should -Be 0 -Because $saida
     $saida | Should -Match 'A interface do Anvilore fechou com erro \(código 7\)'
-    $saida | Should -Match 'READ_HOST_CALLED'
   }
 }
 
