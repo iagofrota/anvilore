@@ -35,12 +35,13 @@ Describe 'AnviloreSetup: resultados e pausa' -Skip:(-not $script:WindowsSetup) {
       $i = if ($Silencioso) { 1 } else { 0 }
       return $opcoes[$i].Groups[1].Value.Replace("''", "'")
     }
-    function script:RodarComandoSetup([string]$Texto, [bool]$Silencioso = $true, [bool]$Ausente = $false, [bool]$Bloqueado = $false) {
+    function script:RodarComandoSetup([string]$Texto, [bool]$Silencioso = $true, [bool]$Ausente = $false, [bool]$Bloqueado = $false, [string]$Registro = '', [string]$Comando = '') {
       $dir = Join-Path $script:BaseSetup ('comando ' + [guid]::NewGuid().ToString('N'))
       New-Item -ItemType Directory -Path $dir -Force | Out-Null
       $arquivo = Join-Path $dir 'instalar.ps1'
       if (-not $Ausente) { Set-Content -LiteralPath $arquivo -Encoding UTF8 -Value $Texto }
-      $params = ComandoSetup $Silencioso
+      if ($Registro) { Set-Content -LiteralPath (Join-Path $dir 'pasta.txt') -Encoding UTF8 -NoNewline -Value $Registro }
+      $params = if ($Comando) { $Comando } else { ComandoSetup $Silencioso }
       # Mock observável fora do pipeline descartado por [void]. O restante é o comando real do .iss.
       $params = $params.Replace('-Command "', '-Command "function global:Read-Host { Write-Host ''PAUSA_OBSERVADA''; return '''' }; ')
       $trava = $null
@@ -113,5 +114,40 @@ Describe 'AnviloreSetup: resultados e pausa' -Skip:(-not $script:WindowsSetup) {
       $r.Codigo | Should -Be 0
       $r.Saida | Should -Not -Match 'PAUSA_OBSERVADA'
     } finally { $env:ANVILORE_ESPERAR_ENTER = $antes }
+  }
+  It 'Dado destino registrado com aspas e expressão, Quando o comando <Modo> o recupera, Então recebe o texto exato como dados' -ForEach @(
+    @{ Modo = 'GUI'; Silencioso = $false }, @{ Modo = 'silent'; Silencioso = $true }
+  ) {
+    $antes = $env:ANVILORE_PASTA
+    # Se avaliado, este valor lança erro; se interpolado como fonte, o apóstrofo quebra a execução.
+    $registro = 'C:\a wiki da Lia''s $(throw "REGISTRO_EXECUTADO")'
+    try {
+      $env:ANVILORE_PASTA = $null
+      $r = RodarComandoSetup -Texto 'Write-Host ("DESTINO=" + $env:ANVILORE_PASTA); $global:LASTEXITCODE=0' -Silencioso $Silencioso -Registro $registro
+      $r.Codigo | Should -Be 0 -Because $r.Saida
+      $r.Saida.Trim() | Should -Be ('DESTINO=' + $registro)
+    } finally { $env:ANVILORE_PASTA = $antes }
+  }
+  It 'Dado mutação que ignora escolha explícita no comando <Modo>, Quando confiro a prioridade em PowerShell real, Então o oráculo a rejeita' -ForEach @(
+    @{ Modo = 'GUI'; Silencioso = $false }, @{ Modo = 'silent'; Silencioso = $true }
+  ) {
+    $antes = $env:ANVILORE_PASTA
+    $texto = 'Write-Host ("DESTINO=" + $env:ANVILORE_PASTA); $global:LASTEXITCODE=0'
+    try {
+      $env:ANVILORE_PASTA = 'C:\escolha explícita da Lia''s'
+      $r = RodarComandoSetup -Texto $texto -Silencioso $Silencioso -Registro 'C:\registro anterior'
+      $r.Codigo | Should -Be 0 -Because $r.Saida
+      $esperado = 'DESTINO=' + $env:ANVILORE_PASTA
+      $r.Saida.Trim() | Should -Be $esperado
+      # Muda apenas o texto transitório: o .iss versionado permanece intacto.
+      $original = ComandoSetup $Silencioso
+      $mutante = $original.Replace('-not $env:ANVILORE_PASTA -and ', '')
+      $mutante | Should -Not -Be $original
+      $r = RodarComandoSetup -Texto $texto -Silencioso $Silencioso -Registro 'C:\registro anterior' -Comando $mutante
+      $r.Codigo | Should -Be 0 -Because $r.Saida
+      $r.Saida.Trim() | Should -Be 'DESTINO=C:\registro anterior'
+      { $r.Saida.Trim() | Should -Be $esperado } | Should -Throw
+      Write-Host "MUTACAO_REJEITADA modo=$Modo regra=explicito_antes_de_registro"
+    } finally { $env:ANVILORE_PASTA = $antes }
   }
 }

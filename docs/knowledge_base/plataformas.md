@@ -455,6 +455,10 @@ uma escolha feita depois de encontrar uma pasta ocupada. É texto UTF-8, não c�
 arquivo, então lembram o destino mesmo quando o Explorer não herdou `ANVILORE_PASTA`. O instalador não recria os
 atalhos alternativos e o resumo orienta a abrir o atalho Anvilore.
 
+Ao repetir o setup na mesma pasta do programa, tanto o comando interativo quanto o silencioso recuperam esse destino
+antes de executar o instalador. A escolha explícita em `ANVILORE_PASTA` tem prioridade sobre o registro; sem os dois,
+vale o padrão do instalador. A leitura de pasta.txt é literal, como texto UTF-8, sem avaliar seu conteúdo como código.
+
 Na janela interativa o setup define `ANVILORE_ESPERAR_ENTER=1`, para o instalador aguardar Enter depois do resumo.
 No modo silencioso define `ANVILORE_SEM_PERGUNTAS=1` e desliga a espera, inclusive se ela vier herdada do ambiente.
 O código 10 do instalador representa instalação parcial e conclui o setup com sucesso (0); os códigos 1 a 4 fazem o
@@ -479,6 +483,9 @@ leitura e observa a opção de pausa com Read-Host substituído (sem exigir Ente
 instala contra origem local assinada, confere o doctor, executa TargetPath/Arguments/WorkingDirectory dos dois atalhos
 com destinos contendo espaço e apóstrofo, e confere a preservação da pasta ao desinstalar. Também cobre PortableGit
 sem Git no PATH e a abertura dos atalhos em CLM simulado, além do erro da UI com pausa observável.
+Na reinstalação, repete o EXE silencioso no mesmo /DIR e o comando interativo literal com o instalador real e Enter
+automatizado. Confere o destino exato, o hash de uma nota pessoal, a ausência de outro kit no perfil e a prioridade de
+uma escolha explícita; depois executa os dois atalhos em modo normal e CLM simulado.
 
 **Limite da recuperação em CLM:** a rota interna de `instalador/abrir.ps1` quando falta o kit ainda chama
 `ScriptBlock.Create`, que a prova em CLM rejeita. Assim, os atalhos do Inno abrem uma instalação existente no CLM

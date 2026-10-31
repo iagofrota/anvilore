@@ -55,10 +55,11 @@ begin
   begin
     ResultadoSetup := 4;
     // O valor inicial e o catch impedem exit $null (sucesso) se a leitura ou o parse falhar.
-    Params := '-NoLogo -NoProfile -Command "$ErrorActionPreference=''Stop''; $global:LASTEXITCODE=1; $env:ANVILORE_ESPERAR_ENTER=''1''; $env:ANVILORE_ATALHO_SETUP=''1''; $env:ANVILORE_CONFIG_SETUP=Join-Path (Get-Location).Path ''pasta.txt''; try { Get-Content -Raw -Encoding UTF8 -LiteralPath ''.\instalar.ps1'' -ErrorAction Stop | Invoke-Expression -ErrorAction Stop; exit $LASTEXITCODE } catch { Write-Host $_; exit 1 }"';
+    // Sem escolha explícita, recupera o destino anterior como dados UTF-8 antes de executar o instalador.
+    Params := '-NoLogo -NoProfile -Command "$ErrorActionPreference=''Stop''; $global:LASTEXITCODE=1; $env:ANVILORE_ESPERAR_ENTER=''1''; $env:ANVILORE_ATALHO_SETUP=''1''; $env:ANVILORE_CONFIG_SETUP=Join-Path (Get-Location).Path ''pasta.txt''; try { if (-not $env:ANVILORE_PASTA -and (Test-Path -LiteralPath $env:ANVILORE_CONFIG_SETUP)) { $env:ANVILORE_PASTA = Get-Content -Raw -Encoding UTF8 -LiteralPath $env:ANVILORE_CONFIG_SETUP -ErrorAction Stop }; Get-Content -Raw -Encoding UTF8 -LiteralPath ''.\instalar.ps1'' -ErrorAction Stop | Invoke-Expression -ErrorAction Stop; exit $LASTEXITCODE } catch { Write-Host $_; exit 1 }"';
     if WizardSilent then
     begin
-      Params := '-NoLogo -NoProfile -NonInteractive -Command "$ErrorActionPreference=''Stop''; $global:LASTEXITCODE=1; $env:ANVILORE_SEM_PERGUNTAS=''1''; $env:ANVILORE_ESPERAR_ENTER=''0''; $env:ANVILORE_ATALHO_SETUP=''1''; $env:ANVILORE_CONFIG_SETUP=Join-Path (Get-Location).Path ''pasta.txt''; try { Get-Content -Raw -Encoding UTF8 -LiteralPath ''.\instalar.ps1'' -ErrorAction Stop | Invoke-Expression -ErrorAction Stop; exit $LASTEXITCODE } catch { Write-Host $_; exit 1 }"';
+      Params := '-NoLogo -NoProfile -NonInteractive -Command "$ErrorActionPreference=''Stop''; $global:LASTEXITCODE=1; $env:ANVILORE_SEM_PERGUNTAS=''1''; $env:ANVILORE_ESPERAR_ENTER=''0''; $env:ANVILORE_ATALHO_SETUP=''1''; $env:ANVILORE_CONFIG_SETUP=Join-Path (Get-Location).Path ''pasta.txt''; try { if (-not $env:ANVILORE_PASTA -and (Test-Path -LiteralPath $env:ANVILORE_CONFIG_SETUP)) { $env:ANVILORE_PASTA = Get-Content -Raw -Encoding UTF8 -LiteralPath $env:ANVILORE_CONFIG_SETUP -ErrorAction Stop }; Get-Content -Raw -Encoding UTF8 -LiteralPath ''.\instalar.ps1'' -ErrorAction Stop | Invoke-Expression -ErrorAction Stop; exit $LASTEXITCODE } catch { Write-Host $_; exit 1 }"';
       Show := SW_HIDE;
     end
     else
