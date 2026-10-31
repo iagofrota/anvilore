@@ -841,7 +841,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $atalhoPath = Join-Path $script:P5 'Desktop\Anvilore.lnk'
       $atalho = (New-Object -ComObject WScript.Shell).CreateShortcut($atalhoPath)
       $pastaLiteral = $script:PastaCustomizada5.Replace("'", "''")
-      $atalho.Arguments | Should -Match ([regex]::Escape($pastaLiteral))
+      $atalho.Arguments | Should -Match ([regex]::Escape("ANVILORE_PASTA = '$pastaLiteral'"))
 
       $perfilSemInstalacao = Join-Path $script:Base 'perfil de runtime sem ANVILORE_PASTA'
       $fallback = Join-Path $perfilSemInstalacao 'Anvilore'

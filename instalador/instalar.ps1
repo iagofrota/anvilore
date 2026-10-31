@@ -992,7 +992,8 @@ function AnvCriarAtalho {
     if (-not $powershell) { $powershell = (Get-Command pwsh.exe -ErrorAction SilentlyContinue | Select-Object -First 1).Source }
     if (-not $powershell) { AnvRegistrar 'atalho: PowerShell não foi encontrado'; return $false }
     $abrirLiteral = $abrir.Replace("'", "''")
-    $argumentos = "-NoLogo -NoProfile -Command `"`$env:ANVILORE_LANCADOR = '$abrirLiteral'; & ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 -LiteralPath `$env:ANVILORE_LANCADOR)))`""
+    $pastaLiteral = $Pasta.Replace("'", "''")
+    $argumentos = "-NoLogo -NoProfile -Command `"`$env:ANVILORE_PASTA = '$pastaLiteral'; `$env:ANVILORE_LANCADOR = '$abrirLiteral'; & ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 -LiteralPath `$env:ANVILORE_LANCADOR)))`""
     $shell = New-Object -ComObject WScript.Shell
     $programas = [Environment]::GetFolderPath('Programs')
     if ([string]::IsNullOrWhiteSpace($programas)) {
