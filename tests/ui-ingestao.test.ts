@@ -105,6 +105,56 @@ test("Dado eventos consecutivos do leitor Quando a fila grava Então cada snapsh
   expect(snapshots.at(-1)).toMatchObject({ situacao: "esperando", passo: "parada" });
 });
 
+for (const fase of ["leitura", "escrita"] as const) {
+  test(`Dado que o rename final da ${fase} falha Quando consulto ou ajo Então recebo erro de persistência sem publicar sucesso`, async () => {
+    const ingestao = servico(new PonteFalsa({ leitor: leitorValido() }));
+    const conversa = await comFonte(ingestao);
+    if (fase === "escrita") {
+      await ingestao.ler(conversa.id);
+      await ingestao.esperar(conversa.id);
+    }
+    const arquivo = join(raiz, ".anvilore/ui/conversas", `${conversa.id}.json`);
+    const rename = arquivos.rename;
+    const gravacao = spyOn(arquivos, "rename").mockImplementation(async (de, para) => {
+      if (para === arquivo && JSON.parse(readFileSync(de, "utf8")).situacao !== "rodando") throw new Error("ENOSPC simulado");
+      return rename(de, para);
+    });
+    try {
+      if (fase === "leitura") await ingestao.ler(conversa.id);
+      else await ingestao.seguir(conversa.id, { takeaways: [0], paginas: [0], comentario: "" });
+      await ingestao.esperar(conversa.id);
+      for (const consultar of [() => ingestao.obter(conversa.id), () => ingestao.listar(), () => ingestao.cancelar(conversa.id)]) {
+        const erro: unknown = await consultar().catch((erro: unknown) => erro);
+        expect(erro).toBeInstanceOf(ErroDeIngestao);
+        expect((erro as ErroDeIngestao).status).toBe(500);
+        expect((erro as Error).message).toContain("Não foi possível salvar a ingestão");
+      }
+      expect(JSON.parse(readFileSync(arquivo, "utf8"))).toMatchObject({ situacao: "rodando", passo: fase === "escrita" ? "fechamento" : "leitura" });
+    } finally { gravacao.mockRestore(); }
+    expect(await servico(new PonteFalsa()).obter(conversa.id)).toMatchObject({ situacao: "interrompida" });
+  });
+}
+
+test("Dado que uma gravação de atividade falha Quando o próximo snapshot é salvo Então a conversa volta a ser consultável", async () => {
+  const ingestao = servico(new PonteFalsa({ leitor: leitorValido() }));
+  const conversa = await comFonte(ingestao);
+  const arquivo = join(raiz, ".anvilore/ui/conversas", `${conversa.id}.json`);
+  let falhou = false;
+  const rename = arquivos.rename;
+  const gravacao = spyOn(arquivos, "rename").mockImplementation(async (de, para) => {
+    const snapshot = para === arquivo ? JSON.parse(readFileSync(de, "utf8")) as Conversa : undefined;
+    if (!falhou && snapshot?.sessao) { falhou = true; throw new Error("EIO simulado"); }
+    return rename(de, para);
+  });
+  try {
+    await ingestao.ler(conversa.id);
+    await ingestao.esperar(conversa.id);
+    expect(falhou).toBe(true);
+    expect(await ingestao.obter(conversa.id)).toEqual(JSON.parse(readFileSync(arquivo, "utf8")));
+    expect((await ingestao.obter(conversa.id))?.situacao).toBe("esperando");
+  } finally { gravacao.mockRestore(); }
+});
+
 // ── 1b-1 ───────────────────────────────────────────────────────────────────
 
 test("Dado um arquivo solto com a área pessoal Quando confirmo Então a fonte vai para raw/pessoal e a conversa começa no passo Fonte, gravada fora de wiki/ e raw/", async () => {

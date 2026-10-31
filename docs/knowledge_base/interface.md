@@ -25,6 +25,9 @@ publicam somente o último snapshot cuja gravação atômica terminou. Cada even
 conteúdo antes de entrar na fila de gravações. Assim, **Pode seguir** só aparece depois que a parada
 está no JSON em .anvilore/ui/conversas/. Ao abrir uma conversa de uma interface anterior, uma fase
 que ficou rodando é gravada como interrompida antes de aparecer na API (`src/lib/ui-ingestao.ts`).
+Se a gravação falha, as consultas e ações respondem com erro explícito: a tela deixa de exibir uma
+execução em andamento sem processo. A mensagem orienta conferir espaço e permissões e reabrir o
+Anvilore para retomar o último estado salvo. Uma gravação posterior bem-sucedida limpa a falha.
 O teste de retomada espera a navegação para `#/chat/<id>` antes de recarregar: o agente começar não
 garante que essa navegação já terminou (`e2e/specs/fluxo.e2e.ts`).
 

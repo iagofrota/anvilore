@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import * as arquivos from "node:fs/promises";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,6 +35,41 @@ function formulario(campos: Record<string, string | Blob>, nome?: string): FormD
   }
   return dados;
 }
+
+test("Dado que a gravação da parada falha Quando a UI consulta Então a API responde erro explícito em vez de rodando", async () => {
+  const liberar = Promise.withResolvers<void>();
+  const falhou = Promise.withResolvers<void>();
+  const ponte = new PonteFalsa({ leitor: async () => {
+    await liberar.promise;
+    return { situacao: "concluida", sessao: SESSAO, saidaEstruturada: relatorioValido(), texto: "", recusas: [] };
+  } });
+  const { chamar, postar, app } = await servidor(ponte);
+  const criada = await (await chamar("/api/fontes", { method: "POST", body: formulario({ area: "pessoal", arquivo: new Blob([FONTE]) }, "llm-wiki.md") })).json() as { id: string };
+  const arquivo = join(raiz, ".anvilore/ui/conversas", `${criada.id}.json`);
+  const rename = arquivos.rename;
+  const gravacao = spyOn(arquivos, "rename").mockImplementation(async (de, para) => {
+    if (para === arquivo && JSON.parse(readFileSync(de, "utf8")).situacao === "esperando") {
+      falhou.resolve();
+      throw new Error("ENOSPC simulado");
+    }
+    return rename(de, para);
+  });
+  try {
+    expect((await postar(`/api/conversas/${criada.id}/ler`)).status).toBe(200);
+    liberar.resolve();
+    await falhou.promise;
+    for (const rota of [`/api/conversas/${criada.id}`, "/api/ingestao", "/api/inicio"]) {
+      const resposta = await chamar(rota);
+      expect(resposta.status).toBe(500);
+      expect(await resposta.json()).toEqual({ mensagens: [expect.stringContaining("Não foi possível salvar a ingestão")] });
+    }
+    expect(JSON.parse(readFileSync(arquivo, "utf8"))).toMatchObject({ passo: "leitura", situacao: "rodando" });
+  } finally {
+    liberar.resolve();
+    await app.encerrar();
+    gravacao.mockRestore();
+  }
+});
 
 test("Dado a interface aberta Quando peço o estado da ingestão Então vêm o agente, as áreas e as conversas", async () => {
   const { chamar } = await servidor();

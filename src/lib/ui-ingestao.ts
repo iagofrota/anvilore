@@ -173,6 +173,7 @@ export class IngestaoNaInterface {
   private readonly conversas = new Map<string, Conversa>();
   // A API publica só o último snapshot cujo rename terminou, nunca o objeto de trabalho.
   private readonly publicadas = new Map<string, Conversa>();
+  private readonly falhasDeGravacao = new Map<string, ErroDeIngestao>();
   private readonly gravacoes = new Map<string, Promise<void>>();
   private readonly fases = new Map<string, Promise<void>>();
   private ativa: { id: string; execucao: ExecucaoDeFase } | undefined;
@@ -348,6 +349,8 @@ export class IngestaoNaInterface {
 
   private async carregar(id: string): Promise<Conversa | undefined> {
     if (!ID_VALIDO.test(id)) return undefined;
+    const falha = this.falhasDeGravacao.get(id);
+    if (falha) throw falha;
     const emMemoria = this.conversas.get(id);
     if (emMemoria) return emMemoria;
     let conversa: Conversa;
@@ -378,6 +381,11 @@ export class IngestaoNaInterface {
       await writeFile(temporario, conteudo);
       await rename(temporario, arquivo);
       this.publicadas.set(conversa.id, JSON.parse(conteudo) as Conversa);
+      this.falhasDeGravacao.delete(conversa.id);
+    }).catch(() => {
+      const falha = new ErroDeIngestao("Não foi possível salvar a ingestão. Verifique o espaço e as permissões da pasta e reabra o Anvilore para retomar o último estado salvo.", 500);
+      this.falhasDeGravacao.set(conversa.id, falha);
+      throw falha;
     });
     this.gravacoes.set(conversa.id, proxima.catch(() => {}));
     return proxima;

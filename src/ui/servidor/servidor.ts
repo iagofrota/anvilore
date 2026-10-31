@@ -189,12 +189,14 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
           }
           if (url.pathname === "/api/validar" && request.method === "POST") return json(await validar(raiz, wiki));
           if (url.pathname === "/api/inicio" && request.method === "GET") {
-            const conversas = (await ingestao.listar()).filter(c => CONVERSA_PENDENTE.includes(c.situacao));
-            const abertas = new Map(conversas.map(c => [c.fonte, c.id]));
-            // `validarWiki` lê a wiki inteira de forma síncrona: o Início a paga uma vez só e a saúde vai no mesmo JSON.
-            // Sem cache no servidor: cada carga vê a wiki como ela está, e "Validar agora" (/api/saude) valida na hora.
-            const validada = await validarWiki(wiki);
-            return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas, ...await resumoDoInicio(raiz, abertas, process.env, validada), saude: await saudeDaWiki(wiki, validada) });
+            try {
+              const conversas = (await ingestao.listar()).filter(c => CONVERSA_PENDENTE.includes(c.situacao));
+              const abertas = new Map(conversas.map(c => [c.fonte, c.id]));
+              // `validarWiki` lê a wiki inteira de forma síncrona: o Início a paga uma vez só e a saúde vai no mesmo JSON.
+              // Sem cache no servidor: cada carga vê a wiki como ela está, e "Validar agora" (/api/saude) valida na hora.
+              const validada = await validarWiki(wiki);
+              return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas, ...await resumoDoInicio(raiz, abertas, process.env, validada), saude: await saudeDaWiki(wiki, validada) });
+            } catch (erro) { return erroDaIngestao(erro); }
           }
           if (url.pathname === "/api/saude" && request.method === "GET") return json(await saudeDaWiki(wiki));
           if (url.pathname === "/api/biblioteca" && request.method === "GET") {
@@ -213,7 +215,9 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
             }
           }
           if (url.pathname === "/api/ingestao" && request.method === "GET") {
-            return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas: await ingestao.listar(), atualizador: await estadoAtualizador(raiz) });
+            try {
+              return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas: await ingestao.listar(), atualizador: await estadoAtualizador(raiz) });
+            } catch (erro) { return erroDaIngestao(erro); }
           }
           if (url.pathname === "/api/atualizador" && request.method === "POST") {
             let corpo: { acao?: unknown };
