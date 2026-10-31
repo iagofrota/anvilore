@@ -208,9 +208,10 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Anvilore\Anvilore.lnk'
       $desktop = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'Anvilore.lnk'
       $abrir = Join-Path $script:Pasta1 'instalador\abrir.ps1'
+      $log = Get-Content -Raw -Encoding UTF8 (Join-Path $script:Pasta1 '.anvilore\instalacao.log')
       Test-Path -LiteralPath $abrir | Should -BeTrue
       foreach ($caminho in @($menu, $desktop)) {
-        Test-Path -LiteralPath $caminho | Should -BeTrue
+        Test-Path -LiteralPath $caminho | Should -BeTrue -Because $log
         $atalho = (New-Object -ComObject WScript.Shell).CreateShortcut($caminho)
         $atalho.TargetPath | Should -Match 'powershell(\.exe)?$'
         $atalho.Arguments | Should -Match 'Get-Content -Raw -Encoding UTF8'
