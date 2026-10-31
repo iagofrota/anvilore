@@ -27,7 +27,7 @@ beforeEach(() => {
   writeFileSync(join(clone, "AGENTS.md"), "contrato");
   mkdirSync(join(clone, "skills")); mkdirSync(join(clone, "src"));
   writeFileSync(join(clone, "src/cli.ts"), "cli");
-  for (const nome of ["bun", "git", "rg", ...alvosConhecidos]) executavel(nome);
+  for (const nome of ["bun", "git", "rg", "yt-dlp", ...alvosConhecidos]) executavel(nome);
   process.env.BUN_INSTALL = join(tmp, "bun"); process.env.BUN_INSTALL_CACHE_DIR = join(tmp, "bun-cache");
   process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH = join(tmp, "bun-transpiler"); process.env.XDG_CACHE_HOME = join(tmp, "cache");
   for (const chave of Object.keys(process.env)) if (chave.toLowerCase() === "path") delete process.env[chave];
@@ -504,4 +504,12 @@ test("Dado agente da ingestão ilegível Quando diagnostico Então a trava desli
 
 test("Dado clone sem .claude/ Quando diagnostico Então não cobra os papéis do Claude Code", async () => {
   expect((await travas())[papeis]).toBeUndefined();
+});
+
+for (const falta of [false, true]) test(`Dado yt-dlp ausente=${falta}, Quando doctor, Então avisa só se faltar sem reprovar`, async () => {
+  await instalarTudo(); completar();
+  if (falta) rmSync(join(bin, process.platform === "win32" ? "yt-dlp.cmd" : "yt-dlp"));
+  expect(await doctor([clone])).toBe(0);
+  const avisos = consoleCapturado.saida.filter(l => l.includes("AVISO:") && l.includes("yt-dlp"));
+  expect(avisos.length).toBe(falta ? 1 : 0);
 });

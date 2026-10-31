@@ -434,3 +434,13 @@ test.skipIf(!linux)("Dado --ajuda, Quando rodo, Então mostra o uso sem instalar
   expect(c.rodar({}, ["--lixo"]).codigo).toBe(2);
   expect(await existe(c.pasta)).toBe(false);
 });
+
+for (const presente of [false,true]) test.skipIf(!linux)(`Dado yt-dlp presente=${presente}, Quando instalo, Então só avisa quando falta e não instala`, async()=>{
+ const c=await novo();
+ if(presente) await c.comando('yt-dlp','#!/bin/sh\necho yt-dlp falso\n');
+ else await rm(join(c.bin,'yt-dlp'),{force:true});
+ const r=c.rodar(); expect(r.codigo,r.tudo).toBe(0);
+ const sucesso=r.saida.slice(r.saida.indexOf('Pronto!'));
+ expect(sucesso.includes('Aviso: sem o yt-dlp, a captura de vídeos do YouTube fica indisponível.')).toBe(!presente);
+ expect(await existe(join(c.home,'.local/bin/yt-dlp'))).toBe(false);
+});

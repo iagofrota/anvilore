@@ -1,12 +1,16 @@
 import { baixarPagina } from "../lib/baixar-pagina";
 import { alternativaMarkdown, decodificar, extrairTexto, MIN_CARACTERES } from "../lib/extrair-texto";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { ehYoutube, escolherLegenda, textoDoJson3 } from "../lib/youtube";
+import { executarYtDlp, type ExecutarYtDlp } from "../lib/yt-dlp";
 import { parseArgs } from "node:util";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 import { estaEmRaw } from "../lib/caminhos";
 import { agoraComOffset, gravarCaptura, montarMd, sha256, validarAssunto, validarSubpasta } from "../lib/raw-captura";
 export type Saida = { codigo: 0 | 1 | 2; linhas: string[]; erro?: string };
-export type Dependencias = { baixar: typeof baixarPagina; ytDlp: (args: string[]) => Promise<{codigo:number;saida:string}>; agora: () => Date };
+export type Dependencias = { baixar: typeof baixarPagina; ytDlp: ExecutarYtDlp; agora: () => Date };
 export const EXTENSOES_IMAGEM = ["png","jpg","jpeg","gif","webp","heic","heif","bmp","tif","tiff"];
 const falha = (codigo: 1 | 2, erro: string): Saida => ({ codigo, linhas: [], erro });
 export async function lerForaDeRaw(p: string, raiz: string): Promise<{caminho:string;bytes:Uint8Array}> {
@@ -26,6 +30,27 @@ export async function capturar(args: string[], raiz: string, deps: Partial<Depen
  if(erro) return falha(2,erro);
  const assunto=v.assunto!; const data=(deps.agora ?? (()=>new Date()))();
  const [comando,fonte]=pos;
+ if(comando === "video" || (comando === "link" && fonte && ehYoutube(fonte))) {
+  if(!fonte || pos.length !== 2 || !ehYoutube(fonte))return falha(2,"informe um link de vídeo do YouTube");
+  const executar=deps.ytDlp ?? executarYtDlp;
+  const pasta=await mkdtemp(join(tmpdir(),"anvilore-legenda-"));
+  try {
+   const metadados=await executar(["-J","--skip-download","--",fonte]);
+   if(metadados.codigo!==0)return falha(1,metadados.codigo===127 ? metadados.saida : "não foi possível consultar as legendas do vídeo");
+   const meta=JSON.parse(metadados.saida);const legenda=escolherLegenda(meta);
+   if(!legenda)return falha(1,"o vídeo não tem legenda");
+   const r=await executar(["--skip-download",legenda.automatica?"--write-auto-subs":"--write-subs","--sub-langs",legenda.idioma,"--sub-format","json3","-o",join(pasta,"%(id)s"),"--",fonte]);
+   if(r.codigo!==0)return falha(1,"não foi possível baixar a legenda integral do vídeo");
+   const arquivo=(await readdir(pasta)).find(n=>n.endsWith(`.${legenda.idioma}.json3`));
+   if(!arquivo)return falha(1,"a legenda integral não foi recebida");
+   const texto=textoDoJson3(JSON.parse(await readFile(join(pasta,arquivo),"utf8")));
+   if(!texto)return falha(1,"a legenda do vídeo está vazia");
+   const bytes=new TextEncoder().encode(texto);
+   const md=montarMd({capturado_em:agoraComOffset(data),origem:fonte,tipo:"video",contexto:v.contexto,sha256:sha256(bytes),metodo:"yt-dlp-json3",titulo:typeof meta.title === "string" ? meta.title : undefined,idioma:legenda.idioma,legenda_automatica:legenda.automatica},bytes);
+   return {codigo:0,linhas:await gravarCaptura(raiz,"video",v.subpasta,assunto,[{ext:"md",bytes:md}],data)};
+  } catch {return falha(1,"não foi possível capturar a legenda integral do vídeo");}
+  finally {await rm(pasta,{recursive:true,force:true});}
+ }
  if(comando === "link") {
   if (!fonte || pos.length !== 2 || (v.metodo !== undefined && v.metodo !== "navegador")) return falha(2,"informe o link e um método de captura válido");
   try { if(!["http:","https:"].includes(new URL(fonte).protocol)) return falha(2,"informe um link http ou https"); } catch {return falha(2,"informe um link válido");}

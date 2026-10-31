@@ -1109,6 +1109,9 @@ passo_final() {
   else
     printf '\n%s\n%s\n\nPara começar:\n  1. Feche este terminal e os agentes que estiverem abertos, e abra de novo.\n  2. %s\n' "$linha1" "$lista_agentes" "$proximo"
     [ "$RG_FALTA" -eq 1 ] && printf 'Aviso: sem o ripgrep (rg), a busca da skill de consulta usa a ferramenta do sistema e pode ser mais lenta. Para maior velocidade, instale o ripgrep (rg).\n'
+    if ! command -v yt-dlp >/dev/null 2>&1; then
+      printf 'Aviso: sem o yt-dlp, a captura de vídeos do YouTube fica indisponível.\n'
+    fi
   fi
   registrar "resumo: $linha1 | $PASTA | $proximo"
   registrar "fim: $([ "$parcial" -eq 1 ] && echo parcial || echo completo)"

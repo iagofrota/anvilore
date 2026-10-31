@@ -496,6 +496,15 @@ Describe 'AnvResultadoFinal' {
     $r.Linhas[-1] | Should -Be 'Aviso: sem o ripgrep (rg), a busca da skill de consulta usa a ferramenta do sistema e pode ser mais lenta. Para maior velocidade, instale o ripgrep (rg).'
     $r.Linhas.Count | Should -Be 7
   }
+  It 'sem yt-dlp avisa em linha própria sem mudar os próximos passos' {
+    $r = AnvResultadoFinal -TemAgente $true -DoctorOk $true -Pasta 'C:\Anvilore' -Agentes @('claude') -SemYtDlp $true
+    $r.Linhas[-1] | Should -Be 'Aviso: sem o yt-dlp, a captura de vídeos do YouTube fica indisponível.'
+    $r.Linhas.Count | Should -Be 7
+  }
+  It 'com yt-dlp não acrescenta aviso' {
+    $r = AnvResultadoFinal -TemAgente $true -DoctorOk $true -Pasta 'C:\Anvilore' -Agentes @('claude') -SemYtDlp $false
+    ($r.Linhas -join "`n") | Should -Not -Match 'yt-dlp'
+  }
   It 'sem agente diz para instalar um e rodar de novo' {
     (AnvResultadoFinal -TemAgente $false -DoctorOk $false).Linhas -join ' ' | Should -Match 'rode o instalador de novo'
   }

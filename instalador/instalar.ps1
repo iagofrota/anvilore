@@ -1069,7 +1069,7 @@ function AnvGravarAtualizacao {
 }
 
 function AnvResultadoFinal {
-  param([bool]$TemAgente, [bool]$DoctorOk, [string]$Pasta = '', [string]$Versao = '', [string[]]$Agentes = @(), [bool]$SemRg = $false, [bool]$Atalho = $false)
+  param([bool]$TemAgente, [bool]$DoctorOk, [string]$Pasta = '', [string]$Versao = '', [string[]]$Agentes = @(), [bool]$SemRg = $false, [bool]$Atalho = $false, [bool]$SemYtDlp = $false)
   $linhas = @()
   if (-not $TemAgente) {
     $linhas += 'O Anvilore está instalado, mas falta um agente (Claude Code, Codex, Gemini ou Copilot).'
@@ -1105,6 +1105,7 @@ function AnvResultadoFinal {
   $linhas += '  1. Feche este terminal e os agentes que estiverem abertos, e abra de novo.'
   $linhas += $(if ($Atalho) { '  2. Abra o atalho Anvilore no Menu Iniciar.' } else { "  2. Abra o Claude Code (ou outro agente) na pasta $Pasta." })
   if ($SemRg) { $linhas += 'Aviso: sem o ripgrep (rg), a busca da skill de consulta usa a ferramenta do sistema e pode ser mais lenta. Para maior velocidade, instale o ripgrep (rg).' }
+  if ($SemYtDlp) { $linhas += 'Aviso: sem o yt-dlp, a captura de vídeos do YouTube fica indisponível.' }
   return [pscustomobject]@{ Codigo = 0; Linhas = $linhas }
 }
 
@@ -1224,7 +1225,7 @@ function AnvPassos {
     # 11 · prova final
     $doc = AnvExecutar $bun @('src/cli.ts', 'doctor') $pasta
     foreach ($l in ($doc.Saida -split "`n")) { if ($l.Trim()) { AnvRegistrar "doctor: $l" } }
-    $res = AnvResultadoFinal -TemAgente (@($agentes).Count -gt 0) -DoctorOk ($doc.Codigo -eq 0) -Pasta $pasta -Versao $versao -Agentes $agentes -SemRg (-not $temRg) -Atalho $atalho
+    $res = AnvResultadoFinal -TemAgente (@($agentes).Count -gt 0) -DoctorOk ($doc.Codigo -eq 0) -Pasta $pasta -Versao $versao -Agentes $agentes -SemRg (-not $temRg) -Atalho $atalho -SemYtDlp (-not (AnvComando 'yt-dlp'))
     foreach ($l in $res.Linhas) { AnvEscrever $l }
     if ((AnvVariavel 'ANVILORE_ESPERAR_ENTER') -eq '1' -and (AnvVariavel 'ANVILORE_SEM_PERGUNTAS') -ne '1') { [void](Read-Host 'Pressione Enter para fechar esta janela') }
     return $res.Codigo
