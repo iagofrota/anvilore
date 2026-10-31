@@ -972,14 +972,70 @@ function AnvOferecerClaudeCode {
   } catch { AnvAviso "não consegui instalar o Claude Code: $($_.Exception.Message)" }
 }
 
-# Passo 10 - fatia U6. A U6 preenche esta função com o atalho "Anvilore" (Menu Iniciar e Área de Trabalho, via .lnk;
-# em Constrained Language Mode o atalho fica por conta do Inno Setup) apontando para o abrir.ps1. Por enquanto não cria nada.
+# Passo 10 - atalho "Anvilore" (Menu Iniciar e Área de Trabalho, via .lnk;
+# em Constrained Language Mode o atalho fica por conta do Inno Setup) apontando para o abrir.ps1.
 # Contrato (igual ao criar_atalho do instalar.sh): recebe a pasta; devolve $true se o atalho existe ao final e $false se não
 # criou. Nunca derruba a instalação: quem chama só muda a última linha do resumo.
 function AnvCriarAtalho {
   param([string]$Pasta)
-  AnvRegistrar "atalho: ponto de chamada ainda vazio (fatia U6); nada foi criado para $Pasta"
-  return $false
+  if ($ExecutionContext.SessionState.LanguageMode -eq 'ConstrainedLanguage') {
+    AnvRegistrar 'atalho: Constrained Language Mode; o Inno Setup cria o atalho'
+    return $false
+  }
+  $abrir = Join-Path $Pasta 'instalador\abrir.ps1'
+  if (-not (Test-Path -LiteralPath $abrir -PathType Leaf)) {
+    AnvRegistrar "atalho: abrir.ps1 não existe em $abrir"
+    return $false
+  }
+  try {
+    $powershell = (Get-Command powershell.exe -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+    if (-not $powershell) { $powershell = (Get-Command pwsh.exe -ErrorAction SilentlyContinue | Select-Object -First 1).Source }
+    if (-not $powershell) { AnvRegistrar 'atalho: PowerShell não foi encontrado'; return $false }
+    $abrirLiteral = $abrir.Replace("'", "''")
+    $pastaLiteral = $Pasta.Replace("'", "''")
+    $argumentos = "-NoLogo -NoProfile -Command `"`$env:ANVILORE_PASTA = '$pastaLiteral'; `$env:ANVILORE_LANCADOR = '$abrirLiteral'; & ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 -LiteralPath `$env:ANVILORE_LANCADOR)))`""
+    $shell = New-Object -ComObject WScript.Shell
+    $programas = [Environment]::GetFolderPath('Programs')
+    if ([string]::IsNullOrWhiteSpace($programas)) {
+      $appData = AnvVariavel 'APPDATA'
+      if (-not $appData) { AnvRegistrar 'atalho: APPDATA não está definido'; return $false }
+      $programas = Join-Path $appData 'Microsoft\Windows\Start Menu\Programs'
+    }
+    $desktopDir = [Environment]::GetFolderPath('DesktopDirectory')
+    if ([string]::IsNullOrWhiteSpace($desktopDir)) {
+      $perfil = AnvVariavel 'USERPROFILE'
+      if (-not $perfil) { AnvRegistrar 'atalho: USERPROFILE não está definido'; return $false }
+      $desktopDir = Join-Path $perfil 'Desktop'
+    }
+    $pastaMenu = Join-Path $programas 'Anvilore'
+    $atalhos = @(
+      [pscustomobject]@{ Caminho = Join-Path $pastaMenu 'Anvilore.lnk'; Rotulo = 'Menu Iniciar' },
+      [pscustomobject]@{ Caminho = Join-Path $desktopDir 'Anvilore.lnk'; Rotulo = 'Área de Trabalho' }
+    )
+    $criados = 0
+    foreach ($item in $atalhos) {
+      try {
+        $null = New-Item -ItemType Directory -Path (Split-Path -Parent $item.Caminho) -Force
+        $atalho = $shell.CreateShortcut($item.Caminho)
+        $atalho.TargetPath = $powershell
+        $atalho.Arguments = $argumentos
+        $atalho.WorkingDirectory = $Pasta
+        $atalho.Description = 'Abrir a interface do Anvilore'
+        $atalho.IconLocation = "$powershell,0"
+        $atalho.Save()
+        if (Test-Path -LiteralPath $item.Caminho -PathType Leaf) { $criados++ }
+        else { AnvRegistrar "atalho: não consegui criar o $($item.Rotulo)" }
+      } catch { AnvRegistrar "atalho: não consegui criar o $($item.Rotulo): $($_.Exception.Message)" }
+    }
+    if ($criados -eq 2) {
+      AnvRegistrar "atalho: Menu Iniciar e Área de Trabalho apontam para $abrir; ícone do PowerShell"
+      return $true
+    }
+    return $false
+  } catch {
+    AnvRegistrar "atalho: não consegui criar os atalhos: $($_.Exception.Message)"
+    return $false
+  }
 }
 
 # Passo 8. Instalação nova liga o commit automático (D6). Reinstalação respeita a escolha da pessoa, gravada em autoCommit do

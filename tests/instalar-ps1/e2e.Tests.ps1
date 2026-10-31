@@ -3,11 +3,96 @@
 # O dono não tem Windows (D12): isto é a única prova do instalador no Windows. Cada cenário roda o script de verdade
 # em outro processo, com USERPROFILE/LOCALAPPDATA/TEMP numa pasta nova (com ESPAÇO no nome), contra um repositório
 # local com tag assinada por chave SSH descartável criada aqui. Não prova: administrador (o runner é admin),
-# duplo clique, SmartScreen, Explorer com PATH novo, Constrained Language Mode real.
+# duplo clique, SmartScreen, Explorer com PATH novo e GPO/AppLocker/WDAC reais. O CLM é simulado no teste do launcher.
 #
 # Só roda no Windows. Cenários em Dado / Quando / Então nos comentários.
 
 BeforeDiscovery { $script:EhWindows = ($env:OS -eq 'Windows_NT') }
+
+Describe 'abrir.ps1 em runtime no Windows' -Skip:(-not $script:EhWindows) {
+  BeforeAll {
+    $script:AbrirRaiz = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+    $script:Abrir = Join-Path $script:AbrirRaiz 'instalador\abrir.ps1'
+    $script:AbrirBase = Join-Path $env:TEMP ('anv abrir runtime ' + [guid]::NewGuid().ToString('N'))
+    $script:AbrirPasta = Join-Path $script:AbrirBase 'instalacao'
+    $script:AbrirBin = Join-Path $script:AbrirBase 'bin'
+    $script:AbrirPathAntes = $env:Path
+    $script:AbrirPerfilAntes = $env:USERPROFILE
+    $script:AbrirLocalAntes = $env:LOCALAPPDATA
+    $script:AbrirPastaAntes = $env:ANVILORE_PASTA
+    $script:AbrirLancadorAntes = $env:ANVILORE_LANCADOR
+    $script:AbrirDestinoAntes = $env:ANVILORE_DESTINO
+    New-Item -ItemType Directory -Path @((Join-Path $script:AbrirPasta '.git'), (Join-Path $script:AbrirPasta 'src'), (Join-Path $script:AbrirPasta 'skills'), $script:AbrirBin) -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $script:AbrirPasta 'AGENTS.md') -Value ''
+    Set-Content -LiteralPath (Join-Path $script:AbrirPasta 'src\cli.ts') -Value ''
+    $script:AbrirBun = Join-Path $script:AbrirBin 'bun.cmd'
+    Set-Content -LiteralPath $script:AbrirBun -Encoding ASCII -Value "@echo off`r`necho bun falso: UI`r`nexit /b 7`r`n"
+  }
+
+  BeforeEach {
+    $env:ANVILORE_PASTA = $script:AbrirPasta
+    $env:ANVILORE_LANCADOR = $script:Abrir
+    $env:USERPROFILE = $script:AbrirBase
+    $env:LOCALAPPDATA = Join-Path $script:AbrirBase 'AppData\Local'
+    $env:Path = "$script:AbrirBin;$script:AbrirPathAntes"
+  }
+
+  AfterEach {
+    $env:Path = $script:AbrirPathAntes
+    $env:USERPROFILE = $script:AbrirPerfilAntes
+    $env:LOCALAPPDATA = $script:AbrirLocalAntes
+    $env:ANVILORE_PASTA = $script:AbrirPastaAntes
+    $env:ANVILORE_LANCADOR = $script:AbrirLancadorAntes
+    $env:ANVILORE_DESTINO = $script:AbrirDestinoAntes
+  }
+
+  AfterAll { Remove-Item -LiteralPath $script:AbrirBase -Recurse -Force -ErrorAction SilentlyContinue }
+
+  It 'Dado bun falso, Quando a UI termina com código 7, Então mostra o erro do lançador e aguarda Enter' {
+    Mock Read-Host { 'enter' }
+    $consoleAntes = [Console]::OutputEncoding
+    $outputAntes = $global:OutputEncoding
+    try { $saida = & ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 -LiteralPath $script:Abrir))) *>&1 | Out-String }
+    finally { [Console]::OutputEncoding = $consoleAntes; $global:OutputEncoding = $outputAntes }
+    $saida | Should -Match 'A interface do Anvilore fechou com erro \(código 7\)'
+    Should -Invoke Read-Host -Times 1 -Exactly
+  }
+
+  It 'Dado que Bun não está no PATH, Quando abro a instalação, Então mostro o erro e aguardo Enter' {
+    $env:Path = $script:AbrirBase
+    Mock Read-Host { 'enter' }
+    $consoleAntes = [Console]::OutputEncoding
+    $outputAntes = $global:OutputEncoding
+    try { $saida = & ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 -LiteralPath $script:Abrir))) *>&1 | Out-String }
+    finally { [Console]::OutputEncoding = $consoleAntes; $global:OutputEncoding = $outputAntes }
+    $saida | Should -Match 'Bun não encontrado'
+    Should -Invoke Read-Host -Times 1 -Exactly
+  }
+
+  It 'Dado Constrained Language Mode, Quando avalio o lançador com ScriptBlock.Create, Então reporto se o modo o permite' {
+    $comando = @'
+$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'
+function global:Read-Host { Write-Output 'READ_HOST_CALLED'; return '' }
+try {
+  $bloco = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 -LiteralPath $env:ANVILORE_LANCADOR))
+  & $bloco
+  exit 0
+} catch {
+  Write-Output 'CLM_SCRIPTBLOCK_BLOCKED'
+  exit 42
+}
+'@
+    $saida = & powershell.exe -NoProfile -NonInteractive -Command $comando 2>&1 | Out-String
+    $codigo = $LASTEXITCODE
+    if ($codigo -eq 42 -and $saida -match 'CLM_SCRIPTBLOCK_BLOCKED') {
+      Write-Warning 'CLM bloqueou ScriptBlock.Create; abrir.ps1 precisa da rota de atalho do Inno Setup.'
+    } else {
+      $codigo | Should -Be 0
+      $saida | Should -Match 'A interface do Anvilore fechou com erro \(código 7\)'
+      $saida | Should -Match 'READ_HOST_CALLED'
+    }
+  }
+}
 
 Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
   BeforeAll {
@@ -204,9 +289,20 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $l | Should -Match 'fim, código 0'
     }
     It 'escreveu os acentos certos na saída' { $script:R1.Saida | Should -Match 'instalação' }
-    It 'o passo 10 não criou atalho nem abrir.ps1 (é da U6)' {
-      Get-ChildItem $script:P1 -Recurse -Filter '*.lnk' -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
-      Get-ChildItem $script:Pasta1 -Recurse -Filter 'abrir.ps1' -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+    It 'criou os atalhos do Menu Iniciar e da Área de Trabalho apontando para abrir.ps1' {
+      $menu = Join-Path $script:P1 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Anvilore\Anvilore.lnk'
+      $desktop = Join-Path $script:P1 'Desktop\Anvilore.lnk'
+      $abrir = Join-Path $script:Pasta1 'instalador\abrir.ps1'
+      $log = Get-Content -Raw -Encoding UTF8 (Join-Path $script:Pasta1 '.anvilore\instalacao.log')
+      Test-Path -LiteralPath $abrir | Should -BeTrue
+      foreach ($caminho in @($menu, $desktop)) {
+        Test-Path -LiteralPath $caminho | Should -BeTrue -Because $log
+        $atalho = (New-Object -ComObject WScript.Shell).CreateShortcut($caminho)
+        $atalho.TargetPath | Should -Match 'powershell(\.exe)?$'
+        $atalho.Arguments | Should -Match 'Get-Content -Raw -Encoding UTF8'
+        $atalho.Arguments | Should -Match ([regex]::Escape($abrir))
+        $atalho.IconLocation | Should -Match 'powershell(\.exe)?,0'
+      }
     }
     It 'não sobrou pasta de passagem' { @(Get-ChildItem -LiteralPath $script:P1 -Filter 'Anvilore.novo*' -Force -ErrorAction SilentlyContinue) | Should -BeNullOrEmpty }
   }
@@ -729,16 +825,47 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
 
   Context 'versão e pasta pedidas (ANVILORE_VERSAO e ANVILORE_PASTA)' {
     # Dado uma origem em que a v0.0.2 é falsa (nome trocado) e a v0.0.1 é boa; Quando a pessoa pede a 0.0.1 numa pasta
-    # com espaço; Então instala a 0.0.1 nessa pasta.
+    # com espaço e apóstrofo; Então instala a 0.0.1 nessa pasta.
     BeforeAll {
       $origem = Origem 'duas' 'nome-trocado' $script:Boa $script:Outra
       $script:P5 = Perfil 'pin'
-      $script:R5 = Rodar $script:P5 $origem $script:Release $script:PathComAgente @{ ANVILORE_VERSAO = '0.0.1'; ANVILORE_PASTA = "$($script:P5)\minha pasta" }
+      $script:PastaCustomizada5 = Join-Path $script:P5 "minha pasta da Lia's wiki"
+      $script:R5 = Rodar $script:P5 $origem $script:Release $script:PathComAgente @{ ANVILORE_VERSAO = '0.0.1'; ANVILORE_PASTA = $script:PastaCustomizada5 }
     }
     It 'termina completo'               { $script:R5.Codigo | Should -Be 0 }
     It 'instalou na pasta pedida, na tag pedida' {
-      (& git -C "$($script:P5)\minha pasta" describe --tags --exact-match).Trim() | Should -Be 'v0.0.1'
+      (& git -C $script:PastaCustomizada5 describe --tags --exact-match).Trim() | Should -Be 'v0.0.1'
       Test-Path (Join-Path $script:P5 'Anvilore') | Should -BeFalse
+    }
+    It 'o atalho preserva pasta personalizada com espaço e apóstrofo no runtime' {
+      $atalhoPath = Join-Path $script:P5 'Desktop\Anvilore.lnk'
+      $atalho = (New-Object -ComObject WScript.Shell).CreateShortcut($atalhoPath)
+      $pastaLiteral = $script:PastaCustomizada5.Replace("'", "''")
+      $atalho.Arguments | Should -Match ([regex]::Escape("ANVILORE_PASTA = '$pastaLiteral'"))
+
+      $perfilSemInstalacao = Join-Path $script:Base 'perfil de runtime sem ANVILORE_PASTA'
+      $fallback = Join-Path $perfilSemInstalacao 'Anvilore'
+      $bunBin = Join-Path $perfilSemInstalacao '.bun\bin'
+      $registro = Join-Path $script:Base 'destino do bun aberto pelo atalho.txt'
+      New-Item -ItemType Directory -Path @((Join-Path $fallback '.git'), (Join-Path $fallback 'src'), (Join-Path $fallback 'skills'), $bunBin) -Force | Out-Null
+      Set-Content -LiteralPath (Join-Path $fallback 'AGENTS.md') -Value ''
+      Set-Content -LiteralPath (Join-Path $fallback 'src\cli.ts') -Value ''
+      Set-Content -LiteralPath (Join-Path $bunBin 'bun.cmd') -Encoding ASCII -Value "@echo off`r`necho %ANVILORE_DESTINO%>>`"%ANVILORE_TEST_DESTINO%`"`r`nexit /b 0`r`n"
+
+      $variaveis = @('USERPROFILE', 'LOCALAPPDATA', 'ANVILORE_PASTA', 'ANVILORE_TEST_DESTINO')
+      $ambienteAntes = @{}
+      foreach ($nome in $variaveis) { $ambienteAntes[$nome] = [Environment]::GetEnvironmentVariable($nome, 'Process') }
+      try {
+        $env:USERPROFILE = $perfilSemInstalacao
+        $env:LOCALAPPDATA = Join-Path $perfilSemInstalacao 'AppData\Local'
+        $env:ANVILORE_PASTA = $null
+        $env:ANVILORE_TEST_DESTINO = $registro
+        $processo = Start-Process -FilePath $atalho.TargetPath -ArgumentList $atalho.Arguments -Wait -PassThru -WindowStyle Hidden
+        $processo.ExitCode | Should -Be 0
+        (Get-Content -Raw -LiteralPath $registro).Trim() | Should -Be $script:PastaCustomizada5
+      } finally {
+        foreach ($nome in $variaveis) { [Environment]::SetEnvironmentVariable($nome, $ambienteAntes[$nome], 'Process') }
+      }
     }
   }
 

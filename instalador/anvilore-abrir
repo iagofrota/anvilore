@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Lançador do Anvilore para Linux. Pode morar no kit, em ~/.local/bin ou no pacote.
+set -u
+
+PASTA="${ANVILORE_PASTA:-${HOME:?HOME não definido}/Anvilore}"
+ARQUIVO_LANCADOR="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+ORIGEM="$(cd -- "$(dirname -- "$ARQUIVO_LANCADOR")" 2>/dev/null && pwd -P)"
+
+instalacao_valida() {
+  [ -d "$1/.git" ] && [ -f "$1/AGENTS.md" ] && [ -f "$1/src/cli.ts" ] && [ -d "$1/skills" ]
+}
+
+mostrar_erro_e_esperar() {
+  printf '%s\n' "$@" >&2
+  if [ -t 0 ]; then
+    printf 'Pressione Enter para fechar esta janela. ' >&2
+    IFS= read -r _ || true
+  fi
+}
+
+if ! instalacao_valida "$PASTA"; then
+  INSTALADOR=""
+  if [ -f "$ORIGEM/instalar.sh" ]; then INSTALADOR="$ORIGEM/instalar.sh"
+  elif [ -f /usr/lib/anvilore/instalar.sh ]; then INSTALADOR=/usr/lib/anvilore/instalar.sh
+  elif [ -f "$PASTA/instalador/instalar.sh" ]; then INSTALADOR="$PASTA/instalador/instalar.sh"
+  fi
+  if [ -n "$INSTALADOR" ]; then
+    ANVILORE_PASTA="$PASTA" bash "$INSTALADOR"
+    CODIGO_INSTALADOR=$?
+    if [ "$CODIGO_INSTALADOR" -ne 0 ]; then
+      mostrar_erro_e_esperar "A instalação do Anvilore falhou (código $CODIGO_INSTALADOR)."
+      exit "$CODIGO_INSTALADOR"
+    fi
+  else
+    mostrar_erro_e_esperar "O Anvilore ainda não está instalado em $PASTA." "Instale pelo instalador Linux do Anvilore e abra este atalho de novo."
+    exit 1
+  fi
+  if ! instalacao_valida "$PASTA"; then
+    mostrar_erro_e_esperar "A instalação não foi concluída em $PASTA. Rode o instalador Linux e tente de novo."
+    exit 1
+  fi
+fi
+
+export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
+cd -- "$PASTA" || { mostrar_erro_e_esperar "Não consegui abrir a pasta $PASTA."; exit 1; }
+ANVILORE_DESTINO="$PASTA" bun src/cli.ts ui
+CODIGO=$?
+if [ "$CODIGO" -ne 0 ]; then
+  mostrar_erro_e_esperar "" "A interface do Anvilore fechou com erro (código $CODIGO). Confira a mensagem acima."
+fi
+exit "$CODIGO"
