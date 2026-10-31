@@ -21,6 +21,7 @@ Describe 'abrir.ps1 em runtime no Windows' -Skip:(-not $script:EhWindows) {
     $script:AbrirLocalAntes = $env:LOCALAPPDATA
     $script:AbrirPastaAntes = $env:ANVILORE_PASTA
     $script:AbrirLancadorAntes = $env:ANVILORE_LANCADOR
+    $script:AbrirDestinoAntes = $env:ANVILORE_DESTINO
     New-Item -ItemType Directory -Path @((Join-Path $script:AbrirPasta '.git'), (Join-Path $script:AbrirPasta 'src'), (Join-Path $script:AbrirPasta 'skills'), $script:AbrirBin) -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $script:AbrirPasta 'AGENTS.md') -Value ''
     Set-Content -LiteralPath (Join-Path $script:AbrirPasta 'src\cli.ts') -Value ''
@@ -42,13 +43,17 @@ Describe 'abrir.ps1 em runtime no Windows' -Skip:(-not $script:EhWindows) {
     $env:LOCALAPPDATA = $script:AbrirLocalAntes
     $env:ANVILORE_PASTA = $script:AbrirPastaAntes
     $env:ANVILORE_LANCADOR = $script:AbrirLancadorAntes
+    $env:ANVILORE_DESTINO = $script:AbrirDestinoAntes
   }
 
   AfterAll { Remove-Item -LiteralPath $script:AbrirBase -Recurse -Force -ErrorAction SilentlyContinue }
 
   It 'Dado bun falso, Quando a UI termina com código 7, Então mostra o erro do lançador e aguarda Enter' {
     Mock Read-Host { 'enter' }
-    $saida = & $script:Abrir *>&1 | Out-String
+    $consoleAntes = [Console]::OutputEncoding
+    $outputAntes = $global:OutputEncoding
+    try { $saida = & ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 -LiteralPath $script:Abrir))) *>&1 | Out-String }
+    finally { [Console]::OutputEncoding = $consoleAntes; $global:OutputEncoding = $outputAntes }
     $saida | Should -Match 'A interface do Anvilore fechou com erro \(código 7\)'
     Should -Invoke Read-Host -Times 1 -Exactly
   }
@@ -56,7 +61,10 @@ Describe 'abrir.ps1 em runtime no Windows' -Skip:(-not $script:EhWindows) {
   It 'Dado que Bun não está no PATH, Quando abro a instalação, Então mostro o erro e aguardo Enter' {
     $env:Path = $script:AbrirBase
     Mock Read-Host { 'enter' }
-    $saida = & $script:Abrir *>&1 | Out-String
+    $consoleAntes = [Console]::OutputEncoding
+    $outputAntes = $global:OutputEncoding
+    try { $saida = & ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 -LiteralPath $script:Abrir))) *>&1 | Out-String }
+    finally { [Console]::OutputEncoding = $consoleAntes; $global:OutputEncoding = $outputAntes }
     $saida | Should -Match 'Bun não encontrado'
     Should -Invoke Read-Host -Times 1 -Exactly
   }

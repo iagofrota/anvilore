@@ -332,11 +332,18 @@ mais novo e com o bash do Git for Windows) ou baixa o PortableGit para `%LOCALAP
 `AnvCriarAtalho` cria `Anvilore.lnk` no Menu Iniciar e na Área de Trabalho, apontando para
 `instalador/abrir.ps1` por PowerShell com `Get-Content -Raw -Encoding UTF8` e scriptblock; não usa `-File`, para
 funcionar com GPO `AllSigned`. Em Constrained Language Mode retorna `$false` e deixa a criação para o Inno Setup da
-U7. Os atalhos usam o ícone do PowerShell. `instalador/abrir.ps1` usa a pasta Anvilore do perfil (ou `ANVILORE_PASTA`), procura
-`instalador/instalar.ps1` ao lado e, quando falta a instalação, chama seu conteúdo por scriptblock. Depois prefixa o PATH do
-processo com Bun, binários locais e rg e roda `bun src/cli.ts ui`. Se a UI sair com erro, mostra a mensagem e aguarda
-Enter. Como a UI não descobre servidor existente, cada segundo clique cria outro na próxima porta livre e abre outra
-aba.
+U7. Os atalhos usam o ícone do PowerShell. `instalador/abrir.ps1` usa `%USERPROFILE%` (ou `ANVILORE_PASTA`), procura
+`instalar.ps1` ao lado e, quando falta a instalação, chama seu conteúdo por scriptblock. Depois prefixa o PATH do
+processo com Bun, binários locais, PortableGit e os utilitários de `%LOCALAPPDATA%`, e roda `bun src/cli.ts ui`. Se a UI
+sair com erro, mostra a mensagem e aguarda Enter. Como a UI não descobre servidor existente, cada segundo clique cria
+outro na próxima porta livre e abre outra aba.
+
+**Limite CLM do lançador.** A prova com Windows PowerShell 5.1 em modo `ConstrainedLanguage` rejeitou
+`[scriptblock]::Create`; portanto, o wrapper atual do atalho não inicia `abrir.ps1` nesse modo, mesmo com o script usando
+fallback UTF-8 por `chcp.com`. `AnvCriarAtalho` já registra o modo restrito e retorna `$false`; o caminho delegado é o
+atalho criado pelo Inno Setup da fatia U7. Essa integração precisa usar uma forma de execução permitida pela política
+(por exemplo, um script confiável/assinado ou um executável) e não repetir o mesmo wrapper `ScriptBlock.Create`. A U6
+não afirma suporte a duplo clique sob CLM até essa rota do Inno estar comprovada.
 
 - **Como chamar.** `irm <url> | iex` ou `powershell -NoProfile -Command "& ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 'instalar.ps1')))"`.
   Não use `-ExecutionPolicy Bypass -File`: uma política de grupo vence o parâmetro (PROVA-U0 item 3). O script **nunca chama
