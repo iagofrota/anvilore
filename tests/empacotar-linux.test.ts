@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const raiz = join(import.meta.dir, "..");
+if (process.env.ANVILORE_PULAR_TESTE_NFPM === "1" && !process.env.CI) console.warn("SKIP LOCAL EXPLÍCITO: build nfpm com rede desabilitado por ANVILORE_PULAR_TESTE_NFPM=1; CI exige o build.");
 
 test("Dado a configuração do pacote Linux, Quando leio instalador/linux/nfpm.yaml, Então declara nome anvilore, arch all, dependências e conteúdo do lançador", async () => {
   const yaml = await readFile(join(raiz, "instalador/linux/nfpm.yaml"), "utf8");
@@ -66,7 +67,7 @@ test("Dado a entrada desktop do sistema, Quando leio instalador/linux/anvilore.d
   }
 });
 
-test("Dado o script empacotar-linux, Quando executo o build em diretório temporário, Então gera anvilore.deb e anvilore.rpm com arquivos e permissões corretos", async () => {
+test.skipIf(process.platform !== "linux" || (process.env.ANVILORE_PULAR_TESTE_NFPM === "1" && !process.env.CI))("Dado o script empacotar-linux, Quando executo o build em diretório temporário, Então gera anvilore.deb e anvilore.rpm com arquivos e permissões corretos", async () => {
   const base = await mkdtemp(join(tmpdir(), "anvilore-empacotar-"));
   try {
     const proc = Bun.spawnSync(["bun", join(raiz, "scripts/empacotar-linux.ts"), "--saida", base, "--versao", "0.3.0"], {
@@ -76,11 +77,6 @@ test("Dado o script empacotar-linux, Quando executo o build em diretório tempor
     });
 
     const saidaErro = proc.stderr.toString();
-    if (saidaErro.includes("SKIP_OFFLINE") || proc.stdout.toString().includes("SKIP_OFFLINE")) {
-      console.warn("SKIP: nfpm não pôde ser baixado sem rede; CI cobrirá.");
-      return;
-    }
-
     expect(proc.exitCode, `${proc.stdout.toString()}\n${saidaErro}`).toBe(0);
 
     const deb = join(base, "anvilore.deb");
@@ -107,6 +103,14 @@ test("Dado o script empacotar-linux, Quando executo o build em diretório tempor
     expect(infoDeb).toMatch(/Depends:.*unzip/);
     expect(infoDeb).toMatch(/Depends:.*curl/);
     expect(infoDeb).toMatch(/Depends:.*ca-certificates/);
+    expect(infoDeb).toMatch(/Depends:.*openssh-client/);
+
+    const extracao = join(base, "extraido");
+    expect(Bun.spawnSync(["dpkg-deb", "-x", deb, extracao]).exitCode).toBe(0);
+    const { conferirEmbutidos } = await import("../scripts/embutir-instalador");
+    const [script, manifesto, assinantes, baseMinima] = await Promise.all([join(extracao, "usr/lib/anvilore/instalar.sh"), join(raiz, "instalador/dependencias.json"), join(raiz, "seguranca/assinantes"), join(raiz, "instalador/base-minima")].map(p => readFile(p, "utf8")));
+    expect(conferirEmbutidos(script!, manifesto!, assinantes!, baseMinima!)).toEqual([]);
+    if (Bun.which("desktop-file-validate")) expect(Bun.spawnSync(["desktop-file-validate", join(extracao, "usr/share/applications/anvilore.desktop")]).exitCode).toBe(0);
     expect(infoDeb).toMatch(/Recommends:.*ripgrep/);
 
     if (Bun.which("rpm")) {
@@ -126,18 +130,35 @@ test("Dado o script empacotar-linux, Quando executo o build em diretório tempor
   }
 });
 
-test("Dado um download adulterado de nfpm, Quando o hash não confere, Então o empacotamento é recusado", async () => {
+test("Dado um download adulterado de nfpm, Quando o hash não confere, Então o empacotamento é recusado e fecha com erro", async () => {
   const base = await mkdtemp(join(tmpdir(), "anvilore-adulterado-"));
+  const preload = join(base, "fetch.ts");
+  await writeFile(preload, "globalThis.fetch = async () => new Response(\"adulterado\");");
   try {
-    const proc = Bun.spawnSync(["bun", join(raiz, "scripts/empacotar-linux.ts"), "--hash-nfpm-teste-invalido", "--saida", base], {
+    const proc = Bun.spawnSync([process.execPath, "--preload", preload, join(raiz, "scripts/empacotar-linux.ts"), "--hash-nfpm-teste-invalido", "--saida", base], {
       cwd: raiz,
       stdout: "pipe",
       stderr: "pipe",
     });
-    // Deve falhar com código diferente de 0 acusando SHA-256 divergente
-    expect(proc.exitCode).not.toBe(0);
+    // Deve falhar fechado com código 1 acusando SHA-256 divergente
+    expect(proc.exitCode).toBe(1);
     expect(`${proc.stdout.toString()}\n${proc.stderr.toString()}`).toMatch(/sha256|hash/i);
   } finally {
     await rm(base, { recursive: true, force: true });
   }
+});
+
+test("Dado pacotes pré-existentes no destino, Quando download falha, Então a CLI falha sem aceitar nem apagar o par anterior", async () => {
+  const base = await mkdtemp(join(tmpdir(), "anvilore-limpeza-"));
+  try {
+    const preload = join(base, "fetch.ts");
+    await writeFile(preload, "globalThis.fetch = async () => new Response('ausente', {status: 404});");
+    for (const extensao of ["deb", "rpm"]) await writeFile(join(base, `anvilore.${extensao}`), "anterior");
+    const proc = Bun.spawnSync([process.execPath, "--preload", preload, join(raiz, "scripts/empacotar-linux.ts"), "--saida", base], {
+      cwd: raiz, env: { ...process.env, NFPM_BIN: "" }, stdout: "pipe", stderr: "pipe",
+    });
+    expect(proc.exitCode).toBe(1);
+    expect(proc.stderr.toString()).toContain("HTTP 404");
+    for (const extensao of ["deb", "rpm"]) expect(await readFile(join(base, `anvilore.${extensao}`), "utf8")).toBe("anterior");
+  } finally { await rm(base, { recursive: true, force: true }); }
 });
