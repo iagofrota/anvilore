@@ -493,7 +493,7 @@ Describe 'AnvResultadoFinal' {
   }
   It 'sem rg avisa em linha própria depois dos passos' {
     $r = AnvResultadoFinal -TemAgente $true -DoctorOk $true -Pasta 'C:\Anvilore' -Versao 'v0.3.0' -Agentes @('claude') -SemRg $true
-    $r.Linhas[-1] | Should -Be 'Aviso: sem o ripgrep (rg), a busca da skill de consulta fica indisponível até você instalá-lo.'
+    $r.Linhas[-1] | Should -Be 'Aviso: sem o ripgrep (rg), a busca da skill de consulta usa a ferramenta do sistema e pode ser mais lenta. Para maior velocidade, instale o ripgrep (rg).'
     $r.Linhas.Count | Should -Be 7
   }
   It 'sem agente diz para instalar um e rodar de novo' {

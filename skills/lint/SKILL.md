@@ -100,6 +100,17 @@ marcadores criados para fechar um link e nunca preenchidos.
 
 ## Passo 3 — Varrer o que só julgamento enxerga
 
+Para procurar texto em `wiki/` sem o MCP, prefira `rg --no-ignore` e use o equivalente do sistema quando ele faltar. **Nunca pule a busca.**
+
+| Sistema | Busca por termo (com caminho, linha e texto) | Só arquivos | Palavra exata | Texto literal |
+|---|---|---|---|---|
+| Linux/macOS com `rg` | `rg --no-ignore -in "x" wiki/` | `rg --no-ignore -l -i "x" wiki/` | `rg --no-ignore -w -i "x" wiki/` | `rg --no-ignore -F "x" wiki/` |
+| Linux/macOS sem `rg` | `grep -rn --exclude-dir=.git -i "x" wiki/` | `grep -rl --exclude-dir=.git -i "x" wiki/` | `grep -rwn --exclude-dir=.git -i "x" wiki/` | `grep -rFn --exclude-dir=.git "x" wiki/` |
+| Windows com `rg` | `rg --no-ignore -in "x" wiki/` | `rg --no-ignore -l -i "x" wiki/` | `rg --no-ignore -w -i "x" wiki/` | `rg --no-ignore -F "x" wiki/` |
+| Windows sem `rg` | <code>Get-ChildItem -Path wiki -Recurse -File -Filter *.md &#124; Select-String -Encoding UTF8 -Pattern "x" &#124; ForEach-Object { "{0}:{1}:{2}" -f $_.Path, $_.LineNumber, $_.Line }</code> | <code>Get-ChildItem -Path wiki -Recurse -File -Filter *.md &#124; Select-String -Encoding UTF8 -Pattern "x" -List &#124; Select-Object -ExpandProperty Path</code> | <code>Get-ChildItem -Path wiki -Recurse -File -Filter *.md &#124; Select-String -Encoding UTF8 -Pattern "\bx\b"</code> | <code>Get-ChildItem -Path wiki -Recurse -File -Filter *.md &#124; Select-String -Encoding UTF8 -SimpleMatch "x"</code> |
+
+`grep` e `Get-ChildItem` não leem `.gitignore`. No PowerShell 7, `-Encoding UTF8` é opcional; ele é necessário no Windows PowerShell 5.1.
+
 A varredura do Passo 2 é mecânica. Esta não é: aqui você lê.
 
 ### 3a — Contradições declaradas
@@ -125,6 +136,7 @@ procura:
 
 ```bash
 rg --no-ignore -n '^## \[.*\] query \|' wiki/log/
+# Sem rg: grep -rn -E '^## \[.*\] query \|' wiki/log/
 ```
 
 Para cada entrada de consulta encontrada, confira se o bloco dela tem a linha

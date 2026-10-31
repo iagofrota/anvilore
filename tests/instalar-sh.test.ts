@@ -87,9 +87,9 @@ test.skipIf(!linux)("Dado rg com SHA-256 que não confere, Quando instalo, Entã
   expect(r.codigo, r.tudo).toBe(0);
   expect(await existe(join(c.home, ".local/bin/rg"))).toBe(false);
   expect(r.saida).toContain("Aviso: o download do rg não confere com o SHA-256");
-  expect(r.saida).toContain("sem o rg, a busca da skill query fica indisponível");
+  expect(r.saida).toContain("sem o rg, a busca da skill query usa a ferramenta do sistema e pode ser mais lenta");
   const sucesso = r.saida.slice(r.saida.indexOf("Pronto!"));
-  expect(sucesso).toContain("Aviso: sem o ripgrep (rg), a busca da skill de consulta fica indisponível até você instalá-lo.\n");
+  expect(sucesso).toContain("Aviso: sem o ripgrep (rg), a busca da skill de consulta usa a ferramenta do sistema e pode ser mais lenta. Para maior velocidade, instale o ripgrep (rg).\n");
   expect(sucesso).not.toMatch(/bun|PATH|\.profile|\.bashrc|\.zshrc/i);
   expect(await existe(join(c.tmp, "rg"))).toBe(false);
   expect(await existe(join(c.pasta, "src/cli.ts"))).toBe(true);

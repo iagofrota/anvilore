@@ -64,6 +64,8 @@ test("Dado rg ausente Quando instalo Então avisa sobre query sem falhar nem ins
   expect(r.erros).toBe(0);
   expect(r.instalados).toContain("claude");
   expect(r.mensagens.join("\n")).toMatch(/AVISO:.*query.*rg/);
+  expect(r.mensagens.join("\n")).toContain("ferramenta de busca do sistema");
+  expect(r.mensagens.join("\n")).toContain("pode ficar mais lenta");
   const comoObter = process.platform === "win32" ? "winget install BurntSushi.ripgrep.MSVC"
     : process.platform === "darwin" ? "brew install ripgrep" : "gerenciador de pacotes da sua distribuição";
   expect(r.mensagens.join("\n")).toContain(comoObter);

@@ -69,6 +69,8 @@ test("Dado rg ausente mas travas completas Quando rodo doctor Então avisa sobre
   rmSync(join(bin, process.platform === "win32" ? "rg.cmd" : "rg"));
   expect(await doctor([clone])).toBe(0);
   expect(consoleCapturado.saida.join("\n")).toMatch(/AVISO:.*query.*rg/);
+  expect(consoleCapturado.saida.join("\n")).toContain("ferramenta de busca do sistema");
+  expect(consoleCapturado.saida.join("\n")).toContain("pode ficar mais lenta");
   expect(consoleCapturado.saida.join("\n")).toContain("MCP de consulta à wiki: opcional");
   expect(readdirSync(bin).some(nome => /^rg(?:\.cmd|\.exe)?$/.test(nome))).toBe(false);
 });

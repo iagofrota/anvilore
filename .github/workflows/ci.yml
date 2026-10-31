@@ -77,6 +77,9 @@ jobs:
       - name: Diagnosticar busca da skill query nos shells reais (obtido × esperado)
         if: always()
         run: bun scripts/provar-busca.ts
+      - name: Provar fallback nativo de busca com acentos e espaços no caminho
+        if: always()
+        run: bun scripts/provar-busca-fallback.ts
       - name: Medir latência do hook proteger-raw (20 execuções; imprime mediana e p95 por sistema)
         if: always()
         run: bun scripts/medir-latencia-hook.ts

@@ -414,7 +414,7 @@ passo_rg() {
     *) avisar "não consegui instalar o rg." ;;
   esac
   RG_FALTA=1
-  avisar "sem o rg, a busca da skill query fica indisponível. Instale o ripgrep (rg) e rode este instalador de novo."
+  avisar "sem o rg, a busca da skill query usa a ferramenta do sistema e pode ser mais lenta. Instale o ripgrep (rg) e rode este instalador de novo."
 }
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -1102,13 +1102,13 @@ passo_final() {
     else proximo="Abra o Claude Code (ou outro agente) na pasta $PASTA."; fi
   fi
   if [ "$parcial" -eq 1 ]; then
-    [ "$RG_FALTA" -eq 1 ] && linha1="$linha1 (sem rg: a busca da skill query fica indisponível)"
+    [ "$RG_FALTA" -eq 1 ] && linha1="$linha1 (sem rg: a busca da skill query usa a ferramenta do sistema e pode ser mais lenta)"
     fechar="Feche e abra o terminal e o agente para o PATH novo valer."
     [ -n "$PATH_PERSISTIDO" ] && fechar="Um terminal novo já acha o comando bun (ajustei o PATH em $PATH_PERSISTIDO). Feche e abra o terminal e o agente para valer."
     printf '\n%s\nOnde está: %s\n%s %s\n' "$linha1" "$PASTA" "$proximo" "$fechar"
   else
     printf '\n%s\n%s\n\nPara começar:\n  1. Feche este terminal e os agentes que estiverem abertos, e abra de novo.\n  2. %s\n' "$linha1" "$lista_agentes" "$proximo"
-    [ "$RG_FALTA" -eq 1 ] && printf 'Aviso: sem o ripgrep (rg), a busca da skill de consulta fica indisponível até você instalá-lo.\n'
+    [ "$RG_FALTA" -eq 1 ] && printf 'Aviso: sem o ripgrep (rg), a busca da skill de consulta usa a ferramenta do sistema e pode ser mais lenta. Para maior velocidade, instale o ripgrep (rg).\n'
   fi
   registrar "resumo: $linha1 | $PASTA | $proximo"
   registrar "fim: $([ "$parcial" -eq 1 ] && echo parcial || echo completo)"
