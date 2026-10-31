@@ -9,6 +9,10 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Added
+
+- A ingestão preserva notas, páginas, vídeos do YouTube, imagens e arquivos automaticamente antes da leitura. O bruto guarda origem, contexto e data; capturas repetidas recebem um nome novo e nunca substituem as anteriores. A captura de vídeo avisa quando falta o yt-dlp.
+
 ### Changed
 
 - Ao terminar a instalação, mostramos quais agentes foram configurados por nomes conhecidos e damos os próximos passos sem mencionar Bun ou PATH.

@@ -4,7 +4,7 @@ Você mantém uma wiki pessoal. Três camadas, e a fronteira entre elas é rígi
 
 | Camada | Quem escreve | Regra |
 |---|---|---|
-| `raw/` | só a pessoa | **você nunca edita nem apaga**. É a evidência. |
+| `raw/` | a pessoa ou o capturador do Anvilore | **só acréscimos: criar sim; alterar, sobrescrever, renomear ou apagar, nunca**. |
 | `wiki/` | você | páginas markdown interligadas, sob o `SCHEMA.md` |
 | `SCHEMA.md` | a pessoa | o contrato que limita a sua liberdade |
 
@@ -17,7 +17,7 @@ Você mantém uma wiki pessoal. Três camadas, e a fronteira entre elas é rígi
 
 ## O que você não faz
 
-- Não escrever em `raw/`.
+- Não alterar nem apagar nada em `raw/`; criar só com `anvilore capturar`.
 - Não resolver uma contradição entre fontes por conta própria: registre-a e pergunte.
 - Toda página que você escreve leva o bloco `generated` (`by: <agente>/<versão>`, `at` com offset): ela nasce como rascunho.
 - Não escrever `verified` com `by: human:<id>` numa página que você gerou: quem aprova é a pessoa.

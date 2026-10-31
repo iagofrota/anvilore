@@ -36,6 +36,26 @@ do que ainda é só hipótese.
   sistema (`os.tmpdir()`) e é apagado depois do `verify-tag`. Os testes só falam com loopback; o TLS real contra o
   domínio do dono **não** foi provado em nenhum sistema.
 
+## Captura de fontes e yt-dlp
+
+O comando `anvilore capturar` roda em TypeScript no Bun nos três sistemas (`src/comandos/capturar.ts`).
+Download usa fetch; cópia binária, SHA-256, nomes e criação exclusiva usam as APIs do Bun/Node. Não depende
+de utilitários externos de cópia ou download. Caminhos com espaço e acentos entram nos testes de captura
+(`tests/capturar.test.ts`). O gravador usa hardlink após fsync; sem suporte do disco, cai para criação
+exclusiva com wx, que não é atômica (`src/lib/raw-captura.ts`).
+
+| Função | Linux | macOS | Windows |
+|---|---|---|---|
+| Página, nota, imagem e arquivo | Bun | Bun | Bun |
+| Transcrição do YouTube | yt-dlp opcional | yt-dlp opcional | yt-dlp opcional |
+| Como obter yt-dlp | pipx install yt-dlp ou pacote da distribuição | brew install yt-dlp | winget install yt-dlp |
+| Página que exige JavaScript ou login | Navegador disponível no agente, com a sessão da pessoa | idem | idem |
+
+`src/lib/yt-dlp.ts` procura o executável no PATH. Se faltar, o doctor e a instalação avisam em linha
+própria, e a captura de vídeo para com a orientação do sistema atual. O instalador não instala yt-dlp.
+Sem navegador ou sem arquivo exposto para uma imagem colada, a skill explica o impedimento e para
+(`skills/ingest/SKILL.md`). A coleta não usa cookies por conta própria.
+
 ## MCP de consulta: configuração por agente
 
 O servidor usa stdio e o campo de protocolo `instructions` no `initialize`. O teste do SDK verifica

@@ -1,6 +1,5 @@
 ---
-generated: 2026-10-27
-verified: 2026-10-30
+generated: 2026-10-31
 ---
 
 # Knowledge base do Anvilore
@@ -14,7 +13,7 @@ Quem **mantém uma wiki** com o Anvilore não precisa desta pasta: o contrato é
 
 ## O que é o Anvilore
 
-Um kit para manter uma wiki pessoal curada por um agente de LLM. A pessoa guarda as fontes em
+Um kit para manter uma wiki pessoal curada por um agente de LLM. A pessoa entrega fontes que o capturador preserva em
 `raw/`, o agente lê, resume e interliga páginas Markdown em `wiki/`, e as regras de formato estão
 no `SCHEMA.md`. O kit carrega só o método; o conteúdo é de quem usa (`README.md`, seção "O que é",
 e `.gitignore`).
@@ -32,12 +31,14 @@ Peças que existem hoje no repositório:
   `src/lib/perfil.ts`. O ritual de fechamento também é TypeScript: `src/comandos/fechar.ts`.
 - Onboarding de áreas: `anvilore init`, em `src/comandos/init.ts` (cenários em `tests/init.test.ts`). Cria
   `wiki/<área>/{sources,entities,concepts}`, recusa nome reservado (`src/lib/reservados.ts`) e é idempotente.
+- Captura de notas, páginas, vídeos, imagens e arquivos: `anvilore capturar`, em
+  `src/comandos/capturar.ts`, com criação exclusiva em `src/lib/raw-captura.ts`.
 - Proteção de `raw/` como hook, em TypeScript: `anvilore hook proteger-raw`, em
   `src/comandos/hook-proteger-raw.ts`, chamado pelas formas de `hooks/`.
 - Instalador para Claude Code, Codex, Gemini e Copilot: `anvilore instalar`, em
   `src/comandos/instalar.ts`, com fusão em `src/lib/fundir-json.ts` e `src/lib/fundir-bloco.ts`.
 - Os comandos TypeScript no Bun estão em `src/cli.ts` (tabela de subcomandos) e `src/comandos/`, com a biblioteca em `src/lib/`:
-  `checar-docs`, `checar-release`, `validar`, `instalar`, `init`, `doctor`, `hook`, `fatiar-log`, `indexar-log`,
+  `capturar`, `checar-docs`, `checar-release`, `validar`, `instalar`, `init`, `doctor`, `hook`, `fatiar-log`, `indexar-log`,
   `sincronizar-indice`, `migrar-areas`, `listar-lacunas`, `auditar`, `rejuntar-linhas`, `fechar`, `baseline` e `hooks-wiki`.
   `hooks-wiki` concentra os eventos de commit, backup e manutenção de contexto (`src/comandos/hooks-wiki.ts`).
   O `sincronizar-indice` atualiza só a linha 3 dos índices de área; `--checar` detecta defasagem sem escrever

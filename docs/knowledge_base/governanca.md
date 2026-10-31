@@ -1,6 +1,5 @@
 ---
-generated: 2026-10-27
-verified: 2026-10-30
+generated: 2026-10-31
 ---
 
 # Governança: padrões, guardrails e o que ainda não é imposto
@@ -35,6 +34,36 @@ a ser sobre o texto inteiro, e "não achei caminho" nunca vira "pode passar"
 validador também não imprime PASS quando o diretório não existe (`src/comandos/validar.ts`, função
 `validarWiki`) nem quando um arquivo, o anvilore.toml ou o YAML do frontmatter não lê: cada um vira um
 erro que nomeia o arquivo.
+
+## Captura do bruto: só acréscimos
+
+O caminho de criação é `anvilore capturar` (`src/comandos/capturar.ts`), antes do leitor da ingestão.
+Ferramentas genéricas de edição e comandos de escrita em `raw/` continuam bloqueados pelo hook. O comando
+calcula o destino internamente: a chamada não recebe caminho de destino em `raw/`. A integridade da
+captura depende do gravador, não de liberar comandos arbitrários por nome.
+
+O hook continua fail-closed, inclusive para raw em prosa ou URL; passe contexto por `--contexto-de` e URLs que citem raw por `--url-de`, em arquivos temporários fora da camada protegida (`src/comandos/capturar.ts`).
+
+`src/lib/raw-captura.ts` publica um temporário da mesma pasta com hardlink após escrita e fsync. Um nome
+existente nunca é aberto para escrita; a captura usa o próximo sufixo livre para todo o conjunto de
+arquivos. Colisão no primeiro arquivo tenta outro nome; colisão num arquivo seguinte conserva o que já
+foi criado e avisa que outro processo gravou ao mesmo tempo. Só o temporário da própria operação é apagado.
+Em disco sem hardlink, a criação exclusiva com flag wx continua recusando nomes existentes, mas a escrita
+final não é atômica. Não há promessa de recuperar arquivo parcial após falha nessa alternativa.
+
+O downloader (`src/lib/baixar-pagina.ts`) aceita só HTTP/HTTPS, confere todos os endereços resolvidos em
+cada salto e recusa redes internas, inclusive IPv4 mapeado em IPv6. Loopback só é liberado por opção
+explícita de teste. Status fora de 2xx, tipo que não é texto, mais de cinco redirecionamentos, mais de
+10 MiB ou 30 segundos interrompem a captura. **Limite conhecido:** há uma janela de DNS rebinding entre
+a resolução e a conexão do fetch; a checagem prévia não fixa o endereço da conexão.
+
+A extração (`src/lib/extrair-texto.ts`) escolhe article, main, role=main ou body e remove navegação,
+scripts e formulários. Menos de 200 caracteres interrompe a captura; esse mínimo não prova completude.
+O HTML original fica ao lado do Markdown para auditoria e seu hash vai para o cabeçalho. A skill manda
+parar diante de fonte resumida ou cortada e usar navegador quando houver; não usa WebFetch como bruto
+(`skills/ingest/SKILL.md`). Imagens e arquivos são copiados byte a byte, acompanhados de proveniência.
+O código não interpreta a imagem nessa etapa. O frontmatter da captura registra proveniência, sem
+aprovação humana de página de wiki.
 
 ## O que hoje não é imposto
 

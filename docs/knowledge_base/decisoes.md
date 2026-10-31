@@ -1,6 +1,5 @@
 ---
-generated: 2026-10-28
-verified: 2026-10-30
+generated: 2026-10-31
 ---
 
 # Decisões
@@ -68,12 +67,27 @@ Para a linhagem do método e a argumentação completa das posições de design,
 
 ## A fronteira rígida entre raw e wiki
 
-- `raw/` é da pessoa; `wiki/` é do agente (`AGENTS.md`, tabela de camadas; `FILOSOFIA.md`,
+- `raw/` guarda o bruto, criado pela pessoa ou pelo capturador do Anvilore, sempre só com acréscimos;
+  `wiki/` é do agente (`AGENTS.md`, tabela de camadas; `FILOSOFIA.md`,
   seção 1).
 - O hook `anvilore hook proteger-raw` (`src/comandos/hook-proteger-raw.ts`) transforma a regra em
   recusa **para as ferramentas de edição de arquivo e para o comando de terminal**, dentro dos
   limites de [governanca.md](governanca.md). Ele falha fechado quando não consegue isolar o caminho. O alcance exato está em
   [governanca.md](governanca.md).
+
+## Captura do bruto antes da ingestão (2026-10-31)
+
+- **Decisão do dono do projeto em 2026-10-31:** `raw/` guarda o bruto e só aceita acréscimos. O agente pode
+  criar o registro pelo capturador do Anvilore; nunca altera, sobrescreve, renomeia, move ou apaga algo que
+  já existe. Pedir à pessoa que salve manualmente uma nota, página ou imagem interrompia a experiência de
+  ingestão. A captura automática conserva a prova intacta para conferir a interpretação depois.
+- O comando `anvilore capturar` (`src/comandos/capturar.ts`) cria arquivos exclusivamente, com sufixo em
+  colisões (`src/lib/raw-captura.ts`), e registra origem, data com offset, contexto literal e SHA-256. O
+  HTML original e os binários são preservados; leitura de imagem e resumo ficam fora do bruto.
+- A sessão principal captura antes do leitor. O leitor, a parada de aprovação e o escritor continuam no
+  mesmo fluxo (`skills/ingest/SKILL.md`); a curadoria humana continua valendo para as páginas geradas.
+- YouTube usa `yt-dlp` opcional para legenda JSON3; ausência do programa ou da legenda interrompe a captura
+  com explicação (`src/lib/youtube.ts`, `src/lib/yt-dlp.ts`). Os instaladores avisam e não instalam o programa.
 
 ## Sem RAG; índice local opcional
 
