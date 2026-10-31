@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Anvilore
+Comment=Abra sua wiki pessoal
+Exec=anvilore-abrir
+Icon=anvilore
+Terminal=true
+Categories=Office;Utility;
+StartupNotify=false
