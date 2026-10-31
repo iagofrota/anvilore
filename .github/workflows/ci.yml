@@ -8,6 +8,39 @@ permissions:
   contents: read
 
 jobs:
+  pacotes-linux:
+    name: pacotes Linux (${{ matrix.distro }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [ubuntu, fedora]
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Regressões e build de produção (rede obrigatória)
+        run: bun test tests/empacotar-linux.test.ts tests/empacotar-linux-regressoes.test.ts
+      - name: Conferir scripts Linux
+        run: shellcheck -S warning scripts/empacotar-linux.sh scripts/provar-pacotes-linux.sh scripts/provar-pacote-linux-container.sh instalador/linux/pos-instalacao.sh instalador/linux/pos-remocao.sh
+      - name: Instalar em sistema limpo, abrir em duas contas e remover preservando dados
+        shell: bash
+        run: bash scripts/provar-pacotes-linux.sh '${{ matrix.distro }}' 2>&1 | tee pacotes-linux-${{ matrix.distro }}.log
+      - name: Guardar evidência do runtime (pacotes com chave de teste nunca são publicados)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: prova-pacotes-linux-${{ matrix.distro }}
+          path: pacotes-linux-${{ matrix.distro }}.log
+          retention-days: 7
+
   testes:
     name: testes (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
