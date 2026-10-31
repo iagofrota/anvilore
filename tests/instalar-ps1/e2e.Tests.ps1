@@ -958,6 +958,49 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $p = Start-Process -FilePath $script:SetupExe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR="' + $script:SetupApp + '"') -Wait -PassThru
       $script:SetupInstallCode = $p.ExitCode
       $script:SetupShortcut = New-Object -ComObject WScript.Shell
+      $script:SetupMarca = Join-Path $script:SetupKit 'minha nota pessoal.txt'
+      $script:SetupConteudo = 'nota anterior ao setup repetido: ' + [guid]::NewGuid().ToString('N')
+      Set-Content -LiteralPath $script:SetupMarca -Encoding UTF8 -NoNewline -Value $script:SetupConteudo
+      $script:SetupHash = (Get-FileHash -LiteralPath $script:SetupMarca -Algorithm SHA256).Hash
+      Write-Host "REINSTALACAO_BASE destino=$script:SetupKit marca=$script:SetupHash"
+
+      function script:ReexecutarSetup([bool]$Silencioso, [string]$Escolha = '') {
+        $perfil = Perfil ('setup repetido ' + [guid]::NewGuid().ToString('N'))
+        $novas = @{
+          USERPROFILE = $perfil; HOME = $perfil
+          LOCALAPPDATA = (Join-Path $perfil 'AppData\Local'); APPDATA = (Join-Path $perfil 'AppData\Roaming')
+          TEMP = (Join-Path $perfil 'tmp'); TMP = (Join-Path $perfil 'tmp')
+          ANVILORE_PASTA = $Escolha; ANVILORE_SEM_PERGUNTAS = $null
+        }
+        $salvas = @{}
+        foreach ($nome in $novas.Keys) { $salvas[$nome] = [Environment]::GetEnvironmentVariable($nome, 'Process') }
+        foreach ($dir in @($novas.LOCALAPPDATA, $novas.APPDATA, $novas.TEMP)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        try {
+          foreach ($nome in $novas.Keys) { [Environment]::SetEnvironmentVariable($nome, $novas[$nome], 'Process') }
+          $out = Join-Path $perfil 'out.txt'
+          $err = Join-Path $perfil 'err.txt'
+          if ($Silencioso) {
+            # O mesmo EXE compilado, no mesmo /DIR; nenhum ANVILORE_PASTA herdado salvo se o caso pedir explicitamente.
+            $p = Start-Process -FilePath $script:SetupExe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR="' + $script:SetupApp + '"') -PassThru
+          } else {
+            # O comando GUI literal do .iss roda o instalador real já empacotado, no mesmo {app}.
+            # Só a entrada de Enter é automatizada; qualquer outra pergunta falha em vez de mascarar o destino errado.
+            $iss = Get-Content -Raw -Encoding UTF8 -LiteralPath $script:SetupIss
+            $opcoes = [regex]::Matches($iss, "Params := '((?:''|[^'])*)';")
+            if ($opcoes.Count -ne 2) { throw 'Esperava dois comandos Inno' }
+            $params = $opcoes[0].Groups[1].Value.Replace("''", "'")
+            $params = $params.Replace('-Command "', '-Command "function global:Read-Host { param($Prompt); if ($Prompt -notmatch ''^Pressione Enter'') { throw ''Pergunta inesperada: '' + $Prompt }; Write-Host ''ENTER_GUI_AUTOMATICO''; return '''' }; ')
+            $p = Start-Process -FilePath powershell.exe -ArgumentList $params -WorkingDirectory $script:SetupApp -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
+          }
+          $null = $p.Handle
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); throw 'Reinstalação bloqueada por mais de 180s' }
+          $p.WaitForExit()
+          $saida = if ($Silencioso) { '' } else { (Get-Content -Raw -LiteralPath $out) + (Get-Content -Raw -LiteralPath $err) }
+          return @{ Codigo = $p.ExitCode; Perfil = $perfil; Saida = $saida }
+        } finally {
+          foreach ($nome in $salvas.Keys) { [Environment]::SetEnvironmentVariable($nome, $salvas[$nome], 'Process') }
+        }
+      }
     }
 
     AfterAll {
@@ -988,7 +1031,48 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       }
     }
 
-    It 'Dado /DIR e wiki com espaço e apóstrofo, Quando executo cada lnk sem ambiente herdado, Então Bun recebe o cwd efetivamente instalado' {
+    It 'Dado kit personalizado instalado, Quando repito setup <Modo> sem ANVILORE_PASTA, Então conserva destino e dados sem criar kit padrão' -ForEach @(
+      @{ Modo = 'EXE silencioso'; Silencioso = $true }, @{ Modo = 'comando GUI'; Silencioso = $false }
+    ) {
+      $config = Join-Path $script:SetupApp 'pasta.txt'
+      (Get-Content -Raw -Encoding UTF8 -LiteralPath $config) | Should -Be $script:SetupKit
+      try {
+        $r = ReexecutarSetup $Silencioso
+        $destino = Get-Content -Raw -Encoding UTF8 -LiteralPath $config
+        $criouPadrao = Test-Path -LiteralPath (Join-Path $r.Perfil 'Anvilore')
+        Write-Host "REINSTALACAO modo=$Modo codigo=$($r.Codigo) destino=$destino criou_padrao=$criouPadrao marca=$((Get-FileHash -LiteralPath $script:SetupMarca -Algorithm SHA256).Hash)"
+        $r.Codigo | Should -Be 0 -Because $r.Saida
+        $destino | Should -Be $script:SetupKit
+        $criouPadrao | Should -BeFalse
+        (Get-FileHash -LiteralPath $script:SetupMarca -Algorithm SHA256).Hash | Should -Be $script:SetupHash
+        (Get-Content -Raw -Encoding UTF8 -LiteralPath $script:SetupMarca) | Should -Be $script:SetupConteudo
+        if (-not $Silencioso) { $r.Saida | Should -Match 'ENTER_GUI_AUTOMATICO' }
+      } finally {
+        # Isola os dois casos RED: uma falha no primeiro não pode preparar o destino errado para o segundo.
+        Set-Content -LiteralPath $config -Value $script:SetupKit -Encoding UTF8 -NoNewline
+      }
+    }
+
+    It 'Dado destino registrado diferente, Quando repito setup <Modo> com escolha explícita, Então prioriza a escolha e preserva ambos os dados' -ForEach @(
+      @{ Modo = 'EXE silencioso'; Silencioso = $true }, @{ Modo = 'comando GUI'; Silencioso = $false }
+    ) {
+      $config = Join-Path $script:SetupApp 'pasta.txt'
+      $outro = Perfil ('destino registrado ocupado ' + [guid]::NewGuid().ToString('N'))
+      $marca = Join-Path $outro 'nao apagar.txt'
+      Set-Content -LiteralPath $marca -Value 'dados do outro destino' -Encoding UTF8 -NoNewline
+      Set-Content -LiteralPath $config -Value $outro -Encoding UTF8 -NoNewline
+      try {
+        $r = ReexecutarSetup $Silencioso $script:SetupKit
+        $r.Codigo | Should -Be 0 -Because $r.Saida
+        (Get-Content -Raw -Encoding UTF8 -LiteralPath $config) | Should -Be $script:SetupKit
+        (Get-FileHash -LiteralPath $script:SetupMarca -Algorithm SHA256).Hash | Should -Be $script:SetupHash
+        (Get-Content -Raw -Encoding UTF8 -LiteralPath $marca) | Should -Be 'dados do outro destino'
+        Test-Path -LiteralPath (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
+        Write-Host "REINSTALACAO_EXPLICITA modo=$Modo codigo=$($r.Codigo) destino=$script:SetupKit dados=preservados"
+      } finally { Set-Content -LiteralPath $config -Value $script:SetupKit -Encoding UTF8 -NoNewline }
+    }
+
+    It 'Dado /DIR e wiki com espaço e apóstrofo após reinstalar, Quando executo cada lnk sem ambiente herdado, Então Bun recebe o cwd efetivamente instalado' {
       $registro = Join-Path $script:Base 'setup-cwd.txt'
       $bin = Join-Path $script:Base 'setup-bun-falso'
       $perfil = Join-Path $script:Base 'perfil explorer vazio'
@@ -1045,6 +1129,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       Test-Path -LiteralPath $script:SetupMenuShortcut | Should -BeFalse
       Test-Path -LiteralPath $script:SetupDesktopShortcut | Should -BeFalse
       Test-Path -LiteralPath (Join-Path $script:SetupKit 'package.json') | Should -BeTrue
+      (Get-FileHash -LiteralPath $script:SetupMarca -Algorithm SHA256).Hash | Should -Be $script:SetupHash
     }
 
     It 'Dado Windows sem Git no PATH, Quando instalo silenciosamente, Então uso PortableGit por usuário sem UAC e o doctor passa' {
