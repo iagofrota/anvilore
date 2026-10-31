@@ -9,6 +9,10 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Changed
+
+- Ao terminar a instalação, mostramos quais agentes foram configurados por nomes conhecidos e damos os próximos passos sem mencionar Bun ou PATH.
+
 ## [0.3.1] - 2026-10-31
 
 ### Added

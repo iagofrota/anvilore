@@ -31,10 +31,17 @@ test.skipIf(!linux)("Dado um HOME vazio e o Claude Code instalado, Quando rodo o
   expect((await c.chamadas()).filter(l => l.startsWith("instalar"))[0]).toContain("--auto-commit");
   expect(await c.chamadas()).toContain("init --areas pessoal,profissional,projetos-paralelos,saude");
   expect((await c.chamadas()).some(l => l.startsWith("doctor"))).toBe(true);
-  // 3 linhas finais: o que foi instalado, onde está, o próximo passo.
-  expect(r.saida).toContain("Pronto: Anvilore v0.3.0 instalado (agentes: claude).");
-  expect(r.saida).toContain(`Onde está: ${c.pasta}`);
-  expect(r.saida).toContain("Próximo passo: abra o Claude Code");
+  const sucesso = r.saida.slice(r.saida.indexOf("Pronto!"));
+  expect(sucesso).toBe([
+    `Pronto! Anvilore v0.3.0 instalado em ${c.pasta}.`,
+    "Agente configurado: Claude Code.",
+    "",
+    "Para começar:",
+    "  1. Feche este terminal e os agentes que estiverem abertos, e abra de novo.",
+    `  2. Abra o Claude Code (ou outro agente) na pasta ${c.pasta}.`,
+    "",
+  ].join("\n"));
+  expect(sucesso).not.toMatch(/bun|PATH|\.profile|\.bashrc|\.zshrc/i);
   const log = await c.log();
   expect(log).toContain("tag: v0.3.0");
   expect(log).toContain("resumo:");
@@ -43,6 +50,26 @@ test.skipIf(!linux)("Dado um HOME vazio e o Claude Code instalado, Quando rodo o
   // Nada ficou para trás: pasta temporária de download e clone parcial.
   expect(await existe(join(c.home, ".anvilore-baixando"))).toBe(false);
   expect(Bun.spawnSync(["sh", "-c", `ls -A ${c.home} | grep -c baixando`], { stdout: "pipe" }).stdout.toString().trim()).toBe("0");
+});
+
+test.skipIf(!linux)("Dado vários agentes e atalho do sistema, Quando instalo, Então mostra nomes amigáveis e indica o menu de aplicativos", async () => {
+  const c = await novo({ agentes: ["claude", "codex", "gemini"] });
+  const aplicativos = join(c.pai, "applications");
+  await mkdir(aplicativos);
+  await writeFile(join(aplicativos, "anvilore.desktop"), "[Desktop Entry]\n");
+  const r = c.rodar({ ANVILORE_SYSTEM_APPLICATIONS_DIR: aplicativos });
+  expect(r.codigo, r.tudo).toBe(0);
+  const sucesso = r.saida.slice(r.saida.indexOf("Pronto!"));
+  expect(sucesso).toBe([
+    `Pronto! Anvilore v0.3.0 instalado em ${c.pasta}.`,
+    "Agentes configurados: Claude Code, Codex e Gemini.",
+    "",
+    "Para começar:",
+    "  1. Feche este terminal e os agentes que estiverem abertos, e abra de novo.",
+    "  2. Abra o atalho Anvilore no menu de aplicativos.",
+    "",
+  ].join("\n"));
+  expect(sucesso).not.toMatch(/bun|PATH|\.profile|\.bashrc|\.zshrc/i);
 });
 
 test.skipIf(!linux)("Dado o rg ausente e o manifesto com ele, Quando instalo, Então o rg vai para ~/.local/bin com o hash conferido (cenário 35)", async () => {
@@ -61,7 +88,9 @@ test.skipIf(!linux)("Dado rg com SHA-256 que não confere, Quando instalo, Entã
   expect(await existe(join(c.home, ".local/bin/rg"))).toBe(false);
   expect(r.saida).toContain("Aviso: o download do rg não confere com o SHA-256");
   expect(r.saida).toContain("sem o rg, a busca da skill query fica indisponível");
-  expect(r.saida).toContain("sem rg: a busca da skill query fica indisponível");
+  const sucesso = r.saida.slice(r.saida.indexOf("Pronto!"));
+  expect(sucesso).toContain("Aviso: sem o ripgrep (rg), a busca da skill de consulta fica indisponível até você instalá-lo.\n");
+  expect(sucesso).not.toMatch(/bun|PATH|\.profile|\.bashrc|\.zshrc/i);
   expect(await existe(join(c.tmp, "rg"))).toBe(false);
   expect(await existe(join(c.pasta, "src/cli.ts"))).toBe(true);
 });
@@ -71,7 +100,7 @@ test.skipIf(!linux)("Dado plataforma sem entrada de rg no manifesto, Quando inst
   const r = c.rodar();
   expect(r.codigo, r.tudo).toBe(0);
   expect(r.saida).toContain("não consegui instalar o rg");
-  expect(r.saida).toContain("Pronto:");
+  expect(r.saida).toContain("Pronto! Anvilore v0.3.0 instalado em ");
 });
 
 test.skipIf(!linux)("Dado rg já no sistema, Quando instalo, Então usa o dele e não baixa nada", async () => {
@@ -183,7 +212,7 @@ esac
   expect(r.saida).toContain("Instalando o Claude Code");
   expect(await existe(join(c.home, ".local/bin/claude"))).toBe(true);
   expect(await c.estado()).toMatchObject({ alvos: ["claude"] });
-  expect(r.saida).toContain("Pronto: Anvilore v0.3.0 instalado (agentes: claude).");
+  expect(r.saida).toContain(`Pronto! Anvilore v0.3.0 instalado em ${c.pasta}.`);
   expect(await existe(join(c.pasta, ".claude/hook.json"))).toBe(true);
 });
 
@@ -227,7 +256,7 @@ test.skipIf(!linux)("Dado uma instalação existente, Quando rodo de novo, Entã
   expect(Bun.spawnSync(["git", "-C", c.pasta, "rev-parse", "HEAD"], { stdout: "pipe" }).stdout.toString().trim()).toBe(cabeca);
   const log = await c.log();
   expect(log.match(/início: instalar\.sh/g)?.length).toBe(2);
-  expect(r.saida).toContain("Pronto:");
+  expect(r.saida).toContain(`Pronto! Anvilore v0.3.0 instalado em ${c.pasta}.`);
 });
 
 test.skipIf(!linux)("R1: Dado uma instalação existente, Quando rodo de novo, Então o atualizador recebe as chaves embutidas pela opção --assinantes-do-instalador (arquivo com o conteúdo embutido)", async () => {

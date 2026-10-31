@@ -1069,7 +1069,7 @@ function AnvGravarAtualizacao {
 }
 
 function AnvResultadoFinal {
-  param([bool]$TemAgente, [bool]$DoctorOk, [string]$Pasta = '', [string]$Versao = '', [bool]$SemRg = $false, [bool]$Atalho = $false)
+  param([bool]$TemAgente, [bool]$DoctorOk, [string]$Pasta = '', [string]$Versao = '', [string[]]$Agentes = @(), [bool]$SemRg = $false, [bool]$Atalho = $false)
   $linhas = @()
   if (-not $TemAgente) {
     $linhas += 'O Anvilore está instalado, mas falta um agente (Claude Code, Codex, Gemini ou Copilot).'
@@ -1082,11 +1082,29 @@ function AnvResultadoFinal {
     $linhas += "Os detalhes estão em $Pasta\.anvilore\instalacao.log"
     return [pscustomobject]@{ Codigo = 1; Linhas = $linhas }
   }
-  $linhas += "Anvilore $Versao instalado."
-  $linhas += "Pasta: $Pasta"
-  $linhas += $(if ($Atalho) { 'Próximo passo: abra o atalho Anvilore no Menu Iniciar.' } else { 'Próximo passo: abra o seu agente (por exemplo o Claude Code) dentro dessa pasta.' })
-  $linhas += 'Feche e abra o terminal e o agente para o PATH novo valer.'
-  if ($SemRg) { $linhas += 'Aviso: sem o ripgrep (rg) a busca da skill de consulta fica indisponível até você instalá-lo.' }
+  $nomes = @($Agentes | ForEach-Object {
+    switch ($_ ) {
+      'claude' { 'Claude Code'; break }
+      'codex' { 'Codex'; break }
+      'gemini' { 'Gemini'; break }
+      'copilot' { 'Copilot'; break }
+      default { $_ }
+    }
+  })
+  if ($nomes.Count -eq 1) {
+    $listaAgentes = "Agente configurado: $($nomes[0])."
+  } else {
+    $anteriores = @($nomes[0..($nomes.Count - 2)]) -join ', '
+    $listaAgentes = "Agentes configurados: $anteriores e $($nomes[-1])."
+  }
+  $versaoVisivel = if (-not $Versao) { '' } elseif ($Versao.StartsWith('v')) { "$Versao " } else { "v$Versao " }
+  $linhas += "Pronto! Anvilore ${versaoVisivel}instalado em $Pasta."
+  $linhas += $listaAgentes
+  $linhas += ''
+  $linhas += 'Para começar:'
+  $linhas += '  1. Feche este terminal e os agentes que estiverem abertos, e abra de novo.'
+  $linhas += $(if ($Atalho) { '  2. Abra o atalho Anvilore no Menu Iniciar.' } else { "  2. Abra o Claude Code (ou outro agente) na pasta $Pasta." })
+  if ($SemRg) { $linhas += 'Aviso: sem o ripgrep (rg), a busca da skill de consulta fica indisponível até você instalá-lo.' }
   return [pscustomobject]@{ Codigo = 0; Linhas = $linhas }
 }
 
@@ -1206,7 +1224,7 @@ function AnvPassos {
     # 11 · prova final
     $doc = AnvExecutar $bun @('src/cli.ts', 'doctor') $pasta
     foreach ($l in ($doc.Saida -split "`n")) { if ($l.Trim()) { AnvRegistrar "doctor: $l" } }
-    $res = AnvResultadoFinal -TemAgente (@($agentes).Count -gt 0) -DoctorOk ($doc.Codigo -eq 0) -Pasta $pasta -Versao $versao -SemRg (-not $temRg) -Atalho $atalho
+    $res = AnvResultadoFinal -TemAgente (@($agentes).Count -gt 0) -DoctorOk ($doc.Codigo -eq 0) -Pasta $pasta -Versao $versao -Agentes $agentes -SemRg (-not $temRg) -Atalho $atalho
     foreach ($l in $res.Linhas) { AnvEscrever $l }
     if ((AnvVariavel 'ANVILORE_ESPERAR_ENTER') -eq '1' -and (AnvVariavel 'ANVILORE_SEM_PERGUNTAS') -ne '1') { [void](Read-Host 'Pressione Enter para fechar esta janela') }
     return $res.Codigo

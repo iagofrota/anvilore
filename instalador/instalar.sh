@@ -1065,7 +1065,7 @@ passo_atualizar_existente() {
 # ---------------------------------------------------------------------------------------------------------------
 
 passo_final() {
-  local codigo parcial=0 resumo_agentes proximo atalho=1 linha1
+  local codigo parcial=0 agente nome lista_agentes="" agentes_anteriores="" agente_atual="" quantidade_agentes=0 proximo atalho=1 linha1 fechar
   rodar bash -c 'cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts doctor "$1"' _ "$PASTA"
   codigo=$?
   [ -z "$AGENTES_ACHADOS" ] && parcial=1
@@ -1074,19 +1074,42 @@ passo_final() {
     falhar "a conferência final (doctor) achou um problema, mostrado acima. O kit está em $PASTA; corrija e rode o instalador de novo."
   fi
   criar_atalho "$PASTA" && atalho=0
-  resumo_agentes="${INSTALADOS:-nenhum agente}"
   if [ "$parcial" -eq 1 ]; then
     linha1="Instalação parcial: o kit ${TAG:+$TAG }está pronto, mas não há agente com a proteção ligada."
     proximo="Instale um agente (por exemplo o Claude Code) e rode este instalador de novo: ele só completa o que falta."
   else
-    linha1="Pronto: Anvilore ${TAG:+$TAG }instalado (agentes: $resumo_agentes)."
-    if [ "$atalho" -eq 0 ]; then proximo="Próximo passo: abra o atalho Anvilore no menu de aplicativos."
-    else proximo="Próximo passo: abra o Claude Code (ou o seu agente) na pasta Anvilore."; fi
+    for agente in $INSTALADOS; do
+      case "$agente" in
+        claude) nome="Claude Code" ;;
+        codex) nome="Codex" ;;
+        gemini) nome="Gemini" ;;
+        copilot) nome="Copilot" ;;
+        *) nome="$agente" ;;
+      esac
+      quantidade_agentes=$((quantidade_agentes + 1))
+      if [ -n "$agente_atual" ]; then
+        agentes_anteriores="${agentes_anteriores:+$agentes_anteriores, }$agente_atual"
+      fi
+      agente_atual="$nome"
+    done
+    if [ "$quantidade_agentes" -eq 1 ]; then
+      lista_agentes="Agente configurado: $agente_atual."
+    else
+      lista_agentes="Agentes configurados: $agentes_anteriores e $agente_atual."
+    fi
+    linha1="Pronto! Anvilore ${TAG:+$TAG }instalado em $PASTA."
+    if [ "$atalho" -eq 0 ]; then proximo="Abra o atalho Anvilore no menu de aplicativos."
+    else proximo="Abra o Claude Code (ou outro agente) na pasta $PASTA."; fi
   fi
-  [ "$RG_FALTA" -eq 1 ] && linha1="$linha1 (sem rg: a busca da skill query fica indisponível)"
-  local fechar="Feche e abra o terminal e o agente para o PATH novo valer."
-  [ -n "$PATH_PERSISTIDO" ] && fechar="Um terminal novo já acha o comando bun (ajustei o PATH em $PATH_PERSISTIDO). Feche e abra o terminal e o agente para valer."
-  printf '\n%s\nOnde está: %s\n%s %s\n' "$linha1" "$PASTA" "$proximo" "$fechar"
+  if [ "$parcial" -eq 1 ]; then
+    [ "$RG_FALTA" -eq 1 ] && linha1="$linha1 (sem rg: a busca da skill query fica indisponível)"
+    fechar="Feche e abra o terminal e o agente para o PATH novo valer."
+    [ -n "$PATH_PERSISTIDO" ] && fechar="Um terminal novo já acha o comando bun (ajustei o PATH em $PATH_PERSISTIDO). Feche e abra o terminal e o agente para valer."
+    printf '\n%s\nOnde está: %s\n%s %s\n' "$linha1" "$PASTA" "$proximo" "$fechar"
+  else
+    printf '\n%s\n%s\n\nPara começar:\n  1. Feche este terminal e os agentes que estiverem abertos, e abra de novo.\n  2. %s\n' "$linha1" "$lista_agentes" "$proximo"
+    [ "$RG_FALTA" -eq 1 ] && printf 'Aviso: sem o ripgrep (rg), a busca da skill de consulta fica indisponível até você instalá-lo.\n'
+  fi
   registrar "resumo: $linha1 | $PASTA | $proximo"
   registrar "fim: $([ "$parcial" -eq 1 ] && echo parcial || echo completo)"
 }

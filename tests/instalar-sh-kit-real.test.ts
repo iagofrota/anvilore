@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { criarChave, gitReal } from "./apoio/kit-atualizavel";
@@ -42,9 +42,21 @@ test.skipIf(!rodar)("Dado o kit real numa tag assinada, Quando instalo do zero e
   await base.comando("claude", '#!/bin/sh\ncase "$1" in --version) echo "2.1.312 (Claude Code)" ;; *) echo claude falso ;; esac\n');
   await base.comando("rg", "#!/bin/sh\necho ripgrep 15.2.0\n");
 
-  const r = base.rodar({ ANVILORE_ORIGEM: origem }, [], script);
+  const systemApps = join(pai, "system-apps");
+  await mkdir(systemApps);
+  const r = base.rodar({ ANVILORE_ORIGEM: origem, ANVILORE_SYSTEM_APPLICATIONS_DIR: systemApps }, [], script);
   expect(r.codigo, r.tudo).toBe(0);
-  expect(r.saida).toContain(`Pronto: Anvilore v${pacote.version} instalado (agentes: claude).`);
+  const sucesso = r.saida.slice(r.saida.indexOf("Pronto!"));
+  expect(sucesso).toBe([
+    `Pronto! Anvilore v${pacote.version} instalado em ${base.pasta}.`,
+    "Agente configurado: Claude Code.",
+    "",
+    "Para começar:",
+    "  1. Feche este terminal e os agentes que estiverem abertos, e abra de novo.",
+    "  2. Abra o atalho Anvilore no menu de aplicativos.",
+    "",
+  ].join("\n"));
+  expect(sucesso).not.toMatch(/bun|PATH|\.profile|\.bashrc|\.zshrc/i);
 
   const pasta = base.pasta;
   const doctor = Bun.spawnSync([process.execPath, "src/cli.ts", "doctor", pasta], { cwd: pasta, env: base.env(), stdout: "pipe", stderr: "pipe" });
