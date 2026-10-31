@@ -825,16 +825,47 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
 
   Context 'versão e pasta pedidas (ANVILORE_VERSAO e ANVILORE_PASTA)' {
     # Dado uma origem em que a v0.0.2 é falsa (nome trocado) e a v0.0.1 é boa; Quando a pessoa pede a 0.0.1 numa pasta
-    # com espaço; Então instala a 0.0.1 nessa pasta.
+    # com espaço e apóstrofo; Então instala a 0.0.1 nessa pasta.
     BeforeAll {
       $origem = Origem 'duas' 'nome-trocado' $script:Boa $script:Outra
       $script:P5 = Perfil 'pin'
-      $script:R5 = Rodar $script:P5 $origem $script:Release $script:PathComAgente @{ ANVILORE_VERSAO = '0.0.1'; ANVILORE_PASTA = "$($script:P5)\minha pasta" }
+      $script:PastaCustomizada5 = Join-Path $script:P5 "minha pasta da Lia's wiki"
+      $script:R5 = Rodar $script:P5 $origem $script:Release $script:PathComAgente @{ ANVILORE_VERSAO = '0.0.1'; ANVILORE_PASTA = $script:PastaCustomizada5 }
     }
     It 'termina completo'               { $script:R5.Codigo | Should -Be 0 }
     It 'instalou na pasta pedida, na tag pedida' {
-      (& git -C "$($script:P5)\minha pasta" describe --tags --exact-match).Trim() | Should -Be 'v0.0.1'
+      (& git -C $script:PastaCustomizada5 describe --tags --exact-match).Trim() | Should -Be 'v0.0.1'
       Test-Path (Join-Path $script:P5 'Anvilore') | Should -BeFalse
+    }
+    It 'o atalho preserva pasta personalizada com espaço e apóstrofo no runtime' {
+      $atalhoPath = Join-Path $script:P5 'Desktop\Anvilore.lnk'
+      $atalho = (New-Object -ComObject WScript.Shell).CreateShortcut($atalhoPath)
+      $pastaLiteral = $script:PastaCustomizada5.Replace("'", "''")
+      $atalho.Arguments | Should -Match ([regex]::Escape($pastaLiteral))
+
+      $perfilSemInstalacao = Join-Path $script:Base 'perfil de runtime sem ANVILORE_PASTA'
+      $fallback = Join-Path $perfilSemInstalacao 'Anvilore'
+      $bunBin = Join-Path $perfilSemInstalacao '.bun\bin'
+      $registro = Join-Path $script:Base 'destino do bun aberto pelo atalho.txt'
+      New-Item -ItemType Directory -Path @((Join-Path $fallback '.git'), (Join-Path $fallback 'src'), (Join-Path $fallback 'skills'), $bunBin) -Force | Out-Null
+      Set-Content -LiteralPath (Join-Path $fallback 'AGENTS.md') -Value ''
+      Set-Content -LiteralPath (Join-Path $fallback 'src\cli.ts') -Value ''
+      Set-Content -LiteralPath (Join-Path $bunBin 'bun.cmd') -Encoding ASCII -Value "@echo off`r`necho %ANVILORE_DESTINO%>>`"%ANVILORE_TEST_DESTINO%`"`r`nexit /b 0`r`n"
+
+      $variaveis = @('USERPROFILE', 'LOCALAPPDATA', 'ANVILORE_PASTA', 'ANVILORE_TEST_DESTINO')
+      $ambienteAntes = @{}
+      foreach ($nome in $variaveis) { $ambienteAntes[$nome] = [Environment]::GetEnvironmentVariable($nome, 'Process') }
+      try {
+        $env:USERPROFILE = $perfilSemInstalacao
+        $env:LOCALAPPDATA = Join-Path $perfilSemInstalacao 'AppData\Local'
+        $env:ANVILORE_PASTA = $null
+        $env:ANVILORE_TEST_DESTINO = $registro
+        $processo = Start-Process -FilePath $atalho.TargetPath -ArgumentList $atalho.Arguments -Wait -PassThru -WindowStyle Hidden
+        $processo.ExitCode | Should -Be 0
+        (Get-Content -Raw -LiteralPath $registro).Trim() | Should -Be $script:PastaCustomizada5
+      } finally {
+        foreach ($nome in $variaveis) { [Environment]::SetEnvironmentVariable($nome, $ambienteAntes[$nome], 'Process') }
+      }
     }
   }
 
