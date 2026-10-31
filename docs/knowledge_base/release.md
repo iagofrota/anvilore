@@ -65,7 +65,7 @@ Só depois de todos esses gates o job assets reúne os três pacotes e os script
 as assinaturas offline contra a âncora anterior filtrada pelo site e gera SHA256SUMS. O único job com
 permissão de escrita é rascunho: confere novamente os hashes do transporte e chama
 `scripts/criar-rascunho-release.ts` com a opção explícita de criação. Esse comando exige tag remota
-já existente, versão igual ao pacote, notas e o conjunto fechado dos dez assets; usa somente
+já existente, versão igual ao pacote, notas idênticas à seção datada do CHANGELOG e o conjunto fechado dos dez assets; usa somente
 `gh release create --draft --verify-tag`. Não edita release existente, não cria tag, e marca sufixos
 SemVer como pré-release. A pessoa lê o rascunho e clica Publicar.
 

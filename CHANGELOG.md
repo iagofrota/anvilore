@@ -21,6 +21,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - O gate da tag exige também as assinaturas públicas dos scripts, feitas offline e versionadas antes da tag; o CI verifica a confiança anterior sem receber chave privada.
 - O workflow autentica a tag antes de executar a candidata, reutiliza o CI completo, constrói os pacotes com scripts conferidos e só cria um rascunho depois dos gates. A publicação continua sendo feita pela pessoa.
 - A lista de revogação do site é consultada com código da versão anterior, antes de carregar a candidata, inclusive seus preloads.
+- O rascunho também confere as notas contra a seção datada do CHANGELOG, impedindo troca do texto no transporte dos artefatos.
 - O CI das branches também executa os builds de produção; o rascunho recusa assets incompletos ou alterados e mantém os scripts assinados offline, sem chave privada no CI.
 
 ### Fixed

@@ -10,6 +10,7 @@ beforeEach(async () => {
   raiz = await mkdtemp(join(tmpdir(), "anv-rascunho-")); pasta = join(raiz, "assets"); await mkdir(pasta);
   await writeFile(join(raiz, "package.json"), JSON.stringify({ version: "0.3.1" }));
   await writeFile(join(pasta, "NOTAS.md"), "- Instalar sem terminal.\n");
+  await writeFile(join(raiz, "CHANGELOG.md"), "## [0.3.1] - 2026-10-31\n\n- Instalar sem terminal.\n");
   const linhas = [];
   for (const nome of nomes) {
     await writeFile(join(pasta, nome), nome);
@@ -30,6 +31,7 @@ test("Dado assets completos, Quando simulo o rascunho, Então não executo GitHu
 test("Dado sufixo SemVer, Quando preparo o rascunho, Então marco pré-release e recuso versão diferente do pacote", async () => {
   const { prepararRascunho } = await carregar();
   await writeFile(join(raiz, "package.json"), JSON.stringify({ version: "0.3.1-rc.1" }));
+  await writeFile(join(raiz, "CHANGELOG.md"), "## [0.3.1-rc.1] - 2026-10-31\n\n- Instalar sem terminal.\n");
   expect(await prepararRascunho(raiz, pasta, "v0.3.1-rc.1")).toContain("--prerelease");
   await expect(prepararRascunho(raiz, pasta, "v0.3.1")).rejects.toThrow("versão");
   await expect(prepararRascunho(raiz, pasta, "--target=main")).rejects.toThrow("versão");
@@ -69,4 +71,10 @@ test("Dado contexto autorizado de tag e executor falso, Quando crio o rascunho, 
   expect(await comandoRascunho(args, { raiz, ambiente, executar: a => { chamadas.push(a); return 0; } })).toBe(0);
   expect(chamadas).toHaveLength(1); expect(chamadas[0]).toContain("--draft");
   expect(await comandoRascunho(args, { raiz, ambiente, executar: () => 1 })).toBe(1);
+});
+
+test("Dado notas alteradas no transporte, Quando preparo o rascunho, Então recuso texto diferente da seção datada autenticada", async () => {
+  const { prepararRascunho } = await carregar();
+  await writeFile(join(pasta, "NOTAS.md"), "- Conteúdo que não está no CHANGELOG.\n");
+  await expect(prepararRascunho(raiz, pasta, "v0.3.1")).rejects.toThrow("CHANGELOG");
 });

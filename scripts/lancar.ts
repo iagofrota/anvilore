@@ -4,17 +4,22 @@ import { parseArgs } from "node:util";
 import { parsearSemVer } from "../src/lib/atualizacao";
 import { embutirInstalador } from "./embutir-instalador";
 
-// Preparo local, sem subprocessos, rede ou acesso à chave privada. Sem --preparar, apenas descreve a saída.
-export async function prepararRelease(raiz: string, versao: string, saida: string, escrever = false): Promise<{ arquivos: string[]; notas: string }> {
-  const pacote = JSON.parse(await readFile(join(raiz, "package.json"), "utf8")) as { version?: unknown };
-  if (!parsearSemVer(versao) || pacote.version !== versao) throw new Error("Versão inválida ou diferente de package.json.");
-  const changelog = await readFile(join(raiz, "CHANGELOG.md"), "utf8");
+export function extrairNotasRelease(changelog: string, versao: string): string {
   const linhas = changelog.split(/\r?\n/);
   const inicio = linhas.findIndex(l => l.startsWith(`## [${versao}] - `));
   if (inicio < 0) throw new Error("CHANGELOG sem seção datada para a versão.");
   const resto = linhas.slice(inicio + 1), fim = resto.findIndex(l => /^##\s/.test(l));
   const notas = `${(fim < 0 ? resto : resto.slice(0, fim)).join("\n").trim()}\n`;
   if (!/^[-*+]\s+\S/m.test(notas)) throw new Error("CHANGELOG sem itens na seção da versão.");
+  return notas;
+}
+
+// Preparo local, sem subprocessos, rede ou acesso à chave privada. Sem --preparar, apenas descreve a saída.
+export async function prepararRelease(raiz: string, versao: string, saida: string, escrever = false): Promise<{ arquivos: string[]; notas: string }> {
+  const pacote = JSON.parse(await readFile(join(raiz, "package.json"), "utf8")) as { version?: unknown };
+  if (!parsearSemVer(versao) || pacote.version !== versao) throw new Error("Versão inválida ou diferente de package.json.");
+  const changelog = await readFile(join(raiz, "CHANGELOG.md"), "utf8");
+  const notas = extrairNotasRelease(changelog, versao);
   const manifesto = await readFile(join(raiz, "instalador/dependencias.json"), "utf8");
   const assinantes = await readFile(join(raiz, "seguranca/assinantes"), "utf8");
   const base = await readFile(join(raiz, "instalador/base-minima"), "utf8");

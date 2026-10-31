@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { extrairNotasRelease } from "./lancar";
 import { parsearSemVer } from "../src/lib/atualizacao";
 
 export const ASSETS_RELEASE = ["AnviloreSetup.exe", "anvilore.deb", "anvilore.rpm", "instalar.sh", "instalar.ps1", "instalar.sh.sig", "instalar.ps1.sig", "instalar.sh.sha256", "instalar.ps1.sha256"].sort();
@@ -26,7 +27,7 @@ export async function prepararRascunho(raiz: string, pasta: string, tag: string)
     if (createHash("sha256").update(await ler(pasta, nome!)).digest("hex") !== esperado) throw new Error(`SHA-256 divergente: ${nome}`);
   }
   const notas = (await ler(pasta, "NOTAS.md")).toString("utf8");
-  if (!/^[-*+]\s+\S/m.test(notas)) throw new Error("Notas da release sem itens.");
+  if (notas !== extrairNotasRelease(await readFile(join(raiz, "CHANGELOG.md"), "utf8"), versao)) throw new Error("Notas diferem da seção datada do CHANGELOG autenticado.");
   return ["gh", "release", "create", tag, ...[...ASSETS_RELEASE, "SHA256SUMS"].map(nome => join(pasta, nome)),
     "--repo", "iagofrota/anvilore", "--draft", "--verify-tag", "--title", `Anvilore ${versao}`, "--notes-file", join(pasta, "NOTAS.md"),
     ...(semver.prerelease.length ? ["--prerelease"] : [])];
