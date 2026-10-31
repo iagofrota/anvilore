@@ -5,6 +5,7 @@ import { lerFrontmatter } from "../lib/frontmatter";
 import { fundirJson } from "../lib/fundir-json";
 import { fundirBloco } from "../lib/fundir-bloco";
 import { agentesDaIngestao, MARCA_DE_GERADO } from "../lib/papeis-ingestao";
+import { avisoYtDlp } from "../lib/yt-dlp";
 import { avisoRg } from "../lib/rg";
 import { escreverPeca, planejarModelos } from "../lib/modelos";
 import { inicializarRepositorioWiki } from "../lib/wiki-repo";
@@ -440,6 +441,8 @@ export async function instalar(opcoes: OpcoesInstalacao): Promise<RelatorioInsta
   }
   const aviso = avisoRg(valorDoPath());
   if (aviso) registrarAviso(contexto, aviso);
+  const video = avisoYtDlp(valorDoPath());
+  if (video) registrarAviso(contexto, video);
   try {
     await instalarEsqueleto(contexto);
     if (!opcoes.simular && (opcoes.autoCommit || opcoes.githubBackup)) {

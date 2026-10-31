@@ -5,6 +5,7 @@ import { fundirBloco } from "../lib/fundir-bloco";
 import { fundirJson } from "../lib/fundir-json";
 import { NOME_DO_PERFIL, carregarPerfil, type Perfil } from "../lib/perfil";
 import { alvosConhecidos, configuracaoDoHook, tirarHookAntigo, valorDoPath, type Alvo } from "./instalar";
+import { avisoYtDlp } from "../lib/yt-dlp";
 import { avisoRg } from "../lib/rg";
 import { registradores, type Ambiente } from "../mcp/registro";
 import { caminhoWiki, repositorioDaWiki } from "../lib/wiki-repo";
@@ -291,6 +292,8 @@ export async function diagnosticar(raiz: string, ambiente: Record<string, string
   const prerequisitos = ["bun", "git"].map(nome => ({ nome, presente: Bun.which(nome, { PATH: path ?? "" }) !== null }));
   const aviso = avisoRg(path);
   const avisos = aviso ? [aviso] : [];
+  const video = avisoYtDlp(path);
+  if (video) avisos.push(video);
   if (migracao.aviso) avisos.push(migracao.aviso);
   if (perfil.hooks?.githubBackup === true) {
     if (!backupOk) {

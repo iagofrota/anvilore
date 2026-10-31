@@ -101,9 +101,35 @@ describe("skill ingest: contrato do fluxo (R70-B a E)", () => {
     expect(escritor).toContain("## Área: <nome>");
   });
 
-  test("Dado fonte que é URL Quando a skill orienta Então o agente não grava em raw/ (decisão 4)", () => {
-    expect(skill).toContain("Você **não** escreve em `raw/`");
-    expect(skill).not.toMatch(/capture o \*\*texto integral\*\* para `raw/);
+  test("Dado fonte nova Quando ingerir Então captura antes do leitor pelo Anvilore", () => {
+    expect(skill).toContain("Passo 0a — Capture o bruto");
+    expect(skill).toContain("anvilore capturar");
+    expect(skill.indexOf("Passo 0a — Capture o bruto")).toBeLessThan(skill.indexOf("## Passo 1 — O leitor"));
+    expect(skill).not.toContain("peça que ela o salve");
+    expect(skill).not.toContain("peça que ela\nsalve");
+  });
+  test("Dado captura de site Quando instruir Então proíbe resumo e WebFetch e para se cortado", () => {
+    expect(skill).toMatch(/WebFetch[^\n]*proibido|proibido[^\n]*WebFetch/i);
+    expect(skill).toMatch(/resumo não é captura/);
+    expect(skill).toMatch(/truncad[oa]|cortad[oa]/);
+    expect(skill).toContain("PARE");
+  });
+  test("Dado extração impossível Quando houver navegador Então troca de método sem pedir licença", () => {
+    expect(skill).toContain("--metodo navegador");
+    expect(skill).toContain("sem pedir licença");
+    expect(skill).toContain("uma linha");
+  });
+  test("Dado imagem colada sem arquivo exposto Quando capturar Então para e orienta anexo", () => {
+    expect(skill).toContain("não expuser o arquivo");
+    expect(skill).toMatch(/anex[oa]/);
+  });
+  test("Dado fonte em raw Quando ingerir Então usa direto sem recaptura", () => {
+    expect(skill).toContain("já está em `raw/`");
+    expect(skill).toContain("sem capturar de novo");
+  });
+  test("Dado contrato Quando descrever raw Então aceita só acréscimos pelo capturador", () => {
+    expect(agents).toContain("| `raw/` | a pessoa ou o capturador do Anvilore | **só acréscimos: criar sim; alterar, sobrescrever, renomear ou apagar, nunca**. |");
+    expect(agents).toContain("Não alterar nem apagar nada em `raw/`; criar só com `anvilore capturar`");
   });
 
   test("Dado o AGENTS.md Quando descreve o registro e a geração Então é coerente com a skill", () => {
@@ -183,4 +209,13 @@ describe("skill ingest: leitor e escritor sempre separados (W06)", () => {
     expect(leitor).toContain("**Conceito novo precisa merecer página.**");
     expect(leitor).toContain("**Sigla ou apelido não é entidade existente.**");
   });
+});
+
+test('Dado arquivo Markdown capturado Quando orientar leitor Então a fonte é .original.md',()=>{
+ expect(skill).toContain('Para arquivo `.md`, a fonte do leitor é o `.original.md`');
+});
+
+test('Dado contexto e URL com raw Quando orientar captura Então transporta por arquivo sem afrouxar hook',()=>{
+ expect(skill).toContain('--contexto-de');expect(skill).not.toMatch(/--contexto(?:\s|`)/);
+ expect(skill).toContain('--url-de');expect(skill).toContain('quando a URL tiver um trecho `raw`');
 });

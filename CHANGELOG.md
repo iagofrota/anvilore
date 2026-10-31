@@ -9,6 +9,18 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Fixed
+
+- Transcrições conservam falas iguais ditas em momentos diferentes; só duplicatas técnicas da mesma legenda são removidas.
+
+- Páginas que oferecem texto ou Markdown também guardam o download original, preservando seus bytes e hash quando há conversão de acentos ou codificação.
+
+- A captura de páginas preserva os cabeçalhos do artigo, incluindo título, resumo, autoria e data, ao separar o conteúdo principal da navegação do site.
+
+### Added
+
+- A ingestão preserva notas, páginas, vídeos do YouTube, imagens e arquivos automaticamente antes da leitura. O bruto guarda origem, contexto e data; capturas repetidas recebem um nome novo e nunca substituem as anteriores. A captura de vídeo avisa quando falta o yt-dlp.
+
 ### Changed
 
 - Ao terminar a instalação, mostramos quais agentes foram configurados por nomes conhecidos e damos os próximos passos sem mencionar Bun ou PATH.

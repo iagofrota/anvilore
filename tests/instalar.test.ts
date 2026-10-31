@@ -29,7 +29,7 @@ beforeEach(() => {
   mkdirSync(join(destino, "skills")); mkdirSync(join(destino, "src"));
   writeFileSync(join(destino, "src/cli.ts"), "cli");
   const bin = join(tmp, "bin"); mkdirSync(bin);
-  for (const alvo of ["claude", "codex", "gemini", "copilot", "rg"]) {
+  for (const alvo of ["claude", "codex", "gemini", "copilot", "rg", "yt-dlp"]) {
     writeFileSync(join(bin, process.platform === "win32" ? `${alvo}.cmd` : alvo), "echo teste\n", { mode: 0o755 });
   }
   process.env.PATH = bin; process.env.HOME = lar; process.env.USERPROFILE = lar;
@@ -773,4 +773,12 @@ test("Dado agente que não dá para ler Quando instalo Então relata erro em vez
   const r = await rodar(["claude"]);
   expect(r.codigo).toBe(4);
   expect(comBarras(r.mensagens.join("\n"))).toContain(".claude/agents/anvilore-leitor.md");
+});
+
+for (const falta of [false, true]) test(`Dado yt-dlp ausente=${falta}, Quando instalar, Então avisa só se faltar sem instalar a dependência`, async () => {
+  const exe = join(process.env.PATH!, process.platform === "win32" ? "yt-dlp.cmd" : "yt-dlp");
+  if (falta) rmSync(exe);
+  const r = await rodar(); expect(r.codigo).toBe(0);
+  expect(r.mensagens.filter(l => l.includes("AVISO:") && l.includes("yt-dlp")).length).toBe(falta ? 1 : 0);
+  expect(existsSync(exe)).toBe(!falta);
 });

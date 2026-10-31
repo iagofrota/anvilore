@@ -44,19 +44,62 @@ o arquivo do seu papel e nunca despache outro agente.
 
 ## Passo 0 — A fonte, a rota e a área
 
-**A fonte tem de estar em `raw/`.** Localize o arquivo que a pessoa indicou. Se não existir, avise e pare.
-Nunca ingira a partir de fora de `raw/`. Se a pessoa colou o conteúdo no chat, peça que ela o salve em
-`raw/` primeiro.
+### Passo 0a — Capture o bruto
 
-### Fonte que é uma URL
+Quem captura é a **sessão principal, antes do leitor**. Nunca altere, sobrescreva, renomeie ou apague
+algo em `raw/`; crie arquivos novos só com `anvilore capturar`. O comando escolhe o destino e acrescenta
+um sufixo quando o nome existe. Rode na raiz da wiki; respeite a subpasta que a pessoa indicar usando
+`--subpasta`, um único segmento. Escolha um `--assunto` curto, minúsculo, sem acentos e separado por hífens.
+Para contexto, grave a frase literal da pessoa num arquivo temporário **fora de raw/** usando a ferramenta
+de escrita, sem resumir, corrigir, aparar espaços nem mudar quebras de linha. Passe sempre por
+`--contexto-de <contexto-temporário>`; o comando lê o conteúdo do arquivo. Isso preserva aspas e acentos
+sem depender do escape de cada shell.
 
-Você **não** escreve em `raw/`: o contrato proíbe e o hook recusa. Se a pessoa passou um link, peça que ela
-salve o **texto integral** (a página inteira, ou a transcrição do vídeo) em `raw/<subpasta>/<slug>.md` e
-avise quando estiver pronto; só então ingira a partir desse arquivo.
+Passe a URL por `--url-de <url-temporária>` quando a URL tiver um trecho `raw`: grave a URL num arquivo
+temporário fora de `raw/`, e omita a URL posicional. O comando tira só espaços e quebras de linha das
+pontas da URL. URL posicional e `--url-de` juntos são erro. O hook continua fechado: citar raw em linha,
+inclusive numa URL ou em prosa, pode bloquear a chamada; não tente contorná-lo com uma exceção.
 
-Nunca ingira a partir de um resumo: uma ferramenta que resume roda um modelo menor que condensa o conteúdo
-e contaminaria as páginas curadas (viola o princípio de "nada inventado"). Se o arquivo em `raw/` parecer
-resumido, truncado ou incompleto, PARE e diga isso à pessoa.
+**Fonte existente:** se o arquivo já está em `raw/`, use-o direto, sem capturar de novo. Confira que existe;
+se não existir, avise e pare. Nunca siga a ingestão a partir de fora de `raw/`.
+
+**Nota digitada:** salve o texto exatamente como veio em um arquivo temporário fora de `raw/`, sem corrigir,
+resumir, reformatar nem mudar quebras de linha. Execute `anvilore capturar nota --de <temporário> --assunto
+<slug> [--contexto-de <contexto-temporário>]`. O corpo fica literal; o cabeçalho registra origem, data e hash.
+
+**Página ou link:** execute `anvilore capturar link <url> --assunto <slug> [--contexto-de <contexto-temporário>]`.
+O comando prefere Markdown oficial indicado pela página; caso contrário, extrai o conteúdo principal e
+guarda também o HTML original byte a byte. Respostas de texto ou Markdown guardam ainda um irmão
+.original.txt ou .original.md com os bytes baixados, inclusive BOM e charset; use o `.md` de proveniência
+como representação para leitura e os originais irmãos para auditoria. Ao cair para a extração de HTML, diga isso em uma linha.
+WebFetch e ferramentas que resumem são proibidos para esta etapa: resumo não é captura. Não use um modelo
+para reescrever a fonte. Se a captura vier resumida, truncada, cortada ou recusada, PARE; refaça por uma
+ferramenta integral ou explique o impedimento, sem seguir a ingestão com fonte incompleta.
+
+Se a página depender de JavaScript, login ou paywall, ou a extração falhar, use o navegador disponível
+(no Claude Code, a extensão do Chrome), com a sessão da própria pessoa, **sem pedir licença**. Diga em
+uma linha: "Troquei para o navegador para capturar a página inteira." Exporte o texto integral, sem
+resumo nem corte, para um temporário fora de `raw/`; guarde também o HTML renderizado quando a ferramenta
+permitir. Execute `anvilore capturar link <url> --metodo navegador --de <texto-temporário> --html
+<html-temporário> --assunto <slug>`; omita `--html` quando ele não estiver disponível. Se o navegador não
+existir ou também falhar, pare e explique à pessoa.
+
+**Vídeo do YouTube:** execute `anvilore capturar video <url> --assunto <slug> [--contexto-de <contexto-temporário>]`.
+Links do YouTube entregues a `capturar link` seguem essa mesma rota. A legenda humana tem preferência;
+automática também serve. Repetições de fala em tempos distintos permanecem; só duplicatas técnicas
+com a mesma identidade temporal são descartadas. O idioma do vídeo vem primeiro, depois português e inglês. Sem `yt-dlp` ou
+sem legenda disponível, pare e explique o que falta; não invente transcrição.
+
+**Imagem colada ou arquivo:** use o caminho do arquivo que o agente expõe e execute `anvilore capturar
+arquivo <caminho> --assunto <slug> [--contexto-de <contexto-temporário>]`. O original é copiado byte a byte; nunca é movido.
+Para arquivo `.md`, a fonte do leitor é o `.original.md`; o `.md` irmão contém a proveniência.
+O Markdown irmão guarda a proveniência e só o contexto, ou corpo vazio. Sua interpretação da imagem fica
+para o leitor e nunca vira bruto. Se o agente **não expuser o arquivo** da imagem colada, pare e explique:
+"Envie a imagem como anexo de arquivo ou indique o caminho local para eu preservar o original."
+
+Após a captura, use o `.md` criado como fonte de `rota-ingestao` e do leitor. Para imagem e arquivo, a fonte
+é o **binário**, com o `.md` irmão como contexto; passe ambos ao leitor. A primeira linha da saída é o
+Markdown e as demais são os arquivos irmãos. Confira a saída e pare se o comando falhar.
 
 ### A rota
 
@@ -175,7 +218,7 @@ motivo, corrija e execute novamente antes de encerrar o fluxo.
 
 - Nunca ingira um arquivo que não esteja em `raw/`.
 - Nunca sobrescreva conteúdo existente da wiki sem ler primeiro.
-- Nunca escreva `verified`, nem edite `wiki/log.md` (é gerado), nem escreva em `raw/`.
+- Nunca escreva `verified`, nem edite `wiki/log.md` (é gerado), nem altere ou apague nada em `raw/`; criar só pelo capturador do Anvilore.
 - Nunca resolva uma contradição entre fontes: registre e pergunte.
 - Nunca responda perguntas durante o ingest. Se a pessoa perguntar algo no meio do fluxo, anote e diga que
   vai responder depois que o ingest terminar.

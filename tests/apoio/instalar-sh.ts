@@ -125,6 +125,7 @@ export async function criarCenario(opcoes: { agentes?: string[]; comBun?: boolea
   const home = join(pai, "home"), bin = join(pai, "bin"), tmp = join(pai, "tmp");
   await mkdir(home); await mkdir(bin); await mkdir(tmp);
   for (const nome of FERRAMENTAS) { const caminho = Bun.which(nome); if (caminho) await symlink(caminho, join(bin, nome)).catch(() => {}); }
+  await writeFile(join(bin, "yt-dlp"), "#!/bin/sh\necho yt-dlp falso\n", { mode: 0o755 });
   if (opcoes.comBun ?? true) await symlink(BUN_REAL, join(bin, "bun"));
   for (const a of opcoes.agentes ?? ["claude"]) await writeFile(join(bin, a), "#!/bin/sh\necho agente falso\n", { mode: 0o755 });
 

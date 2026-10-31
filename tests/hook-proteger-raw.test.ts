@@ -217,10 +217,10 @@ test("Dado cmd do Codex como string ou vetor Quando decido Então protege raw e 
   expect(decidir(terminal(["cat", "raw/a"], "shell")).acao).toBe("liberar");
 });
 
-test("Dado o subcomando hook Quando recebe stdin Então mantém códigos 0 e 2 e a mensagem antiga", () => {
+test("Dado o subcomando hook Quando recebe stdin Então mantém códigos 0 e 2 e aponta para o capturador", () => {
   const bloqueado = cli(arquivo("raw/exemplo/teste.md"));
   expect(bloqueado.exitCode).toBe(2);
-  expect(bloqueado.stderr.toString()).toContain("Bloqueado: `raw/` é imutável para o agente. A camada de fontes é da pessoa que cura — acrescente o arquivo à mão e peça uma ingestão.");
+  expect(bloqueado.stderr.toString()).toContain("Bloqueado: em raw/ só se acrescenta, e só pelo capturador do Anvilore (anvilore capturar). Nada que já está lá é alterado ou apagado.");
   expect(bloqueado.stderr.toString()).toContain("Motivo:");
   const livre = cli(arquivo("wiki/a.md"));
   expect(livre.exitCode).toBe(0); expect(livre.stdout.toString()).toBe(""); expect(livre.stderr.toString()).toBe("");
@@ -241,7 +241,7 @@ test("Dado rastro opcional Quando executo Então é inerte por padrão e disting
   process.env.ANVILORE_LOG_HOOK = join(temporario, "inexistente/rastro.log");
   expect(await executarProtecao(arquivo("raw/a.md"))).toBe(2);
   expect(await executarProtecao(arquivo("wiki/a.md"))).toBe(0);
-  expect(consoleCapturado.erros.join("\n")).toContain("imutável");
+  expect(consoleCapturado.erros.join("\n")).toContain("só se acrescenta");
 });
 test("Dado rastro apontando para raw Quando executo Então não escreve na camada protegida", async () => {
   const dir = join(temporario, "raw"); mkdirSync(dir);
@@ -949,4 +949,47 @@ test("Dado segmento longo seguido de .. e área que é link para raw/ Quando esc
   const comando = JSON.stringify({ tool_name: "Bash", cwd: base, tool_input: { command: `echo x > wiki/${longo}/../link/x.md` } });
   expect(decidir(comando).acao).toBe("bloquear");
   expect(decidir(arquivo(`${base}/wiki/${longo}/../x.md`)).acao).toBe("liberar");
+});
+
+const formasCaptura = [
+ (comando:string)=>JSON.stringify({tool_name:'Bash',tool_input:{command:comando}}),
+ (comando:string)=>JSON.stringify({tool_name:'exec_command',arguments:{cmd:comando}}),
+ (comando:string)=>JSON.stringify({tool_name:'run_shell_command',tool_input:{command:comando}}),
+ (comando:string)=>JSON.stringify({toolName:'bash',toolArgs:JSON.stringify({command:comando})}),
+];
+for(const [nome,comando,acao] of [
+ ['nota','anvilore capturar nota --de /tmp/n.md --assunto ideia --contexto-de /tmp/c.txt','liberar'],
+ ['link','bun src/cli.ts capturar link https://exemplo.com --assunto artigo','liberar'],
+ ['contexto por arquivo','anvilore capturar arquivo /tmp/a.png --assunto foto --contexto-de /tmp/c.txt','liberar'],
+ ['URL por arquivo','anvilore capturar link --url-de /tmp/u.txt --assunto a','liberar'],
+ ['contexto raw intencionalmente bloqueado','anvilore capturar arquivo /tmp/a.png --assunto foto --contexto "foto raw do evento"','bloquear'],
+ ['URL raw intencionalmente bloqueada','anvilore capturar link https://github.com/u/r/raw/main/a.md --assunto a','bloquear'],
+ ['fonte raw','anvilore capturar nota --de raw/x.md --assunto y','bloquear'],
+ ['composto','anvilore capturar nota --de /tmp/n.md --assunto y && rm raw/notas/a.md','bloquear'],
+ ['PowerShell','Copy-Item C:\\tmp\\a.png raw\\imagens\\a.png','bloquear'],
+] as const) test(`Dado capturador ${nome}, Quando o hook decide nas quatro formas, Então ${acao}`,()=>{
+ for(const payload of formasCaptura) expect(decidir(payload(comando)).acao).toBe(acao);
+});
+test('Dado ferramenta genérica, Quando cria raw/notas/novo.md, Então bloqueia',()=>{
+ for(const tool_name of ['Write','Edit'])expect(decidir(JSON.stringify({tool_name,tool_input:{file_path:'raw/notas/novo.md'}})).acao).toBe('bloquear');
+});
+test('Dado bloqueio, Quando explicar, Então aponta para capturador do Anvilore',async()=>{
+ expect(await executarProtecao(arquivo('raw/notas/novo.md'))).toBe(2);
+ expect(consoleCapturado.erros.join('\n')).toContain('anvilore capturar');
+ expect(consoleCapturado.erros.join('\n')).not.toContain('à mão');
+});
+
+for(const comando of ['ferramenta https://exemplo.com/raw/a.md','ferramenta --descricao "foto raw do evento"'])test(`Dado argumento de dados ${comando}, Quando o verbo é desconhecido, Então continua falhando fechado`,()=>{
+ expect(decidir(terminal(comando)).acao).toBe('bloquear');
+});
+for(const comando of ['ferramenta raw/a.md','ferramenta --path=raw','ferramenta "rm raw"',`node -e "require('fs').rmSync('raw', {recursive:true})"`,`python3 -c "import shutil; shutil.rmtree('raw')"`])test(`Dado caminho ou código ${comando}, Quando julgar, Então continua bloqueado`,()=>{
+ expect(decidir(terminal(comando)).acao).toBe('bloquear');
+});
+
+test('Dado raw solto em interpretador, Quando bun avalia, Então bloqueia',()=>{
+ expect(decidir(terminal(`bun -e "console.log('foto raw do evento')"`)).acao).toBe('bloquear');
+});
+
+test('Dado Git destrutivo sobre raw, Quando decidir, Então clean -fdx e rm -r continuam bloqueados',()=>{
+ for(const comando of ['git clean -fdx raw','git rm -r raw'])for(const payload of formasCaptura)expect(decidir(payload(comando)).acao).toBe('bloquear');
 });
