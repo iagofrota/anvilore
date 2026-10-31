@@ -38,6 +38,7 @@ describe("instalar.ps1: requisitos do passo a passo", () => {
     ["saída em UTF-8", /OutputEncoding/],
     ["Constrained Language Mode cai para reg.exe", /LanguageMode[\s\S]*reg\.exe|reg\.exe[\s\S]*LanguageMode/],
     ["perguntas desligáveis", /ANVILORE_SEM_PERGUNTAS/],
+    ["atalho do Inno não é sobrescrito pelo instalador", /ANVILORE_ATALHO_SETUP/],
     ["origem trocável", /ANVILORE_ORIGEM/],
     ["registro em .anvilore\\instalacao.log", /instalacao\.log/],
     ["confere a assinatura da tag", /verify-tag/],

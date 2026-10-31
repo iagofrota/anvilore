@@ -72,7 +72,7 @@ Describe 'abrir.ps1 em runtime no Windows' -Skip:(-not $script:EhWindows) {
   It 'Dado Constrained Language Mode, Quando avalio o lançador com ScriptBlock.Create, Então reporto se o modo o permite' {
     $comando = @'
 $ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'
-function global:Read-Host { Write-Output 'READ_HOST_CALLED'; return '' }
+function global:Read-Host { Write-Host 'READ_HOST_CALLED'; return '' }
 try {
   $bloco = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 -LiteralPath $env:ANVILORE_LANCADOR))
   & $bloco
@@ -91,6 +91,38 @@ try {
       $saida | Should -Match 'A interface do Anvilore fechou com erro \(código 7\)'
       $saida | Should -Match 'READ_HOST_CALLED'
     }
+  }
+
+  It 'Dado Constrained Language Mode, Quando o atalho avalia abrir.ps1 com Invoke-Expression, Então a UI falsa inicia e o erro é mostrado' {
+    $comando = @'
+$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'
+$env:ANVILORE_PASTA = $env:ANVILORE_PASTA_TESTE
+$env:ANVILORE_LANCADOR = $env:ANVILORE_LANCADOR_TESTE
+function global:Read-Host { Write-Host 'READ_HOST_CALLED'; return '' }
+try {
+  Get-Content -Raw -Encoding UTF8 -LiteralPath $env:ANVILORE_LANCADOR | Invoke-Expression
+  if ($LASTEXITCODE -eq 7) { exit 0 }
+  Write-Output "CLM_UNEXPECTED_EXIT_$LASTEXITCODE"
+  exit 43
+} catch {
+  Write-Output "CLM_IEX_BLOCKED: $($_.Exception.Message)"
+  exit 42
+}
+'@
+    $variaveis = @('ANVILORE_PASTA_TESTE', 'ANVILORE_LANCADOR_TESTE')
+    $antes = @{}
+    foreach ($nome in $variaveis) { $antes[$nome] = [Environment]::GetEnvironmentVariable($nome, 'Process') }
+    try {
+      $env:ANVILORE_PASTA_TESTE = $script:AbrirPasta
+      $env:ANVILORE_LANCADOR_TESTE = $script:Abrir
+      $saida = & powershell.exe -NoProfile -NonInteractive -Command $comando 2>&1 | Out-String
+      $codigo = $LASTEXITCODE
+    } finally {
+      foreach ($nome in $variaveis) { [Environment]::SetEnvironmentVariable($nome, $antes[$nome], 'Process') }
+    }
+    $codigo | Should -Be 0 -Because $saida
+    $saida | Should -Match 'READ_HOST_CALLED'
+    $saida | Should -Match 'A interface do Anvilore fechou com erro \(código 7\)'
   }
 }
 
@@ -895,6 +927,248 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
     It 'não extraiu o Git nem clonou'     {
       Test-Path (Join-Path $script:R4.Perfil 'AppData\Local\Anvilore\git') | Should -BeFalse
       Test-Path (Join-Path $script:R4.Perfil 'Anvilore') | Should -BeFalse
+    }
+  }
+
+  Context 'AnviloreSetup.exe (cenário 31)' {
+    BeforeAll {
+      $iscc = Get-ChildItem 'C:\Program Files*\Inno Setup*\ISCC.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+      if (-not $iscc) { throw 'ISCC.exe não está instalado no runner Windows' }
+      $script:SetupSaida = Join-Path $script:Base 'setup-build'
+      New-Item -ItemType Directory $script:SetupSaida -Force | Out-Null
+      $script:SetupIss = Join-Path $script:Raiz 'instalador\windows\anvilore.iss'
+      $out = & $iscc.FullName "/DVersao=$script:VersaoRepo" "/DInstallerPs1=$script:Release" "/O$script:SetupSaida" $script:SetupIss 2>&1 | Out-String
+      if ($LASTEXITCODE -ne 0) { throw "ISCC falhou ($LASTEXITCODE): $out" }
+      $script:SetupExe = Join-Path $script:SetupSaida 'AnviloreSetup.exe'
+      $script:SetupKit = Join-Path $script:Base "perfil setup\a wiki da Lia's"
+      $script:SetupApp = Join-Path $script:Base "app da Lia's\Anvilore"
+      $script:SetupPrograms = [Environment]::GetFolderPath('Programs')
+      $script:SetupDesktop = [Environment]::GetFolderPath('DesktopDirectory')
+      $script:SetupMenuShortcut = Join-Path $script:SetupPrograms 'Anvilore\Anvilore.lnk'
+      $script:SetupDesktopShortcut = Join-Path $script:SetupDesktop 'Anvilore.lnk'
+      $script:SetupPathAntes = (Get-Item HKCU:\Environment).GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+      $script:SetupAmbienteAntes = @{}
+      foreach ($nome in @('ANVILORE_PASTA', 'ANVILORE_ORIGEM', 'ANVILORE_SEM_PERGUNTAS', 'Path')) {
+        $script:SetupAmbienteAntes[$nome] = [Environment]::GetEnvironmentVariable($nome, 'Process')
+      }
+      $env:ANVILORE_PASTA = $script:SetupKit
+      $env:ANVILORE_ORIGEM = $script:OrigemBoa
+      $env:Path = $script:PathComAgente
+      $env:ANVILORE_SEM_PERGUNTAS = '1'
+      $p = Start-Process -FilePath $script:SetupExe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR="' + $script:SetupApp + '"') -Wait -PassThru
+      $script:SetupInstallCode = $p.ExitCode
+      $script:SetupShortcut = New-Object -ComObject WScript.Shell
+      $script:SetupMarca = Join-Path $script:SetupKit 'minha nota pessoal.txt'
+      $script:SetupConteudo = 'nota anterior ao setup repetido: ' + [guid]::NewGuid().ToString('N')
+      Set-Content -LiteralPath $script:SetupMarca -Encoding UTF8 -NoNewline -Value $script:SetupConteudo
+      $script:SetupHash = (Get-FileHash -LiteralPath $script:SetupMarca -Algorithm SHA256).Hash
+      Write-Host "REINSTALACAO_BASE destino=$script:SetupKit marca=$script:SetupHash"
+
+      function script:ReexecutarSetup([bool]$Silencioso, [string]$Escolha = '') {
+        $perfil = Perfil ('setup repetido ' + [guid]::NewGuid().ToString('N'))
+        $novas = @{
+          USERPROFILE = $perfil; HOME = $perfil
+          LOCALAPPDATA = (Join-Path $perfil 'AppData\Local'); APPDATA = (Join-Path $perfil 'AppData\Roaming')
+          TEMP = (Join-Path $perfil 'tmp'); TMP = (Join-Path $perfil 'tmp')
+          ANVILORE_PASTA = $Escolha; ANVILORE_SEM_PERGUNTAS = $null
+        }
+        $salvas = @{}
+        foreach ($nome in $novas.Keys) { $salvas[$nome] = [Environment]::GetEnvironmentVariable($nome, 'Process') }
+        foreach ($dir in @($novas.LOCALAPPDATA, $novas.APPDATA, $novas.TEMP)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        try {
+          foreach ($nome in $novas.Keys) { [Environment]::SetEnvironmentVariable($nome, $novas[$nome], 'Process') }
+          $out = Join-Path $perfil 'out.txt'
+          $err = Join-Path $perfil 'err.txt'
+          if ($Silencioso) {
+            # O mesmo EXE compilado, no mesmo /DIR; nenhum ANVILORE_PASTA herdado salvo se o caso pedir explicitamente.
+            $p = Start-Process -FilePath $script:SetupExe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR="' + $script:SetupApp + '"') -PassThru
+          } else {
+            # O comando GUI literal do .iss roda o instalador real já empacotado, no mesmo {app}.
+            # Só a entrada de Enter é automatizada; qualquer outra pergunta falha em vez de mascarar o destino errado.
+            $iss = Get-Content -Raw -Encoding UTF8 -LiteralPath $script:SetupIss
+            $opcoes = [regex]::Matches($iss, "Params := '((?:''|[^'])*)';")
+            if ($opcoes.Count -ne 2) { throw 'Esperava dois comandos Inno' }
+            $params = $opcoes[0].Groups[1].Value.Replace("''", "'")
+            $params = $params.Replace('-Command "', '-Command "function global:Read-Host { param($Prompt); if ($Prompt -notmatch ''^Pressione Enter'') { throw ''Pergunta inesperada: '' + $Prompt }; Write-Host ''ENTER_GUI_AUTOMATICO''; return '''' }; ')
+            $p = Start-Process -FilePath powershell.exe -ArgumentList $params -WorkingDirectory $script:SetupApp -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
+          }
+          $null = $p.Handle
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); throw 'Reinstalação bloqueada por mais de 180s' }
+          $p.WaitForExit()
+          $saida = if ($Silencioso) { '' } else { (Get-Content -Raw -LiteralPath $out) + (Get-Content -Raw -LiteralPath $err) }
+          return @{ Codigo = $p.ExitCode; Perfil = $perfil; Saida = $saida }
+        } finally {
+          foreach ($nome in $salvas.Keys) { [Environment]::SetEnvironmentVariable($nome, $salvas[$nome], 'Process') }
+        }
+      }
+    }
+
+    AfterAll {
+      if (Test-Path -LiteralPath $script:SetupApp) {
+        $unins = Get-ChildItem -LiteralPath $script:SetupApp -Filter 'unins*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($unins) { Start-Process -FilePath $unins.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait | Out-Null }
+      }
+      if ($null -ne $script:SetupPathAntes) { Set-ItemProperty HKCU:\Environment -Name Path -Value $script:SetupPathAntes }
+      foreach ($nome in $script:SetupAmbienteAntes.Keys) {
+        [Environment]::SetEnvironmentVariable($nome, $script:SetupAmbienteAntes[$nome], 'Process')
+      }
+    }
+
+    It 'Dado a origem local assinada, Quando instalo silenciosamente, Então o doctor sai 0 e os atalhos apontam para o lançador do setup' {
+      $script:SetupInstallCode | Should -Be 0
+      Test-Path (Join-Path $script:SetupKit 'package.json') | Should -BeTrue
+      $bun = (Get-Command bun -ErrorAction Stop).Source
+      Push-Location $script:SetupKit
+      try { & $bun src/cli.ts doctor | Out-Null; $codigoDoctor = $LASTEXITCODE } finally { Pop-Location }
+      $codigoDoctor | Should -Be 0
+      foreach ($caminho in @($script:SetupMenuShortcut, $script:SetupDesktopShortcut)) {
+        Test-Path -LiteralPath $caminho | Should -BeTrue
+        $lnk = $script:SetupShortcut.CreateShortcut($caminho)
+        $lnk.TargetPath | Should -Match 'powershell\.exe$'
+        $lnk.Arguments | Should -Match 'Get-Content'
+        $lnk.Arguments | Should -Match 'Invoke-Expression'
+        $lnk.Arguments | Should -Not -Match '\s-File\s'
+      }
+    }
+
+    It 'Dado kit personalizado instalado, Quando repito setup <Modo> sem ANVILORE_PASTA, Então conserva destino e dados sem criar kit padrão' -ForEach @(
+      @{ Modo = 'EXE silencioso'; Silencioso = $true }, @{ Modo = 'comando GUI'; Silencioso = $false }
+    ) {
+      $config = Join-Path $script:SetupApp 'pasta.txt'
+      (Get-Content -Raw -Encoding UTF8 -LiteralPath $config) | Should -Be $script:SetupKit
+      try {
+        $r = ReexecutarSetup $Silencioso
+        $destino = Get-Content -Raw -Encoding UTF8 -LiteralPath $config
+        $criouPadrao = Test-Path -LiteralPath (Join-Path $r.Perfil 'Anvilore')
+        Write-Host "REINSTALACAO modo=$Modo codigo=$($r.Codigo) destino=$destino criou_padrao=$criouPadrao marca=$((Get-FileHash -LiteralPath $script:SetupMarca -Algorithm SHA256).Hash)"
+        $r.Codigo | Should -Be 0 -Because $r.Saida
+        $destino | Should -Be $script:SetupKit
+        $criouPadrao | Should -BeFalse
+        (Get-FileHash -LiteralPath $script:SetupMarca -Algorithm SHA256).Hash | Should -Be $script:SetupHash
+        (Get-Content -Raw -Encoding UTF8 -LiteralPath $script:SetupMarca) | Should -Be $script:SetupConteudo
+        if (-not $Silencioso) { $r.Saida | Should -Match 'ENTER_GUI_AUTOMATICO' }
+      } finally {
+        # Isola os dois casos RED: uma falha no primeiro não pode preparar o destino errado para o segundo.
+        Set-Content -LiteralPath $config -Value $script:SetupKit -Encoding UTF8 -NoNewline
+      }
+    }
+
+    It 'Dado destino registrado diferente, Quando repito setup <Modo> com escolha explícita, Então prioriza a escolha e preserva ambos os dados' -ForEach @(
+      @{ Modo = 'EXE silencioso'; Silencioso = $true }, @{ Modo = 'comando GUI'; Silencioso = $false }
+    ) {
+      $config = Join-Path $script:SetupApp 'pasta.txt'
+      $outro = Perfil ('destino registrado ocupado ' + [guid]::NewGuid().ToString('N'))
+      $marca = Join-Path $outro 'nao apagar.txt'
+      Set-Content -LiteralPath $marca -Value 'dados do outro destino' -Encoding UTF8 -NoNewline
+      Set-Content -LiteralPath $config -Value $outro -Encoding UTF8 -NoNewline
+      try {
+        $r = ReexecutarSetup $Silencioso $script:SetupKit
+        $r.Codigo | Should -Be 0 -Because $r.Saida
+        (Get-Content -Raw -Encoding UTF8 -LiteralPath $config) | Should -Be $script:SetupKit
+        (Get-FileHash -LiteralPath $script:SetupMarca -Algorithm SHA256).Hash | Should -Be $script:SetupHash
+        (Get-Content -Raw -Encoding UTF8 -LiteralPath $marca) | Should -Be 'dados do outro destino'
+        Test-Path -LiteralPath (Join-Path $r.Perfil 'Anvilore') | Should -BeFalse
+        Write-Host "REINSTALACAO_EXPLICITA modo=$Modo codigo=$($r.Codigo) destino=$script:SetupKit dados=preservados"
+      } finally { Set-Content -LiteralPath $config -Value $script:SetupKit -Encoding UTF8 -NoNewline }
+    }
+
+    It 'Dado /DIR e wiki com espaço e apóstrofo após reinstalar, Quando executo cada lnk sem ambiente herdado, Então Bun recebe o cwd efetivamente instalado' {
+      $registro = Join-Path $script:Base 'setup-cwd.txt'
+      $bin = Join-Path $script:Base 'setup-bun-falso'
+      $perfil = Join-Path $script:Base 'perfil explorer vazio'
+      $marca = [guid]::NewGuid().ToString('N')
+      $arquivoMarca = Join-Path $script:SetupKit '.anvilore\u7-runtime-cwd.txt'
+      Set-Content -LiteralPath $arquivoMarca -Encoding ASCII -NoNewline -Value $marca
+      # cmd normaliza aliases 8.3 (RUNNER~1) para o nome longo. A referência vem da pasta desejada,
+      # antes de abrir o atalho; a marca exclusiva também prova a identidade do diretório real.
+      Push-Location -LiteralPath $script:SetupKit
+      try { $cwdEsperado = (& cmd.exe /d /c cd | Out-String).Trim(); $LASTEXITCODE | Should -Be 0 } finally { Pop-Location }
+      (Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $script:SetupApp 'pasta.txt')) | Should -Be $script:SetupKit
+      New-Item -ItemType Directory -Path $bin, $perfil -Force | Out-Null
+      Set-Content -LiteralPath (Join-Path $bin 'bun.cmd') -Encoding ASCII -Value "@echo off`r`ncd > `"%ANVILORE_TEST_CWD%`"`r`ntype .anvilore\u7-runtime-cwd.txt > `"%ANVILORE_TEST_CWD%.id`"`r`nexit /b 0`r`n"
+      $salvas = @{}
+      foreach ($nome in @('ANVILORE_PASTA', 'ANVILORE_LANCADOR', 'ANVILORE_TEST_CWD', 'USERPROFILE', 'LOCALAPPDATA', 'Path')) {
+        $salvas[$nome] = [Environment]::GetEnvironmentVariable($nome, 'Process')
+      }
+      try {
+        $env:ANVILORE_PASTA = $null
+        $env:ANVILORE_LANCADOR = $null
+        $env:USERPROFILE = $perfil
+        $env:LOCALAPPDATA = Join-Path $perfil 'AppData\Local'
+        $env:ANVILORE_TEST_CWD = $registro
+        $env:Path = $bin + ';' + $script:SetupAmbienteAntes['Path']
+        foreach ($clm in @($false, $true)) {
+          foreach ($caminho in @($script:SetupMenuShortcut, $script:SetupDesktopShortcut)) {
+            Remove-Item -LiteralPath $registro -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath ($registro + '.id') -Force -ErrorAction SilentlyContinue
+            $lnk = $script:SetupShortcut.CreateShortcut($caminho)
+            # TargetPath, Arguments e WorkingDirectory persistidos. No segundo passe, apenas força CLM antes do comando.
+            $argumentos = $lnk.Arguments
+            if ($clm) { $argumentos = $argumentos.Replace('-Command "', '-Command "$ExecutionContext.SessionState.LanguageMode = ''ConstrainedLanguage''; ') }
+            $p = Start-Process -FilePath $lnk.TargetPath -ArgumentList $argumentos -WorkingDirectory $lnk.WorkingDirectory -PassThru -WindowStyle Hidden
+            if (-not $p.WaitForExit(15000)) { $p.Kill(); throw 'Atalho não terminou em 15s' }
+            $p.ExitCode | Should -Be 0
+            (Get-Content -Raw -LiteralPath $registro).Trim() | Should -Be $cwdEsperado
+            (Get-Content -Raw -LiteralPath ($registro + '.id')).Trim() | Should -Be $marca
+            Write-Host "ATALHO_RUNTIME clm=$clm lnk=$caminho cwd=$cwdEsperado identidade=confirmada"
+          }
+        }
+        Test-Path -LiteralPath (Join-Path $perfil 'Anvilore') | Should -BeFalse
+      } finally {
+        Remove-Item -LiteralPath $arquivoMarca -Force -ErrorAction SilentlyContinue
+        foreach ($nome in $salvas.Keys) { [Environment]::SetEnvironmentVariable($nome, $salvas[$nome], 'Process') }
+      }
+    }
+
+    It 'Dado o kit instalado, Quando desinstalo silenciosamente, Então os atalhos e o programa saem e a pasta da pessoa fica' {
+      $unins = Get-ChildItem -LiteralPath $script:SetupApp -Filter 'unins*.exe' | Select-Object -First 1
+      $unins | Should -Not -BeNullOrEmpty
+      $p = Start-Process -FilePath $unins.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+      $p.ExitCode | Should -Be 0
+      Test-Path -LiteralPath $script:SetupApp | Should -BeFalse
+      Test-Path -LiteralPath $script:SetupMenuShortcut | Should -BeFalse
+      Test-Path -LiteralPath $script:SetupDesktopShortcut | Should -BeFalse
+      Test-Path -LiteralPath (Join-Path $script:SetupKit 'package.json') | Should -BeTrue
+      (Get-FileHash -LiteralPath $script:SetupMarca -Algorithm SHA256).Hash | Should -Be $script:SetupHash
+    }
+
+    It 'Dado Windows sem Git no PATH, Quando instalo silenciosamente, Então uso PortableGit por usuário sem UAC e o doctor passa' {
+      $kitAntes = Join-Path $script:Base 'perfil sem git\Anvilore'
+      $localDataSemGit = Join-Path $script:Base 'perfil sem git\AppData\Local'
+      $pathSemGit = (PathSem @('git.exe') $true) + ';' + $script:AgenteFalso
+      $salvas = @{}
+      foreach ($nome in @('ANVILORE_PASTA', 'ANVILORE_ORIGEM', 'ANVILORE_SEM_PERGUNTAS', 'LOCALAPPDATA', 'Path')) {
+        $salvas[$nome] = [Environment]::GetEnvironmentVariable($nome, 'Process')
+      }
+      try {
+        $env:ANVILORE_PASTA = $kitAntes
+        $env:ANVILORE_ORIGEM = $script:OrigemBoa
+        $env:ANVILORE_SEM_PERGUNTAS = '1'
+        $env:LOCALAPPDATA = $localDataSemGit
+        $env:Path = $pathSemGit
+        (Get-Command git.exe -ErrorAction SilentlyContinue) | Should -BeNullOrEmpty
+        $p = Start-Process -FilePath $script:SetupExe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR="' + $script:SetupApp + '"') -Wait -PassThru
+        $p.ExitCode | Should -Be 0
+        $gitPortatil = Join-Path $localDataSemGit 'Anvilore\git\cmd\git.exe'
+        $bashPortatil = Join-Path $localDataSemGit 'Anvilore\git\bin\bash.exe'
+        Test-Path -LiteralPath $gitPortatil | Should -BeTrue
+        Test-Path -LiteralPath $bashPortatil | Should -BeTrue
+        (Get-Item HKCU:\Environment).GetValue('CLAUDE_CODE_GIT_BASH_PATH', '') | Should -Be $bashPortatil
+
+        $pathUsuario = (Get-Item HKCU:\Environment).GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+        $env:Path = [Environment]::ExpandEnvironmentVariables($pathUsuario) + ';' + $pathSemGit
+        $check = Start-Process -FilePath (Get-Command powershell.exe).Source -ArgumentList '-NoLogo', '-NoProfile', '-Command', 'git --version; exit $LASTEXITCODE' -Wait -PassThru -WindowStyle Hidden
+        $check.ExitCode | Should -Be 0
+        Push-Location $kitAntes
+        try { & bun src/cli.ts doctor | Out-Null; $codigoDoctor = $LASTEXITCODE } finally { Pop-Location }
+        $codigoDoctor | Should -Be 0
+      } finally {
+        $unins = Get-ChildItem -LiteralPath $script:SetupApp -Filter 'unins*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($unins) { Start-Process -FilePath $unins.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait | Out-Null }
+        foreach ($nome in $salvas.Keys) { [Environment]::SetEnvironmentVariable($nome, $salvas[$nome], 'Process') }
+        Remove-Item -LiteralPath (Join-Path $localDataSemGit 'Anvilore\git') -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $kitAntes -Recurse -Force -ErrorAction SilentlyContinue
+      }
     }
   }
 }

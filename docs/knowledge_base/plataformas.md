@@ -441,6 +441,57 @@ Language Mode **real** (AppLocker/WDAC; os testes só forçam o caminho do `reg.
 tentado se o normal não abrir), o instalador oficial do Claude Code, `irm | iex` contra o GitHub real (a primeira release
 assinada ainda não existe) e a janela real com acentos.
 
+### Setup do Windows (`AnviloreSetup.exe`)
+
+`instalador/windows/anvilore.iss` compila o `AnviloreSetup.exe` com Inno Setup. Instala por usuário em
+`%LOCALAPPDATA%\Programs\Anvilore` (ou no /DIR passado ao setup), sem UAC. Inclui `instalar.ps1`, `abrir.ps1`,
+`anvilore.ico` e o desinstalador registrado em Aplicativos instalados. O atalho Anvilore fica no Menu Iniciar e na Área de
+Trabalho e usa a pasta efetiva do programa como diretório de trabalho. Lê o lançador empacotado por PowerShell com
+`Get-Content -Raw -Encoding UTF8 | Invoke-Expression`, sem `-File` nem `ScriptBlock.Create`.
+
+O instalador recebe `ANVILORE_ATALHO_SETUP=1` e `ANVILORE_CONFIG_SETUP` com o arquivo pasta.txt dentro da pasta do
+programa. `AnvCriarAtalho`, em `instalador/instalar.ps1`, grava ali a pasta efetivamente escolhida para o kit, incluindo
+uma escolha feita depois de encontrar uma pasta ocupada. É texto UTF-8, não código PowerShell. Os atalhos leem esse
+arquivo, então lembram o destino mesmo quando o Explorer não herdou `ANVILORE_PASTA`. O instalador não recria os
+atalhos alternativos e o resumo orienta a abrir o atalho Anvilore.
+
+Ao repetir o setup na mesma pasta do programa, tanto o comando interativo quanto o silencioso recuperam esse destino
+antes de executar o instalador. A escolha explícita em `ANVILORE_PASTA` tem prioridade sobre o registro; sem os dois,
+vale o padrão do instalador. A leitura de pasta.txt é literal, como texto UTF-8, sem avaliar seu conteúdo como código.
+
+Na janela interativa o setup define `ANVILORE_ESPERAR_ENTER=1`, para o instalador aguardar Enter depois do resumo.
+No modo silencioso define `ANVILORE_SEM_PERGUNTAS=1` e desliga a espera, inclusive se ela vier herdada do ambiente.
+O código 10 do instalador representa instalação parcial e conclui o setup com sucesso (0); os códigos 1 a 4 fazem o
+setup falhar (4 no Inno). Falhas ao ler ou avaliar o script também reprovam: o comando inicia com resultado de falha e
+trata erros de leitura e sintaxe explicitamente, sem converter resultado ausente em sucesso.
+O callback GetCustomSetupExitCode conserva a falha do pós-instalação no resultado do executável; uma exceção em
+CurStepChanged, sozinha, não garante isso ([eventos do Inno Setup](https://jrsoftware.org/ishelp/topic_scriptevents.htm)).
+
+O desinstalador remove apenas o programa, seu arquivo de destino e os atalhos criados pelo Inno. Não apaga a pasta do
+kit/wiki, seja ela a padrão ou uma personalizada. O ícone versionado contém um frame 48×48; foi rasterizado do
+`instalador/anvilore.svg` com FFmpeg (`ffmpeg -i instalador/anvilore.svg -frames:v 1 -vf scale=48:48 -y /tmp/anvilore.png &&
+ffmpeg -i /tmp/anvilore.png -frames:v 1 instalador/windows/anvilore.ico`). Outros tamanhos/HiDPI não foram validados.
+
+**Interface de build para a release:** ISCC recebe `/DVersao=<versão>` e `/DInstallerPs1=<caminho absoluto do ps1 já
+embutido>`; `/O<pasta>` escolhe a saída, cujo nome é AnviloreSetup.exe. O valor padrão de InstallerPs1 é o modelo do
+repositório, que recusa instalar sem as chaves e o manifesto embutidos. Nenhuma chave real é necessária para compilar;
+os testes usam exclusivamente uma chave descartável. O build não assina o executável.
+
+O job Windows do CI compila com o ISCC instalado no runner. `tests/instalar-ps1/setup.Tests.ps1` executa o setup com os
+códigos 0/10/1/2/3/4 e com scripts ausente ou inválido; também executa seus comandos reais com arquivo bloqueado para
+leitura e observa a opção de pausa com Read-Host substituído (sem exigir Enter humano). `tests/instalar-ps1/e2e.Tests.ps1`
+instala contra origem local assinada, confere o doctor, executa TargetPath/Arguments/WorkingDirectory dos dois atalhos
+com destinos contendo espaço e apóstrofo, e confere a preservação da pasta ao desinstalar. Também cobre PortableGit
+sem Git no PATH e a abertura dos atalhos em CLM simulado, além do erro da UI com pausa observável.
+Na reinstalação, repete o EXE silencioso no mesmo /DIR e o comando interativo literal com o instalador real e Enter
+automatizado. Confere o destino exato, o hash de uma nota pessoal, a ausência de outro kit no perfil e a prioridade de
+uma escolha explícita; depois executa os dois atalhos em modo normal e CLM simulado.
+
+**Limite da recuperação em CLM:** a rota interna de `instalador/abrir.ps1` quando falta o kit ainda chama
+`ScriptBlock.Create`, que a prova em CLM rejeita. Assim, os atalhos do Inno abrem uma instalação existente no CLM
+simulado; a recuperação automática nesse modo não é suportada. Nesse caso, execute o setup novamente. Isso não prova
+GPO/AppLocker/WDAC reais, duplo clique no Explorer, SmartScreen, conta sem admin nem Windows 11 físico.
+
 ## O que esta página não afirma
 
 - Que o CI da Onda 1 esteja verde nos três sistemas; só a fundação tem execução confirmada acima.

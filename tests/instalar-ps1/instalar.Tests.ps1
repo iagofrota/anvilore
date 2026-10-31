@@ -428,6 +428,38 @@ Describe 'AnvBaixarComHash' {
   }
 }
 
+Describe 'AnvCriarAtalho' {
+  It 'Dado destino efetivo diferente do pedido inicial, Quando o setup delega os atalhos, Então persiste o destino efetivo como texto UTF-8' {
+    $atalhoAntes = $env:ANVILORE_ATALHO_SETUP
+    $configAntes = $env:ANVILORE_CONFIG_SETUP
+    $pastaAntes = $env:ANVILORE_PASTA
+    $config = Join-Path $TestDrive 'pasta.txt'
+    try {
+      $env:ANVILORE_ATALHO_SETUP = '1'
+      $env:ANVILORE_CONFIG_SETUP = $config
+      $env:ANVILORE_PASTA = 'C:\pasta inicial ocupada'
+      $efetiva = "C:\a wiki da Lía's"
+      (AnvCriarAtalho -Pasta $efetiva) | Should -BeTrue
+      (Get-Content -Raw -Encoding UTF8 -LiteralPath $config) | Should -Be $efetiva
+    } finally {
+      $env:ANVILORE_ATALHO_SETUP = $atalhoAntes
+      $env:ANVILORE_CONFIG_SETUP = $configAntes
+      $env:ANVILORE_PASTA = $pastaAntes
+    }
+  }
+
+  It 'Dado o AnviloreSetup.exe executando o instalador, Quando chega ao passo 10, Então preserva os atalhos do setup e informa sucesso' {
+    $antes = $env:ANVILORE_ATALHO_SETUP
+    try {
+      $env:ANVILORE_ATALHO_SETUP = '1'
+      (AnvCriarAtalho -Pasta 'C:\nao precisa existir') | Should -BeTrue
+    } finally {
+      if ($null -eq $antes) { Remove-Item Env:ANVILORE_ATALHO_SETUP -ErrorAction SilentlyContinue }
+      else { $env:ANVILORE_ATALHO_SETUP = $antes }
+    }
+  }
+}
+
 Describe 'AnvResultadoFinal' {
   # Dado o que ficou pronto; Quando resume; Então o código distingue completo (0) de parcial (10).
   It 'completo'                { (AnvResultadoFinal -TemAgente $true -DoctorOk $true).Codigo | Should -Be 0 }
