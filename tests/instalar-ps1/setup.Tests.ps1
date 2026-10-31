@@ -63,6 +63,28 @@ Describe 'AnviloreSetup: resultados e pausa' -Skip:(-not $script:WindowsSetup) {
     $env:ANVILORE_TEST_CODIGO = [string]$Codigo
     (ExecutarSetup) | Should -Be $Esperado
   }
+  It 'Dado pacote com script <Caso>, Quando executo o exe silencioso, Então a falha pré-execução reprova o setup' -ForEach @(
+    @{ Caso = 'inválido'; Ausente = $false }, @{ Caso = 'ausente'; Ausente = $true }
+  ) {
+    $fixture = Join-Path $script:BaseSetup ('pacote ' + $Caso)
+    New-Item -ItemType Directory -Path $fixture -Force | Out-Null
+    $modelo = Join-Path $fixture 'instalar.ps1'
+    Set-Content -LiteralPath $modelo -Encoding UTF8 -Value 'function {'
+    $iss = Get-Content -Raw -Encoding UTF8 -LiteralPath $script:IssSetup
+    $iss = $iss.Replace('"..\abrir.ps1"', ('"' + (Join-Path $script:RaizSetup 'instalador\abrir.ps1') + '"'))
+    $icone = Join-Path $script:RaizSetup 'instalador\windows\anvilore.ico'
+    $iss = $iss.Replace('Source: "anvilore.ico"', ('Source: "' + $icone + '"')).Replace('SetupIconFile=anvilore.ico', ('SetupIconFile=' + $icone))
+    if ($Ausente) { $iss = $iss.Replace('DestName: "instalar.ps1"', 'DestName: "ausente.ps1"') }
+    $arquivo = Join-Path $fixture 'fixture.iss'
+    Set-Content -LiteralPath $arquivo -Encoding UTF8 -Value $iss
+    & $script:IsccSetup "/DInstallerPs1=$modelo" /DVersao=0.0.1 "/O$fixture" $arquivo | Out-Null
+    $LASTEXITCODE | Should -Be 0
+    $exeAntes = $script:ExeSetup
+    try {
+      $script:ExeSetup = Join-Path $fixture 'AnviloreSetup.exe'
+      (ExecutarSetup) | Should -Be 4
+    } finally { $script:ExeSetup = $exeAntes }
+  }
   It 'Dado script <Caso>, Quando falha antes de definir LASTEXITCODE, Então o comando real sai diferente de zero' -ForEach @(
     @{ Caso = 'ausente'; Texto = ''; Ausente = $true; Bloqueado = $false },
     @{ Caso = 'ilegível por lock'; Texto = '$global:LASTEXITCODE = 0'; Ausente = $false; Bloqueado = $true },
