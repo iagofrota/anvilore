@@ -163,3 +163,14 @@ test("Dado pacotes pré-existentes no destino, Quando download falha, Então a C
     for (const extensao of ["deb", "rpm"]) expect(await readFile(join(base, `anvilore.${extensao}`), "utf8")).toBe("anterior");
   } finally { await rm(base, { recursive: true, force: true }); }
 });
+
+// Saídas observadas no nFPM 2.47.0 real (dpkg-deb -f ... Version), não deduzidas do código dele.
+test("Dado versão SemVer, Quando calculo a versão do DEB, Então reproduzo o til de pré-release que o nFPM grava", async () => {
+  const { versaoDeb } = await import("../scripts/empacotar-linux");
+  expect(versaoDeb("0.3.1")).toBe("0.3.1");
+  expect(versaoDeb("0.3.1-rc.1")).toBe("0.3.1~rc.1");
+  expect(versaoDeb("0.3.1-rc.1+b.7")).toBe("0.3.1~rc.1+b.7");
+  expect(versaoDeb("0.3.1+b-7")).toBe("0.3.1+b-7");
+  expect(versaoDeb("0.3.1-rc-2.x-y")).toBe("0.3.1~rc-2.x-y");
+  expect(() => versaoDeb("v0.3.1")).toThrow();
+});

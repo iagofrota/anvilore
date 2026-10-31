@@ -71,7 +71,8 @@ jobs:
           bsdtar -xf pacotes/anvilore.rpm -C "$RUNNER_TEMP/inspecao-rpm"
           cmp release/instalar.sh "$RUNNER_TEMP/inspecao-deb/usr/lib/anvilore/instalar.sh"
           cmp release/instalar.sh "$RUNNER_TEMP/inspecao-rpm/usr/lib/anvilore/instalar.sh"
-          test "$(dpkg-deb -f pacotes/anvilore.deb Version)" = "$versao"
+          versao_deb="$(VERSAO="$versao" bun -e 'import { versaoDeb } from "./scripts/empacotar-linux.ts"; console.log(versaoDeb(process.env.VERSAO ?? ""))')"
+          test "$(dpkg-deb -f pacotes/anvilore.deb Version)" = "$versao_deb"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: producao-linux

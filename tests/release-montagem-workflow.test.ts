@@ -49,6 +49,9 @@ test("Dado montagem de produção, Quando leio os contratos dos builds, Então v
   expect(linux).toContain("--instalar-sh");
   expect(linux).toContain("dpkg-deb");
   expect(linux).toContain("cmp");
+  // O DEB grava a pré-release com til (0.3.1~rc.1); a conferência usa a mesma regra, testada em versaoDeb.
+  expect(linux).toContain("versaoDeb(");
+  expect(linux).not.toContain('Version)" = "$versao"');
   expect(windows).toContain("/DVersao=");
   expect(windows).toContain("/DInstallerPs1=");
   expect(windows).toContain("Resolve-Path");

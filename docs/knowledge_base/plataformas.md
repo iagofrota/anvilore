@@ -348,6 +348,9 @@ conferem. A versão vem do parâmetro, de `ANVILORE_VERSAO`, de uma ref GitHub *
 `package.json`, nessa ordem; toda versão precisa ser SemVer. Saem exatamente `anvilore.deb` e
 `anvilore.rpm`. Um erro de rede, HTTP, hash ou nfpm reprova o build; ambos são gerados e conferidos
 em staging antes de substituir o par anterior. Não há repositório apt/dnf: a atualização do kit segue pelo atualizador.
+No campo Version do DEB, o nfpm 2.47.0 troca por til o hífen da pré-release (`0.3.1-rc.1` vira `0.3.1~rc.1`;
+`0.3.1-rc.1+b.7` vira `0.3.1~rc.1+b.7`); o metadado de build fica igual. Saídas observadas com `dpkg-deb -f`. O job de
+produção compara esse campo com `versaoDeb` (`scripts/empacotar-linux.ts`), que aplica a mesma regra.
 
 Builds de teste exigem `--teste` para usar `--assinantes`, `--base-minima` ou `--url-confianca`
 customizados; loopback HTTP fica restrito a esse modo. Produção não herda relaxamento de URL do ambiente.
