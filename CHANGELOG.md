@@ -9,6 +9,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-31
+
 ### Added
 
 - Pacotes Linux `anvilore.deb` e `anvilore.rpm`: lançador e entrada no menu para instalações por usuário, com dependências do sistema e remoção que preserva o kit e os dados.
@@ -17,7 +19,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - Novos gates conferem a tag SSH pela confiança da versão anterior e exigem pacotes completos e scripts autenticados antes de gerar os hashes da distribuição.
 - O preparo local mostra o que vai gerar antes de escrever e preserva artefatos existentes; o README orienta o download dos pacotes e os avisos do Windows e do Ubuntu.
 - O gate da tag exige também as assinaturas públicas dos scripts, feitas offline e versionadas antes da tag; o CI verifica a confiança anterior sem receber chave privada.
-- O workflow de tag prepara os gates de confiança, downloads, instalação Linux e preservação/reversão nos dois sistemas; os builds e o rascunho aguardam integração dos pacotes.
+- O workflow autentica a tag antes de executar a candidata, reutiliza o CI completo, constrói os pacotes com scripts conferidos e só cria um rascunho depois dos gates. A publicação continua sendo feita pela pessoa.
+- O CI das branches também executa os builds de produção; o rascunho recusa assets incompletos ou alterados e mantém os scripts assinados offline, sem chave privada no CI.
 
 ### Fixed
 

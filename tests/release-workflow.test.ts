@@ -33,8 +33,8 @@ test("Dado gates independentes, Quando examino permissões e ações, Então nã
   expect(w.permissions).toEqual({ contents: "read" });
   const jobs = Object.values(w.jobs ?? {});
   expect(jobs.length).toBeGreaterThanOrEqual(4);
-  for (const job of jobs) {
-    expect(Object.values(job.permissions ?? {})).not.toContain("write");
+  for (const [nome, job] of Object.entries(w.jobs ?? {})) {
+    if (nome !== "rascunho") expect(Object.values(job.permissions ?? {})).not.toContain("write");
     for (const step of job.steps ?? []) {
       if (step.uses) expect(step.uses).toMatch(/^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/);
     }
