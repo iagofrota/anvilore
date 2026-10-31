@@ -34,7 +34,7 @@ test("Dado um HOME descartável, Quando executo criar_atalho, Então gravo o .de
     const home = join(base, "perfil 100% com espaço");
     await mkdir(home);
     const script = join(raiz, "instalador/instalar.sh");
-    const pasta = join(home, "Anvilore");
+    const pasta = join(home, "Anvilore pasta $literal `crase`");
     await mkdir(join(pasta, "instalador"), { recursive: true });
     await writeFile(join(pasta, "instalador/anvilore-abrir"), shell);
     await writeFile(join(pasta, "instalador/abrir.ps1"), ps1);
@@ -50,6 +50,8 @@ test("Dado um HOME descartável, Quando executo criar_atalho, Então gravo o .de
     expect(texto).toContain("Terminal=true");
     expect(texto).toContain('Exec=env ANVILORE_PASTA="');
     expect(texto).toContain("100%%");
+    const pastaEscapada = pasta.replace(/[\\"`$]/g, "\\$&").replaceAll("\\", "\\\\").replaceAll("%", "%%");
+    expect(texto).toContain(`ANVILORE_PASTA="${pastaEscapada}"`);
     expect(await readFile(join(home, ".local/bin/anvilore-abrir"), "utf8")).toBe(shell);
     expect(await readFile(join(home, ".local/share/icons/hicolor/scalable/apps/anvilore.svg"), "utf8")).toContain("<svg");
     if (Bun.which("desktop-file-validate")) {
@@ -106,9 +108,32 @@ test("Dado uma pasta instalada e Bun falso, Quando abro no Linux e a UI falha se
     const saida = proc.stdout.toString() + proc.stderr.toString();
     expect(proc.exitCode).toBe(7);
     expect(saida).toContain("falha da interface");
+    expect(saida).toContain("A interface do Anvilore fechou com erro (código 7)");
     expect(shell).toMatch(/Pressione Enter para fechar esta janela/);
     expect(shell).toContain("if [ -t 0 ]");
     expect(await readFile(chamadas, "utf8")).toContain("src/cli.ts ui");
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+test("Dado que o Anvilore não está instalado e não há instalador, Quando abro no Linux em terminal, Então leio o erro antes de pressionar Enter", async () => {
+  if (process.platform !== "linux" || !Bun.which("script")) return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-sem-instalador-"));
+  try {
+    const home = join(base, "home");
+    const kit = join(base, "kit");
+    const pasta = join(base, "Anvilore ausente");
+    await mkdir(home);
+    await mkdir(kit);
+    const lancador = join(kit, "anvilore-abrir");
+    await writeFile(lancador, shell);
+    const proc = Bun.spawnSync(["script", "-q", "-e", "-c", `bash '${lancador}'`, "/dev/null"], {
+      env: { ...process.env, HOME: home, ANVILORE_PASTA: pasta },
+      stdin: new TextEncoder().encode("\n"), stdout: "pipe", stderr: "pipe",
+    });
+    const saida = proc.stdout.toString() + proc.stderr.toString();
+    expect(proc.exitCode).toBe(1);
+    expect(saida).toContain("O Anvilore ainda não está instalado");
+    expect(saida).toContain("Pressione Enter para fechar esta janela.");
   } finally { await rm(base, { recursive: true, force: true }); }
 });
 
