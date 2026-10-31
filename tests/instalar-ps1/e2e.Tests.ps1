@@ -72,7 +72,7 @@ Describe 'abrir.ps1 em runtime no Windows' -Skip:(-not $script:EhWindows) {
   It 'Dado Constrained Language Mode, Quando avalio o lançador com ScriptBlock.Create, Então reporto se o modo o permite' {
     $comando = @'
 $ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'
-function global:Read-Host { Write-Output 'READ_HOST_CALLED'; return '' }
+function global:Read-Host { Write-Host 'READ_HOST_CALLED'; return '' }
 try {
   $bloco = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 -LiteralPath $env:ANVILORE_LANCADOR))
   & $bloco
@@ -98,6 +98,7 @@ try {
 $ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'
 $env:ANVILORE_PASTA = $env:ANVILORE_PASTA_TESTE
 $env:ANVILORE_LANCADOR = $env:ANVILORE_LANCADOR_TESTE
+function global:Read-Host { Write-Host 'READ_HOST_CALLED'; return '' }
 try {
   Get-Content -Raw -Encoding UTF8 -LiteralPath $env:ANVILORE_LANCADOR | Invoke-Expression
   if ($LASTEXITCODE -eq 7) { exit 0 }
@@ -120,6 +121,7 @@ try {
       foreach ($nome in $variaveis) { [Environment]::SetEnvironmentVariable($nome, $antes[$nome], 'Process') }
     }
     $codigo | Should -Be 0 -Because $saida
+    $saida | Should -Match 'READ_HOST_CALLED'
     $saida | Should -Match 'A interface do Anvilore fechou com erro \(código 7\)'
   }
 }
@@ -938,8 +940,8 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $out = & $iscc.FullName "/DVersao=$script:VersaoRepo" "/DInstallerPs1=$script:Release" "/O$script:SetupSaida" $script:SetupIss 2>&1 | Out-String
       if ($LASTEXITCODE -ne 0) { throw "ISCC falhou ($LASTEXITCODE): $out" }
       $script:SetupExe = Join-Path $script:SetupSaida 'AnviloreSetup.exe'
-      $script:SetupKit = Join-Path $script:Base 'perfil setup\Anvilore'
-      $script:SetupApp = Join-Path $env:LOCALAPPDATA 'Programs\Anvilore'
+      $script:SetupKit = Join-Path $script:Base "perfil setup\a wiki da Lia's"
+      $script:SetupApp = Join-Path $script:Base "app da Lia's\Anvilore"
       $script:SetupPrograms = [Environment]::GetFolderPath('Programs')
       $script:SetupDesktop = [Environment]::GetFolderPath('DesktopDirectory')
       $script:SetupMenuShortcut = Join-Path $script:SetupPrograms 'Anvilore\Anvilore.lnk'
@@ -953,7 +955,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $env:ANVILORE_ORIGEM = $script:OrigemBoa
       $env:Path = $script:PathComAgente
       $env:ANVILORE_SEM_PERGUNTAS = '1'
-      $p = Start-Process -FilePath $script:SetupExe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+      $p = Start-Process -FilePath $script:SetupExe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR="' + $script:SetupApp + '"') -Wait -PassThru
       $script:SetupInstallCode = $p.ExitCode
       $script:SetupShortcut = New-Object -ComObject WScript.Shell
     }
@@ -986,6 +988,38 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       }
     }
 
+    It 'Dado /DIR e wiki com espaço e apóstrofo, Quando executo cada lnk sem ambiente herdado, Então Bun recebe o cwd efetivamente instalado' {
+      $registro = Join-Path $script:Base 'setup-cwd.txt'
+      $bin = Join-Path $script:Base 'setup-bun-falso'
+      $perfil = Join-Path $script:Base 'perfil explorer vazio'
+      New-Item -ItemType Directory -Path $bin, $perfil -Force | Out-Null
+      Set-Content -LiteralPath (Join-Path $bin 'bun.cmd') -Encoding ASCII -Value "@echo off`r`ncd > `"%ANVILORE_TEST_CWD%`"`r`nexit /b 0`r`n"
+      $salvas = @{}
+      foreach ($nome in @('ANVILORE_PASTA', 'ANVILORE_LANCADOR', 'ANVILORE_TEST_CWD', 'USERPROFILE', 'LOCALAPPDATA', 'Path')) {
+        $salvas[$nome] = [Environment]::GetEnvironmentVariable($nome, 'Process')
+      }
+      try {
+        $env:ANVILORE_PASTA = $null
+        $env:ANVILORE_LANCADOR = $null
+        $env:USERPROFILE = $perfil
+        $env:LOCALAPPDATA = Join-Path $perfil 'AppData\Local'
+        $env:ANVILORE_TEST_CWD = $registro
+        $env:Path = $bin + ';' + $script:SetupAmbienteAntes['Path']
+        foreach ($caminho in @($script:SetupMenuShortcut, $script:SetupDesktopShortcut)) {
+          Remove-Item -LiteralPath $registro -Force -ErrorAction SilentlyContinue
+          $lnk = $script:SetupShortcut.CreateShortcut($caminho)
+          # Exatamente TargetPath, Arguments e WorkingDirectory persistidos no .lnk.
+          $p = Start-Process -FilePath $lnk.TargetPath -ArgumentList $lnk.Arguments -WorkingDirectory $lnk.WorkingDirectory -PassThru -WindowStyle Hidden
+          if (-not $p.WaitForExit(15000)) { $p.Kill(); throw 'Atalho não terminou em 15s' }
+          $p.ExitCode | Should -Be 0
+          (Get-Content -Raw -LiteralPath $registro).Trim() | Should -Be $script:SetupKit
+        }
+        Test-Path -LiteralPath (Join-Path $perfil 'Anvilore') | Should -BeFalse
+      } finally {
+        foreach ($nome in $salvas.Keys) { [Environment]::SetEnvironmentVariable($nome, $salvas[$nome], 'Process') }
+      }
+    }
+
     It 'Dado o kit instalado, Quando desinstalo silenciosamente, Então os atalhos e o programa saem e a pasta da pessoa fica' {
       $unins = Get-ChildItem -LiteralPath $script:SetupApp -Filter 'unins*.exe' | Select-Object -First 1
       $unins | Should -Not -BeNullOrEmpty
@@ -1012,7 +1046,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
         $env:LOCALAPPDATA = $localDataSemGit
         $env:Path = $pathSemGit
         (Get-Command git.exe -ErrorAction SilentlyContinue) | Should -BeNullOrEmpty
-        $p = Start-Process -FilePath $script:SetupExe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+        $p = Start-Process -FilePath $script:SetupExe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR="' + $script:SetupApp + '"') -Wait -PassThru
         $p.ExitCode | Should -Be 0
         $gitPortatil = Join-Path $localDataSemGit 'Anvilore\git\cmd\git.exe'
         $bashPortatil = Join-Path $localDataSemGit 'Anvilore\git\bin\bash.exe'
