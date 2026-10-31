@@ -65,3 +65,15 @@ test("Dado rascunho, Quando examino sua operação, Então exige assets exatos e
   expect(texto).toContain("--criar");
   expect(texto).not.toMatch(/release (?:edit|upload)|--clobber|--latest/);
 });
+
+test("Dado checkout inicial, Quando preparo a execução, Então revogação roda na âncora antes dos imports e do install da candidata", async () => {
+  const w = await carregar("release.yml");
+  const steps = w.jobs.assinatura?.steps ?? [];
+  expect(steps[0]?.with?.ref).toBe("19578a1e6f3570975137488cd03ea0537e8c6a0e");
+  const revogacao = steps.findIndex(s => s.run?.includes("assinantes-ativos"));
+  const candidato = steps.findIndex(s => s.run?.includes("scripts/verificar-tag-release.ts"));
+  const install = steps.findIndex(s => s.run?.includes("bun install"));
+  expect(revogacao).toBeGreaterThan(0);
+  expect(candidato).toBeGreaterThan(revogacao);
+  expect(install).toBeGreaterThan(candidato);
+});

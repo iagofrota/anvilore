@@ -39,14 +39,32 @@ jobs:
             -c gpg.program=false -c gpg.openpgp.program=false -c gpg.x509.program=false \
             -c "gpg.ssh.allowedSignersFile=$RUNNER_TEMP/assinantes-anteriores" \
             verify-tag "refs/tags/$GITHUB_REF_NAME"
-          git -c core.hooksPath=/dev/null checkout --detach "refs/tags/$GITHUB_REF_NAME^{commit}"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: package.json
-      - run: bun install --frozen-lockfile
+      - name: Consultar revogação com código da âncora antes de carregar a candidata
+        id: verificar-revogacao
+        shell: bash
+        run: |
+          set -euo pipefail
+          # HEAD ainda é a 0.3.0 fixada; nem bunfig, imports ou dependências da candidata são carregados.
+          bun -e '
+            import { consultarConfianca, filtrarAssinantes } from "./src/lib/confianca.ts";
+            const lista = await consultarConfianca();
+            const raiz = process.env.RUNNER_TEMP;
+            const ativos = filtrarAssinantes(await Bun.file(raiz + "/assinantes-anteriores").text(), lista.chaves);
+            if (!ativos.trim()) throw new Error("Nenhuma chave da âncora permanece ativa no site.");
+            await Bun.write(raiz + "/assinantes-ativos", ativos);
+          '
+          git -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen \
+            -c gpg.program=false -c gpg.openpgp.program=false -c gpg.x509.program=false \
+            -c "gpg.ssh.allowedSignersFile=$RUNNER_TEMP/assinantes-ativos" \
+            verify-tag "refs/tags/$GITHUB_REF_NAME"
+          git -c core.hooksPath=/dev/null checkout --detach "refs/tags/$GITHUB_REF_NAME^{commit}"
       - name: Conferir identidade, revogação e assinaturas públicas no commit autenticado
         shell: bash
         run: bun scripts/verificar-tag-release.ts "$GITHUB_REF_NAME" "$TAG_ANTERIOR"
+      - run: bun install --frozen-lockfile
       - name: Conferir revisão humana da documentação e notas da versão
         shell: bash
         run: bun src/cli.ts checar-release "${GITHUB_REF_NAME#v}"

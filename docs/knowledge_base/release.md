@@ -42,7 +42,9 @@ O workflow `.github/workflows/release.yml` encadeia a autenticação, os oito do
 o CI completo reutilizado de `.github/workflows/ci.yml`, a instalação/reinstalação Linux x64/arm64
 reutilizada de `.github/workflows/instalar-linux.yml` e os cenários de atualização em Ubuntu e Windows.
 O primeiro checkout usa o commit fixo da âncora 0.3.0. O shell confere os pins do objeto e commit,
-verifica a assinatura e só então faz checkout da candidata e executa seu código. CI e instalação
+verifica a assinatura e consulta a revogação usando somente o código dessa âncora. Confere de novo
+a tag com as chaves ainda ativas no site; só então faz checkout da candidata e executa seu código.
+A identidade e as assinaturas offline são conferidas antes de instalar dependências. CI e instalação
 Linux recebem pushes de branches e PRs; numa tag só são chamados depois desse gate.
 
 O CI também chama `.github/workflows/builds-release.yml`, nas branches e na tag autenticada. Esse
@@ -164,7 +166,7 @@ A versão `0.2.0` não tem atualizador nem seguranca/assinantes (conferido na ta
 existe nela). Portanto:
 
 1. A primeira versão que traz o atualizador **e** a chave pública é a **base mínima**: o número dela
-   vai para `instalador/base-minima` no preparo da release (o valor de hoje, `0.3.0`, é provisório) e
+   vai para `instalador/base-minima` no preparo da release (a base assinada estabelecida é `0.3.0`) e
    os instaladores o embutem. **Não há release de transição**: uma pasta anterior (a `0.2.0` ou um
    clone intermediário) não é atualizada no lugar e o CLI antigo dela nunca é executado para descobrir
    se serve. Os instaladores leem a versão do `package.json` da pasta como texto e, se for menor que a

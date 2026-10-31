@@ -20,6 +20,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - O preparo local mostra o que vai gerar antes de escrever e preserva artefatos existentes; o README orienta o download dos pacotes e os avisos do Windows e do Ubuntu.
 - O gate da tag exige também as assinaturas públicas dos scripts, feitas offline e versionadas antes da tag; o CI verifica a confiança anterior sem receber chave privada.
 - O workflow autentica a tag antes de executar a candidata, reutiliza o CI completo, constrói os pacotes com scripts conferidos e só cria um rascunho depois dos gates. A publicação continua sendo feita pela pessoa.
+- A lista de revogação do site é consultada com código da versão anterior, antes de carregar a candidata, inclusive seus preloads.
 - O CI das branches também executa os builds de produção; o rascunho recusa assets incompletos ou alterados e mantém os scripts assinados offline, sem chave privada no CI.
 
 ### Fixed
@@ -30,6 +31,16 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - Atalhos do setup Windows lembram a pasta realmente escolhida para a wiki e funcionam com `/DIR` personalizado, espaços e apóstrofos, mesmo sem variáveis herdadas do Explorer.
 - Reinstalar o setup Windows conserva o destino da wiki salvo no programa quando não há escolha explícita, tanto no modo interativo quanto no silencioso, em vez de criar outro kit na pasta padrão.
 - Setup Windows reprova falhas de leitura e sintaxe antes da instalação; mostra o resumo com pausa na janela interativa e não espera Enter no modo silencioso.
+
+### Instalar
+
+**Windows:** baixe [AnviloreSetup.exe](https://github.com/iagofrota/anvilore/releases/latest/download/AnviloreSetup.exe) e abra.
+Se o navegador avisar, clique em **Manter**. Se aparecer "O Windows protegeu o computador", clique em
+**Mais informações → Executar assim mesmo**. O instalador ainda não tem assinatura digital.
+
+**Linux (Ubuntu, Mint, Debian, Fedora):** baixe [anvilore.deb](https://github.com/iagofrota/anvilore/releases/latest/download/anvilore.deb)
+(ou [anvilore.rpm](https://github.com/iagofrota/anvilore/releases/latest/download/anvilore.rpm) no Fedora).
+No Ubuntu, botão direito → **Abrir com → Centro de Aplicativos**. Depois abra **Anvilore** no menu de aplicativos.
 
 ## [0.3.0] - 2026-10-30
 
