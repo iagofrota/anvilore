@@ -34,7 +34,7 @@ test("Dado um HOME descartável, Quando executo criar_atalho, Então gravo o .de
     const home = join(base, "perfil 100% com espaço");
     await mkdir(home);
     const script = join(raiz, "instalador/instalar.sh");
-    const pasta = join(home, "Anvilore pasta $literal `crase`");
+    const pasta = join(home, 'Anvilore pasta $literal `crase` "aspas" \\barra');
     await mkdir(join(pasta, "instalador"), { recursive: true });
     await writeFile(join(pasta, "instalador/anvilore-abrir"), shell);
     await writeFile(join(pasta, "instalador/abrir.ps1"), ps1);

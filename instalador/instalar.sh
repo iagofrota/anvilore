@@ -890,6 +890,20 @@ ANVILORE_FIM_ESTADO
 # Passo 10 — atalho "Anvilore"
 # ---------------------------------------------------------------------------------------------------------------
 
+escapar_exec_desktop() {
+  local valor="$1" resultado="" caractere indice
+  for ((indice = 0; indice < ${#valor}; indice++)); do
+    caractere="${valor:indice:1}"
+    case "$caractere" in
+      '\') resultado+='\\\\' ;;
+      '"'|'`'|'$') resultado+='\\'; resultado+="$caractere" ;;
+      '%') resultado+='%%' ;;
+      *) resultado+="$caractere" ;;
+    esac
+  done
+  printf '%s' "$resultado"
+}
+
 # Função do atalho:
 #   - recebe a pasta da instalação ($1);
 #   - grava ~/.local/share/applications/anvilore.desktop (mesmo nome do pacote .deb/.rpm: o do usuário tem precedência
@@ -920,9 +934,9 @@ criar_atalho() {
   cp -- "$origem/anvilore-abrir" "$lancador" || { registrar "atalho: não consegui copiar anvilore-abrir"; return 1; }
   chmod 755 "$lancador" || { registrar "atalho: não consegui tornar anvilore-abrir executável"; return 1; }
   cp -- "$origem/anvilore.svg" "$icones/anvilore.svg" || { registrar "atalho: não consegui copiar o ícone"; return 1; }
-  # Desktop Entry usa escapes próprios; caminhos entre aspas aceitam espaços.
-  exec_bin=$(printf '%s' "$lancador" | sed 's/\\/\\\\/g; s/"/\\"/g; s/%/%%/g')
-  exec_pasta=$(printf '%s' "$pasta" | sed 's/\\/\\\\/g; s/"/\\"/g; s/%/%%/g')
+  # Exec exige escapes dos argumentos e a string Desktop Entry duplica cada barra invertida resultante.
+  exec_bin=$(escapar_exec_desktop "$lancador")
+  exec_pasta=$(escapar_exec_desktop "$pasta")
   desktop_tmp="$aplicativos/.anvilore.desktop.$$"
   if ! {
     printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Anvilore' 'Comment=Abra sua wiki pessoal' \
