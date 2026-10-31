@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { linhasDe } from "../src/lib/frontmatter";
 
@@ -14,9 +14,15 @@ describe("workflow de CI: ações de terceiros", () => {
   });
 
   test("Dado cada ação do ci.yml, Quando leio a referência, Então é um SHA de commit completo e a versão fica em comentário", () => {
-    for (const uso of usos) {
+    for (const uso of usos.filter(uso => !uso![1]!.startsWith("./"))) {
       expect(uso![1]).toMatch(/^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/);
       expect(uso![2]).toMatch(/^\s+#\s*v\d+\.\d+\.\d+\s*$/);
+    }
+  });
+  test("Dado workflow local reutilizado, Quando leio a referência, Então aponta somente para workflow versionado existente", () => {
+    for (const uso of usos.filter(uso => uso![1]!.startsWith("./"))) {
+      expect(uso![1]).toMatch(/^\.\/\.github\/workflows\/[a-z0-9-]+\.yml$/);
+      expect(existsSync(join(raiz, uso![1]!))).toBe(true);
     }
   });
 });

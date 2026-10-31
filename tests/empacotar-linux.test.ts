@@ -70,7 +70,7 @@ test("Dado a entrada desktop do sistema, Quando leio instalador/linux/anvilore.d
 test.skipIf(process.platform !== "linux" || (process.env.ANVILORE_PULAR_TESTE_NFPM === "1" && !process.env.CI))("Dado o script empacotar-linux, Quando executo o build em diretório temporário, Então gera anvilore.deb e anvilore.rpm com arquivos e permissões corretos", async () => {
   const base = await mkdtemp(join(tmpdir(), "anvilore-empacotar-"));
   try {
-    const proc = Bun.spawnSync([process.execPath, join(raiz, "scripts/empacotar-linux.ts"), "--saida", base], {
+    const proc = Bun.spawnSync([process.execPath, join(raiz, "scripts/empacotar-linux.ts"), "--versao", "0.3.0", "--saida", base], {
       cwd: raiz,
       env: { ...process.env, ANVILORE_VERSAO: "", GITHUB_REF_NAME: "feat/u9-pacotes-linux", GITHUB_REF_TYPE: "branch" },
       stdout: "pipe",
@@ -162,4 +162,15 @@ test("Dado pacotes pré-existentes no destino, Quando download falha, Então a C
     expect(proc.stderr.toString()).toContain("HTTP 404");
     for (const extensao of ["deb", "rpm"]) expect(await readFile(join(base, `anvilore.${extensao}`), "utf8")).toBe("anterior");
   } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+// Saídas observadas no nFPM 2.47.0 real (dpkg-deb -f ... Version), não deduzidas do código dele.
+test("Dado versão SemVer, Quando calculo a versão do DEB, Então reproduzo o til de pré-release que o nFPM grava", async () => {
+  const { versaoDeb } = await import("../src/lib/versao-deb");
+  expect(versaoDeb("0.3.1")).toBe("0.3.1");
+  expect(versaoDeb("0.3.1-rc.1")).toBe("0.3.1~rc.1");
+  expect(versaoDeb("0.3.1-rc.1+b.7")).toBe("0.3.1~rc.1+b.7");
+  expect(versaoDeb("0.3.1+b-7")).toBe("0.3.1+b-7");
+  expect(versaoDeb("0.3.1-rc-2.x-y")).toBe("0.3.1~rc-2.x-y");
+  expect(() => versaoDeb("v0.3.1")).toThrow();
 });

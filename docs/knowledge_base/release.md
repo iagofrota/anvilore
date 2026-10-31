@@ -1,6 +1,5 @@
 ---
-generated: 2026-10-29
-verified: 2026-10-30
+generated: 2026-10-31
 ---
 
 # Como publicar uma release
@@ -21,11 +20,68 @@ aceitar a versão, e a ordem segura para entregá-la.
    assinantes da versão **anterior** antes de sair da máquina.
 4. Os instaladores gerados têm o manifesto e a chave pública embutidos e conferidos; os instaladores,
    seus hashes SHA-256 e suas assinaturas SSH (`ssh-keygen -Y sign -n file`) são publicados como assets da release.
-5. Três ações públicas, cada uma só com o **"sim" explícito do dono**, uma de cada vez: criar a tag,
-   enviar a tag, criar a release no GitHub.
+5. Com a autorização do dono, cria-se e envia-se a tag; o workflow só cria um rascunho depois dos
+   gates. A publicação do rascunho é feita pela pessoa.
 6. Release ruim nunca se corrige mexendo na tag: publica-se a próxima versão de correção.
 
 ## O que o kit instalado exige de uma release
+
+Os gates de preparação da U5 ficam em `scripts/verificar-tag-release.ts`,
+`scripts/verificar-dependencias-release.ts` e `scripts/montar-assets-release.ts`.
+O primeiro exige identidade e assinatura SSH da tag, HEAD correspondente, versão do pacote igual à tag
+e assinantes da versão anterior filtrados pela lista atual do site. Também regenera os dois scripts de
+produção e exige suas assinaturas públicas offline em `instalador/assinaturas/`, lendo fontes e
+assinaturas do commit autenticado da tag (arquivo só no disco não conta). Não usa a chave da candidata como
+âncora. O segundo baixa cada entrada do manifesto e calcula seu SHA-256, inclusive plataformas que o
+runner não executa. O terceiro exige os cinco arquivos de distribuição, confere os scripts inteiros
+contra o embutimento de produção e verifica suas assinaturas SSH no namespace file antes de escrever
+SHA256SUMS e os hashes individuais. Os pacotes são autenticados pelo fluxo de distribuição; este gate
+não verifica assinatura de código do exe nem assinatura de deb/rpm. Os cenários estão em
+`tests/release-tag.test.ts`, `tests/release-dependencias.test.ts` e `tests/release-assets.test.ts`.
+O workflow `.github/workflows/release.yml` encadeia a autenticação, os oito downloads do manifesto,
+o CI completo reutilizado de `.github/workflows/ci.yml`, a instalação/reinstalação Linux x64/arm64
+reutilizada de `.github/workflows/instalar-linux.yml` e os cenários de atualização em Ubuntu e Windows.
+O primeiro checkout usa o commit fixo da âncora 0.3.0. O shell confere os pins do objeto e commit,
+verifica a assinatura e consulta a revogação usando somente o código dessa âncora. Confere de novo
+a tag com as chaves ainda ativas no site; só então faz checkout da candidata e executa seu código.
+A identidade e as assinaturas offline são conferidas antes de instalar dependências. CI e instalação
+Linux recebem pushes de branches e PRs; numa tag só são chamados depois desse gate.
+
+O CI também chama `.github/workflows/builds-release.yml`, nas branches e na tag autenticada. Esse
+workflow prepara scripts determinísticos sem chave privada, compila DEB/RPM com versão explícita e
+instalar.sh de produção, extrai os dois pacotes e compara o script empacotado byte a byte. No Windows,
+confere o instalar.ps1 inteiro antes de passá-lo por caminho absoluto ao ISCC, com versão e saída
+explícitas, e exige o exe gerado com a versão esperada. As provas de instalação e remoção pertencem
+aos jobs Linux/Windows do CI; seus pacotes com origem local e chave descartável nunca entram nos
+artefatos de produção. O exe e os pacotes não têm assinatura de código nesta versão.
+
+O gate de atualização executa `tests/atualizar.test.ts`, `tests/atualizar-isolamento-git.test.ts` e
+`tests/migrar-rastreio.test.ts`, incluindo preservação, migração, R1–R5 e retomada. Usa Git e SSH reais
+descartáveis; o CLI das versões da fixture é mínimo. Isso não prova uma atualização entre dois
+pacotes publicados. A instalação Linux e as provas Windows continuam no CI reutilizado, sem
+substituir os jobs Playwright ou as verificações de cobertura nos três sistemas.
+
+Só depois de todos esses gates o job assets reúne os três pacotes e os scripts do mesmo run, confere
+as assinaturas offline contra a âncora anterior filtrada pelo site e gera SHA256SUMS. O único job com
+permissão de escrita é rascunho: confere novamente os hashes do transporte e chama
+`scripts/criar-rascunho-release.ts` com a opção explícita de criação. Esse comando exige tag remota
+já existente, versão igual ao pacote, notas idênticas à seção datada do CHANGELOG e o conjunto fechado dos dez assets; usa somente
+`gh release create --draft --verify-tag`. Não edita release existente, não cria tag, e marca sufixos
+SemVer como pré-release. A pessoa lê o rascunho e clica Publicar.
+
+Os testes em `tests/release-workflow.test.ts` e `tests/release-montagem-workflow.test.ts` conferem
+apenas grafo e configuração. `tests/release-autenticacao-workflow.test.ts` executa o shell exato de
+autenticação com Git e chaves descartáveis. `tests/release-script.test.ts` cobre a comparação integral
+de produção e `tests/release-rascunho.test.ts` cobre as recusas e os argumentos da criação com executor
+falso. Testes de YAML e de argumentos não provam Actions, ISCC, SmartScreen ou instalação de pacotes;
+essas execuções precisam de evidências próprias. Nenhuma tag de release foi executada na preparação U5.
+
+`scripts/lancar.ts` prepara somente os scripts de produção e NOTAS.md extraído da seção datada da
+versão no CHANGELOG. Sem flags ele simula, sem escrever nem fazer rede. Com `--preparar` e
+`--saida` grava numa pasta de preparo, recusando sobrescrever arquivos existentes. A versão precisa
+corresponder ao package.json; base mínima e chave pública são lidas sem alterá-las. Não chama Git,
+GitHub nem ssh-keygen, não assina e não publica. As conferências da KB e a autorização de publicação
+continuam etapas separadas. Os cenários ficam em `tests/release-preparar.test.ts`.
 
 | Exigência | Onde está no código |
 |---|---|
@@ -110,7 +166,7 @@ A versão `0.2.0` não tem atualizador nem seguranca/assinantes (conferido na ta
 existe nela). Portanto:
 
 1. A primeira versão que traz o atualizador **e** a chave pública é a **base mínima**: o número dela
-   vai para `instalador/base-minima` no preparo da release (o valor de hoje, `0.3.0`, é provisório) e
+   vai para `instalador/base-minima` no preparo da release (a base assinada estabelecida é `0.3.0`) e
    os instaladores o embutem. **Não há release de transição**: uma pasta anterior (a `0.2.0` ou um
    clone intermediário) não é atualizada no lugar e o CLI antigo dela nunca é executado para descobrir
    se serve. Os instaladores leem a versão do `package.json` da pasta como texto e, se for menor que a
@@ -199,14 +255,39 @@ por vez**.
    ssh-keygen -Y sign -f <CAMINHO-DA-CHAVE-PRIVADA> -n file dist/instalar.ps1
    ```
 
-   Confira localmente as assinaturas antes de prosseguir:
+   As assinaturas SSH **públicas** ficam em `instalador/assinaturas/`, com os nomes
+   instalar.sh.sig e instalar.ps1.sig. Copie-as depois de assinar os scripts finais:
 
    ```bash
-   ssh-keygen -Y verify -f seguranca/assinantes -I "<EMAIL-DE-ASSINATURA>" -n file -s dist/instalar.sh.sig < dist/instalar.sh
-   ssh-keygen -Y verify -f seguranca/assinantes -I "<EMAIL-DE-ASSINATURA>" -n file -s dist/instalar.ps1.sig < dist/instalar.ps1
+   mkdir -p instalador/assinaturas
+   cp dist/instalar.sh.sig instalador/assinaturas/instalar.sh.sig
+   cp dist/instalar.ps1.sig instalador/assinaturas/instalar.ps1.sig
+   git add -- instalador/assinaturas/instalar.sh.sig instalador/assinaturas/instalar.ps1.sig
    ```
 
-   Ambos devem retornar `Good "file" signature` e sair com 0.
+   Elas precisam estar no commit antes da tag. A geração real ocorre numa etapa de release separada,
+   depois de fontes e versão finais; não faz parte do build nem da execução comum do CI. O CI recebe
+   somente as assinaturas públicas, sem chave privada. Não há ciclo: `scripts/embutir-instalador.ts`
+   e `scripts/lancar.ts` não leem essa pasta para calcular os scripts. Alterar uma entrada do build
+   depois de assinar exige regenerar a assinatura. O contrato está em `instalador/assinaturas/README.md`.
+   Para 0.3.1, a âncora aprovada é o arquivo de assinantes da **0.3.0**; a base mínima e a versaoMinima
+   do site continuam em 0.3.0. `scripts/verificar-tag-release.ts` confere tag e ambas as assinaturas
+   contra essa confiança anterior, filtrada pelo site. Ausência, divergência ou assinatura não
+   confiável impede prosseguir até o rascunho. Uma branch comum prova esses casos com chaves
+   descartáveis (`tests/release-tag.test.ts`), sem exigir as assinaturas reais antecipadamente.
+
+   Para conferir diretamente a assinatura de arquivo, use uma cópia temporária dos assinantes
+   confiáveis, com o namespace `file` (o arquivo do kit limita tags ao namespace `git`):
+
+   ```bash
+   git show vANTERIOR:seguranca/assinantes > <ASSINANTES-ANTERIORES>
+   sed 's/namespaces="git"/namespaces="file"/' <ASSINANTES-ANTERIORES> > <ASSINANTES-DE-ARQUIVO>
+   ssh-keygen -Y verify -f <ASSINANTES-DE-ARQUIVO> -I "<EMAIL-DE-ASSINATURA>" -n file -s dist/instalar.sh.sig < dist/instalar.sh
+   ssh-keygen -Y verify -f <ASSINANTES-DE-ARQUIVO> -I "<EMAIL-DE-ASSINATURA>" -n file -s dist/instalar.ps1.sig < dist/instalar.ps1
+   ```
+
+   Ambos devem retornar `Good "file" signature` e sair com 0. Essa conferência direta não consulta
+   revogações; o gate da tag consulta a lista atual do site, além de verificar as assinaturas.
 10. **CI verde nos três sistemas, no commit que vai receber a tag** (o commit já deve estar na `main`):
 
    ```bash
@@ -290,22 +371,28 @@ O `ls-remote` mostra dois ids: o da tag e, com `^{}`, o do commit da release. Os
 diferentes (tag anotada) e o segundo tem de ser `<COMMIT>`. O CI roda `checar-release` na tag
 (`.github/workflows/ci.yml`, última etapa do job `testes`).
 
-**Ação 3 — criar a release no GitHub.** As notas saem da seção do CHANGELOG. Envie também os instaladores gerados com seus hashes e assinaturas SSH como assets:
+**Ação 3 — conferir o rascunho automático e publicar pela pessoa.**
+
+Depois do envio da tag, o workflow de release executa todos os gates e cria somente um rascunho.
+As notas vêm da seção datada do CHANGELOG, e os assets são AnviloreSetup.exe, anvilore.deb,
+anvilore.rpm, instalar.sh, instalar.ps1, os dois hashes individuais, as duas assinaturas SSH públicas e
+SHA256SUMS. O arquivo NOTAS.md é usado como corpo da release, não como asset público.
 
 ```bash
-awk -v v="X.Y.Z" '$0 ~ "^## \\[" v "\\]" {f=1; next} /^## /{f=0} f' CHANGELOG.md > <ARQUIVO-DE-NOTAS>
-gh release create vX.Y.Z dist/instalar.sh dist/instalar.sh.sha256 dist/instalar.sh.sig dist/instalar.ps1 dist/instalar.ps1.sha256 dist/instalar.ps1.sig --verify-tag --title "Anvilore X.Y.Z" --notes-file <ARQUIVO-DE-NOTAS>
+gh run list --repo iagofrota/anvilore --workflow release --json databaseId,headSha,status,conclusion
+gh release view vX.Y.Z --repo iagofrota/anvilore --json tagName,isDraft,isPrerelease,url
 ```
 
-- Versão com sufixo (`-rc.1`): acrescente `--prerelease`. **Nunca** publique versão com sufixo sem
-  essa marca: nenhum canal a enxerga.
-- `--verify-tag` aborta se a tag não existir no remoto. Não use `--target` nem deixe o `gh` criar a
-  tag: ela já existe, assinada.
-- O canal estável lê releases/latest. O `gh` marca a release como "latest" automaticamente por data e
-  versão (`gh release create --help`); numa correção de uma linha antiga, use `--latest=false` para não
-  tirar o posto da versão mais nova.
+Exija CI e release completos com sucesso no commit da tag, todos os dez assets presentes,
+`isDraft: true` e o canal correto. Qualquer falha deixa a distribuição sem rascunho; não a contorne
+criando release manualmente. O comando de criação recusa transporte incompleto ou divergente, usa
+`--verify-tag` e não aceita substituir uma release existente. Uma tag publicada permanece imutável.
+Versão com sufixo recebe `--prerelease`; a estável fica sem essa marca.
 
-**Como quem instala confere o instalador antes de executar (canal independente):**
+O dono lê as notas e clica **Publicar**. Só então as instalações podem enxergar a nova versão.
+
+### Conferir o instalador antes de executar
+
 Quem faz o primeiro download obtém a chave pública por canal independente **fora do GitHub e fora do repositório** (o README do repositório não é canal independente, pois um atacante que comprometesse o repositório alteraria o instalador e o README juntos; a âncora deve ser externa, como site do mantenedor ou registro público verificado ; o canal é o site do Anvilore, https://anvilore.iagofrota.com.br, que mostra a impressão digital e serve o arquivo `assinantes` (decisão do dono, 2026-10-30)). A pessoa grava essa chave em um arquivo local `assinantes` (ex.: `echo "<EMAIL-DO-MANTENEDOR> namespaces=\"file\" <CHAVE-PUBLICA>" > assinantes` ou sem a opção de namespace).
 A pessoa confere o hash SHA-256 e a assinatura SSH antes de rodar:
 
