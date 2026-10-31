@@ -13,6 +13,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 - Pacotes Linux `anvilore.deb` e `anvilore.rpm`: lançador e entrada no menu para instalações por usuário, com dependências do sistema e remoção que preserva o kit e os dados.
 - Setup do Windows `AnviloreSetup.exe` por usuário, com atalhos do Inno Setup e desinstalação que preserva a pasta da wiki.
+- A preparação da release confere por download o SHA-256 de cada dependência dos instaladores, incluindo todas as plataformas; arquivo alterado ou indisponível impede prosseguir.
+- Novos gates conferem a tag SSH pela confiança da versão anterior e exigem pacotes completos e scripts autenticados antes de gerar os hashes da distribuição.
 
 ### Fixed
 

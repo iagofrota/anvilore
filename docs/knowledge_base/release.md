@@ -1,6 +1,5 @@
 ---
-generated: 2026-10-29
-verified: 2026-10-30
+generated: 2026-10-31
 ---
 
 # Como publicar uma release
@@ -26,6 +25,18 @@ aceitar a versão, e a ordem segura para entregá-la.
 6. Release ruim nunca se corrige mexendo na tag: publica-se a próxima versão de correção.
 
 ## O que o kit instalado exige de uma release
+
+Os gates de preparação da U5 ficam em `scripts/verificar-tag-release.ts`,
+`scripts/verificar-dependencias-release.ts` e `scripts/montar-assets-release.ts`.
+O primeiro exige identidade e assinatura SSH da tag, HEAD correspondente, versão do pacote igual à tag
+e assinantes da versão anterior filtrados pela lista atual do site. Não usa a chave da candidata como
+âncora. O segundo baixa cada entrada do manifesto e calcula seu SHA-256, inclusive plataformas que o
+runner não executa. O terceiro exige os cinco arquivos de distribuição, confere os scripts inteiros
+contra o embutimento de produção e verifica suas assinaturas SSH no namespace file antes de escrever
+SHA256SUMS e os hashes individuais. Os pacotes são autenticados pelo fluxo de distribuição; este gate
+não verifica assinatura de código do exe nem assinatura de deb/rpm. Os cenários estão em
+`tests/release-tag.test.ts`, `tests/release-dependencias.test.ts` e `tests/release-assets.test.ts`.
+Esses gates isolados ainda não constituem um workflow de release nem provam a execução dos pacotes.
 
 | Exigência | Onde está no código |
 |---|---|
