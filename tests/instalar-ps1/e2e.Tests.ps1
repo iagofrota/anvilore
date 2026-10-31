@@ -39,7 +39,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
     # Origem local: clone do checkout atual + tag. modo: assinada | sem-assinatura | outra-chave | nome-trocado
     function script:Origem($nome, $modo, $chaveBoa, $chaveOutra, [bool]$filtro = $false) {
       $dir = Join-Path $script:Base "origem-$nome"
-      GitCmd clone --quiet --no-hardlinks $script:Raiz $dir
+      GitCmd clone --quiet --no-hardlinks --no-tags $script:Raiz $dir   # no CI de uma tag, a real (sem o objeto anotado) venceria a v0.0.1
       GitCmd -C $dir config user.email 'ci@anvilore.test'
       GitCmd -C $dir config user.name 'CI'
       GitCmd -C $dir config gpg.format ssh
