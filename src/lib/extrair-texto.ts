@@ -25,8 +25,8 @@ export function extrairTexto(html: string, url: string): { titulo: string; markd
  // O tradutor público fornece a árvore já analisada; não depende de DOM do navegador.
  NodeHtmlMarkdown.translate(`<anvilore-captura>${html}</anvilore-captura>`,{}, {'ANVILORE-CAPTURA':({node})=>{
   titulo=node.querySelector('title')?.textContent.trim() ?? node.querySelector('h1')?.textContent.trim() ?? '';
-  for(const el of node.querySelectorAll('script,style,nav,header,footer,aside,form,noscript')) el.remove();
   const principal=node.querySelector('article') ?? node.querySelector('main') ?? node.querySelector('[role="main"]') ?? node.querySelector('body') ?? node;
+  for(const el of principal.querySelectorAll('script,style,nav,footer,aside,form,noscript')) el.remove();
   for(const el of principal.querySelectorAll('a[href],img[src]')) {
    const atributo=el.tagName.toLowerCase()==='a'?'href':'src';const valor=el.getAttribute(atributo);if(valor)try{el.setAttribute(atributo,new URL(valor,url).href);}catch{}
   }

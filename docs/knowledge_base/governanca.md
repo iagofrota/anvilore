@@ -58,7 +58,8 @@ explícita de teste. Status fora de 2xx, tipo que não é texto, mais de cinco r
 a resolução e a conexão do fetch; a checagem prévia não fixa o endereço da conexão.
 
 A extração (`src/lib/extrair-texto.ts`) escolhe article, main, role=main ou body e remove navegação,
-scripts e formulários. Menos de 200 caracteres interrompe a captura; esse mínimo não prova completude.
+scripts e formulários. A seleção vem antes da limpeza: cabeçalhos dentro do conteúdo principal conservam
+título, resumo, autoria e data (`tests/fixtures/captura/cabecalho-artigo.html`). Menos de 200 caracteres interrompe a captura; esse mínimo não prova completude.
 O HTML original fica ao lado do Markdown para auditoria e seu hash vai para o cabeçalho. A skill manda
 parar diante de fonte resumida ou cortada e usar navegador quando houver; não usa WebFetch como bruto
 (`skills/ingest/SKILL.md`). Imagens e arquivos são copiados byte a byte, acompanhados de proveniência.

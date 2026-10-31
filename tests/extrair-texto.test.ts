@@ -18,3 +18,8 @@ test('Dado alternate markdown relativo, Quando procurar, Então resolve URL',()=
  expect(alternativaMarkdown('<p>sem alternativa</p>','https://e.test')).toBeUndefined();
 });
 for(const html of ['<main><p>principal</p></main>','<div role="main">principal</div>','<body>principal</body>','<p>principal</p>'])test(`Dado fallback ${html}, Quando extrair, Então mantém conteúdo`,()=>expect(extrairTexto(html,'https://e.test').markdown).toContain('principal'));
+test('Dado header dentro do artigo, Quando extrair corpo longo, Então preserva título, resumo, autoria e data',async()=>{
+ const html=(await fixture('cabecalho-artigo.html')).toString();const r=extrairTexto(html,'https://e.test/artigo');
+ for(const trecho of ['# Título dentro do artigo','Resumo introdutório que faz parte da fonte.','Autoria: Ana Exemplo','Publicado em 31/10/2026','O corpo tem informação suficiente']) expect(r.markdown).toContain(trecho);
+ for(const trecho of ['CABEÇALHO DO SITE','MENU GLOBAL','RODAPÉ DO SITE']) expect(r.markdown).not.toContain(trecho);
+});
