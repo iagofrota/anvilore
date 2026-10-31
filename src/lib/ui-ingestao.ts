@@ -171,6 +171,9 @@ export type OpcoesDaIngestao = {
 
 export class IngestaoNaInterface {
   private readonly conversas = new Map<string, Conversa>();
+  // A API publica só o último snapshot cujo rename terminou, nunca o objeto de trabalho.
+  private readonly publicadas = new Map<string, Conversa>();
+  private readonly falhasDeGravacao = new Map<string, ErroDeIngestao>();
   private readonly gravacoes = new Map<string, Promise<void>>();
   private readonly fases = new Map<string, Promise<void>>();
   private ativa: { id: string; execucao: ExecucaoDeFase } | undefined;
@@ -218,14 +221,15 @@ export class IngestaoNaInterface {
     const resumos: ResumoDeConversa[] = [];
     for (const nome of nomes) {
       if (!nome.endsWith(".json")) continue;
-      const conversa = await this.carregar(nome.slice(0, -5));
+      const conversa = await this.obter(nome.slice(0, -5));
       if (conversa) resumos.push({ id: conversa.id, nome: conversa.nome, fonte: conversa.fonte, passo: conversa.passo, situacao: conversa.situacao, criadaEm: conversa.criadaEm });
     }
     return resumos.sort((a, b) => b.criadaEm.localeCompare(a.criadaEm) || b.id.localeCompare(a.id));
   }
 
   async obter(id: string): Promise<Conversa | undefined> {
-    const conversa = await this.carregar(id);
+    await this.carregar(id);
+    const conversa = this.publicadas.get(id);
     return conversa && structuredClone(conversa);
   }
 
@@ -258,7 +262,7 @@ export class IngestaoNaInterface {
       }
       const wiki = this.wiki();
       this.iniciar(conversa, { papel: "leitor", mensagem: mensagemDoLeitor(conversa, wiki), raiz: this.raiz, wiki, rota }, new Set(), fim => this.terminarLeitura(conversa, fim));
-      return structuredClone(conversa);
+      return (await this.obter(id))!;
     } finally { this.liberarReserva(); }
   }
 
@@ -298,7 +302,7 @@ export class IngestaoNaInterface {
       }
       const pedido: PedidoDeFase = { papel: "escritor", mensagem: mensagemDoEscritor(conversa, wiki), raiz: this.raiz, wiki, ...(conversa.sessao ? { sessao: conversa.sessao } : {}), rota: conversa.rota ?? "padrao" };
       this.iniciar(conversa, pedido, existentes, fim => this.terminarEscrita(conversa, fim));
-      return structuredClone(conversa);
+      return (await this.obter(id))!;
     } finally { this.liberarReserva(); }
   }
 
@@ -329,7 +333,7 @@ export class IngestaoNaInterface {
     const conversa = await this.exigir(id);
     if (this.ativa?.id !== id) throw new ErroDeIngestao("Nada está rodando nesta ingestão.", 409);
     this.ativa.execucao.cancelar();
-    return structuredClone(conversa);
+    return (await this.obter(conversa.id))!;
   }
 
   private async exigir(id: string): Promise<Conversa> {
@@ -345,6 +349,8 @@ export class IngestaoNaInterface {
 
   private async carregar(id: string): Promise<Conversa | undefined> {
     if (!ID_VALIDO.test(id)) return undefined;
+    const falha = this.falhasDeGravacao.get(id);
+    if (falha) throw falha;
     const emMemoria = this.conversas.get(id);
     if (emMemoria) return emMemoria;
     let conversa: Conversa;
@@ -355,6 +361,9 @@ export class IngestaoNaInterface {
     if (conversa.situacao === "rodando") {
       Object.assign(conversa, { situacao: "interrompida", erro: "A interface foi fechada durante esta etapa." });
       delete conversa.agora;
+      await this.salvar(conversa);
+    } else {
+      this.publicadas.set(id, structuredClone(conversa));
     }
     this.conversas.set(id, conversa);
     return conversa;
@@ -362,13 +371,21 @@ export class IngestaoNaInterface {
 
   private salvar(conversa: Conversa): Promise<void> {
     conversa.atualizadaEm = this.agora().toISOString();
+    // Capture agora: os próximos eventos podem mudar a conversa enquanto esta gravação espera na fila.
+    const conteudo = JSON.stringify(conversa, null, 2);
     const arquivo = join(this.pasta, `${conversa.id}.json`);
     const anterior = this.gravacoes.get(conversa.id) ?? Promise.resolve();
     const proxima = anterior.then(async () => {
       await mkdir(this.pasta, { recursive: true });
       const temporario = `${arquivo}.${randomBytes(4).toString("hex")}.tmp`;
-      await writeFile(temporario, JSON.stringify(conversa, null, 2));
+      await writeFile(temporario, conteudo);
       await rename(temporario, arquivo);
+      this.publicadas.set(conversa.id, JSON.parse(conteudo) as Conversa);
+      this.falhasDeGravacao.delete(conversa.id);
+    }).catch(() => {
+      const falha = new ErroDeIngestao("Não foi possível salvar a ingestão. Verifique o espaço e as permissões da pasta e reabra o Anvilore para retomar o último estado salvo.", 500);
+      this.falhasDeGravacao.set(conversa.id, falha);
+      throw falha;
     });
     this.gravacoes.set(conversa.id, proxima.catch(() => {}));
     return proxima;

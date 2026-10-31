@@ -148,6 +148,7 @@ export const test = base.extend<Fixtures & Options>({
       ...(caminhoTitulo.includes("[C07]") ? [409] : []),
       ...(caminhoTitulo.includes("[C15]") ? [400] : []),
       ...(caminhoTitulo.includes("[C24]") ? [503] : []),
+      ...(caminhoTitulo.includes("[C22-P]") ? [500] : []),
       ...(caminhoTitulo.includes("[I6-13]") ? [404] : []),
     ];
     const errosNaoEsperados = erros.filter(erro => !(/Failed to load resource/i.test(erro) && codigosEsperados.some(codigo => erro.includes(String(codigo)))));

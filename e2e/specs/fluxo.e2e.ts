@@ -1,4 +1,6 @@
 import { test, expect } from "../apoio/fixtures";
+import { mkdir, rename, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { escolherArquivo } from "../apoio/acoes";
 import { instantaneo, mesmaArvore } from "../apoio/vault";
 import { FONTE, relatorioValido } from "../../tests/apoio/ingestao-exemplo";
@@ -232,10 +234,25 @@ test.describe("[C22] variante: recarregar enquanto o leitor está rodando", () =
   test("Dado a leitura parada numa barreira Quando recarrego Então retomo o estado sem iniciar outro leitor", async ({ page, app, agente, oraculo }) => {
     await page.goto(`${app.url}#/chat`);
     await escolherArquivo(page, { name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
+    // O resumo da sidebar pode chegar depois de o agente começar. Pronto não significa que a URL já mudou.
+    let liberarResumo!: () => void;
+    const resumoLiberado = new Promise<void>(resolve => { liberarResumo = resolve; });
+    let avisarResumo!: () => void;
+    const resumoPendente = new Promise<void>(resolve => { avisarResumo = resolve; });
+    await page.route(url => chamada("/api/ingestao")(url), async rota => {
+      const resposta = await rota.fetch();
+      avisarResumo();
+      await resumoLiberado;
+      await rota.fulfill({ response: resposta });
+    });
     const fonteEnviada = page.waitForResponse(resposta => chamada("/api/fontes")(new URL(resposta.url())) && resposta.request().method() === "POST");
     await page.getByRole("button", { name: "Ingerir", exact: true }).click();
     const id = (await (await fonteEnviada).json() as { id: string }).id;
     await agente.pronto("reload");
+    await resumoPendente;
+    expect(new URL(page.url()).hash).toBe("#/chat");
+    liberarResumo();
+    await expect(page).toHaveURL(new RegExp(`#/chat/${id}$`));
     await page.reload();
     await expect(page.getByRole("button", { name: "Cancelar ingestão" })).toBeVisible();
     await expect.poll(async () => (await oraculo.get<{ situacao: string }>(`/api/conversas/${id}`)).situacao).toBe("rodando");
@@ -243,6 +260,38 @@ test.describe("[C22] variante: recarregar enquanto o leitor está rodando", () =
     await agente.liberar("reload");
     await expect(page.getByRole("button", { name: "Pode seguir" })).toBeVisible();
     expect(await agente.invocacoes("leitor")).toHaveLength(1);
+  });
+});
+
+test.describe("[C22-P] falha ao persistir a parada", () => {
+  test.use({ roteiro: roteiroComLeitorParado("erro-gravacao") });
+  test("Dado o destino da gravação indisponível Quando a leitura termina Então vejo erro de persistência sem execução aparente", async ({ page, app, agente, oraculo, vault }) => {
+    await page.goto(`${app.url}#/chat`);
+    await escolherArquivo(page, { name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
+    await page.getByRole("button", { name: "Ingerir", exact: true }).click();
+    await agente.pronto("erro-gravacao");
+    await expect(page.getByRole("button", { name: "Cancelar ingestão" })).toBeVisible();
+    const id = new URL(page.url()).hash.split("/").at(-1)!;
+    const caminho = `.anvilore/ui/conversas/${id}.json`;
+    const arquivo = join(vault.raiz, caminho);
+    const copia = `${arquivo}.anterior`;
+    const salvo = await vault.ler(caminho);
+    // Um diretório no lugar do destino faz o rename falhar mesmo quando o runner ignora chmod.
+    await rename(arquivo, copia);
+    await mkdir(arquivo);
+    try {
+      await agente.liberar("erro-gravacao");
+      await expect(page.getByRole("alert")).toContainText("Não foi possível salvar a ingestão");
+      await expect(page.getByRole("alert")).toContainText("retomar o último estado salvo");
+      await expect(page.getByRole("button", { name: "Cancelar ingestão" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Pode seguir" })).toHaveCount(0);
+      await expect(oraculo.get(`/api/conversas/${id}`)).rejects.toThrow("HTTP 500");
+      expect(await vault.ler(`${caminho}.anterior`)).toEqual(salvo);
+      expect(await agente.invocacoes("escritor")).toHaveLength(0);
+    } finally {
+      await rm(arquivo, { recursive: true });
+      await rename(copia, arquivo);
+    }
   });
 });
 

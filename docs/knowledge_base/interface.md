@@ -1,6 +1,5 @@
 ---
 generated: 2026-10-29
-verified: 2026-10-30
 ---
 
 # Interface local (`anvilore ui`)
@@ -20,6 +19,17 @@ desta página. As decisões de fundo (servidor opcional, aprovação pelo servid
 | Revisão | `#/revisao` | Fila de rascunhos, mudanças e Aprovar. | `ui/web/main.tsx`, `src/lib/ui-fila.ts` |
 
 Endereço vazio ou desconhecido abre o Início (`lerRota` em `ui/web/navegacao.ts`).
+
+O Chat consulta a conversa em memória, mas `obter` e `listar` de `IngestaoNaInterface`
+publicam somente o último snapshot cuja gravação atômica terminou. Cada evento captura seu próprio
+conteúdo antes de entrar na fila de gravações. Assim, **Pode seguir** só aparece depois que a parada
+está no JSON em .anvilore/ui/conversas/. Ao abrir uma conversa de uma interface anterior, uma fase
+que ficou rodando é gravada como interrompida antes de aparecer na API (`src/lib/ui-ingestao.ts`).
+Se a gravação falha, as consultas e ações respondem com erro explícito: a tela deixa de exibir uma
+execução em andamento sem processo. A mensagem orienta conferir espaço e permissões e reabrir o
+Anvilore para retomar o último estado salvo. Uma gravação posterior bem-sucedida limpa a falha.
+O teste de retomada espera a navegação para `#/chat/<id>` antes de recarregar: o agente começar não
+garante que essa navegação já terminou (`e2e/specs/fluxo.e2e.ts`).
 
 ## O que o Início mostra e de onde vem
 
