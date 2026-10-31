@@ -166,7 +166,7 @@ test("Dado pacotes pré-existentes no destino, Quando download falha, Então a C
 
 // Saídas observadas no nFPM 2.47.0 real (dpkg-deb -f ... Version), não deduzidas do código dele.
 test("Dado versão SemVer, Quando calculo a versão do DEB, Então reproduzo o til de pré-release que o nFPM grava", async () => {
-  const { versaoDeb } = await import("../scripts/empacotar-linux");
+  const { versaoDeb } = await import("../src/lib/versao-deb");
   expect(versaoDeb("0.3.1")).toBe("0.3.1");
   expect(versaoDeb("0.3.1-rc.1")).toBe("0.3.1~rc.1");
   expect(versaoDeb("0.3.1-rc.1+b.7")).toBe("0.3.1~rc.1+b.7");
