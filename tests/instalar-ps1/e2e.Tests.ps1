@@ -992,8 +992,16 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $registro = Join-Path $script:Base 'setup-cwd.txt'
       $bin = Join-Path $script:Base 'setup-bun-falso'
       $perfil = Join-Path $script:Base 'perfil explorer vazio'
+      $marca = [guid]::NewGuid().ToString('N')
+      $arquivoMarca = Join-Path $script:SetupKit '.anvilore\u7-runtime-cwd.txt'
+      Set-Content -LiteralPath $arquivoMarca -Encoding ASCII -NoNewline -Value $marca
+      # cmd normaliza aliases 8.3 (RUNNER~1) para o nome longo. A referência vem da pasta desejada,
+      # antes de abrir o atalho; a marca exclusiva também prova a identidade do diretório real.
+      Push-Location -LiteralPath $script:SetupKit
+      try { $cwdEsperado = (& cmd.exe /d /c cd | Out-String).Trim(); $LASTEXITCODE | Should -Be 0 } finally { Pop-Location }
+      (Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $script:SetupApp 'pasta.txt')) | Should -Be $script:SetupKit
       New-Item -ItemType Directory -Path $bin, $perfil -Force | Out-Null
-      Set-Content -LiteralPath (Join-Path $bin 'bun.cmd') -Encoding ASCII -Value "@echo off`r`ncd > `"%ANVILORE_TEST_CWD%`"`r`nexit /b 0`r`n"
+      Set-Content -LiteralPath (Join-Path $bin 'bun.cmd') -Encoding ASCII -Value "@echo off`r`ncd > `"%ANVILORE_TEST_CWD%`"`r`ntype .anvilore\u7-runtime-cwd.txt > `"%ANVILORE_TEST_CWD%.id`"`r`nexit /b 0`r`n"
       $salvas = @{}
       foreach ($nome in @('ANVILORE_PASTA', 'ANVILORE_LANCADOR', 'ANVILORE_TEST_CWD', 'USERPROFILE', 'LOCALAPPDATA', 'Path')) {
         $salvas[$nome] = [Environment]::GetEnvironmentVariable($nome, 'Process')
@@ -1008,6 +1016,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
         foreach ($clm in @($false, $true)) {
           foreach ($caminho in @($script:SetupMenuShortcut, $script:SetupDesktopShortcut)) {
             Remove-Item -LiteralPath $registro -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath ($registro + '.id') -Force -ErrorAction SilentlyContinue
             $lnk = $script:SetupShortcut.CreateShortcut($caminho)
             # TargetPath, Arguments e WorkingDirectory persistidos. No segundo passe, apenas força CLM antes do comando.
             $argumentos = $lnk.Arguments
@@ -1015,12 +1024,14 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
             $p = Start-Process -FilePath $lnk.TargetPath -ArgumentList $argumentos -WorkingDirectory $lnk.WorkingDirectory -PassThru -WindowStyle Hidden
             if (-not $p.WaitForExit(15000)) { $p.Kill(); throw 'Atalho não terminou em 15s' }
             $p.ExitCode | Should -Be 0
-            (Get-Content -Raw -LiteralPath $registro).Trim() | Should -Be $script:SetupKit
-            Write-Host "ATALHO_RUNTIME clm=$clm lnk=$caminho cwd=$script:SetupKit"
+            (Get-Content -Raw -LiteralPath $registro).Trim() | Should -Be $cwdEsperado
+            (Get-Content -Raw -LiteralPath ($registro + '.id')).Trim() | Should -Be $marca
+            Write-Host "ATALHO_RUNTIME clm=$clm lnk=$caminho cwd=$cwdEsperado identidade=confirmada"
           }
         }
         Test-Path -LiteralPath (Join-Path $perfil 'Anvilore') | Should -BeFalse
       } finally {
+        Remove-Item -LiteralPath $arquivoMarca -Force -ErrorAction SilentlyContinue
         foreach ($nome in $salvas.Keys) { [Environment]::SetEnvironmentVariable($nome, $salvas[$nome], 'Process') }
       }
     }
