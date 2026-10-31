@@ -237,8 +237,9 @@ e no Linux isso é falso positivo aceito. Veja [governanca.md](governanca.md).
 Fatia U3 dos instaladores. O script (`instalador/instalar.sh`) instala o kit em Linux x64 e arm64 e é a base
 do macOS (que ainda recusa com mensagem simples). Ele faz os passos 1 a 12 do plano: confere o sistema,
 instala o que falta (git, `ssh-keygen`, `unzip`, Bun e rg), baixa a última release, **confere a assinatura da tag**,
-liga os agentes que a pessoa tem, grava o estado da atualização, roda o `doctor` e termina com três linhas: o
-que foi instalado, onde está e o próximo passo. `criar_atalho` copia o lançador Linux de `instalador/anvilore-abrir`
+liga os agentes que a pessoa tem, grava o estado da atualização, roda o `doctor` e termina com um resumo: versão e pasta,
+agentes configurados com nomes amigáveis e dois passos para reabrir o terminal/agentes e abrir o atalho ou o agente na pasta.
+Se `rg` não estiver disponível, acrescenta um aviso em linha própria depois dos passos. `criar_atalho` copia o lançador Linux de `instalador/anvilore-abrir`
 para a pasta local de binários do usuário, instala `instalador/anvilore.svg` no diretório local de ícones e grava
 `anvilore.desktop` no diretório local de aplicativos com `Terminal=true`. A entrada usa o mesmo nome do pacote para
 prevalecer sobre a entrada de sistema sem duplicar o menu. `instalador/anvilore-abrir` usa a pasta Anvilore na home
@@ -267,8 +268,8 @@ Onde cada coisa fica (Linux):
   sem par ou marcadores repetidos), o instalador não mexe no arquivo e avisa para corrigir os marcadores à mão. A cópia temporária
   fica no mesmo diretório, preserva as permissões, e `mv` publica a alteração atomicamente. Arquivo de shell que seja symlink não
   é alterado; o instalador avisa para configurar manualmente o destino do link. Arquivo sem permissão de escrita vira aviso em
-  linguagem simples, não erro. O resumo
-  final diz que um terminal novo já acha o comando. Os hooks
+  linguagem simples, não erro. O resumo final não expõe Bun, PATH nem os arquivos de perfil; ele orienta a fechar e abrir
+  novamente o terminal e os agentes. Os hooks
   continuam chamando `bun` pelo PATH, sem caminho absoluto. O `doctor` e o `--conferir` não precisam saber disso: eles olham o PATH
   do terminal em que rodam, que num terminal novo já traz o bloco. ~/.bash_profile e ~/.bash_login entram porque o bash de login
   ignora o ~/.profile quando um deles existe. **Não provado:** `fish` e `zsh` de login sem ~/.zshrc (o zsh só lê o ~/.zshrc em
@@ -370,7 +371,7 @@ Fatia U4 dos instaladores. O script (`instalador/instalar.ps1`) instala o kit no
 e faz os passos 1 a 12 do plano, na mesma ordem do `instalador/instalar.sh`: confere o sistema; usa o Git da pessoa (2.34 ou
 mais novo e com o bash do Git for Windows) ou baixa o PortableGit para `%LOCALAPPDATA%\Anvilore\git`; garante o Bun
 (`%USERPROFILE%\.bun\bin`) e o rg (`%LOCALAPPDATA%\Anvilore\bin`) com SHA-256 do manifesto; baixa a última release,
-**confere a assinatura da tag**; liga os agentes, grava o estado da atualização (o arquivo atualizacao.json, na pasta .anvilore), roda o `doctor` e termina com o resumo.
+**confere a assinatura da tag**; liga os agentes, grava o estado da atualização (o arquivo atualizacao.json, na pasta .anvilore), roda o `doctor` e termina com um resumo em linguagem simples: versão e pasta, agentes configurados com nomes amigáveis e dois passos para reabrir o terminal/agentes e abrir o atalho ou o agente na pasta. Se `rg` não estiver disponível, acrescenta um aviso em linha própria depois dos passos.
 `AnvCriarAtalho` cria `Anvilore.lnk` no Menu Iniciar e na Área de Trabalho, apontando para
 `instalador/abrir.ps1` por PowerShell com `Get-Content -Raw -Encoding UTF8` e scriptblock; não usa `-File`, para
 funcionar com GPO `AllSigned`. Em Constrained Language Mode retorna `$false` e deixa a criação para o Inno Setup da

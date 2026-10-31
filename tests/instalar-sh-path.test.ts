@@ -91,12 +91,13 @@ test.skipIf(!linux)("Dado um HOME em que o PATH já tem ~/.local/bin, Quando abr
   expect(dentro.split(":").filter(x => x === pasta)).toHaveLength(1);
 });
 
-test.skipIf(!linux)("Dado o instalador concluído, Quando leio o resumo, Então ele diz em linguagem simples que um terminal novo já acha o comando", async () => {
+test.skipIf(!linux)("Dado o instalador concluído, Quando leio o resumo, Então ele orienta a reabrir o terminal sem expor detalhes técnicos", async () => {
   const c = await novo();
   const r = c.rodar();
   expect(r.codigo, r.tudo).toBe(0);
-  expect(r.saida).toContain("Um terminal novo já acha o comando");
-  expect(r.saida).toContain("~/.profile");
+  const sucesso = r.saida.slice(r.saida.indexOf("Pronto!"));
+  expect(sucesso).toContain("Feche este terminal e os agentes que estiverem abertos, e abra de novo.");
+  expect(sucesso).not.toMatch(/bun|PATH|\.profile|\.bashrc|\.zshrc/i);
 });
 
 test.skipIf(!linux || process.getuid?.() === 0)("Dado um ~/.profile que não aceita escrita, Quando instalo, Então avisa em linguagem simples e a instalação termina", async () => {

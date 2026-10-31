@@ -465,17 +465,36 @@ Describe 'AnvResultadoFinal' {
   It 'completo'                { (AnvResultadoFinal -TemAgente $true -DoctorOk $true).Codigo | Should -Be 0 }
   It 'sem agente é parcial'    { (AnvResultadoFinal -TemAgente $false -DoctorOk $false).Codigo | Should -Be 10 }
   It 'doctor reprovou com agente é falha' { (AnvResultadoFinal -TemAgente $true -DoctorOk $false).Codigo | Should -Be 1 }
-  It 'completo com atalho aponta para o atalho' {
-    (AnvResultadoFinal -TemAgente $true -DoctorOk $true -Atalho $true).Linhas -join ' ' | Should -Match 'atalho Anvilore'
+  It 'completo sem atalho resume um agente em linguagem simples' {
+    $r = AnvResultadoFinal -TemAgente $true -DoctorOk $true -Pasta 'C:\Anvilore' -Versao 'v0.3.0' -Agentes @('claude')
+    $r.Linhas | Should -Be @(
+      'Pronto! Anvilore v0.3.0 instalado em C:\Anvilore.',
+      'Agente configurado: Claude Code.',
+      '',
+      'Para começar:',
+      '  1. Feche este terminal e os agentes que estiverem abertos, e abra de novo.',
+      '  2. Abra o Claude Code (ou outro agente) na pasta C:\Anvilore.'
+    )
+    ($r.Linhas -join "`n") | Should -Not -Match 'bun|PATH|\.profile|\.bashrc|\.zshrc'
   }
-  It 'completo sem atalho aponta para o agente na pasta' {
-    (AnvResultadoFinal -TemAgente $true -DoctorOk $true -Atalho $false).Linhas -join ' ' | Should -Match 'abra o seu agente'
+  It 'completo com atalho e vários agentes usa nomes amigáveis' {
+    $r = AnvResultadoFinal -TemAgente $true -DoctorOk $true -Pasta 'C:\Anvilore' -Versao 'v0.3.0' -Agentes @('claude', 'codex', 'copilot') -Atalho $true
+    $r.Linhas | Should -Be @(
+      'Pronto! Anvilore v0.3.0 instalado em C:\Anvilore.',
+      'Agentes configurados: Claude Code, Codex e Copilot.',
+      '',
+      'Para começar:',
+      '  1. Feche este terminal e os agentes que estiverem abertos, e abra de novo.',
+      '  2. Abra o atalho Anvilore no Menu Iniciar.'
+    )
   }
-  It 'completo avisa para fechar e abrir o terminal (PATH novo)' {
-    (AnvResultadoFinal -TemAgente $true -DoctorOk $true).Linhas -join ' ' | Should -Match 'Feche e abra o terminal'
+  It 'sem tag evita espaço duplo' {
+    (AnvResultadoFinal -TemAgente $true -DoctorOk $true -Pasta 'C:\Anvilore' -Agentes @('codex')).Linhas[0] | Should -Be 'Pronto! Anvilore instalado em C:\Anvilore.'
   }
-  It 'sem rg avisa que a busca fica indisponível' {
-    (AnvResultadoFinal -TemAgente $true -DoctorOk $true -SemRg $true).Linhas -join ' ' | Should -Match 'sem o ripgrep'
+  It 'sem rg avisa em linha própria depois dos passos' {
+    $r = AnvResultadoFinal -TemAgente $true -DoctorOk $true -Pasta 'C:\Anvilore' -Versao 'v0.3.0' -Agentes @('claude') -SemRg $true
+    $r.Linhas[-1] | Should -Be 'Aviso: sem o ripgrep (rg), a busca da skill de consulta fica indisponível até você instalá-lo.'
+    $r.Linhas.Count | Should -Be 7
   }
   It 'sem agente diz para instalar um e rodar de novo' {
     (AnvResultadoFinal -TemAgente $false -DoctorOk $false).Linhas -join ' ' | Should -Match 'rode o instalador de novo'
