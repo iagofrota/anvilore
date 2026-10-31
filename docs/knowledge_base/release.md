@@ -38,6 +38,13 @@ não verifica assinatura de código do exe nem assinatura de deb/rpm. Os cenári
 `tests/release-tag.test.ts`, `tests/release-dependencias.test.ts` e `tests/release-assets.test.ts`.
 Esses gates isolados ainda não constituem um workflow de release nem provam a execução dos pacotes.
 
+`scripts/lancar.ts` prepara somente os scripts de produção e NOTAS.md extraído da seção datada da
+versão no CHANGELOG. Sem flags ele simula, sem escrever nem fazer rede. Com `--preparar` e
+`--saida` grava numa pasta de preparo, recusando sobrescrever arquivos existentes. A versão precisa
+corresponder ao package.json; base mínima e chave pública são lidas sem alterá-las. Não chama Git,
+GitHub nem ssh-keygen, não assina e não publica. As conferências da KB e a autorização de publicação
+continuam etapas separadas. Os cenários ficam em `tests/release-preparar.test.ts`.
+
 | Exigência | Onde está no código |
 |---|---|
 | A release está no GitHub, não é rascunho, e o nome da tag é `vX.Y.Z` (o `v` é opcional) com X.Y.Z em SemVer 2.0.0 estrito | `selecionarRelease`, `parsearSemVer` em `src/lib/atualizacao.ts` |
@@ -316,7 +323,8 @@ gh release create vX.Y.Z dist/instalar.sh dist/instalar.sh.sha256 dist/instalar.
   versão (`gh release create --help`); numa correção de uma linha antiga, use `--latest=false` para não
   tirar o posto da versão mais nova.
 
-**Como quem instala confere o instalador antes de executar (canal independente):**
+### Conferir o instalador antes de executar
+
 Quem faz o primeiro download obtém a chave pública por canal independente **fora do GitHub e fora do repositório** (o README do repositório não é canal independente, pois um atacante que comprometesse o repositório alteraria o instalador e o README juntos; a âncora deve ser externa, como site do mantenedor ou registro público verificado ; o canal é o site do Anvilore, https://anvilore.iagofrota.com.br, que mostra a impressão digital e serve o arquivo `assinantes` (decisão do dono, 2026-10-30)). A pessoa grava essa chave em um arquivo local `assinantes` (ex.: `echo "<EMAIL-DO-MANTENEDOR> namespaces=\"file\" <CHAVE-PUBLICA>" > assinantes` ou sem a opção de namespace).
 A pessoa confere o hash SHA-256 e a assinatura SSH antes de rodar:
 
