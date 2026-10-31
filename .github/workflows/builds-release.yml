@@ -100,6 +100,7 @@ jobs:
           name: producao-scripts
           path: release/
       - name: Conferir produção e compilar com ISCC (sem assinatura de código)
+        id: compilar-windows
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -115,7 +116,33 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'ISCC falhou' }
           $exe = Join-Path $saida 'AnviloreSetup.exe'
           if (-not (Test-Path -LiteralPath $exe) -or (Get-Item -LiteralPath $exe).Length -lt 1024) { throw 'EXE ausente ou vazio' }
+          $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
+          $metadados = [ordered]@{
+            Esperada = $versao
+            ProductVersion = $info.ProductVersion
+            FileVersion = $info.FileVersion
+            ProductMajorPart = $info.ProductMajorPart
+            ProductMinorPart = $info.ProductMinorPart
+            ProductBuildPart = $info.ProductBuildPart
+            ProductPrivatePart = $info.ProductPrivatePart
+            FileMajorPart = $info.FileMajorPart
+            FileMinorPart = $info.FileMinorPart
+            FileBuildPart = $info.FileBuildPart
+            FilePrivatePart = $info.FilePrivatePart
+          }
+          $metadados | ConvertTo-Json -Compress | Write-Host
+          $metadados | ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $saida 'metadados-exe.json')
           if ([System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe).ProductVersion -ne $versao) { throw 'Versão do EXE divergente' }
+      - name: Guardar EXE recusado e seus metadados para diagnóstico
+        if: failure() && steps.compilar-windows.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: diagnostico-exe-recusado
+          path: |
+            pacotes/AnviloreSetup.exe
+            pacotes/metadados-exe.json
+          if-no-files-found: warn
+          retention-days: 7
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: producao-windows

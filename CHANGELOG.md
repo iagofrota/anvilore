@@ -26,6 +26,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
+- O build do Windows registra as versões textuais e numéricas do executável e preserva o arquivo recusado para diagnosticar divergências sem liberar a distribuição.
 - A ingestão só mostra estados já gravados em disco, preservando a parada e a retomada ao recarregar a interface.
 - Falhas ao salvar a ingestão aparecem como erro, com orientação para retomar o último estado salvo, em vez de manter a tela em uma leitura que já terminou.
 - Build Linux embute e confere manifesto, assinantes, base mínima e URL oficiais antes do nfpm, valida SemVer, exige `ssh-keygen` pelos pacotes da distribuição e só publica o par DEB/RPM após gerar ambos. Falhas de rede, HTTP, hash ou empacotamento encerram com erro.
