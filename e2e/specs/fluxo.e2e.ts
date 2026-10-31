@@ -232,10 +232,25 @@ test.describe("[C22] variante: recarregar enquanto o leitor está rodando", () =
   test("Dado a leitura parada numa barreira Quando recarrego Então retomo o estado sem iniciar outro leitor", async ({ page, app, agente, oraculo }) => {
     await page.goto(`${app.url}#/chat`);
     await escolherArquivo(page, { name: "llm-wiki.md", mimeType: "text/markdown", buffer: Buffer.from(FONTE) });
+    // O resumo da sidebar pode chegar depois de o agente começar. Pronto não significa que a URL já mudou.
+    let liberarResumo!: () => void;
+    const resumoLiberado = new Promise<void>(resolve => { liberarResumo = resolve; });
+    let avisarResumo!: () => void;
+    const resumoPendente = new Promise<void>(resolve => { avisarResumo = resolve; });
+    await page.route(url => chamada("/api/ingestao")(url), async rota => {
+      const resposta = await rota.fetch();
+      avisarResumo();
+      await resumoLiberado;
+      await rota.fulfill({ response: resposta });
+    });
     const fonteEnviada = page.waitForResponse(resposta => chamada("/api/fontes")(new URL(resposta.url())) && resposta.request().method() === "POST");
     await page.getByRole("button", { name: "Ingerir", exact: true }).click();
     const id = (await (await fonteEnviada).json() as { id: string }).id;
     await agente.pronto("reload");
+    await resumoPendente;
+    expect(new URL(page.url()).hash).toBe("#/chat");
+    liberarResumo();
+    await expect(page).toHaveURL(new RegExp(`#/chat/${id}$`));
     await page.reload();
     await expect(page.getByRole("button", { name: "Cancelar ingestão" })).toBeVisible();
     await expect.poll(async () => (await oraculo.get<{ situacao: string }>(`/api/conversas/${id}`)).situacao).toBe("rodando");

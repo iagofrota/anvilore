@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import * as arquivos from "node:fs/promises";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -52,6 +53,57 @@ async function naParada(ponte: PonteFalsa, ingestao = servico(ponte)) {
   await ingestao.esperar(conversa.id);
   return { ingestao, conversa: (await ingestao.obter(conversa.id))! };
 }
+
+test("Dado o relatório conferido e o rename pendente Quando consulto a conversa e a lista Então a parada só aparece após persistir", async () => {
+  const ingestao = servico(new PonteFalsa({ leitor: leitorValido() }));
+  const conversa = await comFonte(ingestao);
+  const arquivo = join(raiz, ".anvilore/ui/conversas", `${conversa.id}.json`);
+  const pendente = Promise.withResolvers<void>();
+  const liberar = Promise.withResolvers<void>();
+  const rename = arquivos.rename;
+  const gravacao = spyOn(arquivos, "rename").mockImplementation(async (de, para) => {
+    if (para === arquivo && JSON.parse(readFileSync(de, "utf8")).situacao === "esperando") {
+      pendente.resolve();
+      await liberar.promise;
+    }
+    return rename(de, para);
+  });
+  try {
+    await ingestao.ler(conversa.id);
+    await pendente.promise;
+    expect((await ingestao.obter(conversa.id))?.situacao).toBe("rodando");
+    expect((await ingestao.listar())[0]?.situacao).toBe("rodando");
+    expect(JSON.parse(readFileSync(arquivo, "utf8")).situacao).toBe("rodando");
+  } finally {
+    liberar.resolve();
+    await ingestao.esperar(conversa.id);
+    gravacao.mockRestore();
+  }
+  const publicada = await ingestao.obter(conversa.id);
+  expect(publicada).toMatchObject({ situacao: "esperando", passo: "parada" });
+  expect(publicada).toEqual(JSON.parse(readFileSync(arquivo, "utf8")));
+  expect(await servico(new PonteFalsa()).obter(conversa.id)).toEqual(publicada);
+});
+
+test("Dado eventos consecutivos do leitor Quando a fila grava Então cada snapshot conserva o estado daquele evento", async () => {
+  const ingestao = servico(new PonteFalsa({ leitor: leitorValido() }));
+  const conversa = await comFonte(ingestao);
+  const arquivo = join(raiz, ".anvilore/ui/conversas", `${conversa.id}.json`);
+  const snapshots: Conversa[] = [];
+  const rename = arquivos.rename;
+  const gravacao = spyOn(arquivos, "rename").mockImplementation(async (de, para) => {
+    if (para === arquivo) snapshots.push(JSON.parse(readFileSync(de, "utf8")) as Conversa);
+    return rename(de, para);
+  });
+  try {
+    await ingestao.ler(conversa.id);
+    await ingestao.esperar(conversa.id);
+  } finally { gravacao.mockRestore(); }
+  expect(snapshots[1]).toMatchObject({ situacao: "rodando", sessao: SESSAO, atividade: [] });
+  expect(snapshots[2]?.atividade[0]?.estado).toBe("andamento");
+  expect(snapshots[3]?.atividade[0]?.estado).toBe("ok");
+  expect(snapshots.at(-1)).toMatchObject({ situacao: "esperando", passo: "parada" });
+});
 
 // ── 1b-1 ───────────────────────────────────────────────────────────────────
 

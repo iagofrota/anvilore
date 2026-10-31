@@ -15,6 +15,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
+- A ingestão só mostra estados já gravados em disco, preservando a parada e a retomada ao recarregar a interface.
 - Build Linux embute e confere manifesto, assinantes, base mínima e URL oficiais antes do nfpm, valida SemVer, exige `ssh-keygen` pelos pacotes da distribuição e só publica o par DEB/RPM após gerar ambos. Falhas de rede, HTTP, hash ou empacotamento encerram com erro.
 
 ## [0.3.0] - 2026-10-30
