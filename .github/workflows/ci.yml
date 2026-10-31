@@ -107,6 +107,7 @@ jobs:
           $c.Run.Exit = $true
           Invoke-Pester -Configuration $c
       - name: Resultados e pausa do AnviloreSetup.exe (runtime Inno e PowerShell)
+        if: ${{ !cancelled() }}
         shell: powershell
         run: |
           Import-Module Pester -MinimumVersion 5.5

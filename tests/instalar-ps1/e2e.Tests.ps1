@@ -1005,14 +1005,19 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
         $env:LOCALAPPDATA = Join-Path $perfil 'AppData\Local'
         $env:ANVILORE_TEST_CWD = $registro
         $env:Path = $bin + ';' + $script:SetupAmbienteAntes['Path']
-        foreach ($caminho in @($script:SetupMenuShortcut, $script:SetupDesktopShortcut)) {
-          Remove-Item -LiteralPath $registro -Force -ErrorAction SilentlyContinue
-          $lnk = $script:SetupShortcut.CreateShortcut($caminho)
-          # Exatamente TargetPath, Arguments e WorkingDirectory persistidos no .lnk.
-          $p = Start-Process -FilePath $lnk.TargetPath -ArgumentList $lnk.Arguments -WorkingDirectory $lnk.WorkingDirectory -PassThru -WindowStyle Hidden
-          if (-not $p.WaitForExit(15000)) { $p.Kill(); throw 'Atalho não terminou em 15s' }
-          $p.ExitCode | Should -Be 0
-          (Get-Content -Raw -LiteralPath $registro).Trim() | Should -Be $script:SetupKit
+        foreach ($clm in @($false, $true)) {
+          foreach ($caminho in @($script:SetupMenuShortcut, $script:SetupDesktopShortcut)) {
+            Remove-Item -LiteralPath $registro -Force -ErrorAction SilentlyContinue
+            $lnk = $script:SetupShortcut.CreateShortcut($caminho)
+            # TargetPath, Arguments e WorkingDirectory persistidos. No segundo passe, apenas força CLM antes do comando.
+            $argumentos = $lnk.Arguments
+            if ($clm) { $argumentos = $argumentos.Replace('-Command "', '-Command "$ExecutionContext.SessionState.LanguageMode = ''ConstrainedLanguage''; ') }
+            $p = Start-Process -FilePath $lnk.TargetPath -ArgumentList $argumentos -WorkingDirectory $lnk.WorkingDirectory -PassThru -WindowStyle Hidden
+            if (-not $p.WaitForExit(15000)) { $p.Kill(); throw 'Atalho não terminou em 15s' }
+            $p.ExitCode | Should -Be 0
+            (Get-Content -Raw -LiteralPath $registro).Trim() | Should -Be $script:SetupKit
+            Write-Host "ATALHO_RUNTIME clm=$clm lnk=$caminho cwd=$script:SetupKit"
+          }
         }
         Test-Path -LiteralPath (Join-Path $perfil 'Anvilore') | Should -BeFalse
       } finally {
