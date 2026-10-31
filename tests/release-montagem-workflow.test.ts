@@ -53,6 +53,9 @@ test("Dado montagem de produção, Quando leio os contratos dos builds, Então v
   expect(windows).toContain("/DInstallerPs1=");
   expect(windows).toContain("Resolve-Path");
   expect(windows).toContain("conferir-script-release.ts");
+  // O Inno grava a ProductVersion de texto completada com espaços; a igualdade continua exata após o Trim.
+  expect(windows).toContain("([string]$info.ProductVersion).Trim() -cne $versao");
+  expect(windows).not.toMatch(/ProductVersion -ne \$versao|-like|-match \$versao/);
   for (const texto of [linux, windows]) expect(texto).not.toMatch(/--teste|--aceitar-url-de-teste|--url-confianca|--assinantes/);
   const arquivos = JSON.stringify(w);
   expect(arquivos).not.toMatch(/secrets\.|signingkey|ssh-keygen.*-Y.*sign/);

@@ -132,7 +132,8 @@ jobs:
           }
           $metadados | ConvertTo-Json -Compress | Write-Host
           $metadados | ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $saida 'metadados-exe.json')
-          if ([System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe).ProductVersion -ne $versao) { throw 'Versão do EXE divergente' }
+          # O Inno grava a ProductVersion de texto completada com espaços à direita; só esse preenchimento sai.
+          if (([string]$info.ProductVersion).Trim() -cne $versao) { throw 'Versão do EXE divergente' }
       - name: Guardar EXE recusado e seus metadados para diagnóstico
         if: failure() && steps.compilar-windows.outcome == 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

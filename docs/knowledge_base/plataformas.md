@@ -476,6 +476,9 @@ ffmpeg -i /tmp/anvilore.png -frames:v 1 instalador/windows/anvilore.ico`). Outro
 embutido>`; `/O<pasta>` escolhe a saída, cujo nome é AnviloreSetup.exe. O valor padrão de InstallerPs1 é o modelo do
 repositório, que recusa instalar sem as chaves e o manifesto embutidos. Nenhuma chave real é necessária para compilar;
 os testes usam exclusivamente uma chave descartável. O build não assina o executável.
+A versão de texto vem de AppVersion. No run 41206479325 a ProductVersion lida do EXE foi `0.3.1` completada com espaços
+à direita, e as partes numéricas ficaram em 0 porque VersionInfoVersion não é definido. Por isso o job de produção
+compara a ProductVersion com a versão do package.json depois de `Trim()`, com igualdade exata.
 
 O job Windows do CI compila com o ISCC instalado no runner. `tests/instalar-ps1/setup.Tests.ps1` executa o setup com os
 códigos 0/10/1/2/3/4 e com scripts ausente ou inválido; também executa seus comandos reais com arquivo bloqueado para
