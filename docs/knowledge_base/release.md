@@ -29,7 +29,9 @@ aceitar a versão, e a ordem segura para entregá-la.
 Os gates de preparação da U5 ficam em `scripts/verificar-tag-release.ts`,
 `scripts/verificar-dependencias-release.ts` e `scripts/montar-assets-release.ts`.
 O primeiro exige identidade e assinatura SSH da tag, HEAD correspondente, versão do pacote igual à tag
-e assinantes da versão anterior filtrados pela lista atual do site. Não usa a chave da candidata como
+e assinantes da versão anterior filtrados pela lista atual do site. Também regenera os dois scripts de
+produção e exige suas assinaturas públicas offline em `instalador/assinaturas/`, lendo fontes e
+assinaturas do commit autenticado da tag (arquivo só no disco não conta). Não usa a chave da candidata como
 âncora. O segundo baixa cada entrada do manifesto e calcula seu SHA-256, inclusive plataformas que o
 runner não executa. O terceiro exige os cinco arquivos de distribuição, confere os scripts inteiros
 contra o embutimento de produção e verifica suas assinaturas SSH no namespace file antes de escrever
@@ -217,14 +219,39 @@ por vez**.
    ssh-keygen -Y sign -f <CAMINHO-DA-CHAVE-PRIVADA> -n file dist/instalar.ps1
    ```
 
-   Confira localmente as assinaturas antes de prosseguir:
+   As assinaturas SSH **públicas** ficam em `instalador/assinaturas/`, com os nomes
+   instalar.sh.sig e instalar.ps1.sig. Copie-as depois de assinar os scripts finais:
 
    ```bash
-   ssh-keygen -Y verify -f seguranca/assinantes -I "<EMAIL-DE-ASSINATURA>" -n file -s dist/instalar.sh.sig < dist/instalar.sh
-   ssh-keygen -Y verify -f seguranca/assinantes -I "<EMAIL-DE-ASSINATURA>" -n file -s dist/instalar.ps1.sig < dist/instalar.ps1
+   mkdir -p instalador/assinaturas
+   cp dist/instalar.sh.sig instalador/assinaturas/instalar.sh.sig
+   cp dist/instalar.ps1.sig instalador/assinaturas/instalar.ps1.sig
+   git add -- instalador/assinaturas/instalar.sh.sig instalador/assinaturas/instalar.ps1.sig
    ```
 
-   Ambos devem retornar `Good "file" signature` e sair com 0.
+   Elas precisam estar no commit antes da tag. A geração real ocorre numa etapa de release separada,
+   depois de fontes e versão finais; não faz parte do build nem da execução comum do CI. O CI recebe
+   somente as assinaturas públicas, sem chave privada. Não há ciclo: `scripts/embutir-instalador.ts`
+   e `scripts/lancar.ts` não leem essa pasta para calcular os scripts. Alterar uma entrada do build
+   depois de assinar exige regenerar a assinatura. O contrato está em `instalador/assinaturas/README.md`.
+   Para 0.3.1, a âncora aprovada é o arquivo de assinantes da **0.3.0**; a base mínima e a versaoMinima
+   do site continuam em 0.3.0. `scripts/verificar-tag-release.ts` confere tag e ambas as assinaturas
+   contra essa confiança anterior, filtrada pelo site. Ausência, divergência ou assinatura não
+   confiável impede prosseguir até o rascunho. Uma branch comum prova esses casos com chaves
+   descartáveis (`tests/release-tag.test.ts`), sem exigir as assinaturas reais antecipadamente.
+
+   Para conferir diretamente a assinatura de arquivo, use uma cópia temporária dos assinantes
+   confiáveis, com o namespace `file` (o arquivo do kit limita tags ao namespace `git`):
+
+   ```bash
+   git show vANTERIOR:seguranca/assinantes > <ASSINANTES-ANTERIORES>
+   sed 's/namespaces="git"/namespaces="file"/' <ASSINANTES-ANTERIORES> > <ASSINANTES-DE-ARQUIVO>
+   ssh-keygen -Y verify -f <ASSINANTES-DE-ARQUIVO> -I "<EMAIL-DE-ASSINATURA>" -n file -s dist/instalar.sh.sig < dist/instalar.sh
+   ssh-keygen -Y verify -f <ASSINANTES-DE-ARQUIVO> -I "<EMAIL-DE-ASSINATURA>" -n file -s dist/instalar.ps1.sig < dist/instalar.ps1
+   ```
+
+   Ambos devem retornar `Good "file" signature` e sair com 0. Essa conferência direta não consulta
+   revogações; o gate da tag consulta a lista atual do site, além de verificar as assinaturas.
 10. **CI verde nos três sistemas, no commit que vai receber a tag** (o commit já deve estar na `main`):
 
    ```bash

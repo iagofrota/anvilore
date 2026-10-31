@@ -16,6 +16,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - A preparação da release confere por download o SHA-256 de cada dependência dos instaladores, incluindo todas as plataformas; arquivo alterado ou indisponível impede prosseguir.
 - Novos gates conferem a tag SSH pela confiança da versão anterior e exigem pacotes completos e scripts autenticados antes de gerar os hashes da distribuição.
 - O preparo local mostra o que vai gerar antes de escrever e preserva artefatos existentes; o README orienta o download dos pacotes e os avisos do Windows e do Ubuntu.
+- O gate da tag exige também as assinaturas públicas dos scripts, feitas offline e versionadas antes da tag; o CI verifica a confiança anterior sem receber chave privada.
 
 ### Fixed
 

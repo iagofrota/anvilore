@@ -43,3 +43,16 @@ test("Dado arquivo existente na saída, Quando preparo, Então recuso sobrescrev
   await expect(prepararRelease(raiz, "0.3.1", saida, true)).rejects.toThrow("já existe");
   expect(await readFile(join(saida, "instalar.sh"), "utf8")).toBe("anterior");
 });
+
+test("Dado assinaturas públicas alteradas, Quando gero os scripts de novo, Então os bytes de produção não dependem delas", async () => {
+  await mkdir(join(raiz, "instalador/assinaturas"), { recursive: true });
+  const assinatura = join(raiz, "instalador/assinaturas/instalar.sh.sig");
+  await writeFile(assinatura, "primeira assinatura pública");
+  await prepararRelease(raiz, "0.3.1", saida, true);
+  await writeFile(assinatura, "segunda assinatura pública");
+  const outraSaida = join(pasta, "outro-preparo");
+  await prepararRelease(raiz, "0.3.1", outraSaida, true);
+  for (const nome of ["instalar.sh", "instalar.ps1"]) {
+    expect(await readFile(join(saida, nome), "utf8")).toBe(await readFile(join(outraSaida, nome), "utf8"));
+  }
+});

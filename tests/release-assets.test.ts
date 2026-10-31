@@ -5,10 +5,16 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { criarChave } from "./apoio/kit-atualizavel";
 import { embutirInstalador } from "../scripts/embutir-instalador";
-import { montarAssets } from "../scripts/montar-assets-release";
+import { comandoMontarAssets, montarAssets } from "../scripts/montar-assets-release";
+import { capturarConsole } from "./apoio/console";
 
 let pasta: string, raiz: string, dist: string, assinantes: string;
 const repo = resolve(import.meta.dir, "..");
+async function capturar(rodar: () => Promise<number>) {
+  const c = capturarConsole();
+  try { return { codigo: await rodar(), erro: c.erros }; }
+  finally { c.restaurar(); }
+}
 beforeEach(async () => {
   pasta = await mkdtemp(join(tmpdir(), "anvilore-assets-")); raiz = join(pasta, "repo"); dist = join(pasta, "dist");
   await mkdir(join(raiz, "instalador"), { recursive: true }); await mkdir(join(raiz, "seguranca")); await mkdir(dist);
@@ -65,4 +71,18 @@ test("Dado chave de outra origem, Quando monto assets, Então assinaturas válid
   const outraPasta = join(pasta, "outra"); await mkdir(outraPasta);
   const outra = await criarChave(outraPasta);
   await expect(montarAssets(raiz, dist, outra.assinantes)).rejects.toThrow("assinatura");
+});
+test("Dado CLI sem versão anterior ou com argumentos extras, Quando invoco o montador, Então devolvo uso inválido sem gerar hashes", async () => {
+  for (const args of [[], [dist], [dist, "v0.3.0", "extra"]]) {
+    const r = await capturar(() => comandoMontarAssets(args));
+    expect(r.codigo).toBe(2);
+    expect(r.erro.join("\n")).toContain("Uso:");
+  }
+  expect(existsSync(join(dist, "SHA256SUMS"))).toBe(false);
+});
+test("Dado CLI com âncora inexistente, Quando invoco o montador, Então devolvo erro sem baixar confiança nem gerar hashes", async () => {
+  const r = await capturar(() => comandoMontarAssets([dist, "v999999999.0.0"]));
+  expect(r.codigo).toBe(1);
+  expect(r.erro.join("\n")).toContain("Âncora da versão anterior ausente");
+  expect(existsSync(join(dist, "SHA256SUMS"))).toBe(false);
 });

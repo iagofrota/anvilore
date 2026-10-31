@@ -1,9 +1,11 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { compararSemVer, execPadrao, identidadeDaTag, parsearSemVer, verificarAssinaturaTag } from "../src/lib/atualizacao";
-import { consultarConfianca } from "../src/lib/confianca";
+import { consultarConfianca, filtrarAssinantes } from "../src/lib/confianca";
 import type { BuscarConfianca } from "../src/lib/confianca";
+import { embutirInstalador } from "./embutir-instalador";
+import { verificarAssinaturaInstalador } from "./assinaturas-release";
 
 export async function verificarTagRelease(raiz: string, tag: string, anterior: string, buscar?: BuscarConfianca): Promise<{ versao: string; commit: string }> {
   const versao = tag.replace(/^v/, ""), base = anterior.replace(/^v/, "");
@@ -23,8 +25,25 @@ export async function verificarTagRelease(raiz: string, tag: string, anterior: s
     if (compararSemVer(versao, confianca.versaoMinima) < 0) throw new Error("Tag abaixo da versão mínima do site.");
     const problema = verificarAssinaturaTag(raiz, tag, execPadrao, tag, arquivo, confianca.chaves);
     if (problema) throw new Error(problema);
-    const pacote = JSON.parse(await readFile(join(raiz, "package.json"), "utf8")) as { version?: unknown };
+    const lerDaTag = (caminho: string) => {
+      const r = execPadrao(["show", `${identidade.commit}:${caminho}`], raiz);
+      if (r.codigo) throw new Error(`Arquivo ausente no commit autenticado: ${caminho}`);
+      return r.saida;
+    };
+    const pacote = JSON.parse(lerDaTag("package.json")) as { version?: unknown };
     if (pacote.version !== identidade.versao) throw new Error("package.json não corresponde à versão da tag.");
+    const manifesto = lerDaTag("instalador/dependencias.json");
+    const chaveEmbutida = lerDaTag("seguranca/assinantes");
+    const baseMinima = lerDaTag("instalador/base-minima");
+    const confiaveis = filtrarAssinantes(ancora.saida, confianca.chaves);
+    for (const dialeto of ["sh", "ps1"] as const) {
+      const nome = `instalar.${dialeto}`;
+      const modelo = lerDaTag(`instalador/${nome}`);
+      const script = embutirInstalador(modelo, manifesto, chaveEmbutida, baseMinima, dialeto);
+      const assinatura = join(temporaria, `${nome}.sig`);
+      await writeFile(assinatura, lerDaTag(`instalador/assinaturas/${nome}.sig`));
+      await verificarAssinaturaInstalador(Buffer.from(script), assinatura, confiaveis, nome);
+    }
     return identidade;
   } finally { await rm(temporaria, { recursive: true, force: true }); }
 }

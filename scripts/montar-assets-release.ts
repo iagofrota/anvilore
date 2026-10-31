@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { lstat, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { execPadrao, parsearSemVer } from "../src/lib/atualizacao";
 import { consultarConfianca, filtrarAssinantes } from "../src/lib/confianca";
 import { embutirInstalador, validarAssinantes } from "./embutir-instalador";
+import { verificarAssinaturaInstalador } from "./assinaturas-release";
 
 const PACOTES = ["AnviloreSetup.exe", "anvilore.deb", "anvilore.rpm"];
 const SCRIPTS = ["instalar.sh", "instalar.ps1"];
@@ -27,24 +27,13 @@ export async function montarAssets(raiz: string, pasta: string, assinantes: stri
   const manifesto = await readFile(join(raiz, "instalador/dependencias.json"), "utf8");
   const chaveEmbutida = await readFile(join(raiz, "seguranca/assinantes"), "utf8");
   const base = await readFile(join(raiz, "instalador/base-minima"), "utf8");
-  const temporaria = await mkdtemp(join(tmpdir(), "anvilore-assets-assinatura-"));
-  try {
-    const allow = join(temporaria, "assinantes-file");
-    // O arquivo do kit limita tags ao namespace git. A mesma chave autentica os scripts no namespace file.
-    await writeFile(allow, assinantes.replace(/namespaces="[^"]*"/g, 'namespaces="file"'));
-    for (const nome of SCRIPTS) {
+  for (const nome of SCRIPTS) {
       const bytes = arquivos.get(nome)!;
-      const assinatura = join(pasta, `${nome}.sig`);
-      const chamada = (args: string[]) => Bun.spawnSync(["ssh-keygen", "-Y", ...args, "-f", allow, "-n", "file", "-s", assinatura], { stdin: bytes, stdout: "pipe", stderr: "pipe" });
-      const principais = chamada(["find-principals"]);
-      if (principais.exitCode || !principais.stdout.toString().trim().split(/\r?\n/).some(p => p && chamada(["verify", "-I", p]).exitCode === 0)) {
-        throw new Error(`assinatura SSH inválida ou não confiável: ${nome}`);
-      }
+      await verificarAssinaturaInstalador(bytes, join(pasta, `${nome}.sig`), assinantes, nome);
       const modelo = await readFile(join(raiz, "instalador", nome), "utf8");
       const esperado = embutirInstalador(modelo, manifesto, chaveEmbutida, base, nome.endsWith("ps1") ? "ps1" : "sh");
       if (!bytes.equals(Buffer.from(esperado))) throw new Error(`${nome}: conteúdo difere do build de produção (manifesto, chave, base, URL ou corpo).`);
-    }
-  } finally { await rm(temporaria, { recursive: true, force: true }); }
+  }
   for (const nome of SCRIPTS) {
     const checksum = Buffer.from(`${sha256(arquivos.get(nome)!)}  ${nome}\n`);
     arquivos.set(`${nome}.sha256`, checksum);
@@ -56,10 +45,10 @@ export async function montarAssets(raiz: string, pasta: string, assinantes: stri
   return [...arquivos.keys(), "SHA256SUMS"].sort();
 }
 
-if (import.meta.main) {
-  const [pasta, anterior, ...extras] = process.argv.slice(2);
+export async function comandoMontarAssets(args: string[]): Promise<number> {
+  const [pasta, anterior, ...extras] = args;
   if (!pasta || !anterior || !parsearSemVer(anterior.replace(/^v/, "")) || extras.length) {
-    console.error("Uso: bun scripts/montar-assets-release.ts <pasta-dos-assets> <tag-anterior-publicada>"); process.exit(2);
+    console.error("Uso: bun scripts/montar-assets-release.ts <pasta-dos-assets> <tag-anterior-publicada>"); return 2;
   }
   try {
     const raiz = resolve(import.meta.dir, "..");
@@ -68,5 +57,8 @@ if (import.meta.main) {
     const lista = await consultarConfianca();
     const assinantes = filtrarAssinantes(ancora.saida, lista.chaves);
     console.log((await montarAssets(raiz, resolve(pasta), assinantes)).join("\n"));
-  } catch (e) { console.error((e as Error).message); process.exit(1); }
+    return 0;
+  } catch (e) { console.error((e as Error).message); return 1; }
 }
+
+if (import.meta.main) process.exit(await comandoMontarAssets(process.argv.slice(2)));
