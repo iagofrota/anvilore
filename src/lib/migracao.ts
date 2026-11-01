@@ -3,6 +3,7 @@ import { copyFile, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeF
 import { dirname, join, relative } from "node:path";
 import { LISTA_DO_RASTREIO } from "./modelos";
 import { caminhoWiki, inicializarRepositorioWiki, repositorioDaWiki } from "./wiki-repo";
+import { execPadrao, recusouTransporte } from "./git-rede";
 
 // PLANO §4b: tirar do rastreio do kit o que é da pessoa sem perder nada. Cada etapa grava o próprio nome no manifesto
 // antes de começar; o que a pessoa tem no disco é copiado com SHA-256 antes de qualquer mudança e nunca é apagado.
@@ -474,7 +475,8 @@ export async function puxar(raiz: string, deps: Dependencias & { argsDoPull?: st
         await rename(noDisco(raiz, rel), vaga);
       }
       await entrar(raiz, manifesto, "puxar", deps);
-      pull = git(["pull", "--ff-only", ...(deps.argsDoPull ?? [])]);
+      const executarPull = deps.git ?? ((args: string[]) => execPadrao(args, raiz));
+      pull = executarPull(["pull", "--ff-only", ...(deps.argsDoPull ?? [])]);
       await entrar(raiz, manifesto, "devolver", deps);
     } catch (erro) {
       pull = { codigo: 1, saida: `parou na etapa "${manifesto.etapa}": ${motivo(erro)}` };
@@ -489,7 +491,10 @@ export async function puxar(raiz: string, deps: Dependencias & { argsDoPull?: st
     await gravarManifesto(raiz, manifesto);
     const devolvidos = `${manifesto.arquivos.length} arquivo(s) seu(s) voltaram ao lugar, conferidos pelo SHA-256.`;
     if (pull.codigo !== 0) {
-      return { codigo: 1, situacao: "pull-falhou", manifesto, mensagens: [...mensagens, `O git pull falhou e nada foi atualizado: ${pull.saida.trim()}`, devolvidos] };
+      const recusa = recusouTransporte(pull.saida)
+        ? ["Transporte recusado por segurança: o git pull só aceita o protocolo do endereço do remoto (https, ssh ou pasta local). Protocolos como ext:: e trocas por insteadOf são recusados. Confira a URL do seu remoto e desfaça configurações no seu Git."]
+        : [];
+      return { codigo: 1, situacao: "pull-falhou", manifesto, mensagens: [...mensagens, ...recusa, `O git pull falhou e nada foi atualizado: ${pull.saida.trim()}`, devolvidos] };
     }
     return { codigo: 0, situacao: "puxada", manifesto, mensagens: [...mensagens, `Atualizado com git pull. ${devolvidos}`] };
   } finally {

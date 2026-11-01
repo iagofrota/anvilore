@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { LISTA_DO_RASTREIO, copiarModelos } from "../src/lib/modelos";
@@ -369,6 +369,208 @@ describe("migrar-rastreio: atualizar o clone (PLANO §4b passo 5)", () => {
     editar(pessoa, "SCHEMA.md", "MEU");
     gitOk(pessoa, "checkout", "-q", "--force", "--detach", "HEAD~1");
     expect(readFileSync(join(pessoa, "SCHEMA.md"), "utf8")).not.toBe("MEU");
+  });
+});
+
+describe("migrar-rastreio: guarda de transporte no pull (A5-RR6)", () => {
+  async function comExtHostil(pessoa: string, corpo: (marcador: string, helper: string) => Promise<void>) {
+    const marcador = join(tmp, "marcador-ext");
+    const helper = join(tmp, "helper-ext.sh");
+    writeFileSync(helper, `#!/bin/sh\nprintf executado >> "${marcador}"\nexit 1\n`, { mode: 0o755 });
+    gitOk(pessoa, "config", "protocol.ext.allow", "always");
+    await corpo(marcador, helper);
+  }
+
+  test("Dado config local com protocol.ext.allow=always e origem ext::, Quando roda puxar, Então recusa o transporte e não executa o helper", async () => {
+    const { pessoa } = await cenario();
+    await comExtHostil(pessoa, async (marcador, helper) => {
+      gitOk(pessoa, "config", "remote.origin.url", `ext::${helper}`);
+      const r = await puxar(pessoa);
+      expect(r.codigo).toBe(1);
+      expect(r.situacao).toBe("pull-falhou");
+      expect(existsSync(marcador)).toBe(false);
+      expect(r.mensagens.join("\n")).toContain("Transporte recusado por segurança");
+    });
+  });
+
+  test("Dado origem https e config com insteadOf que troca https por outro protocolo, Quando roda puxar, Então recusa o transporte e não executa o helper", async () => {
+    const { pessoa } = await cenario();
+    await comExtHostil(pessoa, async (marcador, helper) => {
+      const oficial = "https://github.com/iagofrota/anvilore.git";
+      gitOk(pessoa, "config", "remote.origin.url", oficial);
+      gitOk(pessoa, "config", `url.ext::${helper}.insteadOf`, oficial);
+      const r = await puxar(pessoa);
+      expect(r.codigo).toBe(1);
+      expect(r.situacao).toBe("pull-falhou");
+      expect(existsSync(marcador)).toBe(false);
+      expect(r.mensagens.join("\n")).toContain("Transporte recusado por segurança");
+    });
+  });
+
+  test("Dado origem https normal, Quando roda puxar, Então a guarda de rede é aplicada com protocolo https e opções de segurança", async () => {
+    const { pessoa } = await cenario();
+    gitOk(pessoa, "remote", "set-url", "origin", "https://github.com/iagofrota/anvilore.git");
+    const { guardaDeRede } = await import("../src/lib/atualizacao");
+    const baseEnv = { PATH: process.env.PATH, GIT_ALLOW_PROTOCOL: "ext:fd:file", GIT_ASKPASS: "/tmp/askpass" };
+    const g = guardaDeRede(["pull", "--ff-only"], baseEnv, "https://github.com/iagofrota/anvilore.git");
+    expect(g.args).toEqual(["-c", "credential.helper=", "-c", "core.askPass=", "pull", "--ff-only"]);
+    expect(g.env).toMatchObject({ GIT_ALLOW_PROTOCOL: "https", GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" });
+  });
+
+  test("Dado origem ssh (clonada por ssh), Quando roda puxar, Então o pull continua funcionando pela conexão ssh", async () => {
+    const { origem, pessoa } = await cenario();
+    gitOk(pessoa, "remote", "set-url", "origin", "git@github.com:iagofrota/anvilore.git");
+    const fakeSsh = join(tmp, "fake-ssh.sh");
+    writeFileSync(fakeSsh, `#!/bin/sh\nexec git-upload-pack "${origem}"\n`, { mode: 0o755 });
+    gitOk(pessoa, "config", "core.sshCommand", `sh "${fakeSsh}"`);
+    const r = await puxar(pessoa);
+    expect(r.codigo).toBe(0);
+    expect(r.situacao).toBe("puxada");
+    expect(gitOk(pessoa, "log", "-1", "--pretty=%s")).toBe("versão N+1: dados fora do rastreio");
+    expect(r.mensagens.join("\n")).toContain("Atualizado com git pull");
+  });
+
+  test("Dado origem ssh em sintaxe scp com alias de host (sem git@), Quando roda puxar, Então o pull continua funcionando pela conexão ssh", async () => {
+    const { origem, pessoa } = await cenario();
+    gitOk(pessoa, "remote", "set-url", "origin", "github:iagofrota/anvilore.git");
+    const fakeSsh = join(tmp, "fake-ssh-alias.sh");
+    writeFileSync(fakeSsh, `#!/bin/sh\nexec git-upload-pack "${origem}"\n`, { mode: 0o755 });
+    gitOk(pessoa, "config", "core.sshCommand", `sh "${fakeSsh}"`);
+    const r = await puxar(pessoa);
+    expect(r.codigo).toBe(0);
+    expect(r.situacao).toBe("puxada");
+    expect(gitOk(pessoa, "log", "-1", "--pretty=%s")).toBe("versão N+1: dados fora do rastreio");
+    expect(r.mensagens.join("\n")).toContain("Atualizado com git pull");
+  });
+
+  test("Dado um ramo rastreando o remoto upstream local e origin https, Quando roda puxar, Então o pull usa o transporte do remoto rastreado e atualiza com sucesso", async () => {
+    const { origem, pessoa } = await cenario();
+    gitOk(pessoa, "remote", "rename", "origin", "upstream");
+    gitOk(pessoa, "remote", "add", "origin", "https://github.com/iagofrota/anvilore.git");
+    expect(gitOk(pessoa, "config", "--get", "branch.main.remote")).toBe("upstream");
+    const r = await puxar(pessoa);
+    expect(r.codigo).toBe(0);
+    expect(r.situacao).toBe("puxada");
+    expect(gitOk(pessoa, "log", "-1", "--pretty=%s")).toBe("versão N+1: dados fora do rastreio");
+    expect(r.mensagens.join("\n")).toContain("Atualizado com git pull");
+  });
+
+  test("Dado um ramo com remoto em caminho relativo simples (sem barra inicial nem ./), Quando roda puxar, Então o pull usa transporte local e atualiza com sucesso", async () => {
+    const { origem, pessoa } = await cenario();
+    const pastaRemoto = join(pessoa, "remoto-relativo");
+    cpSync(origem, pastaRemoto, { recursive: true });
+    gitOk(pessoa, "remote", "add", "relativo", "remoto-relativo");
+    gitOk(pessoa, "config", "branch.main.remote", "relativo");
+    const r = await puxar(pessoa);
+    expect(r.codigo).toBe(0);
+    expect(r.situacao).toBe("puxada");
+    expect(gitOk(pessoa, "log", "-1", "--pretty=%s")).toBe("versão N+1: dados fora do rastreio");
+    expect(r.mensagens.join("\n")).toContain("Atualizado com git pull");
+  });
+
+  test("Dado um remoto com múltiplas URLs configuradas, Quando roda puxar ou resolverOrigem, Então utiliza a primeira URL (usada pelo fetch) e atualiza com sucesso", async () => {
+    const { origem, pessoa } = await cenario();
+    // Adiciona uma segunda URL ao remoto origin (a primeira é o caminho local 'origem')
+    gitOk(pessoa, "config", "--add", "remote.origin.url", "https://github.com/iagofrota/anvilore.git");
+    const { resolverOrigem } = await import("../src/lib/git-rede");
+    expect(resolverOrigem(["pull", "--ff-only"], pessoa)).toBe(origem);
+
+    const r = await puxar(pessoa);
+    expect(r.codigo).toBe(0);
+    expect(r.situacao).toBe("puxada");
+    expect(gitOk(pessoa, "log", "-1", "--pretty=%s")).toBe("versão N+1: dados fora do rastreio");
+    expect(r.mensagens.join("\n")).toContain("Atualizado com git pull");
+  });
+
+  test("Dado um ramo rastreando upstream local e config com insteadOf que troca o upstream por outro protocolo, Quando roda puxar, Então recusa o transporte e não executa o helper", async () => {
+    const { origem, pessoa } = await cenario();
+    gitOk(pessoa, "remote", "rename", "origin", "upstream");
+    gitOk(pessoa, "remote", "add", "origin", "https://github.com/iagofrota/anvilore.git");
+    await comExtHostil(pessoa, async (marcador, helper) => {
+      gitOk(pessoa, "config", `url.ext::${helper}.insteadOf`, origem);
+      const r = await puxar(pessoa);
+      expect(r.codigo).toBe(1);
+      expect(r.situacao).toBe("pull-falhou");
+      expect(existsSync(marcador)).toBe(false);
+      expect(r.mensagens.join("\n")).toContain("Transporte recusado por segurança");
+    });
+  });
+
+  test("Dado resolverOrigem, Quando exercitado com diferentes argumentos e configurações, Então resolve a origem apropriada", async () => {
+    const { pessoa } = await cenario();
+    const { resolverOrigem } = await import("../src/lib/git-rede");
+    expect(resolverOrigem(["status"], pessoa)).toBeUndefined();
+    gitOk(pessoa, "remote", "set-url", "origin", "https://github.com/iagofrota/anvilore.git");
+    expect(resolverOrigem(["fetch", "--depth", "1", "origin"], pessoa)).toBe("https://github.com/iagofrota/anvilore.git");
+    expect(resolverOrigem(["fetch", "--", "origin"], pessoa)).toBe("https://github.com/iagofrota/anvilore.git");
+    expect(resolverOrigem(["fetch", "https://exemplo.com/repo.git"], pessoa)).toBe("https://exemplo.com/repo.git");
+    gitOk(pessoa, "config", "branch.main.remote", "/tmp/direto");
+    expect(resolverOrigem(["pull", "--ff-only"], pessoa)).toBe("/tmp/direto");
+    gitOk(pessoa, "config", "branch.main.remote", "remotes/upstream.git");
+    expect(resolverOrigem(["pull", "--ff-only"], pessoa)).toBe("remotes/upstream.git");
+    gitOk(pessoa, "remote", "remove", "origin");
+    gitOk(pessoa, "config", "--unset", "branch.main.remote");
+    expect(resolverOrigem(["pull", "--ff-only"], pessoa)).toBeUndefined();
+  });
+
+  test("Dado git ausente do PATH ou com erro de spawn, Quando invoca migrarRastreio ou execPadrao, Então trata os erros 127 e 126 sem lançar exceção", async () => {
+    const { pessoa } = await cenario();
+    const { execPadrao } = await import("../src/lib/git-rede");
+
+    const spyWhich = spyOn(Bun, "which").mockReturnValue(null as any);
+    try {
+      // execPadrao devolve 127 "git ausente do PATH"
+      const r127 = execPadrao(["status"], pessoa);
+      expect(r127).toEqual({ codigo: 127, saida: "git ausente do PATH" });
+
+      // migrarRastreio sem git no PATH não lança exceção e devolve código 1
+      const rMigracao = await migrarRastreio(pessoa);
+      expect(rMigracao.codigo).toBe(1);
+      expect(rMigracao.situacao).toBe("incompleta");
+    } finally {
+      spyWhich.mockRestore();
+    }
+
+    // Erro de spawn em execPadrao devolve 126 com o motivo do erro
+    const spySpawn = spyOn(Bun, "spawnSync").mockImplementation(() => {
+      throw new Error("falha simulada de spawn");
+    });
+    try {
+      const r126 = execPadrao(["status"], pessoa);
+      expect(r126.codigo).toBe(126);
+      expect(r126.saida).toContain("falha simulada de spawn");
+    } finally {
+      spySpawn.mockRestore();
+    }
+  });
+
+  test("Dado migrarRastreio, Quando executa a migração local, Então não utiliza o executor de rede (execPadrao)", async () => {
+    const { pessoa } = await cenario();
+    const gitRede = await import("../src/lib/git-rede");
+    const spyExec = spyOn(gitRede, "execPadrao");
+    try {
+      const r = await migrarRastreio(pessoa);
+      expect(r.codigo).toBe(0);
+      expect(r.situacao).toBe("migrada");
+      expect(spyExec).not.toHaveBeenCalled();
+    } finally {
+      spyExec.mockRestore();
+    }
+  });
+
+  test("Dado uma tag com mesmo nome do ramo atual e remoto upstream rastreado, Quando puxar ou resolverOrigem, Então resolve o remoto sem ambiguidade pelo prefixo refs/heads/", async () => {
+    const { origem, pessoa } = await cenario();
+    gitOk(pessoa, "remote", "rename", "origin", "upstream");
+    gitOk(pessoa, "remote", "add", "origin", "https://github.com/iagofrota/anvilore.git");
+    // Cria tag com mesmo nome do ramo atual (main)
+    gitOk(pessoa, "tag", "main");
+    const { resolverOrigem } = await import("../src/lib/git-rede");
+    expect(resolverOrigem(["pull", "--ff-only"], pessoa)).toBe(origem);
+
+    const r = await puxar(pessoa);
+    expect(r.codigo).toBe(0);
+    expect(r.situacao).toBe("puxada");
+    expect(r.mensagens.join("\n")).toContain("Atualizado com git pull");
   });
 });
 
