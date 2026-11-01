@@ -72,6 +72,19 @@ test("Dado rascunho, Quando examino sua operação, Então exige assets exatos e
   expect(texto).not.toMatch(/release (?:edit|upload)|--clobber|--latest/);
 });
 
+test("Dado job de release que lê a tag local, Quando carrego o workflow, Então o checkout não pode substituir a tag anotada por uma leve", async () => {
+  const w = await carregar("release.yml");
+  const leitorDeTag = /scripts\/(?:verificar-tag-release|montar-assets-release|criar-rascunho-release)\.ts|git show .*refs\/tags\//;
+  for (const [id, job] of Object.entries(w.jobs)) {
+    if (!job.steps?.some(step => leitorDeTag.test(step.run ?? ""))) continue;
+    const checkout = job.steps.find(step => step.uses?.startsWith("actions/checkout@"));
+    expect(checkout, `${id}: checkout`).toBeDefined();
+    const ref = checkout?.with?.ref;
+    expect(typeof ref === "string" && (/^[0-9a-f]{40}$/i.test(ref) || ref === "${{ github.sha }}"), `${id}: ref imutável`).toBe(true);
+    expect(checkout?.with?.["fetch-depth"], `${id}: histórico completo para resolver a tag autenticada`).toBe(0);
+  }
+});
+
 test("Dado checkout inicial, Quando preparo a execução, Então revogação roda na âncora antes dos imports e do install da candidata", async () => {
   const w = await carregar("release.yml");
   const steps = w.jobs.assinatura?.steps ?? [];
