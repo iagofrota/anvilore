@@ -1,5 +1,6 @@
 ---
 generated: 2026-10-31
+verified: 2026-11-01
 ---
 
 # Como publicar uma release
