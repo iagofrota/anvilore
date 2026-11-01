@@ -1136,6 +1136,19 @@ describe("atualizador: transporte do git antes da verificação (A5)", () => {
     expect(local.args).toEqual(["rev-parse", "HEAD"]);
     expect(local.env).toBe(base);
   });
+
+  test("Dado o atualizador assinado, Quando avalia protocolos ou executa rede, Então mantém a política estrita original de origin/main", async () => {
+    const { execPadrao, guardaDeRede } = await import("../src/lib/atualizacao");
+    const base = { PATH: "/bin" };
+    expect(guardaDeRede(["fetch", "origin"], base, "git@outro-host:x/y.git").env.GIT_ALLOW_PROTOCOL).toBe("https");
+    expect(guardaDeRede(["fetch", "origin"], base, "/tmp/caminho/local").env.GIT_ALLOW_PROTOCOL).toBe("https");
+    expect(guardaDeRede(["fetch", "origin"], base, "./caminho/local").env.GIT_ALLOW_PROTOCOL).toBe("https");
+    const k = await kit(tres.slice(0, 1));
+    k.ok(["remote", "set-url", "origin", OFICIAL]);
+    k.ok(["remote", "add", "outro-remoto", "git@github.com:iagofrota/anvilore.git"]);
+    const r = execPadrao(["fetch", "outro-remoto"], k.raiz);
+    expect(r.saida).toContain("transport 'ssh' not allowed");
+  });
 });
 
 // RR6/R1: o instalador entrega o arquivo de chaves confiáveis da própria execução pela opção explícita

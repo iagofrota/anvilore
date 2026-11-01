@@ -133,8 +133,32 @@ const codigoFs = (e: unknown) => (e as NodeJS.ErrnoException).code;
 const ausente = (e: unknown) => codigoFs(e) === "ENOENT" || codigoFs(e) === "ENOTDIR";
 const motivo = (e: unknown) => e instanceof Error ? e.message : String(e);
 
-import { execPadrao, guardaDeRede } from "./git-rede";
-export { execPadrao, guardaDeRede };
+// Chamadas que falam com a rede ANTES de a assinatura da tag passar. Valem o que o atualizador decide, não a configuração
+// global da pessoa: GIT_ALLOW_PROTOCOL vence qualquer protocol.<nome>.allow (um protocol.ext.allow=always deixaria um
+// `url.<ext::programa>.insteadOf` executar código), o helper de credencial é zerado e nenhum programa de senha nem
+// prompt de terminal é chamado. Só o protocolo da origem oficial (https; ssh se a pessoa clonou por ssh). A config
+// global continua valendo no resto (proxy em http.proxy, por exemplo).
+const VERBOS_DE_REDE = new Set(["fetch", "ls-remote", "clone", "pull"]);
+const ORIGENS_SSH = new Set(["git@github.com:iagofrota/anvilore.git", "ssh://git@github.com/iagofrota/anvilore.git"]);
+export function guardaDeRede(args: string[], env: NodeJS.ProcessEnv, origem?: string): { args: string[]; env: NodeJS.ProcessEnv } {
+  if (!VERBOS_DE_REDE.has(args[0] ?? "")) return { args, env };
+  return {
+    args: ["-c", "credential.helper=", "-c", "core.askPass=", ...args],
+    env: { ...env, GIT_ALLOW_PROTOCOL: origem !== undefined && ORIGENS_SSH.has(origem) ? "ssh" : "https", GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" },
+  };
+}
+
+// Sem `trim`: a saída de `status`/`diff -z` começa com caracteres significativos.
+// `env: process.env` explícito: sem ele o Bun não repassa ao git o que o processo mudou em process.env depois de subir.
+export function execPadrao(args: string[], cwd: string) {
+  // O valor CRU de remote.origin.url (o `get-url` expandiria um insteadOf) decide o protocolo permitido.
+  const origem = VERBOS_DE_REDE.has(args[0] ?? "")
+    ? Bun.spawnSync(["git", "-C", cwd, "config", "--get", "remote.origin.url"], { stdout: "pipe", stderr: "pipe", env: process.env }).stdout.toString().trim()
+    : undefined;
+  const g = guardaDeRede(args, process.env, origem);
+  const p = Bun.spawnSync(["git", "-C", cwd, ...g.args], { stdout: "pipe", stderr: "pipe", env: g.env });
+  return { codigo: p.exitCode, saida: `${p.stdout.toString()}${p.stderr.toString()}` };
+}
 function erro(assunto: string, detalhe: string) { return new Error(`${assunto}: ${detalhe}`); }
 
 async function log(raiz: string, linha: string) {
