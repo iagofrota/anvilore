@@ -557,6 +557,21 @@ describe("migrar-rastreio: guarda de transporte no pull (A5-RR6)", () => {
       spyExec.mockRestore();
     }
   });
+
+  test("Dado uma tag com mesmo nome do ramo atual e remoto upstream rastreado, Quando puxar ou resolverOrigem, Então resolve o remoto sem ambiguidade pelo prefixo refs/heads/", async () => {
+    const { origem, pessoa } = await cenario();
+    gitOk(pessoa, "remote", "rename", "origin", "upstream");
+    gitOk(pessoa, "remote", "add", "origin", "https://github.com/iagofrota/anvilore.git");
+    // Cria tag com mesmo nome do ramo atual (main)
+    gitOk(pessoa, "tag", "main");
+    const { resolverOrigem } = await import("../src/lib/git-rede");
+    expect(resolverOrigem(["pull", "--ff-only"], pessoa)).toBe(origem);
+
+    const r = await puxar(pessoa);
+    expect(r.codigo).toBe(0);
+    expect(r.situacao).toBe("puxada");
+    expect(r.mensagens.join("\n")).toContain("Atualizado com git pull");
+  });
 });
 
 describe("migrar-rastreio: o próprio kit na N+1", () => {

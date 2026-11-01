@@ -82,7 +82,8 @@ export function resolverOrigem(args: string[], cwd: string, exe: string | null =
   }
 
   // 2. Sem argumento posicional no comando (ex: `git pull --ff-only`), Git usa o remoto configurado para o ramo atual
-  const ramo = Bun.spawnSync([exe, "-C", cwd, "symbolic-ref", "--short", "-q", "HEAD"], { stdout: "pipe", stderr: "pipe", env: process.env }).stdout.toString().trim();
+  const ref = Bun.spawnSync([exe, "-C", cwd, "symbolic-ref", "-q", "HEAD"], { stdout: "pipe", stderr: "pipe", env: process.env }).stdout.toString().trim();
+  const ramo = ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : "";
   const remotoDoRamo = ramo
     ? Bun.spawnSync([exe, "-C", cwd, "config", "--get", `branch.${ramo}.remote`], { stdout: "pipe", stderr: "pipe", env: process.env }).stdout.toString().trim()
     : "";
