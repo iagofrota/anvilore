@@ -9,27 +9,11 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
-### Fixed
-
-- Transcrições conservam falas iguais ditas em momentos diferentes; só duplicatas técnicas da mesma legenda são removidas.
-
-- Páginas que oferecem texto ou Markdown também guardam o download original, preservando seus bytes e hash quando há conversão de acentos ou codificação.
-
-- A captura de páginas preserva os cabeçalhos do artigo, incluindo título, resumo, autoria e data, ao separar o conteúdo principal da navegação do site.
-
-### Added
-
-- A ingestão preserva notas, páginas, vídeos do YouTube, imagens e arquivos automaticamente antes da leitura. O bruto guarda origem, contexto e data; capturas repetidas recebem um nome novo e nunca substituem as anteriores. A captura de vídeo avisa quando falta o yt-dlp.
-
-### Changed
-
-- Ao terminar a instalação, mostramos quais agentes foram configurados por nomes conhecidos e damos os próximos passos sem mencionar Bun ou PATH.
-- Sem `rg`, a busca da wiki continua com a ferramenta nativa do sistema e avisa que pode ficar mais lenta.
-
 ## [0.3.1] - 2026-10-31
 
 ### Added
 
+- A ingestão preserva notas, páginas, vídeos do YouTube, imagens e arquivos automaticamente antes da leitura. O bruto guarda origem, contexto e data; capturas repetidas recebem um nome novo e nunca substituem as anteriores. A captura de vídeo avisa quando falta o yt-dlp.
 - Pacotes Linux `anvilore.deb` e `anvilore.rpm`: lançador e entrada no menu para instalações por usuário, com dependências do sistema e remoção que preserva o kit e os dados.
 - Setup do Windows `AnviloreSetup.exe` por usuário, com atalhos do Inno Setup e desinstalação que preserva a pasta da wiki.
 - A preparação da release confere por download o SHA-256 de cada dependência dos instaladores, incluindo todas as plataformas; arquivo alterado ou indisponível impede prosseguir.
@@ -41,7 +25,16 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - O rascunho também confere as notas contra a seção datada do CHANGELOG, impedindo troca do texto no transporte dos artefatos.
 - O CI das branches também executa os builds de produção; o rascunho recusa assets incompletos ou alterados e mantém os scripts assinados offline, sem chave privada no CI.
 
+### Changed
+
+- Ao terminar a instalação, mostramos quais agentes foram configurados por nomes conhecidos e damos os próximos passos sem mencionar Bun ou PATH.
+- Sem ripgrep (`rg`), a busca da wiki continua com a ferramenta nativa do sistema e avisa que pode ficar mais lenta.
+
 ### Fixed
+
+- Transcrições conservam falas iguais ditas em momentos diferentes; só duplicatas técnicas da mesma legenda são removidas.
+- Páginas que oferecem texto ou Markdown também guardam o download original, preservando seus bytes e hash quando há conversão de acentos ou codificação.
+- A captura de páginas preserva os cabeçalhos do artigo, incluindo título, resumo, autoria e data, ao separar o conteúdo principal da navegação do site.
 
 - O build do Windows registra as versões textuais e numéricas do executável e preserva o arquivo recusado para diagnosticar divergências sem liberar a distribuição.
 - A ingestão só mostra estados já gravados em disco, preservando a parada e a retomada ao recarregar a interface.
