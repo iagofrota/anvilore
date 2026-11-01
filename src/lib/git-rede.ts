@@ -65,9 +65,17 @@ export function resolverOrigem(args: string[], cwd: string, exe = Bun.which("git
     break;
   }
 
+  const primeiraUrl = (remoto: string): string | undefined => {
+    // Quando um remoto possui múltiplas URLs, o Git utiliza a primeira para fetch.
+    // `config --get` retornaria a última, portanto usamos `--get-all` e pegamos a primeira linha.
+    const saida = Bun.spawnSync([exe, "-C", cwd, "config", "--get-all", `remote.${remoto}.url`], { stdout: "pipe", stderr: "pipe", env: process.env }).stdout.toString().trim();
+    if (!saida) return undefined;
+    return saida.split(/\r?\n/).map((l) => l.trim()).find((l) => l.length > 0);
+  };
+
   if (pos) {
-    // Se o argumento posicional for o nome de um remoto configurado, lê o valor CRU de remote.<pos>.url
-    const url = Bun.spawnSync([exe, "-C", cwd, "config", "--get", `remote.${pos}.url`], { stdout: "pipe", stderr: "pipe", env: process.env }).stdout.toString().trim();
+    // Se o argumento posicional for o nome de um remoto configurado, lê o valor CRU da primeira URL de remote.<pos>.url
+    const url = primeiraUrl(pos);
     if (url) return url;
     return pos;
   }
@@ -79,7 +87,7 @@ export function resolverOrigem(args: string[], cwd: string, exe = Bun.which("git
     : "";
   const remoto = remotoDoRamo || "origin";
 
-  const url = Bun.spawnSync([exe, "-C", cwd, "config", "--get", `remote.${remoto}.url`], { stdout: "pipe", stderr: "pipe", env: process.env }).stdout.toString().trim();
+  const url = primeiraUrl(remoto);
   if (url) return url;
 
   if (remotoDoRamo && !remotoDoRamo.includes("://") && !remotoDoRamo.includes("::")) {

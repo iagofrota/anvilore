@@ -468,6 +468,20 @@ describe("migrar-rastreio: guarda de transporte no pull (A5-RR6)", () => {
     expect(r.mensagens.join("\n")).toContain("Atualizado com git pull");
   });
 
+  test("Dado um remoto com múltiplas URLs configuradas, Quando roda puxar ou resolverOrigem, Então utiliza a primeira URL (usada pelo fetch) e atualiza com sucesso", async () => {
+    const { origem, pessoa } = await cenario();
+    // Adiciona uma segunda URL ao remoto origin (a primeira é o caminho local 'origem')
+    gitOk(pessoa, "config", "--add", "remote.origin.url", "https://github.com/iagofrota/anvilore.git");
+    const { resolverOrigem } = await import("../src/lib/git-rede");
+    expect(resolverOrigem(["pull", "--ff-only"], pessoa)).toBe(origem);
+
+    const r = await puxar(pessoa);
+    expect(r.codigo).toBe(0);
+    expect(r.situacao).toBe("puxada");
+    expect(gitOk(pessoa, "log", "-1", "--pretty=%s")).toBe("versão N+1: dados fora do rastreio");
+    expect(r.mensagens.join("\n")).toContain("Atualizado com git pull");
+  });
+
   test("Dado um ramo rastreando upstream local e config com insteadOf que troca o upstream por outro protocolo, Quando roda puxar, Então recusa o transporte e não executa o helper", async () => {
     const { origem, pessoa } = await cenario();
     gitOk(pessoa, "remote", "rename", "origin", "upstream");
