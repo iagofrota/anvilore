@@ -430,6 +430,19 @@ describe("migrar-rastreio: guarda de transporte no pull (A5-RR6)", () => {
     expect(r.mensagens.join("\n")).toContain("Atualizado com git pull");
   });
 
+  test("Dado origem ssh em sintaxe scp com alias de host (sem git@), Quando roda puxar, Então o pull continua funcionando pela conexão ssh", async () => {
+    const { origem, pessoa } = await cenario();
+    gitOk(pessoa, "remote", "set-url", "origin", "github:iagofrota/anvilore.git");
+    const fakeSsh = join(tmp, "fake-ssh-alias.sh");
+    writeFileSync(fakeSsh, `#!/bin/sh\nexec git-upload-pack "${origem}"\n`, { mode: 0o755 });
+    gitOk(pessoa, "config", "core.sshCommand", `sh "${fakeSsh}"`);
+    const r = await puxar(pessoa);
+    expect(r.codigo).toBe(0);
+    expect(r.situacao).toBe("puxada");
+    expect(gitOk(pessoa, "log", "-1", "--pretty=%s")).toBe("versão N+1: dados fora do rastreio");
+    expect(r.mensagens.join("\n")).toContain("Atualizado com git pull");
+  });
+
   test("Dado um ramo rastreando o remoto upstream local e origin https, Quando roda puxar, Então o pull usa o transporte do remoto rastreado e atualiza com sucesso", async () => {
     const { origem, pessoa } = await cenario();
     gitOk(pessoa, "remote", "rename", "origin", "upstream");

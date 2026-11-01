@@ -6,9 +6,20 @@
 export const VERBOS_DE_REDE = new Set(["fetch", "ls-remote", "clone", "pull"]);
 export const ORIGENS_SSH = new Set(["git@github.com:iagofrota/anvilore.git", "ssh://git@github.com/iagofrota/anvilore.git"]);
 
+export function ehSsh(origem?: string): boolean {
+  if (!origem) return false;
+  if (ORIGENS_SSH.has(origem) || origem.startsWith("git@") || origem.startsWith("ssh://")) return true;
+  // Sintaxe SCP alternativa do Git: [user@]host.xz:caminho/do/repo.git/
+  // Deve conter ':' antes de qualquer barra, sem '::' ou '://', e sem ser letra de unidade do Windows.
+  if (origem.includes("://") || origem.includes("::")) return false;
+  if (origem.startsWith("/") || origem.startsWith("\\") || origem.startsWith("./") || origem.startsWith("../")) return false;
+  if (/^[A-Za-z]:/.test(origem)) return false;
+  return /^(?:[a-zA-Z0-9_.-]+@)?[a-zA-Z0-9_.-]+:[^:].*$/.test(origem);
+}
+
 export function protocolosDaOrigem(origem?: string): string {
   if (!origem) return "https";
-  if (ORIGENS_SSH.has(origem) || origem.startsWith("git@") || origem.startsWith("ssh://")) return "ssh";
+  if (ehSsh(origem)) return "ssh";
   // Em testes e desenvolvimento local: caminho no disco (mas nunca file:// que o atualizador recusa)
   if (origem.startsWith("/") || /^[A-Za-z]:[\\/]/.test(origem) || origem.startsWith("\\\\") || origem.startsWith("./") || origem.startsWith("../")) return "file";
   return "https";

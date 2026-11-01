@@ -1,9 +1,12 @@
-import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { comandoHook, decidir, executarProtecao } from "../src/comandos/hook-proteger-raw";
 import { capturarConsole } from "./apoio/console";
+
+// Executa múltiplos spawns do CLI em cenários com shells reais: no runner Windows pode ultrapassar os 5 s padrão.
+setDefaultTimeout(30_000);
 
 const raiz = resolve(import.meta.dir, "..");
 const ambiente = { ...process.env };
