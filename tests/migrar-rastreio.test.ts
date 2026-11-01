@@ -429,6 +429,47 @@ describe("migrar-rastreio: guarda de transporte no pull (A5-RR6)", () => {
     expect(gitOk(pessoa, "log", "-1", "--pretty=%s")).toBe("versão N+1: dados fora do rastreio");
     expect(r.mensagens.join("\n")).toContain("Atualizado com git pull");
   });
+
+  test("Dado um ramo rastreando o remoto upstream local e origin https, Quando roda puxar, Então o pull usa o transporte do remoto rastreado e atualiza com sucesso", async () => {
+    const { origem, pessoa } = await cenario();
+    gitOk(pessoa, "remote", "rename", "origin", "upstream");
+    gitOk(pessoa, "remote", "add", "origin", "https://github.com/iagofrota/anvilore.git");
+    expect(gitOk(pessoa, "config", "--get", "branch.main.remote")).toBe("upstream");
+    const r = await puxar(pessoa);
+    expect(r.codigo).toBe(0);
+    expect(r.situacao).toBe("puxada");
+    expect(gitOk(pessoa, "log", "-1", "--pretty=%s")).toBe("versão N+1: dados fora do rastreio");
+    expect(r.mensagens.join("\n")).toContain("Atualizado com git pull");
+  });
+
+  test("Dado um ramo rastreando upstream local e config com insteadOf que troca o upstream por outro protocolo, Quando roda puxar, Então recusa o transporte e não executa o helper", async () => {
+    const { origem, pessoa } = await cenario();
+    gitOk(pessoa, "remote", "rename", "origin", "upstream");
+    gitOk(pessoa, "remote", "add", "origin", "https://github.com/iagofrota/anvilore.git");
+    await comExtHostil(pessoa, async (marcador, helper) => {
+      gitOk(pessoa, "config", `url.ext::${helper}.insteadOf`, origem);
+      const r = await puxar(pessoa);
+      expect(r.codigo).toBe(1);
+      expect(r.situacao).toBe("pull-falhou");
+      expect(existsSync(marcador)).toBe(false);
+      expect(r.mensagens.join("\n")).toContain("Transporte recusado por segurança");
+    });
+  });
+
+  test("Dado resolverOrigem, Quando exercitado com diferentes argumentos e configurações, Então resolve a origem apropriada", async () => {
+    const { pessoa } = await cenario();
+    const { resolverOrigem } = await import("../src/lib/git-rede");
+    expect(resolverOrigem(["status"], pessoa)).toBeUndefined();
+    gitOk(pessoa, "remote", "set-url", "origin", "https://github.com/iagofrota/anvilore.git");
+    expect(resolverOrigem(["fetch", "--depth", "1", "origin"], pessoa)).toBe("https://github.com/iagofrota/anvilore.git");
+    expect(resolverOrigem(["fetch", "--", "origin"], pessoa)).toBe("https://github.com/iagofrota/anvilore.git");
+    expect(resolverOrigem(["fetch", "https://exemplo.com/repo.git"], pessoa)).toBe("https://exemplo.com/repo.git");
+    gitOk(pessoa, "config", "branch.main.remote", "/tmp/direto");
+    expect(resolverOrigem(["pull", "--ff-only"], pessoa)).toBe("/tmp/direto");
+    gitOk(pessoa, "remote", "remove", "origin");
+    gitOk(pessoa, "config", "--unset", "branch.main.remote");
+    expect(resolverOrigem(["pull", "--ff-only"], pessoa)).toBeUndefined();
+  });
 });
 
 describe("migrar-rastreio: o próprio kit na N+1", () => {

@@ -484,7 +484,7 @@ export async function puxar(raiz: string, deps: Dependencias & { argsDoPull?: st
     const devolvidos = `${manifesto.arquivos.length} arquivo(s) seu(s) voltaram ao lugar, conferidos pelo SHA-256.`;
     if (pull.codigo !== 0) {
       const recusa = recusouTransporte(pull.saida)
-        ? ["Transporte recusado por segurança: só conexões oficiais por https ou ssh são permitidas. Confira a URL em remote.origin.url e desfaça configurações como protocol.*.allow ou insteadOf no seu Git."]
+        ? ["Transporte recusado por segurança: só conexões oficiais por https ou ssh são permitidas. Confira a URL do seu remoto e desfaça configurações como protocol.*.allow ou insteadOf no seu Git."]
         : [];
       return { codigo: 1, situacao: "pull-falhou", manifesto, mensagens: [...mensagens, ...recusa, `O git pull falhou e nada foi atualizado: ${pull.saida.trim()}`, devolvidos] };
     }
