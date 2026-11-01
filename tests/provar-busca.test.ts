@@ -1,10 +1,13 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { comandosDaSkill, prepararWiki, provarBusca, abrirCitacao, imprimirProva } from "../scripts/provar-busca";
 import { pacoteDoRg, conferirHash } from "../scripts/pacote-rg-prova";
 import { capturarConsole } from "./apoio/console";
+
+// Cada cenário monta repositório e executa ripgrep no bash: no runner Windows isso passa dos 5 s padrão.
+setDefaultTimeout(30_000);
 
 test("Dado o rg ausente dos runners Quando preparo o ensaio Então fixa artefatos oficiais e rejeita download adulterado ou sistema não suportado", () => {
   for (const [sistema, arch] of [["linux", "x64"], ["win32", "x64"], ["darwin", "arm64"], ["darwin", "x64"]]) {

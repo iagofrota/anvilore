@@ -1,8 +1,11 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { delimiter, join } from "node:path";
 import { readFileSync, rmSync } from "node:fs";
 import { capturarConsole } from "./apoio/console";
 import { ambienteSemBun, argumentosDoCmd, extrairFormas, prepararClone, provar, rodarCenarios, type Forma } from "../scripts/provar-forma-instalada";
+
+// Cada cenário monta clone e executa shells de verdade: no runner Windows isso passa dos 5 s padrão.
+setDefaultTimeout(30_000);
 
 const raiz = join(import.meta.dir, "..");
 

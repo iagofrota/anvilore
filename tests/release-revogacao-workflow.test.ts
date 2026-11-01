@@ -1,8 +1,12 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, setDefaultTimeout, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { criarKit } from "./apoio/kit-atualizavel";
 import type { Kit } from "./apoio/kit-atualizavel";
+
+// Cada cenário monta repositórios e servidor com git de verdade: no runner Windows isso passa dos 5 s padrão.
+setDefaultTimeout(30_000);
+
 let kit: Kit, servidor: ReturnType<typeof Bun.serve>, chaves: string[], status: number;
 beforeEach(async () => {
   chaves = []; status = 200;
