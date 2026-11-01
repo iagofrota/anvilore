@@ -9,6 +9,10 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Security
+
+- O `anvilore migrar-rastreio --puxar` aplica a guarda de transporte do atualizador no `git pull`: só o protocolo da origem (https ou ssh), com `credential.helper` e prompt de terminal desabilitados.
+
 ## [0.3.1] - 2026-10-31
 
 ### Added

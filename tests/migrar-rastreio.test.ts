@@ -372,6 +372,65 @@ describe("migrar-rastreio: atualizar o clone (PLANO §4b passo 5)", () => {
   });
 });
 
+describe("migrar-rastreio: guarda de transporte no pull (A5-RR6)", () => {
+  async function comExtHostil(pessoa: string, corpo: (marcador: string, helper: string) => Promise<void>) {
+    const marcador = join(tmp, "marcador-ext");
+    const helper = join(tmp, "helper-ext.sh");
+    writeFileSync(helper, `#!/bin/sh\nprintf executado >> "${marcador}"\nexit 1\n`, { mode: 0o755 });
+    gitOk(pessoa, "config", "protocol.ext.allow", "always");
+    await corpo(marcador, helper);
+  }
+
+  test("Dado config local com protocol.ext.allow=always e origem ext::, Quando roda puxar, Então recusa o transporte e não executa o helper", async () => {
+    const { pessoa } = await cenario();
+    await comExtHostil(pessoa, async (marcador, helper) => {
+      gitOk(pessoa, "config", "remote.origin.url", `ext::${helper}`);
+      const r = await puxar(pessoa);
+      expect(r.codigo).toBe(1);
+      expect(r.situacao).toBe("pull-falhou");
+      expect(existsSync(marcador)).toBe(false);
+      expect(r.mensagens.join("\n")).toContain("Transporte recusado por segurança");
+    });
+  });
+
+  test("Dado origem https e config com insteadOf que troca https por outro protocolo, Quando roda puxar, Então recusa o transporte e não executa o helper", async () => {
+    const { pessoa } = await cenario();
+    await comExtHostil(pessoa, async (marcador, helper) => {
+      const oficial = "https://github.com/iagofrota/anvilore.git";
+      gitOk(pessoa, "config", "remote.origin.url", oficial);
+      gitOk(pessoa, "config", `url.ext::${helper}.insteadOf`, oficial);
+      const r = await puxar(pessoa);
+      expect(r.codigo).toBe(1);
+      expect(r.situacao).toBe("pull-falhou");
+      expect(existsSync(marcador)).toBe(false);
+      expect(r.mensagens.join("\n")).toContain("Transporte recusado por segurança");
+    });
+  });
+
+  test("Dado origem https normal, Quando roda puxar, Então a guarda de rede é aplicada com protocolo https e opções de segurança", async () => {
+    const { pessoa } = await cenario();
+    gitOk(pessoa, "remote", "set-url", "origin", "https://github.com/iagofrota/anvilore.git");
+    const { guardaDeRede } = await import("../src/lib/atualizacao");
+    const baseEnv = { PATH: process.env.PATH, GIT_ALLOW_PROTOCOL: "ext:fd:file", GIT_ASKPASS: "/tmp/askpass" };
+    const g = guardaDeRede(["pull", "--ff-only"], baseEnv, "https://github.com/iagofrota/anvilore.git");
+    expect(g.args).toEqual(["-c", "credential.helper=", "-c", "core.askPass=", "pull", "--ff-only"]);
+    expect(g.env).toMatchObject({ GIT_ALLOW_PROTOCOL: "https", GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" });
+  });
+
+  test("Dado origem ssh (clonada por ssh), Quando roda puxar, Então o pull continua funcionando pela conexão ssh", async () => {
+    const { origem, pessoa } = await cenario();
+    gitOk(pessoa, "remote", "set-url", "origin", "git@github.com:iagofrota/anvilore.git");
+    const fakeSsh = join(tmp, "fake-ssh.sh");
+    writeFileSync(fakeSsh, `#!/bin/sh\nexec git-upload-pack "${origem}"\n`, { mode: 0o755 });
+    gitOk(pessoa, "config", "core.sshCommand", `sh "${fakeSsh}"`);
+    const r = await puxar(pessoa);
+    expect(r.codigo).toBe(0);
+    expect(r.situacao).toBe("puxada");
+    expect(gitOk(pessoa, "log", "-1", "--pretty=%s")).toBe("versão N+1: dados fora do rastreio");
+    expect(r.mensagens.join("\n")).toContain("Atualizado com git pull");
+  });
+});
+
 describe("migrar-rastreio: o próprio kit na N+1", () => {
   test("Dado este repositório, Quando listo o índice e o .gitignore, Então nenhum arquivo da pessoa é rastreado e todos são ignorados", () => {
     const kit = resolve(import.meta.dir, "..");
