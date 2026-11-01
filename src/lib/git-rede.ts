@@ -20,9 +20,10 @@ export function ehSsh(origem?: string): boolean {
 export function protocolosDaOrigem(origem?: string): string {
   if (!origem) return "https";
   if (ehSsh(origem)) return "ssh";
-  // Em testes e desenvolvimento local: caminho no disco (mas nunca file:// que o atualizador recusa)
-  if (origem.startsWith("/") || /^[A-Za-z]:[\\/]/.test(origem) || origem.startsWith("\\\\") || origem.startsWith("./") || origem.startsWith("../")) return "file";
-  return "https";
+  // URLs com esquema explícito (https://, file://, ext::, etc.): nunca file
+  if (origem.includes("://") || origem.includes("::")) return "https";
+  // Qualquer outro caminho no disco (absoluto, com drive letter, com ./ ou ../, ou relativo simples como remotes/origem.git)
+  return "file";
 }
 
 export function guardaDeRede(args: string[], env: NodeJS.ProcessEnv, origem?: string): { args: string[]; env: NodeJS.ProcessEnv } {
@@ -81,7 +82,7 @@ export function resolverOrigem(args: string[], cwd: string, exe = Bun.which("git
   const url = Bun.spawnSync([exe, "-C", cwd, "config", "--get", `remote.${remoto}.url`], { stdout: "pipe", stderr: "pipe", env: process.env }).stdout.toString().trim();
   if (url) return url;
 
-  if (remotoDoRamo && (remotoDoRamo.startsWith("/") || /^[A-Za-z]:[\\/]/.test(remotoDoRamo) || remotoDoRamo.startsWith("./") || remotoDoRamo.startsWith("../"))) {
+  if (remotoDoRamo && !remotoDoRamo.includes("://") && !remotoDoRamo.includes("::")) {
     return remotoDoRamo;
   }
 

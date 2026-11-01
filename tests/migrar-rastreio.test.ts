@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { LISTA_DO_RASTREIO, copiarModelos } from "../src/lib/modelos";
@@ -455,6 +455,19 @@ describe("migrar-rastreio: guarda de transporte no pull (A5-RR6)", () => {
     expect(r.mensagens.join("\n")).toContain("Atualizado com git pull");
   });
 
+  test("Dado um ramo com remoto em caminho relativo simples (sem barra inicial nem ./), Quando roda puxar, Então o pull usa transporte local e atualiza com sucesso", async () => {
+    const { origem, pessoa } = await cenario();
+    const pastaRemoto = join(pessoa, "remoto-relativo");
+    cpSync(origem, pastaRemoto, { recursive: true });
+    gitOk(pessoa, "remote", "add", "relativo", "remoto-relativo");
+    gitOk(pessoa, "config", "branch.main.remote", "relativo");
+    const r = await puxar(pessoa);
+    expect(r.codigo).toBe(0);
+    expect(r.situacao).toBe("puxada");
+    expect(gitOk(pessoa, "log", "-1", "--pretty=%s")).toBe("versão N+1: dados fora do rastreio");
+    expect(r.mensagens.join("\n")).toContain("Atualizado com git pull");
+  });
+
   test("Dado um ramo rastreando upstream local e config com insteadOf que troca o upstream por outro protocolo, Quando roda puxar, Então recusa o transporte e não executa o helper", async () => {
     const { origem, pessoa } = await cenario();
     gitOk(pessoa, "remote", "rename", "origin", "upstream");
@@ -479,6 +492,8 @@ describe("migrar-rastreio: guarda de transporte no pull (A5-RR6)", () => {
     expect(resolverOrigem(["fetch", "https://exemplo.com/repo.git"], pessoa)).toBe("https://exemplo.com/repo.git");
     gitOk(pessoa, "config", "branch.main.remote", "/tmp/direto");
     expect(resolverOrigem(["pull", "--ff-only"], pessoa)).toBe("/tmp/direto");
+    gitOk(pessoa, "config", "branch.main.remote", "remotes/upstream.git");
+    expect(resolverOrigem(["pull", "--ff-only"], pessoa)).toBe("remotes/upstream.git");
     gitOk(pessoa, "remote", "remove", "origin");
     gitOk(pessoa, "config", "--unset", "branch.main.remote");
     expect(resolverOrigem(["pull", "--ff-only"], pessoa)).toBeUndefined();
