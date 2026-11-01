@@ -52,7 +52,14 @@ const TERMINAIS: EstadoMigracao[] = ["concluida", "retomada"];
 export const PASTA_MIGRACAO = join(".anvilore", "migracao");
 
 function gitPadrao(raiz: string): Git {
-  return (args) => execPadrao(args, raiz);
+  return (args) => {
+    const exe = Bun.which("git");
+    if (exe === null) return { codigo: 127, saida: "git ausente do PATH" };
+    try {
+      const processo = Bun.spawnSync([exe, "-C", raiz, ...args], { stdout: "pipe", stderr: "pipe" });
+      return { codigo: processo.exitCode, saida: `${processo.stdout.toString()}${processo.stderr.toString()}` };
+    } catch (erro) { return { codigo: 126, saida: motivo(erro) }; }
+  };
 }
 
 function motivo(erro: unknown): string {
@@ -468,7 +475,8 @@ export async function puxar(raiz: string, deps: Dependencias & { argsDoPull?: st
         await rename(noDisco(raiz, rel), vaga);
       }
       await entrar(raiz, manifesto, "puxar", deps);
-      pull = git(["pull", "--ff-only", ...(deps.argsDoPull ?? [])]);
+      const executarPull = deps.git ?? ((args: string[]) => execPadrao(args, raiz));
+      pull = executarPull(["pull", "--ff-only", ...(deps.argsDoPull ?? [])]);
       await entrar(raiz, manifesto, "devolver", deps);
     } catch (erro) {
       pull = { codigo: 1, saida: `parou na etapa "${manifesto.etapa}": ${motivo(erro)}` };
@@ -484,7 +492,7 @@ export async function puxar(raiz: string, deps: Dependencias & { argsDoPull?: st
     const devolvidos = `${manifesto.arquivos.length} arquivo(s) seu(s) voltaram ao lugar, conferidos pelo SHA-256.`;
     if (pull.codigo !== 0) {
       const recusa = recusouTransporte(pull.saida)
-        ? ["Transporte recusado por segurança: só conexões oficiais por https ou ssh são permitidas. Confira a URL do seu remoto e desfaça configurações como protocol.*.allow ou insteadOf no seu Git."]
+        ? ["Transporte recusado por segurança: o git pull só aceita o protocolo do endereço do remoto (https, ssh ou pasta local). Protocolos como ext:: e trocas por insteadOf são recusados. Confira a URL do seu remoto e desfaça configurações no seu Git."]
         : [];
       return { codigo: 1, situacao: "pull-falhou", manifesto, mensagens: [...mensagens, ...recusa, `O git pull falhou e nada foi atualizado: ${pull.saida.trim()}`, devolvidos] };
     }

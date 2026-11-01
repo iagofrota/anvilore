@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -511,6 +511,51 @@ describe("migrar-rastreio: guarda de transporte no pull (A5-RR6)", () => {
     gitOk(pessoa, "remote", "remove", "origin");
     gitOk(pessoa, "config", "--unset", "branch.main.remote");
     expect(resolverOrigem(["pull", "--ff-only"], pessoa)).toBeUndefined();
+  });
+
+  test("Dado git ausente do PATH ou com erro de spawn, Quando invoca migrarRastreio ou execPadrao, Então trata os erros 127 e 126 sem lançar exceção", async () => {
+    const { pessoa } = await cenario();
+    const { execPadrao } = await import("../src/lib/git-rede");
+
+    const spyWhich = spyOn(Bun, "which").mockReturnValue(null as any);
+    try {
+      // execPadrao devolve 127 "git ausente do PATH"
+      const r127 = execPadrao(["status"], pessoa);
+      expect(r127).toEqual({ codigo: 127, saida: "git ausente do PATH" });
+
+      // migrarRastreio sem git no PATH não lança exceção e devolve código 1
+      const rMigracao = await migrarRastreio(pessoa);
+      expect(rMigracao.codigo).toBe(1);
+      expect(rMigracao.situacao).toBe("incompleta");
+    } finally {
+      spyWhich.mockRestore();
+    }
+
+    // Erro de spawn em execPadrao devolve 126 com o motivo do erro
+    const spySpawn = spyOn(Bun, "spawnSync").mockImplementation(() => {
+      throw new Error("falha simulada de spawn");
+    });
+    try {
+      const r126 = execPadrao(["status"], pessoa);
+      expect(r126.codigo).toBe(126);
+      expect(r126.saida).toContain("falha simulada de spawn");
+    } finally {
+      spySpawn.mockRestore();
+    }
+  });
+
+  test("Dado migrarRastreio, Quando executa a migração local, Então não utiliza o executor de rede (execPadrao)", async () => {
+    const { pessoa } = await cenario();
+    const gitRede = await import("../src/lib/git-rede");
+    const spyExec = spyOn(gitRede, "execPadrao");
+    try {
+      const r = await migrarRastreio(pessoa);
+      expect(r.codigo).toBe(0);
+      expect(r.situacao).toBe("migrada");
+      expect(spyExec).not.toHaveBeenCalled();
+    } finally {
+      spyExec.mockRestore();
+    }
   });
 });
 

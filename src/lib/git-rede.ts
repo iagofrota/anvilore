@@ -43,7 +43,8 @@ export function recusouTransporte(saida: string): boolean {
   return /transport '[^']*' not allowed/i.test(saida);
 }
 
-export function resolverOrigem(args: string[], cwd: string, exe = Bun.which("git") ?? "git"): string | undefined {
+export function resolverOrigem(args: string[], cwd: string, exe: string | null = Bun.which("git")): string | undefined {
+  if (!exe) return undefined;
   if (!VERBOS_DE_REDE.has(args[0] ?? "")) return undefined;
 
   // 1. Procura se algum argumento posicional após o verbo indica o repositório/remoto (ex: git fetch origin, git clone <url>)
@@ -100,10 +101,15 @@ export function resolverOrigem(args: string[], cwd: string, exe = Bun.which("git
 // Sem `trim`: a saída de `status`/`diff -z` começa com caracteres significativos.
 // `env: process.env` explícito: sem ele o Bun não repassa ao git o que o processo mudou em process.env depois de subir.
 export function execPadrao(args: string[], cwd: string): { codigo: number; saida: string } {
-  const exe = Bun.which("git") ?? "git";
-  // O valor CRU de remote.<remoto>.url (o `get-url` expandiria um insteadOf) decide o protocolo permitido.
-  const origem = resolverOrigem(args, cwd, exe);
-  const g = guardaDeRede(args, process.env, origem);
-  const p = Bun.spawnSync([exe, "-C", cwd, ...g.args], { stdout: "pipe", stderr: "pipe", env: g.env });
-  return { codigo: p.exitCode, saida: `${p.stdout.toString()}${p.stderr.toString()}` };
+  const exe = Bun.which("git");
+  if (exe === null) return { codigo: 127, saida: "git ausente do PATH" };
+  try {
+    // O valor CRU de remote.<remoto>.url (o `get-url` expandiria um insteadOf) decide o protocolo permitido.
+    const origem = resolverOrigem(args, cwd, exe);
+    const g = guardaDeRede(args, process.env, origem);
+    const p = Bun.spawnSync([exe, "-C", cwd, ...g.args], { stdout: "pipe", stderr: "pipe", env: g.env });
+    return { codigo: p.exitCode, saida: `${p.stdout.toString()}${p.stderr.toString()}` };
+  } catch (erro) {
+    return { codigo: 126, saida: erro instanceof Error ? erro.message : String(erro) };
+  }
 }
