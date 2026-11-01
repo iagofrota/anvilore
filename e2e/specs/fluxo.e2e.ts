@@ -272,6 +272,7 @@ test.describe("[C22-P] falha ao persistir a parada", () => {
     await agente.pronto("erro-gravacao");
     await expect(page.getByRole("button", { name: "Cancelar ingestão" })).toBeVisible();
     const id = new URL(page.url()).hash.split("/").at(-1)!;
+    await expect.poll(async () => (await oraculo.get<{ sessao?: string }>(`/api/conversas/${id}`)).sessao).toBeTruthy();
     const caminho = `.anvilore/ui/conversas/${id}.json`;
     const arquivo = join(vault.raiz, caminho);
     const copia = `${arquivo}.anterior`;
