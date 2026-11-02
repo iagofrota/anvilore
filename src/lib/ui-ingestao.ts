@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -27,6 +27,10 @@ export type Conversa = {
   id: string;
   criadaEm: string;
   atualizadaEm: string;
+  tipo?: "ingestao" | "ajuste";
+  pagina?: string;
+  versaoEsperada?: string;
+  pedido?: string;
   area: string;
   fonte: string;
   nome: string;
@@ -48,7 +52,7 @@ export type Conversa = {
   fechamento?: Fechamento;
 };
 
-export type ResumoDeConversa = Pick<Conversa, "id" | "nome" | "fonte" | "passo" | "situacao" | "criadaEm">;
+export type ResumoDeConversa = Pick<Conversa, "id" | "nome" | "fonte" | "passo" | "situacao" | "criadaEm" | "tipo">;
 
 export class ErroDeIngestao extends Error {
   constructor(message: string, readonly status: number) { super(message); }
@@ -106,6 +110,31 @@ export function mensagemDoEscritor(conversa: Pick<Conversa, "fonte" | "relatorio
     "```json",
     JSON.stringify(aprovado, null, 2),
     "```",
+  ].join("\n");
+}
+
+export function mensagemDoAjuste(conversa: Pick<Conversa, "pagina" | "pedido" | "geracao">, wiki: string): string {
+  const caminhoCompleto = join(wiki, conversa.pagina!);
+  return [
+    "Você é o escritor fazendo um ajuste pontual numa página da wiki.",
+    "",
+    `Página a ajustar: ${conversa.pagina}`,
+    `Caminho completo: ${caminhoCompleto}`,
+    `Wiki: ${wiki}`,
+    `by: ${conversa.geracao!.by}`,
+    `at: ${conversa.geracao!.at}`,
+    "",
+    "Você só tem permissão para editar ESTA página. Não tente editar nenhuma outra página nem criar arquivos novos.",
+    "Leia a página inteira antes de mexer nela.",
+    "",
+    "Pedido de ajuste da pessoa:",
+    conversa.pedido!,
+    "",
+    "Regras:",
+    "- Aplique o ajuste solicitado no corpo ou frontmatter da página conforme o pedido.",
+    "- Atualize o bloco `generated` com o `by` e o `at` informados acima.",
+    "- Se a página já tiver o campo `verified`, mantenha-o como está: a aprovação antiga deixa de valer automaticamente.",
+    "- Nunca invente nem altere o campo `verified`.",
   ].join("\n");
 }
 
@@ -222,7 +251,7 @@ export class IngestaoNaInterface {
     for (const nome of nomes) {
       if (!nome.endsWith(".json")) continue;
       const conversa = await this.obter(nome.slice(0, -5));
-      if (conversa) resumos.push({ id: conversa.id, nome: conversa.nome, fonte: conversa.fonte, passo: conversa.passo, situacao: conversa.situacao, criadaEm: conversa.criadaEm });
+      if (conversa) resumos.push({ id: conversa.id, nome: conversa.nome, fonte: conversa.fonte, passo: conversa.passo, situacao: conversa.situacao, criadaEm: conversa.criadaEm, tipo: conversa.tipo });
     }
     return resumos.sort((a, b) => b.criadaEm.localeCompare(a.criadaEm) || b.id.localeCompare(a.id));
   }
@@ -304,6 +333,108 @@ export class IngestaoNaInterface {
       this.iniciar(conversa, pedido, existentes, fim => this.terminarEscrita(conversa, fim));
       return (await this.obter(id))!;
     } finally { this.liberarReserva(); }
+  }
+
+  async ajustar(dados: { caminho: string; versao: string; pedido: string }): Promise<Conversa> {
+    const pedidoTexto = typeof dados?.pedido === "string" ? dados.pedido.trim() : "";
+    if (!pedidoTexto) throw new ErroDeIngestao("O pedido de ajuste não pode ser vazio.", 400);
+    if (pedidoTexto.length > LIMITE_DO_COMENTARIO) throw new ErroDeIngestao(`O comentário passa de ${LIMITE_DO_COMENTARIO} caracteres.`, 400);
+
+    if (typeof dados?.caminho !== "string" || !dados.caminho.endsWith(".md") || isAbsolute(dados.caminho)) {
+      throw new ErroDeIngestao("Página inválida.", 400);
+    }
+    const partes = dados.caminho.split(/[\\/]/);
+    if (partes.includes("..") || partes.includes(".")) {
+      throw new ErroDeIngestao("Caminho inválido.", 400);
+    }
+    if (typeof dados?.versao !== "string" || !/^[a-f0-9]{64}$/.test(dados.versao)) {
+      throw new ErroDeIngestao("Versão inválida.", 400);
+    }
+
+    const wiki = this.wiki();
+    const arquivoPagina = resolve(wiki, dados.caminho);
+    if (dentro(arquivoPagina, wiki) === undefined) {
+      throw new ErroDeIngestao("Página fora da wiki.", 400);
+    }
+
+    let conteudo: string;
+    try {
+      conteudo = await readFile(arquivoPagina, "utf8");
+    } catch {
+      throw new ErroDeIngestao("Página não encontrada na wiki.", 404);
+    }
+
+    const versaoAtual = createHash("sha256").update(conteudo).digest("hex");
+    if (versaoAtual !== dados.versao) {
+      throw new ErroDeIngestao("A página mudou desde que você abriu. Recarregue a página.", 409);
+    }
+
+    this.reservar();
+    try {
+      if (this.encerrando) throw new ErroDeIngestao("A interface está encerrando.", 409);
+      await this.exigirAgente();
+      if (this.encerrando) throw new ErroDeIngestao("A interface está encerrando.", 409);
+
+      const agora = this.agora();
+      const carimbo = isoComOffset(agora).slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
+      const id = `${carimbo}-${randomBytes(3).toString("hex")}`;
+
+      // A linha de base da aba Mudanças: a cópia da página fora do git antes da escrita.
+      const copia = join(this.raiz, ".anvilore/ui/copias", id, dados.caminho);
+      await mkdir(dirname(copia), { recursive: true });
+      await writeFile(copia, conteudo);
+
+      const conversa: Conversa = {
+        versao: 1,
+        id,
+        criadaEm: agora.toISOString(),
+        atualizadaEm: agora.toISOString(),
+        tipo: "ajuste",
+        area: partes.length > 1 ? partes[0]! : "",
+        fonte: `wiki/${dados.caminho}`,
+        nome: basename(dados.caminho),
+        bytes: Buffer.byteLength(conteudo, "utf8"),
+        pagina: dados.caminho,
+        versaoEsperada: dados.versao,
+        pedido: pedidoTexto,
+        passo: "escrita",
+        situacao: "rodando",
+        agora: `Começando ajuste em ${basename(dados.caminho)}`,
+        atividade: [],
+        avisos: [],
+        recusas: [],
+        geracao: {
+          by: `${this.ponte.nome.toLowerCase().replace(/[^a-z0-9_-]/g, "-")}/desconhecida`,
+          at: isoComOffset(this.agora()),
+        },
+      };
+
+      this.conversas.set(conversa.id, conversa);
+      await this.salvar(conversa);
+
+      if (this.encerrando) {
+        Object.assign(conversa, { situacao: "cancelada", erro: "A interface foi encerrada antes do início desta etapa." });
+        delete conversa.agora;
+        await this.salvar(conversa);
+        throw new ErroDeIngestao("A interface está encerrando.", 409);
+      }
+
+      const existentes = new Set<string>();
+      if (existsSync(wiki)) for await (const arquivo of new Bun.Glob("**/*").scan({ cwd: wiki, onlyFiles: true })) existentes.add(porBarra(arquivo));
+
+      const pedidoDeFase: PedidoDeFase = {
+        papel: "escritor",
+        mensagem: mensagemDoAjuste(conversa, wiki),
+        raiz: this.raiz,
+        wiki,
+        pagina: dados.caminho,
+      };
+
+      this.iniciar(conversa, pedidoDeFase, existentes, fim => this.terminarEscrita(conversa, fim));
+      return (await this.obter(id))!;
+    } finally {
+      this.liberarReserva();
+    }
   }
 
   async encerrar(): Promise<void> {
@@ -433,7 +564,8 @@ export class IngestaoNaInterface {
     const { papel } = fase;
     if (evento.tipo === "inicio") {
       if (evento.sessao) conversa.sessao = evento.sessao;
-      if (papel === "leitor") conversa.autor = evento.autor;
+      if (papel === "leitor" || conversa.tipo === "ajuste") conversa.autor = evento.autor;
+      if (conversa.tipo === "ajuste" && conversa.geracao && evento.autor) conversa.geracao.by = evento.autor;
       return;
     }
     if (evento.tipo === "ferramenta") {

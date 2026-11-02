@@ -90,6 +90,7 @@ export function interpretarLinha(bruta: string): { eventos: EventoDoAgente[]; re
 // claude real). No Windows a forma `//C:/…` não foi provada.
 function regraDeCaminho(ferramenta: "Edit" | "Read", caminhoAbsoluto: string): string {
   const normalizado = caminhoAbsoluto.replaceAll("\\", "/").replace(/\/+$/, "").replace(/^\/+/, "");
+  if (normalizado.endsWith(".md")) return `${ferramenta}(//${normalizado})`;
   return `${ferramenta}(//${normalizado}/**)`;
 }
 
@@ -114,9 +115,10 @@ function esquemaParaOClaude(): Record<string, unknown> {
 
 export function argumentosDoPapel(pedido: PedidoDeFase): string[] {
   const { papel } = pedido;
-  if (papel === "escritor" && !pedido.sessao) throw new Error("o escritor precisa da sessão do leitor");
+  if (papel === "escritor" && !pedido.sessao && !pedido.pagina) throw new Error("o escritor precisa da sessão do leitor");
   const leitura = regrasDeLeitura(pedido.raiz, pedido.wiki);
-  const permitidas = papel === "leitor" ? leitura : [...leitura, regraDeEdicao(pedido.wiki)];
+  const edicao = pedido.pagina ? [regraDeEdicao(join(pedido.wiki, pedido.pagina))] : [regraDeEdicao(pedido.wiki)];
+  const permitidas = papel === "leitor" ? leitura : [...leitura, ...edicao];
   return [
     "-p", pedido.mensagem,
     "--output-format", "stream-json",

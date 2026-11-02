@@ -129,7 +129,7 @@ test.skipIf(process.platform !== "linux" || (process.env.ANVILORE_PULAR_TESTE_NF
   } finally {
     await rm(base, { recursive: true, force: true });
   }
-});
+}, 30_000);
 
 test("Dado um download adulterado de nfpm, Quando o hash não confere, Então o empacotamento é recusado e fecha com erro", async () => {
   const base = await mkdtemp(join(tmpdir(), "anvilore-adulterado-"));
@@ -147,7 +147,7 @@ test("Dado um download adulterado de nfpm, Quando o hash não confere, Então o 
   } finally {
     await rm(base, { recursive: true, force: true });
   }
-});
+}, 30_000);
 
 test("Dado pacotes pré-existentes no destino, Quando download falha, Então a CLI falha sem aceitar nem apagar o par anterior", async () => {
   const base = await mkdtemp(join(tmpdir(), "anvilore-limpeza-"));

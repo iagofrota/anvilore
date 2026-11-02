@@ -9,6 +9,10 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Added
+
+- A tela de Revisão permite pedir ajustes em rascunhos com a tecla `R` ou pelo botão "Pedir ajuste", abrindo conversa de ajuste onde o agente escritor atua com permissão restrita à página selecionada, e na conclusão o fechamento devolve uma nova versão com hash recalculado para revisão.
+
 ### Security
 
 - O `anvilore migrar-rastreio --puxar` aplica guarda de transporte no `git pull`: só aceita o protocolo do endereço do remoto (https, ssh ou pasta local) e recusa protocolos como `ext::` e trocas por `insteadOf`, com `credential.helper` e prompt de terminal desabilitados.

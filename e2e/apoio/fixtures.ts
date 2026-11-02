@@ -79,7 +79,7 @@ export const test = base.extend<Fixtures & Options>({
           const argv = chamada.argv as string[] | undefined;
           if (papel === "auth") return argv?.[0] === "auth";
           if (argv?.[0] === "auth") return false;
-          return Boolean(argv?.includes("--resume")) === (papel === "escritor");
+          return Boolean(argv?.includes("--resume") || argv?.some(arg => arg.endsWith("escritor.md"))) === (papel === "escritor");
         }) : chamadas;
       },
       liberar: async nome => writeFile(join(diretorio, `${nome}.liberar`), "continuar\n"),

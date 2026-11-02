@@ -26,6 +26,19 @@ export function roteiroDeLeituraInvalida(): RoteiroDoFalso {
   return { auth: { saida: JSON.stringify({ loggedIn: true }) }, leitor: [{ linha: init() }, { linha: resultado({ structured_output: relatorio }) }] };
 }
 
+export function roteiroDeAjuste(caminho: string, novoConteudo: string): RoteiroDoFalso {
+  return {
+    auth: { saida: JSON.stringify({ loggedIn: true }) },
+    escritor: [
+      { linha: init() },
+      { linha: usoDeFerramenta("w-ajuste", "Write", { file_path: `{{ROOT}}/${caminho}` }) },
+      { escrever: { caminho, conteudo: novoConteudo } },
+      { linha: resultadoDeFerramenta("w-ajuste", "Gravado") },
+      { linha: resultado() },
+    ],
+  };
+}
+
 export function roteiroComEscritorParado(nome: string): RoteiroDoFalso {
   const base = roteiroPadrao();
   return {

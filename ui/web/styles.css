@@ -462,3 +462,33 @@ a.wl:hover { opacity: 0.85; }
 .note-graph-svg { width: 100%; height: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
 .i-xs { width: 12px; height: 12px; flex: none; }
 .i-sm { width: 16px; height: 16px; flex: none; }
+
+.adjustment-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  margin-top: 12px;
+  background: var(--subtle);
+}
+.adjustment-box label {
+  font-weight: 500;
+  font-size: 13px;
+}
+.adjustment-box textarea {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: var(--panel);
+  resize: vertical;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--fg);
+}
+.adjustment-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}

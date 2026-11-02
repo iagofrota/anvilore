@@ -17,6 +17,22 @@ type PropriedadesDaConversa = { conversa: Conversa; agente: string; ocupado: boo
 
 // A conversa de uma ingestão, só a partir do estado: sem hooks nem chamadas à API, para ser testável sem navegador.
 export function ConversaDaIngestao({ conversa, agente, ocupado, takeaways, paginas, comentario, acoes }: PropriedadesDaConversa) {
+  if (conversa.tipo === "ajuste") {
+    return <>
+      <Mensagem autor="Você">
+        <p>Ajuste na página <code>{conversa.pagina ?? conversa.nome}</code>:</p>
+        <p className="comment">{conversa.pedido}</p>
+      </Mensagem>
+      <div className="system-note"><span aria-hidden="true">🔒</span> Ajuste restrito a <code>{conversa.fonte}</code>. O escritor só pode editar esta página.</div>
+      <Mensagem autor={agente} agente>
+        <Escritas conversa={conversa} />
+        {conversa.passo === "escrita" && <EstadoDaFase conversa={conversa} ocupado={ocupado} aoCancelar={acoes.aoCancelar} />}
+        {conversa.passo === "fechamento" && <div className="now"><span className="pulse" /> Rodando <code>anvilore fechar</code>…</div>}
+        {conversa.fechamento && <Fechamento conversa={conversa} />}
+      </Mensagem>
+    </>;
+  }
+
   const naParada = conversa.passo === "parada" && conversa.situacao === "esperando";
   return <>
     <Mensagem autor="Você">
@@ -80,8 +96,9 @@ export function ConversaDaIngestao({ conversa, agente, ocupado, takeaways, pagin
 export function PainelDaIngestao({ conversa }: { conversa: Conversa | null }) {
   const passos = passosDoPainel(conversa ?? undefined);
   const rodando = conversa?.situacao === "rodando";
+  const ehAjuste = conversa?.tipo === "ajuste";
   return <aside className="ingest-panel" aria-label="Progresso da ingestão">
-    <h2>Ingestão</h2>
+    <h2>{ehAjuste ? "Ajuste" : "Ingestão"}</h2>
     <ol className="steps">
       {passos.map(passo => <li key={passo.rotulo} className={passo.estado}>
         <span className="step-mark" aria-hidden="true">{passo.estado === "feito" ? "✓" : passo.estado === "parou" ? "!" : ""}</span>
@@ -91,13 +108,14 @@ export function PainelDaIngestao({ conversa }: { conversa: Conversa | null }) {
     </ol>
     {rodando && conversa?.agora && <div className="now panel-now"><span className="pulse" /> {conversa.agora}</div>}
     {conversa && <>
-      <h2>Fonte</h2>
+      <h2>{ehAjuste ? "Página" : "Fonte"}</h2>
       <code className="source-path">{conversa.fonte}</code>
       <dl className="facts"><dt>Tamanho</dt><dd>{tamanhoLegivel(conversa.bytes)}</dd>{conversa.rota && <><dt>Janela</dt><dd>{conversa.rota === "grande" ? "grande (custa mais)" : "padrão"}</dd></>}</dl>
     </>}
     <h2>Garantias</h2>
     <ul className="guarantees">
       <li><code>raw/</code> bloqueado pelo hook: o agente não grava lá.</li>
+      {ehAjuste && <li>Escrita restrita: o agente só pode editar esta página.</li>}
       <li>Toda página nasce rascunho, com <code>generated</code>.</li>
       <li>Só você grava <code>verified</code>, na tela de Revisão.</li>
     </ul>
@@ -131,8 +149,9 @@ function Escritas({ conversa }: { conversa: Conversa }) {
 
 function EstadoDaFase({ conversa, ocupado, aoCancelar, aoLerDeNovo }: { conversa: Conversa; ocupado: boolean; aoCancelar: () => void; aoLerDeNovo?: () => void }) {
   const lerDeNovo = aoLerDeNovo && podeLerDeNovo(conversa) ? <button className="secondary-button" disabled={ocupado} onClick={aoLerDeNovo}>Ler de novo</button> : null;
-  if (conversa.situacao === "rodando") return <div className="now"><span className="pulse" /> {conversa.agora ?? "Trabalhando…"}<button className="link-button" disabled={ocupado} onClick={aoCancelar}>Cancelar ingestão</button></div>;
-  if (conversa.situacao === "cancelada") return <div className="system-note">Ingestão cancelada. {conversa.passo === "escrita" ? "O que já foi escrito ficou na wiki como rascunho." : "Nada foi escrito."} {lerDeNovo}</div>;
+  const ehAjuste = conversa.tipo === "ajuste";
+  if (conversa.situacao === "rodando") return <div className="now"><span className="pulse" /> {conversa.agora ?? "Trabalhando…"}<button className="link-button" disabled={ocupado} onClick={aoCancelar}>{ehAjuste ? "Cancelar ajuste" : "Cancelar ingestão"}</button></div>;
+  if (conversa.situacao === "cancelada") return <div className="system-note">{ehAjuste ? "Ajuste cancelado." : "Ingestão cancelada."} {conversa.passo === "escrita" ? "O que já foi escrito ficou na wiki como rascunho." : "Nada foi escrito."} {lerDeNovo}</div>;
   if (conversa.situacao === "erro" || conversa.situacao === "interrompida") return <div className="alert inline" role="alert">
     <p>{conversa.erro}</p>
     {conversa.mensagens && <pre className="validation-output">{conversa.mensagens.join("\n")}</pre>}

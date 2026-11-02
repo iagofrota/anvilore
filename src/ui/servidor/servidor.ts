@@ -187,6 +187,19 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
             const resultado = await aprovarPaginas(raiz, [join(wiki, item.caminho)], process.env, corpo.versao);
             return json(resultado, resultado.codigo === 0 ? 200 : 409);
           }
+          if (url.pathname === "/api/ajuste" && request.method === "POST") {
+            let corpo: { caminho?: unknown; versao?: unknown; pedido?: unknown };
+            try { corpo = await request.json() as { caminho?: unknown; versao?: unknown; pedido?: unknown }; } catch { return json({ mensagens: ["Pedido inválido."] }, 400); }
+            if (typeof corpo.caminho !== "string") return json({ mensagens: ["Página inválida."] }, 400);
+            if (typeof corpo.versao !== "string" || !/^[a-f0-9]{64}$/.test(corpo.versao)) return json({ mensagens: ["Versão inválida."] }, 400);
+            if (typeof corpo.pedido !== "string" || !corpo.pedido.trim()) return json({ mensagens: ["O pedido de ajuste não pode ser vazio."] }, 400);
+            try {
+              const conversa = await ingestao.ajustar({ caminho: corpo.caminho, versao: corpo.versao, pedido: corpo.pedido });
+              return json(conversa, 201);
+            } catch (erro) {
+              return erroDaIngestao(erro);
+            }
+          }
           if (url.pathname === "/api/validar" && request.method === "POST") return json(await validar(raiz, wiki));
           if (url.pathname === "/api/inicio" && request.method === "GET") {
             try {

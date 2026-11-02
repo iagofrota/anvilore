@@ -93,7 +93,7 @@ export function Chat({ id, lacuna, estado, recarregarEstado, abrir, tema, altern
 
   return <main className="main chat-main">
     <header className="topbar">
-      <div className="breadcrumb"><span>Chat</span><span aria-hidden="true">›</span><h1>{conversa ? `Ingerir: ${conversa.nome}` : "Nova ingestão"}</h1></div>
+      <div className="breadcrumb"><span>Chat</span><span aria-hidden="true">›</span><h1>{conversa ? (conversa.tipo === "ajuste" ? `Ajustar: ${conversa.nome}` : `Ingerir: ${conversa.nome}`) : "Nova ingestão"}</h1></div>
       <div className="top-actions">
         <span className="pill"><span className="status-dot" /> {estado?.agente ?? "Agente"} · sessão local</span>
         {conversa?.area && <span className="pill">Área: <strong>{conversa.area}</strong></span>}

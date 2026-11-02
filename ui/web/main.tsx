@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import type { Rascunho } from "../../src/lib/ui-fila";
 import { api } from "./api";
 import { Biblioteca } from "./biblioteca";
+import { CaixaDeAjuste } from "./caixa-ajuste";
 import { Chat, type EstadoDaIngestao } from "./chat";
 import { Inicio } from "./inicio";
 import { lerRota } from "./navegacao";
@@ -105,6 +106,9 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
   const [validacao, setValidacao] = useState<ResultadoValidacao | null>(null);
   const [validando, setValidando] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [ajusteAberto, setAjusteAberto] = useState(false);
+  const [textoAjuste, setTextoAjuste] = useState("");
+  const [enviandoAjuste, setEnviandoAjuste] = useState(false);
 
   const carregar = useCallback(async (selecionarPrimeiro = false) => {
     try {
@@ -146,13 +150,35 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
     finally { setSalvando(false); }
   }, [item, salvando, carregar]);
 
+  const enviarAjuste = useCallback(async () => {
+    if (!item || !textoAjuste.trim() || enviandoAjuste) return;
+    setEnviandoAjuste(true);
+    try {
+      const criada = await api<{ id: string }>("/api/ajuste", "POST", {
+        caminho: item.caminho,
+        versao: item.versao,
+        pedido: textoAjuste.trim(),
+      });
+      setAjusteAberto(false);
+      setTextoAjuste("");
+      window.location.hash = `#/chat/${criada.id}`;
+    } catch (motivo) {
+      const mensagem = motivo instanceof Error ? motivo.message : "Não foi possível pedir ajuste.";
+      await carregar();
+      setErro(mensagem);
+    } finally {
+      setEnviandoAjuste(false);
+    }
+  }, [item, textoAjuste, enviandoAjuste, carregar]);
+
   useEffect(() => {
     const teclado = (evento: KeyboardEvent) => {
       if (evento.altKey || evento.ctrlKey || evento.metaKey || evento.target instanceof HTMLInputElement || evento.target instanceof HTMLTextAreaElement) return;
       const atual = filtrados.findIndex(candidato => candidato.caminho === selecionado);
-      if (evento.key.toLowerCase() === "j") { evento.preventDefault(); const proximo = indiceVizinho(atual, 1, filtrados.length); if (proximo >= 0) setSelecionado(filtrados[proximo]!.caminho); }
-      if (evento.key.toLowerCase() === "k") { evento.preventDefault(); const anterior = indiceVizinho(atual, -1, filtrados.length); if (anterior >= 0) setSelecionado(filtrados[anterior]!.caminho); }
+      if (evento.key.toLowerCase() === "j") { evento.preventDefault(); const proximo = indiceVizinho(atual, 1, filtrados.length); if (proximo >= 0) { setSelecionado(filtrados[proximo]!.caminho); setAjusteAberto(false); setTextoAjuste(""); } }
+      if (evento.key.toLowerCase() === "k") { evento.preventDefault(); const anterior = indiceVizinho(atual, -1, filtrados.length); if (anterior >= 0) { setSelecionado(filtrados[anterior]!.caminho); setAjusteAberto(false); setTextoAjuste(""); } }
       if (evento.key.toLowerCase() === "a" && item?.aprovavel) { evento.preventDefault(); void aprovar(); }
+      if (evento.key.toLowerCase() === "r" && item) { evento.preventDefault(); setAjusteAberto(atual => !atual); }
     };
     window.addEventListener("keydown", teclado);
     return () => window.removeEventListener("keydown", teclado);
@@ -181,7 +207,7 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
         <section className="queue" aria-label="Rascunhos">
           <div className="queue-title"><span>▤</span> Fila de revisão <span className="count">{filtrados.length}</span></div>
           <div className="queue-items" role="listbox" aria-label="Páginas pendentes">
-            {filtrados.map(candidato => <button key={candidato.caminho} className={`queue-item ${selecionado === candidato.caminho ? "active" : ""}`} role="option" aria-selected={selecionado === candidato.caminho} onClick={() => { setSelecionado(candidato.caminho); setAba("visual"); }}>
+            {filtrados.map(candidato => <button key={candidato.caminho} className={`queue-item ${selecionado === candidato.caminho ? "active" : ""}`} role="option" aria-selected={selecionado === candidato.caminho} onClick={() => { setSelecionado(candidato.caminho); setAba("visual"); setAjusteAberto(false); setTextoAjuste(""); }}>
               <span className={`queue-status ${candidato.status}`} aria-hidden="true">{candidato.status === "erro" ? "!" : candidato.status === "atualizada" ? "↻" : "·"}</span>
               <span className="queue-copy"><strong>{candidato.titulo}</strong><span>{candidato.tipo || "Página"} · {candidato.status === "nova" ? "nova" : candidato.status === "atualizada" ? "atualizada" : "erro"}</span></span>
             </button>)}
@@ -207,10 +233,19 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
                 <button role="tab" aria-selected={aba === "markdown"} onClick={() => setAba("markdown")}>Markdown</button>
               </div>
               {aba === "markdown" ? <pre className="markdown-view">{item.conteudo}</pre> : item.anterior !== undefined ? <div className="diff-view">{linhas.map((linha, indice) => <div className={`diff-line ${linha.tipo}`} key={`${indice}-${linha.tipo}`}><span>{linha.tipo === "adicionada" ? "+" : linha.tipo === "removida" ? "−" : " "}</span><pre>{linha.texto || " "}</pre></div>)}</div> : <article className="new-page"><MarkdownSeguro texto={item.conteudo} /></article>}
+              <CaixaDeAjuste
+                aberto={ajusteAberto}
+                texto={textoAjuste}
+                enviando={enviandoAjuste}
+                aoMudarTexto={setTextoAjuste}
+                aoCancelar={() => { setAjusteAberto(false); setTextoAjuste(""); }}
+                aoEnviar={() => void enviarAjuste()}
+              />
             </div>
           </div>
           <footer className="review-actions">
             <button className="approve-button" disabled={!item.aprovavel || salvando} onClick={() => void aprovar()}><span>✓</span>{salvando ? "Aprovando…" : "Aprovar"}<kbd>A</kbd></button>
+            <button type="button" className="secondary-button" onClick={() => setAjusteAberto(atual => !atual)}>Pedir ajuste<kbd>R</kbd></button>
             <span className="approval-note">A aprovação registra <code>verified: human:…</code></span>
           </footer>
         </section>}
@@ -230,4 +265,5 @@ function MarkdownSeguro({ texto }: { texto: string }) {
   })}</div>;
 }
 
-createRoot(document.getElementById("root")!).render(<React.StrictMode><Aplicacao /></React.StrictMode>);
+const elementoRaiz = typeof document !== "undefined" ? document.getElementById("root") : null;
+if (elementoRaiz) createRoot(elementoRaiz).render(<React.StrictMode><Aplicacao /></React.StrictMode>);

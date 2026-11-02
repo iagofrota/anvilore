@@ -165,6 +165,59 @@ test("Dado a escrita cancelada Quando a tela monta Então diz que o que já foi 
   expect(html).toContain("interrompido");
 });
 
+test("Dado um ajuste em andamento Quando a tela monta Então mostra o pedido, a trava da página e Cancelar ajuste", () => {
+  const c = conversa({
+    tipo: "ajuste",
+    pagina: "pessoal/concepts/segundo-cerebro.md",
+    fonte: "wiki/pessoal/concepts/segundo-cerebro.md",
+    pedido: "Mudar frase sobre Obsidian.",
+    passo: "escrita",
+    situacao: "rodando",
+    agora: "Escrevendo wiki/pessoal/concepts/segundo-cerebro.md",
+    atividade: [{ id: "w1", papel: "escritor", verbo: "Escrevendo", alvo: "wiki/pessoal/concepts/segundo-cerebro.md", estado: "andamento" }],
+  });
+  const { html, arvore, chamadas } = montar(c);
+  expect(html).toContain("Ajuste na página");
+  expect(html).toContain("pessoal/concepts/segundo-cerebro.md");
+  expect(html).toContain("Mudar frase sobre Obsidian.");
+  expect(html).toContain("Ajuste restrito a <code>wiki/pessoal/concepts/segundo-cerebro.md</code>");
+  expect(html).toContain("Cancelar ajuste");
+  (botao(arvore, "Cancelar ajuste")!.props.onClick as () => void)();
+  expect(chamadas).toEqual(["cancelar"]);
+});
+
+test("Dado um ajuste cancelado Quando a tela monta Então avisa que o ajuste foi cancelado", () => {
+  const c = conversa({
+    tipo: "ajuste",
+    pagina: "pessoal/concepts/segundo-cerebro.md",
+    fonte: "wiki/pessoal/concepts/segundo-cerebro.md",
+    pedido: "Mudar frase.",
+    passo: "escrita",
+    situacao: "cancelada",
+  });
+  const { html } = montar(c);
+  expect(html).toContain("Ajuste cancelado.");
+});
+
+test("Dado um ajuste rodando Quando o painel monta Então mostra o título Ajuste, 4 passos e garantia de restrição", () => {
+  const c = conversa({
+    tipo: "ajuste",
+    pagina: "pessoal/concepts/segundo-cerebro.md",
+    fonte: "wiki/pessoal/concepts/segundo-cerebro.md",
+    pedido: "Ajustar.",
+    passo: "escrita",
+    situacao: "rodando",
+    agora: "Escrevendo wiki/pessoal/concepts/segundo-cerebro.md",
+  });
+  const html = renderToStaticMarkup(<PainelDaIngestao conversa={c} />);
+  expect(html).toContain("<h2>Ajuste</h2>");
+  expect(html).toContain("<h2>Página</h2>");
+  expect(html).toContain("Escrita restrita: o agente só pode editar esta página.");
+  expect(html.match(/<li class="(feito|atual|falta|parou)"/g)).toEqual([
+    '<li class="feito"', '<li class="atual"', '<li class="falta"', '<li class="falta"',
+  ]);
+});
+
 test("Dado uma ingestão rodando Quando o painel monta Então mostra os 7 passos, o que o agente faz agora e a fonte", () => {
   const html = renderToStaticMarkup(<PainelDaIngestao conversa={conversa({ passo: "leitura", situacao: "rodando", agora: "Lendo raw/pessoal/llm-wiki.md", rota: "grande" })} />);
   expect(html.match(/<li class="(feito|atual|falta|parou)"/g)).toEqual([

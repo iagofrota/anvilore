@@ -25,6 +25,8 @@ export type PedidoDeFase = {
   // O escritor continua a conversa do leitor: o que ele leu não é lido de novo.
   sessao?: string;
   rota?: "padrao" | "grande";
+  // No ajuste de uma página, o escritor só pode editar este caminho relativo da wiki.
+  pagina?: string;
 };
 
 export type Disponibilidade = { ok: true } | { ok: false; motivo: string };

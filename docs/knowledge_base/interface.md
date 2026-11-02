@@ -16,8 +16,8 @@ desta página. As decisões de fundo (servidor opcional, aprovação pelo servid
 | Início | `#/inicio` (a tela inicial) | Atalhos de ingestão e revisão, rascunhos, atividade do log, saúde e fontes de `raw/` sem ingestão. | `ui/web/inicio.tsx`, `src/lib/ui-inicio.ts` |
 | Biblioteca | `#/biblioteca` | Listagem e catálogo de páginas com abas de tipos, filtros por status, área, tags e busca. | `ui/web/biblioteca.tsx`, `src/lib/ui-biblioteca.ts` |
 | Nota | `#/nota/<caminho>` | Leitura estrita de uma página: metadados, corpo renderizado, callouts de lacunas com atalho para o chat, proveniência, backlinks e grafo local SVG. | `ui/web/nota.tsx`, `src/lib/ui-nota.ts` |
-| Chat de ingestão | `#/chat` e `#/chat/<id>` | Fonte, leitura, parada, escrita e fechamento. | `ui/web/chat.tsx`, `src/lib/ui-ingestao.ts` |
-| Revisão | `#/revisao` | Fila de rascunhos, mudanças e Aprovar. | `ui/web/main.tsx`, `src/lib/ui-fila.ts` |
+| Chat de ingestão | `#/chat` e `#/chat/<id>` | Fonte, leitura, parada, escrita e fechamento (incluindo ajustes). | `ui/web/chat.tsx`, `src/lib/ui-ingestao.ts` |
+| Revisão | `#/revisao` | Fila de rascunhos, mudanças, Aprovar e Pedir ajuste (R). | `ui/web/main.tsx`, `ui/web/caixa-ajuste.tsx`, `src/lib/ui-fila.ts`, `src/lib/ui-ingestao.ts` |
 
 Endereço vazio ou desconhecido abre o Início (`lerRota` em `ui/web/navegacao.ts`).
 
@@ -70,6 +70,18 @@ A tela de Nota (`GET /api/nota?caminho=...`, `obterNota` em `src/lib/ui-nota.ts`
 - **Destaque de lacunas:** callouts `[!gap]` e `[!contradiction]` destacados com botão que leva ao Chat com a dúvida preenchida. A pessoa confirma antes do envio.
 - **Barra lateral contextual:** proveniência (fonte em `raw/`, modelo gerador, data e aprovação humana), lista de backlinks com trecho de contexto e grafo local em SVG com nós e arestas dos vizinhos imediatos. A lista de Relacionados usa a mesma resolução de slug para caminho.
 - **Segurança de caminho:** o endpoint valida e barra estritamente path traversal (`..`), caminhos absolutos e links simbólicos que apontem para fora de `wiki/`.
+
+## O que a Revisão oferece e fluxo de ajuste
+
+- **Fila de rascunhos e navegação:** atalhos `J` (próxima) e `K` (anterior), filtros por Todas, Novas e Atualizadas, e visualização de diff linha a linha ou Markdown bruto.
+- **Aprovação humana:** o botão **Aprovar** (`A`) chama `POST /api/revisao/aprovar` passando a versão SHA-256 esperada. Se o arquivo foi modificado no disco, a API responde HTTP 409 e recarrega a fila.
+- **Pedir ajuste:** acionado pela tecla `R` ou pelo botão "Pedir ajuste". Abre um campo de texto (`CaixaDeAjuste` em `ui/web/caixa-ajuste.tsx`) para descrever o ajuste desejado na página selecionada.
+  - O envio (`POST /api/ajuste`) valida o caminho dentro de `wiki/`, o SHA-256 da versão exibida e o texto não vazio.
+  - Se a versão no disco divergir da versão exibida, recusa com HTTP 409 e atualiza a fila.
+  - Cria uma conversa de ajuste (`tipo: "ajuste"`) em `.anvilore/ui/conversas/<id>.json` e redireciona para `#/chat/<id>`.
+  - Salva uma cópia de referência do rascunho em `.anvilore/ui/copias/<id>/<caminho>` para visualização de diff posterior.
+  - Dispara o agente escritor com escopo restrito exclusivamente à página em questão (`join(pedido.wiki, pedido.pagina)` em `src/lib/ponte-claude-code.ts`), impedindo alterações em outras páginas.
+  - Ao concluir a escrita, o servidor roda `fechar` e `validar`. A página ajustada recebe um novo SHA-256 e reaparece na fila de Revisão como uma nova geração de rascunho pendente de validação humana; aprovações anteriores deixam de valer.
 
 ## Como acrescentar uma tela (Nota, Biblioteca, Onboarding)
 
