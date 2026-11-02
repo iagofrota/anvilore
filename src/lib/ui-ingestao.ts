@@ -3,11 +3,13 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { conferirArquivoDeLeitura } from "../comandos/conferir-leitura";
+import { caminhoReal, dentroDe } from "./caminhos";
 import { isoComOffset } from "./hora";
 import { rotaDaIngestao, type Papel } from "./papeis-ingestao";
 import type { EventoDoAgente, ExecucaoDeFase, FimDaFase, PedidoDeFase, PonteDeAgente, Recusa } from "./ponte-agente";
 import { extrairJson, type RelatorioLeitor } from "./relatorio-leitor";
 import { ErroDeFonte, salvarFonte } from "./ui-fonte";
+import { fontesCitadas } from "./ui-inicio";
 import { caminhoWiki } from "./wiki-repo";
 
 // A ingestão pela interface, sem HTTP: o servidor orquestra o que a skill faz numa conversa.
@@ -199,20 +201,85 @@ export class IngestaoNaInterface {
 
   private wiki(): string { return caminhoWiki(this.raiz, this.ambiente); }
 
-  async criar(fonte: { area: string; nome: string; conteudo: Uint8Array }): Promise<Conversa> {
-    let salvo;
-    try { salvo = await salvarFonte(this.raiz, fonte, this.ambiente); }
-    catch (erro) { if (erro instanceof ErroDeFonte) throw new ErroDeIngestao(erro.message, 400); throw erro; }
+  private async iniciarConversa(fonte: string, area: string, bytes: number): Promise<Conversa> {
     const agora = this.agora();
     const carimbo = isoComOffset(agora).slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
     const conversa: Conversa = {
       versao: 1, id: `${carimbo}-${randomBytes(3).toString("hex")}`, criadaEm: agora.toISOString(), atualizadaEm: agora.toISOString(),
-      area: fonte.area, fonte: salvo.fonte, nome: basename(salvo.fonte), bytes: salvo.bytes,
+      area, fonte, nome: basename(fonte), bytes,
       passo: "fonte", situacao: "pronta", atividade: [], avisos: [], recusas: [],
     };
     this.conversas.set(conversa.id, conversa);
     await this.salvar(conversa);
     return structuredClone(conversa);
+  }
+
+  async criar(fonte: { area: string; nome: string; conteudo: Uint8Array }): Promise<Conversa> {
+    let salvo;
+    try { salvo = await salvarFonte(this.raiz, fonte, this.ambiente); }
+    catch (erro) { if (erro instanceof ErroDeFonte) throw new ErroDeIngestao(erro.message, 400); throw erro; }
+    return this.iniciarConversa(salvo.fonte, fonte.area, salvo.bytes);
+  }
+
+  async criarDeRaw(caminhoBruto: string): Promise<Conversa> {
+    if (typeof caminhoBruto !== "string" || !caminhoBruto.trim() || caminhoBruto.includes("\0")) {
+      throw new ErroDeIngestao("Caminho inválido.", 400);
+    }
+    if (isAbsolute(caminhoBruto)) {
+      throw new ErroDeIngestao("Caminho absoluto recusado.", 400);
+    }
+    const segmentos = caminhoBruto.split(/[\\/]/);
+    if (segmentos.some(s => s === "..")) {
+      throw new ErroDeIngestao("Caminho com subida de diretório ('..') recusado.", 400);
+    }
+
+    let caminhoRelativo = caminhoBruto.replaceAll("\\", "/").replace(/^\/+/, "");
+    if (caminhoRelativo === "raw" || caminhoRelativo === "raw/") {
+      throw new ErroDeIngestao("O caminho aponta para um diretório, não para um arquivo.", 400);
+    }
+    if (caminhoRelativo.startsWith("raw/")) {
+      caminhoRelativo = caminhoRelativo.slice(4);
+    }
+    if (!caminhoRelativo.trim()) {
+      throw new ErroDeIngestao("Caminho inválido.", 400);
+    }
+
+    const pastaRaw = join(this.raiz, "raw");
+    const alvoAbsoluto = resolve(pastaRaw, caminhoRelativo);
+    const rawReal = caminhoReal(pastaRaw);
+    const alvoReal = caminhoReal(alvoAbsoluto);
+
+    if (!dentroDe(alvoReal, rawReal) || alvoReal === rawReal) {
+      throw new ErroDeIngestao("O arquivo aponta para fora de raw/.", 400);
+    }
+
+    let infoStat;
+    try {
+      infoStat = await stat(alvoAbsoluto);
+    } catch (erro) {
+      if ((erro as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new ErroDeIngestao("Arquivo inexistente em raw/.", 404);
+      }
+      throw erro;
+    }
+
+    if (infoStat.isDirectory()) {
+      throw new ErroDeIngestao("O caminho aponta para um diretório, não para um arquivo.", 400);
+    }
+    if (!infoStat.isFile()) {
+      throw new ErroDeIngestao("O caminho não aponta para um arquivo comum.", 400);
+    }
+
+    const completo = `raw/${caminhoRelativo}`;
+    const citadas = await fontesCitadas(this.wiki());
+    if (citadas.has(completo)) {
+      throw new ErroDeIngestao("O arquivo já foi ingerido na wiki.", 409);
+    }
+
+    const partes = caminhoRelativo.split("/");
+    const area = partes.length > 1 ? partes[0]! : "";
+
+    return this.iniciarConversa(completo, area, infoStat.size);
   }
 
   async listar(): Promise<ResumoDeConversa[]> {

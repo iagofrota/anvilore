@@ -9,6 +9,10 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Added
+
+- O Início traz botão "Ingerir" para arquivos já presentes em `raw/` que ainda não foram ingeridos, abrindo a conversa correspondente no chat sem copiar, mover nem alterar o arquivo bruto existente.
+
 ### Security
 
 - O `anvilore migrar-rastreio --puxar` aplica guarda de transporte no `git pull`: só aceita o protocolo do endereço do remoto (https, ssh ou pasta local) e recusa protocolos como `ext::` e trocas por `insteadOf`, com `credential.helper` e prompt de terminal desabilitados.

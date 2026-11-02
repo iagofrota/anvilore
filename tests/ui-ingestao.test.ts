@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { createHash } from "node:crypto";
 import * as arquivos from "node:fs/promises";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FimDaFase, PonteDeAgente } from "../src/lib/ponte-agente";
@@ -614,4 +615,124 @@ test("Dado o fechamento padrão Quando o escritor termina Então o servidor roda
   const final = (await ingestao.obter(conversa.id))!;
   expect(final.passo).toBe("revisao");
   expect(final.fechamento!.saida).toContain("FECHAMENTO:");
+});
+
+// --- Ingestão a partir de arquivo existente em raw/ (de-raw) ------------------------------------------------
+
+test("Dado arquivo existente em raw/<área> Quando crio conversa de-raw Então cria a conversa apontando para o arquivo sem alterar raw/", async () => {
+  const ingestao = servico(new PonteFalsa());
+  mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
+  writeFileSync(join(raiz, "raw/pessoal/nota.md"), "conteúdo da nota");
+  const conversa = await ingestao.criarDeRaw("raw/pessoal/nota.md");
+  expect(conversa).toMatchObject({
+    passo: "fonte",
+    situacao: "pronta",
+    fonte: "raw/pessoal/nota.md",
+    area: "pessoal",
+    nome: "nota.md",
+    bytes: 17,
+  });
+  expect(await ingestao.obter(conversa.id)).toMatchObject({ id: conversa.id, fonte: "raw/pessoal/nota.md" });
+  expect(readFileSync(join(raiz, "raw/pessoal/nota.md"), "utf8")).toBe("conteúdo da nota");
+});
+
+test("Dado arquivo na raiz de raw/ Quando crio conversa de-raw Então cria com área vazia", async () => {
+  const ingestao = servico(new PonteFalsa());
+  mkdirSync(join(raiz, "raw"), { recursive: true });
+  writeFileSync(join(raiz, "raw/solta.md"), "solta");
+  const conversa = await ingestao.criarDeRaw("raw/solta.md");
+  expect(conversa).toMatchObject({
+    passo: "fonte",
+    situacao: "pronta",
+    fonte: "raw/solta.md",
+    area: "",
+    nome: "solta.md",
+    bytes: 5,
+  });
+});
+
+test("Dado caminho relativo sem o prefixo raw/ Quando crio conversa de-raw Então normaliza para raw/<caminho>", async () => {
+  const ingestao = servico(new PonteFalsa());
+  mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
+  writeFileSync(join(raiz, "raw/pessoal/guia.md"), "conteúdo");
+  const conversa = await ingestao.criarDeRaw("pessoal/guia.md");
+  expect(conversa.fonte).toBe("raw/pessoal/guia.md");
+  expect(conversa.area).toBe("pessoal");
+  expect(conversa.nome).toBe("guia.md");
+});
+
+test("Dado caminhos inválidos (vazio, absoluto ou com ..) Quando crio conversa de-raw Então recusa com 400", async () => {
+  const ingestao = servico(new PonteFalsa());
+  mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
+  writeFileSync(join(raiz, "raw/pessoal/valido.md"), "ok");
+  for (const invalido of ["", "   ", "/etc/passwd", "../fora.md", "pessoal/../../fora.md", "raw/../fora.md"]) {
+    await expect(ingestao.criarDeRaw(invalido)).rejects.toMatchObject({ status: 400 });
+  }
+});
+
+test("Dado symlink apontando para fora de raw/ Quando crio conversa de-raw Então recusa com 400", async () => {
+  const ingestao = servico(new PonteFalsa());
+  mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
+  const externo = join(raiz, "externo.txt");
+  writeFileSync(externo, "fora de raw");
+  symlinkSync(externo, join(raiz, "raw/pessoal/link-externo.md"));
+  await expect(ingestao.criarDeRaw("raw/pessoal/link-externo.md")).rejects.toMatchObject({
+    status: 400,
+    message: expect.stringContaining("fora de raw/"),
+  });
+});
+
+test("Dado arquivo inexistente em raw/ Quando crio conversa de-raw Então recusa com 404", async () => {
+  const ingestao = servico(new PonteFalsa());
+  mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
+  await expect(ingestao.criarDeRaw("raw/pessoal/inexistente.md")).rejects.toMatchObject({
+    status: 404,
+    message: "Arquivo inexistente em raw/.",
+  });
+});
+
+test("Dado caminho apontando para diretório Quando crio conversa de-raw Então recusa com 400", async () => {
+  const ingestao = servico(new PonteFalsa());
+  mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
+  await expect(ingestao.criarDeRaw("raw/pessoal")).rejects.toMatchObject({
+    status: 400,
+    message: "O caminho aponta para um diretório, não para um arquivo.",
+  });
+  await expect(ingestao.criarDeRaw("raw")).rejects.toMatchObject({
+    status: 400,
+    message: "O caminho aponta para um diretório, não para um arquivo.",
+  });
+});
+
+test("Dado arquivo de raw/ já citado por página na wiki Quando crio conversa de-raw Então recusa com 409", async () => {
+  const ingestao = servico(new PonteFalsa());
+  mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
+  writeFileSync(join(raiz, "raw/pessoal/ja-ingerido.md"), "dados");
+  writeFileSync(
+    join(wiki, "pessoal/concepts/ja-ingerido.md"),
+    "---\ntitle: Já Ingerido\ntype: concept\nsources:\n  - resource: raw/pessoal/ja-ingerido.md\n---\nCorpo.\n",
+  );
+  await expect(ingestao.criarDeRaw("raw/pessoal/ja-ingerido.md")).rejects.toMatchObject({
+    status: 409,
+    message: "O arquivo já foi ingerido na wiki.",
+  });
+});
+
+test("Dado o fluxo a partir de raw/ Quando crio a conversa Então raw/ permanece intacto byte a byte", async () => {
+  const ingestao = servico(new PonteFalsa());
+  mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
+  const arq1 = join(raiz, "raw/pessoal/doc1.md");
+  const arq2 = join(raiz, "raw/pessoal/doc2.bin");
+  writeFileSync(arq1, "# Documento 1\nLinha A\nLinha B\n");
+  writeFileSync(arq2, new Uint8Array([0x00, 0xff, 0xfe, 0x12, 0x34]));
+
+  const hashArquivo = (caminho: string) => createHash("sha256").update(readFileSync(caminho)).digest("hex");
+  const hash1Antes = hashArquivo(arq1);
+  const hash2Antes = hashArquivo(arq2);
+
+  const conversa = await ingestao.criarDeRaw("raw/pessoal/doc1.md");
+  expect(conversa.id).toBeDefined();
+
+  expect(hashArquivo(arq1)).toBe(hash1Antes);
+  expect(hashArquivo(arq2)).toBe(hash2Antes);
 });

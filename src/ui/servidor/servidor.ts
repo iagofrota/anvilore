@@ -229,6 +229,13 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
             } catch (erro) { return json({ mensagens: [(erro as Error).message], atualizador: await estadoAtualizador(raiz) }, 409); }
           }
           if (url.pathname === "/api/fontes" && request.method === "POST") return receberFonte(request, ingestao, new Date());
+          if (url.pathname === "/api/conversas/de-raw" && request.method === "POST") {
+            let corpo: { caminho?: unknown };
+            try { corpo = await request.json() as { caminho?: unknown }; } catch { return json({ mensagens: ["Pedido inválido."] }, 400); }
+            if (typeof corpo.caminho !== "string" || !corpo.caminho.trim()) return json({ mensagens: ["Caminho inválido."] }, 400);
+            try { return json(await ingestao.criarDeRaw(corpo.caminho), 201); }
+            catch (erro) { return erroDaIngestao(erro); }
+          }
           const daConversa = ROTA_DA_CONVERSA.exec(url.pathname);
           if (daConversa) return rotaDaConversa(request, daConversa[1]!, daConversa[2], ingestao);
           if (request.method === "GET" && (url.pathname === "/" || url.pathname.startsWith("/assets/"))) {

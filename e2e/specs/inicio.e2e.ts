@@ -166,3 +166,26 @@ test("[I5-11] Dado a pasta wiki ausente Quando abro o Início Então vejo o diag
   await expect(page.getByRole("link", { name: "Revisar rascunhos" })).toBeVisible();
   await expect(page.getByText("Lendo a wiki…")).toHaveCount(0);
 });
+
+test("[I5-12] Dado um arquivo em raw/ sem ingestão Quando clico em Ingerir no Início Então navega para o Chat da conversa criada e o arquivo em raw/ permanece intacto", async ({ page, app, vault }) => {
+  await vault.escrever("raw/pessoal/solta.md", "conteúdo original da fonte solta");
+  const rawAntes = await instantaneo(vault.raw);
+
+  await page.goto(app.url);
+  const cartao = page.getByRole("region", { name: "Em raw/, sem ingestão" });
+  await expect(cartao).toContainText("raw/pessoal/solta.md");
+
+  const deRaw = page.waitForResponse(resposta => resposta.url().includes("/api/conversas/de-raw") && resposta.request().method() === "POST");
+  await cartao.getByRole("button", { name: "Ingerir" }).click();
+  const respostaDeRaw = await deRaw;
+  expect(respostaDeRaw.status()).toBe(201);
+  const conversa = await respostaDeRaw.json() as { id: string; fonte: string; area: string };
+  expect(conversa.fonte).toBe("raw/pessoal/solta.md");
+  expect(conversa.area).toBe("pessoal");
+
+  await expect(page).toHaveURL(new RegExp(`#/chat/${conversa.id}$`));
+  await expect(page.getByRole("heading", { name: "Ingerir: solta.md", level: 1 })).toBeVisible();
+  await expect(page.getByText("Você salvou o arquivo em raw/pessoal/solta.md")).toBeVisible();
+
+  expect(mesmaArvore(rawAntes, await instantaneo(vault.raw))).toBe(true);
+});
