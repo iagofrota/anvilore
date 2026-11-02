@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
 import { dirname, join, posix, resolve } from "node:path";
 import { caminhoReal, dentroDe, estaEmRaw } from "../lib/caminhos";
+import { decidirVerified } from "../lib/trava-verified";
 
 export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
 type Mapa = Record<string, unknown>;
@@ -616,8 +617,7 @@ export function decidir(payload: string): Decisao {
   }
 }
 
-export async function executarProtecao(payload: string): Promise<number> {
-  const decisao = decidir(payload);
+async function registrarLog(decisao: Decisao): Promise<void> {
   const log = process.env.ANVILORE_LOG_HOOK;
   if (log && !estaEmRaw(log)) {
     try {
@@ -625,10 +625,28 @@ export async function executarProtecao(payload: string): Promise<number> {
       await appendFile(log, `${Math.floor(Date.now() / 1000)}\t${decisao.acao === "bloquear" ? "BLOQUEADO" : "PASSOU"}\t${motivo}\n`);
     } catch { /* O rastro observa; sua falha não muda a decisão. */ }
   }
-  if (decisao.acao === "liberar") return 0;
-  console.error(MENSAGEM);
-  console.error(`Motivo: ${decisao.motivo}`);
-  return 2;
+}
+
+export async function executarProtecao(payload: string): Promise<number> {
+  const decisao = decidir(payload);
+  if (decisao.acao === "bloquear") {
+    await registrarLog(decisao);
+    console.error(MENSAGEM);
+    console.error(`Motivo: ${decisao.motivo}`);
+    return 2;
+  }
+
+  const raizClone = resolve(import.meta.dir, "../..");
+  const decisaoVerified = await decidirVerified(payload, raizClone, process.env);
+  if (decisaoVerified.acao === "bloquear") {
+    await registrarLog(decisaoVerified);
+    console.error("Bloqueado: só o comando de aprovação pode alterar verified em wiki/.");
+    console.error(`Motivo: ${decisaoVerified.motivo}`);
+    return 2;
+  }
+
+  await registrarLog(decisao);
+  return 0;
 }
 
 // A forma de Codex e Gemini termina em `; exit $LASTEXITCODE`: no sh e no PowerShell isso é outro comando; no cmd chega aqui como
