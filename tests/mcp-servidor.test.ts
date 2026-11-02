@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -9,6 +9,9 @@ import { montarInstrucoes } from "../src/mcp/instrucoes";
 import { abrirMetricas } from "../src/busca/metricas";
 import { criarServidor } from "../src/mcp/servidor";
 import { esqueletoEm } from "./apoio/esqueleto";
+
+// Cada cenário sobe o servidor MCP em processo via StdioClientTransport: no runner Windows isso passa dos 5 s padrão.
+setDefaultTimeout(30_000);
 
 function wiki(raiz: string): string {
   const caminho = join(raiz, "wiki"); mkdirSync(caminho, { recursive: true });
