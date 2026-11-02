@@ -27,7 +27,7 @@ export function Shell({ rota, conversas, agente, aviso, children }: Propriedades
         <div className="vault-label">CONVERSAS</div>
         <nav className="conversations" aria-label="Conversas">
           {conversas.map(c => <a key={c.id} href={`#/chat/${c.id}`} className={rota.id === c.id ? "active" : ""} title={c.fonte}>
-            <span className={`conversation-dot ${c.situacao}`} aria-hidden="true" />Ingerir: {c.nome}
+            <span className={`conversation-dot ${c.situacao}`} aria-hidden="true" />{c.tipo === "ajuste" ? `Ajustar: ${c.nome}` : `Ingerir: ${c.nome}`}
           </a>)}
         </nav>
       </>}

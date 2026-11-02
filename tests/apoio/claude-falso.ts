@@ -41,7 +41,7 @@ if (argv[0] === "auth") {
   process.exit(roteiro.auth?.codigo ?? 0);
 }
 
-const passos = (argv.includes("--resume") ? roteiro.escritor : roteiro.leitor) ?? [];
+const passos = (argv.includes("--resume") || argv.some(arg => arg.endsWith("escritor.md")) ? roteiro.escritor : roteiro.leitor) ?? [];
 function substituirMarcadores(valor: unknown): unknown {
   const pasta = resolve(process.cwd(), ".anvilore/ui/conversas");
   // A conversa mais recente é a da execução em curso; a primeira da pasta poderia ser uma conversa semeada antes.

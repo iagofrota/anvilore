@@ -40,6 +40,24 @@ test("Dado a saída do fechamento Quando resumo Então rascunhos esperando não 
   expect(avisoDoFechamento({ codigo: 1, saida: "", rascunhos: 2, soRascunhos: false })).toEqual({ tipo: "erro", texto: "O fechamento encontrou problemas" });
 });
 
+test("Dado um ajuste Quando desenho o painel Então são 4 passos específicos acompanhando a fase", () => {
+  const passos = passosDoPainel({ passo: "escrita", situacao: "rodando", tipo: "ajuste" });
+  expect(passos.map(p => p.rotulo)).toEqual(["Pedido de ajuste", "Escrita", "Índice, log e validação", "Sua revisão"]);
+  expect(passos.map(p => p.estado)).toEqual(["feito", "atual", "falta", "falta"]);
+
+  const fechando = passosDoPainel({ passo: "fechamento", situacao: "rodando", tipo: "ajuste" });
+  expect(fechando.map(p => p.estado)).toEqual(["feito", "feito", "atual", "falta"]);
+
+  const revisaoOk = passosDoPainel({ passo: "revisao", situacao: "concluida", tipo: "ajuste" });
+  expect(revisaoOk.map(p => p.estado)).toEqual(["feito", "feito", "feito", "atual"]);
+
+  const cancelada = passosDoPainel({ passo: "escrita", situacao: "cancelada", tipo: "ajuste" });
+  expect(cancelada.map(p => p.estado)).toEqual(["feito", "parou", "falta", "falta"]);
+
+  const erroFechamento = passosDoPainel({ passo: "revisao", situacao: "erro", tipo: "ajuste" });
+  expect(erroFechamento.map(p => p.estado)).toEqual(["feito", "feito", "parou", "falta"]);
+});
+
 test("Dado tamanhos de arquivo Quando mostro Então uso a unidade legível em português", () => {
   expect(tamanhoLegivel(900)).toBe("900 bytes");
   expect(tamanhoLegivel(12 * 1024)).toBe("12 KB");

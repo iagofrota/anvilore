@@ -14,6 +14,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - O Início traz botão "Ingerir" para arquivos já presentes em `raw/` que ainda não foram ingeridos, abrindo a conversa correspondente no chat sem copiar, mover nem alterar o arquivo bruto existente.
 - Telas de primeiros passos na interface web (Onboarding 1–4): confirmação do vault e inspeção de pastas, verificação do Claude Code via `doctor` sem chave de API, configuração inicial de áreas via `init` com identidade automática do revisor e primeira ingestão guiada.
 
+- A tela de Revisão permite pedir ajustes em rascunhos com a tecla `R` ou pelo botão "Pedir ajuste", abrindo conversa de ajuste onde o agente escritor atua com permissão restrita à página selecionada, e na conclusão o fechamento devolve uma nova versão com hash recalculado para revisão.
+
 ### Fixed
 
 - A remoção da área de exemplo no onboarding recusa links que apontem para `raw/`, preserva áreas com nomes que apenas começam por `exemplo` e protege o estado salvo do onboarding contra links simbólicos.

@@ -16,7 +16,7 @@ desta página. As decisões de fundo (servidor opcional, aprovação pelo servid
 | Biblioteca | `#/biblioteca` | Listagem e catálogo de páginas com abas de tipos, filtros por status, área, tags e busca. | `ui/web/biblioteca.tsx`, `src/lib/ui-biblioteca.ts` |
 | Nota | `#/nota/<caminho>` | Leitura estrita de uma página: metadados, corpo renderizado, callouts de lacunas com atalho para o chat, proveniência, backlinks e grafo local SVG. | `ui/web/nota.tsx`, `src/lib/ui-nota.ts` |
 | Chat de ingestão | `#/chat` e `#/chat/<id>` | Fonte, leitura, parada, escrita e fechamento. | `ui/web/chat.tsx`, `src/lib/ui-ingestao.ts` |
-| Revisão | `#/revisao` | Fila de rascunhos, mudanças e Aprovar. | `ui/web/main.tsx`, `src/lib/ui-fila.ts` |
+| Revisão | `#/revisao` | Fila de rascunhos, mudanças, Aprovar e Pedir ajuste (R). | `ui/web/main.tsx`, `ui/web/caixa-ajuste.tsx`, `src/lib/ui-fila.ts`, `src/lib/ui-ingestao.ts` |
 | Onboarding | `#/onboarding` e `#/onboarding/<1-4>` | Primeiros passos: confirmação do vault, checagem do agente sem pedir chaves, inicialização de áreas com identidade automática e primeira ingestão. | `ui/web/onboarding.tsx`, `src/lib/ui-onboarding.ts` |
 
 Endereço vazio ou desconhecido abre o Início (`lerRota` em `ui/web/navegacao.ts`).
@@ -81,6 +81,18 @@ O Onboarding conduz o primeiro uso em 4 etapas lineares (`GET /api/onboarding`, 
 - **O4 · Ingestão:** convite para a primeira ingestão com arquivo de exemplo (`POST /api/onboarding/ingerir-exemplo`) ou upload, levando ao Chat, com opção de pular direto para o Início. A conclusão é registrada em .anvilore/onboarding.json (`POST /api/onboarding/concluir`), com recusa de arquivos de estado ligados para fora do cofre ou para `raw/`.
 
 Se a wiki já estiver configurada ou o onboarding concluído, o acesso a `#/onboarding` redireciona automaticamente para o Início.
+
+## O que a Revisão oferece e fluxo de ajuste
+
+- **Fila de rascunhos e navegação:** atalhos `J` (próxima) e `K` (anterior), filtros por Todas, Novas e Atualizadas, e visualização de diff linha a linha ou Markdown bruto.
+- **Aprovação humana:** o botão **Aprovar** (`A`) chama `POST /api/revisao/aprovar` passando a versão SHA-256 esperada. Se o arquivo foi modificado no disco, a API responde HTTP 409 e recarrega a fila.
+- **Pedir ajuste:** acionado pela tecla `R` ou pelo botão "Pedir ajuste". Abre um campo de texto (`CaixaDeAjuste` em `ui/web/caixa-ajuste.tsx`) para descrever o ajuste desejado na página selecionada.
+  - O envio (`POST /api/ajuste`) valida o caminho dentro de `wiki/`, o SHA-256 da versão exibida e o texto não vazio.
+  - Se a versão no disco divergir da versão exibida, recusa com HTTP 409 e atualiza a fila.
+  - Cria uma conversa de ajuste (`tipo: "ajuste"`) em `.anvilore/ui/conversas/<id>.json` e redireciona para `#/chat/<id>`.
+  - Salva uma cópia de referência do rascunho em `.anvilore/ui/copias/<id>/<caminho>` para visualização de diff posterior.
+  - Dispara o agente escritor com escopo restrito exclusivamente à página em questão (`join(pedido.wiki, pedido.pagina)` em `src/lib/ponte-claude-code.ts`), impedindo alterações em outras páginas.
+  - Ao concluir a escrita, o servidor roda `fechar` e `validar`. A página ajustada recebe um novo SHA-256 e reaparece na fila de Revisão como uma nova geração de rascunho pendente de validação humana; aprovações anteriores deixam de valer.
 
 ## Como acrescentar uma tela (Nota, Biblioteca, Onboarding)
 
