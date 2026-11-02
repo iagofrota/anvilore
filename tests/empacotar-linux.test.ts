@@ -1,7 +1,10 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// Build de pacotes .deb e .rpm com nfpm pode ultrapassar os 5 s padrão durante execução com cobertura completa.
+setDefaultTimeout(30_000);
 
 const raiz = join(import.meta.dir, "..");
 if (process.env.ANVILORE_PULAR_TESTE_NFPM === "1" && !process.env.CI) console.warn("SKIP LOCAL EXPLÍCITO: build nfpm com rede desabilitado por ANVILORE_PULAR_TESTE_NFPM=1; CI exige o build.");

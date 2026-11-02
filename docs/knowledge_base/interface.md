@@ -42,7 +42,8 @@ garante que essa navegação já terminou (`e2e/specs/fluxo.e2e.ts`).
   que é o portão funcionando, não um erro. Os três só leem.
 - **Em raw/, sem ingestão:** arquivo de `raw/` que nenhuma página da wiki cita em `sources[].resource` nem em
   `original_file` (`fontesSemIngestao`). Link simbólico em `raw/` não é seguido. Se há uma conversa de ingestão aberta
-  para o arquivo, a linha oferece **Continuar**.
+  para o arquivo, a linha oferece **Continuar**; senão, oferece **Ingerir**, que abre o chat dessa conversa (`POST /api/conversas/de-raw`)
+  apontando para o arquivo já existente sem copiá-lo nem alterá-lo.
 
 A tela abre com um único `GET /api/inicio`, que traz tudo, inclusive a saúde (campo `saude`, com a mesma forma de
 `GET /api/saude`). O servidor valida a wiki uma vez por pedido e não guarda nada: `validarWiki` lê a wiki inteira de

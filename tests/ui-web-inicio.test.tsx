@@ -3,7 +3,20 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ResumoDoInicio, SaudeDaWiki } from "../src/lib/ui-inicio";
 import { api } from "../ui/web/api";
-import { carregarInicio, conferirSaudeAgora, Inicio, lerDaApi, PainelDoInicio, saudacao, situacaoDaSaude, type DadosDoInicio } from "../ui/web/inicio";
+import {
+  carregarInicio,
+  conferirSaudeAgora,
+  executarCargaDoInicio,
+  executarIngerirFonte,
+  executarValidarAgora,
+  iniciarIngestaoDeRaw,
+  Inicio,
+  lerDaApi,
+  PainelDoInicio,
+  saudacao,
+  situacaoDaSaude,
+  type DadosDoInicio,
+} from "../ui/web/inicio";
 import { achar, botao, expandir, link, texto } from "./apoio/react-estatico";
 
 const vazio: ResumoDoInicio = { rascunhos: { total: 0, novas: 0, atualizadas: 0, comErro: 0, itens: [] }, atividade: [], fontes: [] };
@@ -11,9 +24,18 @@ const saudeOk: SaudeDaWiki = { validar: { ok: true, semAprovacao: 0, outrosErros
 
 const dados = (extra: Partial<DadosDoInicio> = {}): DadosDoInicio => ({ agente: "Claude Code", areas: ["pessoal"], conversas: [], ...vazio, saude: saudeOk, ...extra });
 
-function montar(d: DadosDoInicio | null, saude: SaudeDaWiki | null = null, extra: { saudeCarregando?: boolean; erro?: string } = {}) {
+function montar(d: DadosDoInicio | null, saude: SaudeDaWiki | null = null, extra: { saudeCarregando?: boolean; erro?: string; aoIngerir?: (caminho: string) => void; ingerindo?: string | null } = {}) {
   const chamadas: string[] = [];
-  const props = { dados: d, saude, saudeCarregando: extra.saudeCarregando ?? false, erro: extra.erro ?? "", aoValidar: () => chamadas.push("validar"), hora: 15 };
+  const props = {
+    dados: d,
+    saude,
+    saudeCarregando: extra.saudeCarregando ?? false,
+    erro: extra.erro ?? "",
+    aoValidar: () => chamadas.push("validar"),
+    aoIngerir: extra.aoIngerir ?? ((caminho: string) => chamadas.push(`ingerir:${caminho}`)),
+    ingerindo: extra.ingerindo ?? null,
+    hora: 15,
+  };
   return { html: renderToStaticMarkup(<PainelDoInicio {...props} />), arvore: expandir(<PainelDoInicio {...props} />), chamadas };
 }
 
@@ -139,6 +161,53 @@ test("Dado nenhuma fonte solta Quando a tela monta Então diz que tudo em raw/ j
   expect(montar(dados()).html).toContain("Tudo em raw/ já foi ingerido");
 });
 
+test("Dado fonte em raw/ sem conversa Quando a tela monta Então exibe botão Ingerir e aciona ao clicar", () => {
+  const d = dados({ fontes: [{ caminho: "raw/pessoal/solta.md", area: "pessoal", bytes: 1024 }] });
+  const { arvore, html, chamadas } = montar(d, saudeOk);
+  expect(html).toContain("Ingerir");
+  const btn = botao(arvore, "Ingerir");
+  expect(btn).toBeDefined();
+  expect(btn?.props.disabled).toBe(false);
+  (btn?.props.onClick as () => void)();
+  expect(chamadas).toContain("ingerir:raw/pessoal/solta.md");
+});
+
+test("Dado fonte em raw/ sendo ingerida no momento Quando o botão Ingerir monta Então exibe Abrindo e fica desabilitado", () => {
+  const d = dados({ fontes: [{ caminho: "raw/pessoal/solta.md", area: "pessoal", bytes: 1024 }] });
+  const { arvore, html } = montar(d, saudeOk, { ingerindo: "raw/pessoal/solta.md" });
+  expect(html).toContain("Abrindo…");
+  const btn = botao(arvore, "Abrindo…");
+  expect(btn).toBeDefined();
+  expect(btn?.props.disabled).toBe(true);
+});
+
+test("Dado fonte em raw/ com conversa aberta Quando a tela monta Então exibe Continuar em vez do botão Ingerir", () => {
+  const d = dados({ fontes: [{ caminho: "raw/pessoal/em-curso.md", area: "pessoal", bytes: 512, conversa: "c-123" }] });
+  const { arvore } = montar(d, saudeOk);
+  expect(link(arvore, "Continuar")?.props.href).toBe("#/chat/c-123");
+  expect(botao(arvore, "Ingerir")).toBeUndefined();
+});
+
+test("Dado chamada de iniciarIngestaoDeRaw Quando a API responde Então devolve o id da conversa; com falha, erro tratado", async () => {
+  const respostaSucesso = await iniciarIngestaoDeRaw("raw/pessoal/a.md", async (rota, metodo, corpo) => {
+    expect(rota).toBe("/api/conversas/de-raw");
+    expect(metodo).toBe("POST");
+    expect(corpo).toEqual({ caminho: "raw/pessoal/a.md" });
+    return { id: "conv-123" };
+  });
+  expect(respostaSucesso.valor).toEqual({ id: "conv-123" });
+
+  const respostaFalha = await iniciarIngestaoDeRaw("raw/pessoal/b.md", async () => {
+    throw new Error("Arquivo inexistente em raw/.");
+  });
+  expect(respostaFalha.erro).toBe("Arquivo inexistente em raw/.");
+
+  const respostaGenerica = await iniciarIngestaoDeRaw("raw/pessoal/c.md", async () => {
+    throw "erro-estranho";
+  });
+  expect(respostaGenerica.erro).toBe("Não foi possível iniciar a ingestão.");
+});
+
 // --- Leitura da API e a tela com hooks ---------------------------------------------------------------------
 
 test("Dado a API respondendo Quando leio uma rota Então devolvo o valor; com falha, a mensagem para a pessoa", async () => {
@@ -194,4 +263,96 @@ test("Dado falha na carga ou na conferência Quando leio Então a mensagem chega
   const falha = async () => { throw new Error("Falha ao falar com o Anvilore."); };
   expect((await carregarInicio(falha)).erro).toBe("Falha ao falar com o Anvilore.");
   expect((await conferirSaudeAgora(falha)).erro).toBe("Falha ao falar com o Anvilore.");
+});
+
+test("Dado ação de validar agora com sucesso ou erro Quando executa Então atualiza o estado adequadamente", async () => {
+  const estados: string[] = [];
+  let saudeDefinida: unknown = null;
+  let erroDefinido = "antigo";
+
+  await executarValidarAgora(
+    c => estados.push(`carregando:${c}`),
+    s => { saudeDefinida = s; },
+    e => { erroDefinido = e; },
+    async () => ({ valor: saudeOk }),
+  );
+  expect(estados).toEqual(["carregando:true", "carregando:false"]);
+  expect(saudeDefinida).toEqual(saudeOk);
+  expect(erroDefinido).toBe("");
+
+  await executarValidarAgora(
+    () => {},
+    () => {},
+    e => { erroDefinido = e; },
+    async () => ({ erro: "Falha na validação" }),
+  );
+  expect(erroDefinido).toBe("Falha na validação");
+});
+
+test("Dado ação de ingerir fonte com sucesso ou erro Quando executa Então navega ou exibe erro", async () => {
+  let ingerindo: string | null = null;
+  let erro = "";
+  let hash = "";
+
+  await executarIngerirFonte(
+    "raw/pessoal/x.md",
+    v => { ingerindo = v; },
+    e => { erro = e; },
+    async () => ({ valor: { id: "conv-456" } }),
+    h => { hash = h; },
+  );
+  expect(hash).toBe("#/chat/conv-456");
+
+  await executarIngerirFonte(
+    "raw/pessoal/falha.md",
+    v => { ingerindo = v; },
+    e => { erro = e; },
+    async () => ({ erro: "Recusado pelo servidor" }),
+    h => { hash = h; },
+  );
+  expect(erro).toBe("Recusado pelo servidor");
+  expect(ingerindo).toBeNull();
+});
+
+test("Dado execução da carga inicial Quando ativa ou inativa Então popula estado ou ignora", async () => {
+  let dadosRecebidos: unknown = null;
+  let saudeRecebida: unknown = null;
+  let erroRecebido = "";
+  let carregando = true;
+
+  // Ativo com sucesso
+  await executarCargaDoInicio(
+    () => true,
+    d => { dadosRecebidos = d; },
+    s => { saudeRecebida = s; },
+    c => { carregando = c; },
+    e => { erroRecebido = e; },
+    async () => ({ valor: dados() }),
+  );
+  expect(dadosRecebidos).not.toBeNull();
+  expect(saudeRecebida).toEqual(saudeOk);
+  expect(carregando).toBe(false);
+
+  // Ativo com erro
+  await executarCargaDoInicio(
+    () => true,
+    () => {},
+    () => {},
+    c => { carregando = c; },
+    e => { erroRecebido = e; },
+    async () => ({ erro: "Falha de rede" }),
+  );
+  expect(erroRecebido).toBe("Falha de rede");
+
+  // Inativo (desmontado)
+  let tocou = false;
+  await executarCargaDoInicio(
+    () => false,
+    () => { tocou = true; },
+    () => { tocou = true; },
+    () => { tocou = true; },
+    () => { tocou = true; },
+    async () => ({ valor: dados() }),
+  );
+  expect(tocou).toBe(false);
 });

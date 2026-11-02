@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { createHash } from "node:crypto";
 import * as arquivos from "node:fs/promises";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { iniciarServidorUi } from "../src/ui/servidor/servidor";
@@ -217,4 +218,130 @@ test("[C25.a–d] Dado ids desconhecidos, métodos errados ou corpo inválido Qu
   const invalido = await chamar(`/api/conversas/${criada.id}/seguir`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" });
   expect(invalido.status).toBe(400);
   expect(readdirSync(join(raiz, "raw/pessoal"))).toHaveLength(1);
+});
+
+// --- Endpoint POST /api/conversas/de-raw ---------------------------------------------------------------------
+
+test("Dado arquivo existente em raw/ Quando POST /api/conversas/de-raw Então cria conversa com status 201 e reaproveita pipeline", async () => {
+  const { postar, chamar } = await servidor();
+  mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
+  const conteudo = "# Documento existente\nLinha 1\n";
+  writeFileSync(join(raiz, "raw/pessoal/existente.md"), conteudo);
+
+  const hashAntes = createHash("sha256").update(readFileSync(join(raiz, "raw/pessoal/existente.md"))).digest("hex");
+
+  const resposta = await postar("/api/conversas/de-raw", { caminho: "raw/pessoal/existente.md" });
+  expect(resposta.status).toBe(201);
+  const conversa = await resposta.json() as { id: string; fonte: string; area: string; passo: string; situacao: string };
+  expect(conversa).toMatchObject({
+    fonte: "raw/pessoal/existente.md",
+    area: "pessoal",
+    passo: "fonte",
+    situacao: "pronta",
+  });
+
+  const hashDepois = createHash("sha256").update(readFileSync(join(raiz, "raw/pessoal/existente.md"))).digest("hex");
+  expect(hashDepois).toBe(hashAntes);
+
+  const obtida = await (await chamar(`/api/conversas/${conversa.id}`)).json() as typeof conversa;
+  expect(obtida.id).toBe(conversa.id);
+});
+
+test("Dado requisição sem token, sem Origin ou com Host externo Quando POST /api/conversas/de-raw Então 403", async () => {
+  const { chamar, base } = await servidor();
+  mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
+  writeFileSync(join(raiz, "raw/pessoal/existente.md"), "ok");
+
+  // Sem token
+  const semToken = await fetch(`${base}/api/conversas/de-raw`, {
+    method: "POST",
+    headers: { origin: base, "content-type": "application/json" },
+    body: JSON.stringify({ caminho: "raw/pessoal/existente.md" }),
+  });
+  expect(semToken.status).toBe(403);
+
+  // Sem Origin
+  const semOrigin = await fetch(`${base}/api/conversas/de-raw?token=token-teste`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ caminho: "raw/pessoal/existente.md" }),
+  });
+  expect(semOrigin.status).toBe(403);
+
+  // Host externo
+  const hostExterno = await fetch(`${base}/api/conversas/de-raw?token=token-teste`, {
+    method: "POST",
+    headers: { host: "externo.test", origin: base, "content-type": "application/json" },
+    body: JSON.stringify({ caminho: "raw/pessoal/existente.md" }),
+  });
+  expect(hostExterno.status).toBe(403);
+});
+
+test("Dado corpo inválido ou caminho ausente Quando POST /api/conversas/de-raw Então 400", async () => {
+  const { postar, chamar } = await servidor();
+  expect((await postar("/api/conversas/de-raw", {})).status).toBe(400);
+  expect((await postar("/api/conversas/de-raw", { caminho: "" })).status).toBe(400);
+  expect((await postar("/api/conversas/de-raw", { caminho: 123 })).status).toBe(400);
+  const invalido = await chamar("/api/conversas/de-raw", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "não-é-json",
+  });
+  expect(invalido.status).toBe(400);
+});
+
+test("Dado caminho com .., absoluto ou symlink para fora Quando POST /api/conversas/de-raw Então 400", async () => {
+  const { postar } = await servidor();
+  mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
+  writeFileSync(join(raiz, "externo.txt"), "fora");
+  symlinkSync(join(raiz, "externo.txt"), join(raiz, "raw/pessoal/link-externo.md"));
+
+  expect((await postar("/api/conversas/de-raw", { caminho: "../externo.txt" })).status).toBe(400);
+  expect((await postar("/api/conversas/de-raw", { caminho: "/etc/passwd" })).status).toBe(400);
+  expect((await postar("/api/conversas/de-raw", { caminho: "raw/pessoal/link-externo.md" })).status).toBe(400);
+  expect((await postar("/api/conversas/de-raw", { caminho: "raw/pessoal" })).status).toBe(400);
+});
+
+test("Dado arquivo inexistente em raw/ Quando POST /api/conversas/de-raw Então 404", async () => {
+  const { postar } = await servidor();
+  const res = await postar("/api/conversas/de-raw", { caminho: "raw/pessoal/nao-existe.md" });
+  expect(res.status).toBe(404);
+  expect(await res.json()).toEqual({ mensagens: ["Arquivo inexistente em raw/."] });
+});
+
+test("Dado arquivo já citado por página na wiki Quando POST /api/conversas/de-raw Então 409", async () => {
+  const { postar } = await servidor();
+  mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
+  writeFileSync(join(raiz, "raw/pessoal/ingerida.md"), "conteudo");
+  writeFileSync(
+    join(raiz, "wiki/pessoal/concepts/nota.md"),
+    "---\ntitle: Nota\ntype: concept\nsources:\n  - resource: raw/pessoal/ingerida.md\n---\nCorpo.\n",
+  );
+
+  const res = await postar("/api/conversas/de-raw", { caminho: "raw/pessoal/ingerida.md" });
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({ mensagens: ["O arquivo já foi ingerido na wiki."] });
+});
+
+test("Dado conversa criada de-raw Quando inicio a leitura com a ponte Então conduz normalmente a leitura", async () => {
+  const ponte = new PonteFalsa({
+    leitor: async (_pedido, aoEvento) => {
+      aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-opus-5-5/2.1.311" });
+      return { situacao: "concluida", sessao: SESSAO, saidaEstruturada: relatorioValido(), texto: "", recusas: [] };
+    },
+  });
+  const { postar, chamar } = await servidor(ponte);
+  mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
+  writeFileSync(join(raiz, "raw/pessoal/llm-wiki.md"), FONTE);
+
+  const criada = await (await postar("/api/conversas/de-raw", { caminho: "raw/pessoal/llm-wiki.md" })).json() as { id: string };
+  const lendo = await postar(`/api/conversas/${criada.id}/ler`);
+  expect(lendo.status).toBe(200);
+
+  let conversa = { passo: "", situacao: "" };
+  for (let i = 0; i < 200 && conversa.passo !== "parada"; i++) {
+    await Bun.sleep(25);
+    conversa = await (await chamar(`/api/conversas/${criada.id}`)).json() as typeof conversa;
+  }
+  expect(conversa).toMatchObject({ passo: "parada", situacao: "esperando" });
 });

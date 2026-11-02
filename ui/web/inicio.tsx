@@ -26,11 +26,13 @@ type Propriedades = {
   saudeCarregando: boolean;
   erro: string;
   aoValidar: () => void;
+  aoIngerir?: (caminho: string) => void;
+  ingerindo?: string | null;
   hora?: number;
 };
 
 // A tela, sem estado nem rede: quem busca os dados é `Inicio`. Assim ela se prova só com os dados.
-export function PainelDoInicio({ dados, saude, saudeCarregando, erro, aoValidar, hora = new Date().getHours() }: Propriedades) {
+export function PainelDoInicio({ dados, saude, saudeCarregando, erro, aoValidar, aoIngerir, ingerindo, hora = new Date().getHours() }: Propriedades) {
   const rascunhos = dados?.rascunhos;
   const subtitulo = !rascunhos ? "Lendo a wiki…"
     : rascunhos.total === 0 ? "Nada esperando a sua aprovação."
@@ -57,7 +59,7 @@ export function PainelDoInicio({ dados, saude, saudeCarregando, erro, aoValidar,
           </div>
           <div className="home-col">
             <CartaoDeSaude saude={saude} carregando={saudeCarregando} aoValidar={aoValidar} />
-            <CartaoDeFontes fontes={dados.fontes} />
+            <CartaoDeFontes fontes={dados.fontes} aoIngerir={aoIngerir} ingerindo={ingerindo} />
           </div>
         </div>
       </>}
@@ -127,13 +129,24 @@ function CartaoDeSaude({ saude, carregando, aoValidar }: { saude: SaudeDaWiki | 
   </section>;
 }
 
-function CartaoDeFontes({ fontes }: { fontes: ResumoDoInicio["fontes"] }) {
+function CartaoDeFontes({ fontes, aoIngerir, ingerindo }: { fontes: ResumoDoInicio["fontes"]; aoIngerir?: (caminho: string) => void; ingerindo?: string | null }) {
   return <section className="home-card" aria-label="Em raw/, sem ingestão">
     <header className="home-card-head"><h3>Em raw/, sem ingestão</h3><span className="count">{fontes.length}</span></header>
     {fontes.length === 0 ? <p className="home-card-empty">Tudo em raw/ já foi ingerido.</p> : <ul className="plain-list">
       {fontes.map(fonte => <li key={fonte.caminho}>
         <code className="grow">{fonte.caminho}</code><span className="item-meta">{tamanhoLegivel(fonte.bytes)}</span>
-        {fonte.conversa && <a href={`#/chat/${fonte.conversa}`}>Continuar</a>}
+        {fonte.conversa ? (
+          <a href={`#/chat/${fonte.conversa}`}>Continuar</a>
+        ) : (
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => aoIngerir?.(fonte.caminho)}
+            disabled={ingerindo === fonte.caminho}
+          >
+            {ingerindo === fonte.caminho ? "Abrindo…" : "Ingerir"}
+          </button>
+        )}
       </li>)}
     </ul>}
   </section>;
@@ -154,27 +167,69 @@ export const carregarInicio = (chamar?: (rota: string) => Promise<DadosDoInicio>
 // "Validar agora": /api/saude sempre valida a wiki na hora.
 export const conferirSaudeAgora = (chamar?: (rota: string) => Promise<SaudeDaWiki>) => lerDaApi<SaudeDaWiki>("/api/saude", "Não foi possível conferir a saúde da wiki.", chamar);
 
+// Inicia a ingestão de uma fonte que já está em raw/ criando a conversa correspondente.
+export async function iniciarIngestaoDeRaw(caminho: string, chamar: (rota: string, metodo: string, corpo: unknown) => Promise<{ id: string }> = api): Promise<Leitura<{ id: string }>> {
+  try { return { valor: await chamar("/api/conversas/de-raw", "POST", { caminho }) }; }
+  catch (motivo) { return { erro: motivo instanceof Error ? motivo.message : "Não foi possível iniciar a ingestão." }; }
+}
+
+export async function executarValidarAgora(
+  setSaudeCarregando: (c: boolean) => void,
+  setSaude: (s: SaudeDaWiki) => void,
+  setErro: (e: string) => void,
+  conferir: () => Promise<Leitura<SaudeDaWiki>> = conferirSaudeAgora,
+) {
+  setSaudeCarregando(true);
+  const leitura = await conferir();
+  if (leitura.erro !== undefined) setErro(leitura.erro); else { setSaude(leitura.valor); setErro(""); }
+  setSaudeCarregando(false);
+}
+
+export async function executarIngerirFonte(
+  caminho: string,
+  setIngerindo: (c: string | null) => void,
+  setErro: (e: string) => void,
+  iniciar: (caminho: string) => Promise<Leitura<{ id: string }>> = iniciarIngestaoDeRaw,
+  mudarHash: (h: string) => void = h => { window.location.hash = h; },
+) {
+  setIngerindo(caminho);
+  const leitura = await iniciar(caminho);
+  if (leitura.erro !== undefined) {
+    setErro(leitura.erro);
+    setIngerindo(null);
+  } else {
+    mudarHash(`#/chat/${leitura.valor.id}`);
+  }
+}
+
+export async function executarCargaDoInicio(
+  ativo: () => boolean,
+  setDados: (d: DadosDoInicio) => void,
+  setSaude: (s: SaudeDaWiki) => void,
+  setSaudeCarregando: (c: boolean) => void,
+  setErro: (e: string) => void,
+  carregar: () => Promise<Leitura<DadosDoInicio>> = carregarInicio,
+) {
+  const leitura = await carregar();
+  if (!ativo()) return;
+  if (leitura.erro !== undefined) setErro(leitura.erro);
+  else { setDados(leitura.valor); setSaude(leitura.valor.saude); }
+  setSaudeCarregando(false);
+}
+
 export function Inicio({ tema, alternarTema }: PropriedadesDaTela) {
   const [dados, setDados] = useState<DadosDoInicio | null>(null);
   const [saude, setSaude] = useState<SaudeDaWiki | null>(null);
   const [saudeCarregando, setSaudeCarregando] = useState(true);
+  const [ingerindo, setIngerindo] = useState<string | null>(null);
   const [erro, setErro] = useState("");
 
-  const validarAgora = useCallback(async () => {
-    setSaudeCarregando(true);
-    const leitura = await conferirSaudeAgora();
-    if (leitura.erro !== undefined) setErro(leitura.erro); else { setSaude(leitura.valor); setErro(""); }
-    setSaudeCarregando(false);
-  }, []);
+  const validarAgora = useCallback(() => void executarValidarAgora(setSaudeCarregando, setSaude, setErro), []);
+  const ingerirFonte = useCallback((caminho: string) => void executarIngerirFonte(caminho, setIngerindo, setErro), []);
 
   useEffect(() => {
     let ativo = true;
-    void carregarInicio().then(leitura => {
-      if (!ativo) return;
-      if (leitura.erro !== undefined) setErro(leitura.erro);
-      else { setDados(leitura.valor); setSaude(leitura.valor.saude); }
-      setSaudeCarregando(false);
-    });
+    void executarCargaDoInicio(() => ativo, setDados, setSaude, setSaudeCarregando, setErro);
     return () => { ativo = false; };
   }, []);
 
@@ -186,6 +241,14 @@ export function Inicio({ tema, alternarTema }: PropriedadesDaTela) {
         <button className="icon-button" title="Alternar tema" aria-label="Alternar tema claro ou escuro" onClick={alternarTema}>{tema === "claro" ? "◐" : "☼"}</button>
       </div>
     </header>
-    <PainelDoInicio dados={dados} saude={saude} saudeCarregando={saudeCarregando} erro={erro} aoValidar={() => void validarAgora()} />
+    <PainelDoInicio
+      dados={dados}
+      saude={saude}
+      saudeCarregando={saudeCarregando}
+      erro={erro}
+      aoValidar={() => void validarAgora()}
+      aoIngerir={caminho => void ingerirFonte(caminho)}
+      ingerindo={ingerindo}
+    />
   </main>;
 }
