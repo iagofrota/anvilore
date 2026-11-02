@@ -130,7 +130,8 @@ async function protegerAprovacao(raiz: string, entrada: string): Promise<void> {
 
 async function protegerVerified(raiz: string, entrada: string): Promise<void> {
   let payload: Json;
-  try { payload = JSON.parse(entrada) as Json; } catch { return; }
+  try { payload = JSON.parse(entrada) as Json; }
+  catch { throw new Error("JSON de entrada ilegível"); }
   const ferramenta = (payload.tool_input ?? payload.toolInput ?? {}) as Json;
   const caminho = ferramenta.file_path ?? ferramenta.filePath ?? ferramenta.path;
   if (typeof caminho !== "string") return;
@@ -242,5 +243,12 @@ export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise
     }
     console.error("Uso: anvilore hooks-wiki <autocommit|backup|arquivo-raw|contexto|sugerir-lint|watch-paths|atualizar|proteger-aprovacao|proteger-verified> [raiz]");
     return 2;
-  } catch (erro) { console.error(`hooks-wiki: ${(erro as Error).message}`); return 0; }
+  } catch (erro) {
+    console.error(`hooks-wiki: ${(erro as Error).message}`);
+    if (typeof acao === "string" && acao.startsWith("proteger-")) {
+      negarPermissao("PreToolUse", `hooks-wiki: ${(erro as Error).message}`);
+      return 2;
+    }
+    return 0;
+  }
 }

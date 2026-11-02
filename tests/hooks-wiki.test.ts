@@ -307,6 +307,32 @@ describe("hooks da wiki", () => {
     } finally { c.restaurar(); }
   });
 
+  test("Dado JSON ilegível Quando proteger-verified recebe Então nega e sai 2", async () => {
+    const c = capturarConsole();
+    try {
+      const codigo = await comandoHooksWiki(["proteger-verified", raiz], async () => "{");
+      expect(codigo).toBe(2);
+      expect(JSON.parse(c.saida.join("\n"))).toMatchObject({
+        hookSpecificOutput: { permissionDecision: "deny" }
+      });
+      expect(c.erros.join("\n")).toContain("hooks-wiki");
+    } finally { c.restaurar(); }
+  });
+
+  test("Dado leitura da entrada que lança erro Quando proteger-verified roda Então nega e sai 2", async () => {
+    const c = capturarConsole();
+    try {
+      const codigo = await comandoHooksWiki(["proteger-verified", raiz], async () => {
+        throw new Error("falha simulada de leitura");
+      });
+      expect(codigo).toBe(2);
+      expect(JSON.parse(c.saida.join("\n"))).toMatchObject({
+        hookSpecificOutput: { permissionDecision: "deny" }
+      });
+      expect(c.erros.join("\n")).toContain("falha simulada de leitura");
+    } finally { c.restaurar(); }
+  });
+
   test("Dado evento cru com opt-in desligado Quando comando trata eventos Então não adiciona commit", async () => {
     const c = capturarConsole();
     try {
