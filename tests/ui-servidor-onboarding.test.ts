@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { iniciarServidorUi } from "../src/ui/servidor/servidor";
@@ -61,7 +61,7 @@ test("Dado uma requisição para /api/onboarding com Host externo Quando chega a
 
 test("Dado um POST para rotas de onboarding com origem divergente Quando chega ao servidor Então recebe 403", async () => {
   const { base } = await servidor();
-  for (const subrota of ["/pasta", "/testar-agente", "/areas", "/concluir"]) {
+  for (const subrota of ["/pasta", "/testar-agente", "/areas", "/concluir", "/ingerir-exemplo"]) {
     const resp = await fetch(`${base}/api/onboarding${subrota}?token=token-teste`, {
       method: "POST",
       headers: { origin: "http://malicioso.com" },
@@ -125,6 +125,23 @@ test("Dado pasta existente com conteúdo arbitrário Quando envio POST /api/onbo
   expect(dados.erro).toBeDefined();
 });
 
+test("Dado pasta válida diferente da raiz atendida pelo servidor Quando envio POST /api/onboarding/pasta Então recusa com 400 informando que o servidor atende a pasta original", async () => {
+  const outraPasta = mkdtempSync(join(tmpdir(), "anvilore-outro-vault-"));
+  try {
+    const { chamar } = await servidor();
+    const resp = await chamar("/api/onboarding/pasta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pasta: outraPasta }),
+    });
+    expect(resp.status).toBe(400);
+    const dados = await resp.json() as Record<string, unknown>;
+    expect(dados.erro).toContain("A interface está atendendo a pasta");
+  } finally {
+    rmSync(outraPasta, { recursive: true, force: true });
+  }
+});
+
 test("Dado o teste do agente no O2 Quando envio POST /api/onboarding/testar-agente Então verifica disponibilidade real sem pedir nem armazenar chave de API", async () => {
   const { chamar } = await servidor();
   const resp = await chamar("/api/onboarding/testar-agente", {
@@ -135,7 +152,54 @@ test("Dado o teste do agente no O2 Quando envio POST /api/onboarding/testar-agen
   expect(resp.status).toBe(200);
   const dados = await resp.json() as Record<string, unknown>;
   expect(dados.ok).toBe(true);
-  expect(dados.mensagem).toBeDefined();
+  expect(dados.mensagem).toBe("O Claude Code está disponível e conectado à sua conta.");
+});
+
+test("Dado AGENTS.md ausente Quando envio POST /api/onboarding/testar-agente Então recusa reportando que AGENTS.md não foi encontrado", async () => {
+  rmSync(join(raiz, "AGENTS.md"), { force: true });
+  const { chamar } = await servidor();
+  const resp = await chamar("/api/onboarding/testar-agente", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  expect(resp.status).toBe(200);
+  const dados = await resp.json() as Record<string, unknown>;
+  expect(dados.ok).toBe(false);
+  expect(dados.mensagem).toContain("AGENTS.md não foi encontrado no vault");
+});
+
+test("Dado arquivo de exemplo presente Quando chamo POST /api/onboarding/ingerir-exemplo Então cria conversa, dispara leitura, conclui onboarding e devolve id", async () => {
+  mkdirSync(join(raiz, "raw/exemplo"), { recursive: true });
+  writeFileSync(join(raiz, "raw/exemplo/llm-wiki.md"), "# LLM Wiki\nTexto de exemplo para ingestão.\n");
+
+  const { chamar } = await servidor();
+  const resp = await chamar("/api/onboarding/ingerir-exemplo", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ area: "pessoal" }),
+  });
+  expect(resp.status).toBe(201);
+  const dados = await resp.json() as { ok: boolean; id: string };
+  expect(dados.ok).toBe(true);
+  expect(dados.id).toBeDefined();
+
+  // Verifica que onboarding foi concluído
+  const estado = JSON.parse(readFileSync(join(raiz, ".anvilore/onboarding.json"), "utf8")) as Record<string, unknown>;
+  expect(estado.concluido).toBe(true);
+});
+
+test("Dado arquivo de exemplo ausente Quando chamo POST /api/onboarding/ingerir-exemplo Então devolve 404", async () => {
+  rmSync(join(raiz, "raw/exemplo"), { recursive: true, force: true });
+  const { chamar } = await servidor();
+  const resp = await chamar("/api/onboarding/ingerir-exemplo", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  expect(resp.status).toBe(404);
+  const dados = await resp.json() as Record<string, unknown>;
+  expect(dados.erro).toContain("não encontrado");
 });
 
 test("Dado escolha de áreas no O3 Quando envio POST /api/onboarding/areas Então inicializa áreas via init real e remove exemplo se solicitado", async () => {

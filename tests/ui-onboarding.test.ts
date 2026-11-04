@@ -7,6 +7,7 @@ import {
   estadoOnboarding,
   inicializarAreasOnboarding,
   inspecionarPasta,
+  removerSecaoExemploDoIndice,
   validarPastaVault,
 } from "../src/lib/ui-onboarding";
 
@@ -126,6 +127,48 @@ test("Dado a opção de remover o exemplo marcada Quando crio as áreas Então r
   expect(existsSync(join(raiz, "wiki/exemplo"))).toBe(false);
   const indice = readFileSync(join(raiz, "wiki/index.md"), "utf8");
   expect(indice).not.toContain("exemplo");
+});
+
+test("Dado índice com instruções e outras áreas Quando remove a seção de exemplo Então preserva prosa explicativa e remove apenas a seção de exemplo com subcabeçalhos", () => {
+  const indiceOriginal = `# Índice
+
+Páginas desta wiki. Mantido pelo agente.
+
+Use o formato do exemplo abaixo:
+
+## Área: exemplo
+
+### Conceitos
+
+- [[area-tematica]] — o que é uma área temática (página de exemplo do esqueleto)
+
+## Área: projetos
+
+- [[exemplos-de-arquitetura]] — modelos reais
+`;
+
+  const indiceLimpo = removerSecaoExemploDoIndice(indiceOriginal);
+  expect(indiceLimpo).toContain("Use o formato do exemplo abaixo:");
+  expect(indiceLimpo).not.toContain("## Área: exemplo");
+  expect(indiceLimpo).not.toContain("### Conceitos");
+  expect(indiceLimpo).not.toContain("[[area-tematica]]");
+  expect(indiceLimpo).toContain("## Área: projetos");
+  expect(indiceLimpo).toContain("[[exemplos-de-arquitetura]]");
+});
+
+test("Dado modelos/wiki/index.md real Quando inicializo com removerExemplo true Então preserva a prosa com 'exemplo abaixo' e remove a seção", async () => {
+  const modeloIndice = readFileSync(join(import.meta.dir, "../modelos/wiki/index.md"), "utf8");
+  mkdirSync(join(raiz, "wiki/exemplo"), { recursive: true });
+  writeFileSync(join(raiz, "wiki/index.md"), modeloIndice);
+  writeFileSync(join(raiz, "SCHEMA.md"), "# Schema\n");
+  writeFileSync(join(raiz, "AGENTS.md"), "# Agents\n");
+
+  await inicializarAreasOnboarding(raiz, ["pessoal"], { removerExemplo: true });
+  const indice = readFileSync(join(raiz, "wiki/index.md"), "utf8");
+  expect(indice).toContain("no formato do exemplo abaixo");
+  expect(indice).not.toContain("## Área: exemplo");
+  expect(indice).not.toContain("### Conceitos");
+  expect(indice).not.toContain("[[area-tematica]]");
 });
 
 test("Dado caminho vazio, com caracteres de controle ou apontando para arquivo Quando valido a pasta Então recusa com erro", () => {

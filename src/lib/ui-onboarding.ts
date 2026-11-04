@@ -249,6 +249,36 @@ export async function estadoOnboarding(
   };
 }
 
+export function removerSecaoExemploDoIndice(conteudo: string): string {
+  const linhas = conteudo.split(/\r?\n/);
+  const resultado: string[] = [];
+  let dentroDaSecaoExemplo = false;
+
+  for (const linha of linhas) {
+    if (/^##\s+[AÁaá]rea:\s*exemplo\b/i.test(linha.trim())) {
+      dentroDaSecaoExemplo = true;
+      continue;
+    }
+
+    if (dentroDaSecaoExemplo) {
+      if (/^#{1,2}\s+/.test(linha.trim())) {
+        dentroDaSecaoExemplo = false;
+      } else {
+        continue;
+      }
+    }
+
+    if (/^\s*-\s*\[\[exemplo[\/|\]]/i.test(linha.trim())) {
+      continue;
+    }
+
+    resultado.push(linha);
+  }
+
+  const texto = resultado.join("\n");
+  return texto.replace(/\n{3,}/g, "\n\n").trimEnd() + (conteudo.endsWith("\n") ? "\n" : "");
+}
+
 export async function inicializarAreasOnboarding(
   raiz: string,
   areas: string[],
@@ -268,11 +298,8 @@ export async function inicializarAreasOnboarding(
     if (existsSync(caminhoIndice)) {
       try {
         const conteudo = await readFile(caminhoIndice, "utf8");
-        const linhasAtualizadas = conteudo
-          .split("\n")
-          .filter(linha => !/exemplo/i.test(linha))
-          .join("\n");
-        await writeFile(caminhoIndice, linhasAtualizadas, "utf8");
+        const indiceAtualizado = removerSecaoExemploDoIndice(conteudo);
+        await writeFile(caminhoIndice, indiceAtualizado, "utf8");
       } catch {
         /* se falhar leitura do índice, prossegue */
       }

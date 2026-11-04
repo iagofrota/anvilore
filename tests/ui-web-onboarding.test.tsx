@@ -199,6 +199,46 @@ test("Dado etapa 4 do onboarding Quando renderizo Então exibe primeira ingestã
   expect(conteudo).toContain("Pular por agora");
 });
 
+test("Dado etapa 4 do onboarding com exemploDisponivel false Quando renderizo Então não exibe o cartão da fonte de exemplo", () => {
+  const conteudo = renderToStaticMarkup(
+    <Onboarding
+      passo={4}
+      tema="claro"
+      alternarTema={() => {}}
+      dados={{
+        precisaOnboarding: true,
+        concluido: false,
+        etapa: 4,
+        pasta: "/home/teste/vault",
+        inspecao: {
+          wiki: { existe: true, detalhe: "sem áreas" },
+          raw: { existe: false, detalhe: "sem raw" },
+          contratos: { existe: true, detalhe: "os dois contratos" },
+          bun: { existe: true, detalhe: "no PATH" },
+        },
+        agente: {
+          nome: "Claude Code",
+          disponivel: true,
+          versao: "2.1.311",
+          travas: [],
+        },
+        areas: {
+          padrao: ["pessoal"],
+          existentes: [],
+          temExemplo: false,
+        },
+        primeiraIngestao: {
+          exemploDisponivel: false,
+          caminho: "raw/exemplo/llm-wiki.md",
+        },
+      }}
+    />,
+  );
+  expect(conteudo).toContain("Faça a primeira ingestão");
+  expect(conteudo).not.toContain("LLM Wiki");
+  expect(conteudo).not.toContain("raw/exemplo/llm-wiki.md");
+});
+
 test("Dado PainelDoOnboarding com estados de erro e carregamento Quando renderizo Então exibe mensagens de erro e desabilita botões", () => {
   const dadosBase = {
     precisaOnboarding: true,
@@ -364,14 +404,15 @@ test("Dado criarAcoesDoOnboarding Quando executo aoConfirmarPasta com sucesso ou
   let erro: string | null = null;
   let navegou = "";
   let atualizou = false;
+  let pastaSalva = "";
 
   const mockApiSucesso = (async (rota: string, _metodo?: string, _corpo?: unknown) => {
-    return { ok: true };
+    return { ok: true, pasta: "/meu/vault/confirmado" };
   }) as never;
 
   const ctx: ContextoAcoesDoOnboarding = {
     pasta: "/meu/vault",
-    setPasta: () => {},
+    setPasta: p => { pastaSalva = p; },
     setCarregandoPasta: v => { carregando = v; },
     setErroPasta: v => { erro = v; },
     setTestandoAgente: () => {},
@@ -395,6 +436,7 @@ test("Dado criarAcoesDoOnboarding Quando executo aoConfirmarPasta com sucesso ou
   await acoes.aoConfirmarPasta();
   expect(carregando).toBe(false);
   expect(erro).toBeNull();
+  expect(pastaSalva).toBe("/meu/vault/confirmado");
   expect(atualizou).toBe(true);
   expect(navegou).toBe("#/onboarding/2");
 
@@ -604,6 +646,26 @@ test("Dado criarAcoesDoOnboarding Quando concluo ou navego Então persiste e dir
   await acoesFalha.aoConcluir("#/chat");
   expect(destinoNavegado).toBe("#/chat");
 
+  // Ingerir exemplo com sucesso
+  let atualizouIngestao = false;
+  const acoesIngerir = criarAcoesDoOnboarding({
+    ...ctx,
+    aoAtualizar: async () => { atualizouIngestao = true; },
+    chamarApi: (async () => ({ ok: true, id: "conversa-xyz" })) as never,
+  });
+  await acoesIngerir.aoIngerirExemplo?.("pessoal");
+  expect(concluindo).toBe(false);
+  expect(atualizouIngestao).toBe(true);
+  expect(destinoNavegado).toBe("#/chat/conversa-xyz");
+
+  // Ingerir exemplo com falha na API navega para o chat padrão
+  const acoesIngerirFalha = criarAcoesDoOnboarding({
+    ...ctx,
+    chamarApi: (async () => { throw new Error("Erro ingestao"); }) as never,
+  });
+  await acoesIngerirFalha.aoIngerirExemplo?.("pessoal");
+  expect(destinoNavegado).toBe("#/chat");
+
   acoes.aoNavegar(3);
   expect(destinoNavegado).toBe("#/onboarding/3");
 });
@@ -648,6 +710,7 @@ test("Dado elementos interativos do PainelDoOnboarding Quando o usuário interag
     aoAlternarRemoverExemplo: r => disparos.push(`removerExemplo:${r}`),
     aoCriarAreas: () => disparos.push("criarAreas"),
     aoConcluir: d => disparos.push(`concluir:${d}`),
+    aoIngerirExemplo: async a => { disparos.push(`ingerirExemplo:${a}`); },
     aoNavegar: p => disparos.push(`navegar:${p}`),
   };
 
@@ -782,6 +845,7 @@ test("Dado elementos interativos do PainelDoOnboarding Quando o usuário interag
   expect(disparos).toContain("adicionarArea");
   expect(disparos).toContain("removerExemplo:false");
   expect(disparos).toContain("criarAreas");
+  expect(disparos).toContain("ingerirExemplo:pessoal");
   expect(disparos).toContain("concluir:#/chat");
   expect(disparos).toContain("concluir:#/inicio");
 });

@@ -1,4 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { aprovarPaginas } from "../../comandos/aprovar";
@@ -250,6 +251,9 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
             if (typeof corpo.pasta !== "string") return json({ erro: "Caminho da pasta obrigatório." }, 400);
             try {
               const pastaValida = validarPastaVault(corpo.pasta);
+              if (resolve(pastaValida) !== resolve(raiz)) {
+                return json({ erro: `A interface está atendendo a pasta ${raiz}. Para configurar outro vault, inicie o Anvilore nele.` }, 400);
+              }
               const inspecao = await inspecionarPasta(pastaValida);
               return json({ ok: true, pasta: pastaValida, inspecao });
             } catch (erro) {
@@ -261,11 +265,52 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
               const ponte = opcoes.ponte ?? new PonteClaudeCode();
               const disp = await ponte.disponibilidade();
               if (disp.ok) {
-                return json({ ok: true, mensagem: "O Claude Code respondeu e leu AGENTS.md." });
+                if (!existsSync(join(raiz, "AGENTS.md"))) {
+                  return json({ ok: false, mensagem: "O Claude Code está conectado, mas AGENTS.md não foi encontrado no vault." });
+                }
+                return json({ ok: true, mensagem: "O Claude Code está disponível e conectado à sua conta." });
               }
               return json({ ok: false, mensagem: disp.motivo });
             } catch (erro) {
               return json({ ok: false, mensagem: (erro as Error).message });
+            }
+          }
+          if (url.pathname === "/api/onboarding/ingerir-exemplo" && request.method === "POST") {
+            let corpo: { area?: unknown } = {};
+            try {
+              if (request.headers.get("content-type")?.includes("application/json")) {
+                corpo = await request.json() as { area?: unknown };
+              }
+            } catch { /* corpo opcional */ }
+            const caminhoExemplo = join(raiz, "raw/exemplo/llm-wiki.md");
+            if (!existsSync(caminhoExemplo)) {
+              return json({ erro: "Arquivo de exemplo não encontrado." }, 404);
+            }
+            try {
+              const conteudo = await readFile(caminhoExemplo);
+              const areasExistentes = await areasDaWiki(wiki);
+              let area = typeof corpo.area === "string" ? corpo.area.trim() : "";
+              if (areasExistentes.length > 0) {
+                if (!area || !areasExistentes.includes(area)) {
+                  area = areasExistentes[0]!;
+                }
+              } else {
+                area = "";
+              }
+              const conversa = await ingestao.criar({
+                area,
+                nome: "llm-wiki.md",
+                conteudo: new Uint8Array(conteudo),
+              });
+              try {
+                await ingestao.ler(conversa.id);
+              } catch {
+                /* se agente ainda não estiver pronto para ler, conversa fica criada e exibe motivo */
+              }
+              await concluirOnboarding(raiz);
+              return json({ ok: true, id: conversa.id }, 201);
+            } catch (erro) {
+              return erroDaIngestao(erro);
             }
           }
           if (url.pathname === "/api/onboarding/areas" && request.method === "POST") {

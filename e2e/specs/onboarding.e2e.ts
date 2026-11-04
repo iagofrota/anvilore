@@ -45,7 +45,7 @@ test("[I7-01] Dado primeira abertura sem wiki configurada Quando abro a interfac
   // Clica no teste rápido do agente
   const botaoTestar = page.getByRole("button", { name: /Testar/ });
   await botaoTestar.click();
-  await expect(page.getByText("O Claude Code respondeu e leu AGENTS.md.")).toBeVisible();
+  await expect(page.getByText("O Claude Code está disponível e conectado à sua conta.")).toBeVisible();
 
   // Avança para o Onboarding 3
   await page.getByRole("button", { name: "Continuar →" }).click();
@@ -124,8 +124,8 @@ test("[I7-03] Dado Onboarding 4 Quando clico em Ingerir fonte Então conclui e n
   await expect(botaoIngerir).toBeVisible();
   await botaoIngerir.click();
 
-  // Deve navegar para o chat
-  await expect(page).toHaveURL(/#\/chat$/);
+  // Deve navegar para a conversa criada no chat
+  await expect(page).toHaveURL(/#\/chat\/[a-z0-9-]+$/);
 
   // Verifica que onboarding foi marcado como concluído
   const conteudoOnboarding = JSON.parse(await readFile(join(vault.raiz, ".anvilore", "onboarding.json"), "utf8")) as Record<string, unknown>;

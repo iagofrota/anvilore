@@ -14,6 +14,7 @@ export type AcoesDoOnboarding = {
   aoAlternarRemoverExemplo: (val: boolean) => void;
   aoCriarAreas: () => void;
   aoConcluir: (destino: string) => void;
+  aoIngerirExemplo?: (area?: string) => Promise<void>;
   aoNavegar: (passo: number) => void;
 };
 
@@ -729,70 +730,86 @@ export function PainelDoOnboarding({
               </p>
             </div>
 
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                alignItems: "center",
-                gap: "14px",
-                padding: "16px",
-                border: "1.5px solid var(--accent)",
-                borderRadius: "12px",
-                background: "var(--subtle)",
-              }}
-            >
-              <span
-                style={{
-                  width: "36px",
-                  height: "42px",
-                  borderRadius: "5px",
-                  border: "1px solid var(--line-strong)",
-                  background: "var(--panel)",
-                  display: "flex",
-                  alignItems: "flex-end",
-                  justifyContent: "center",
-                  paddingBottom: "6px",
-                  boxSizing: "border-box",
-                  flex: "none",
-                }}
-              >
-                <span className="mono" style={{ fontSize: "9px", color: "var(--accent)", fontWeight: 500 }}>
-                  MD
-                </span>
-              </span>
-              <span style={{ display: "flex", flexDirection: "column", gap: "2px", flex: "1 1 220px", minWidth: 0 }}>
-                <span style={{ fontWeight: 600, fontSize: "14px" }}>LLM Wiki — Andrej Karpathy</span>
-                <span className="mono" style={{ fontSize: "11.5px", color: "var(--fg-2)" }}>
-                  raw/exemplo/llm-wiki.md · 12 KB
-                </span>
-              </span>
-              <button
-                type="button"
-                disabled={concluindo}
-                onClick={() => acoes.aoConcluir("#/chat")}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  height: "36px",
-                  padding: "0 14px",
-                  borderRadius: "8px",
-                  background: "var(--accent)",
-                  color: "var(--accent-text)",
-                  fontWeight: 500,
-                  border: "none",
-                  cursor: "pointer",
-                }}
-              >
-                Ingerir em {areasSelecionadas[0] ?? "pessoal"}
-              </button>
-            </div>
+            {dados.primeiraIngestao.exemploDisponivel && (
+              <>
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    gap: "14px",
+                    padding: "16px",
+                    border: "1.5px solid var(--accent)",
+                    borderRadius: "12px",
+                    background: "var(--subtle)",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: "36px",
+                      height: "42px",
+                      borderRadius: "5px",
+                      border: "1px solid var(--line-strong)",
+                      background: "var(--panel)",
+                      display: "flex",
+                      alignItems: "flex-end",
+                      justifyContent: "center",
+                      paddingBottom: "6px",
+                      boxSizing: "border-box",
+                      flex: "none",
+                    }}
+                  >
+                    <span className="mono" style={{ fontSize: "9px", color: "var(--accent)", fontWeight: 500 }}>
+                      MD
+                    </span>
+                  </span>
+                  <span style={{ display: "flex", flexDirection: "column", gap: "2px", flex: "1 1 220px", minWidth: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: "14px" }}>LLM Wiki — Andrej Karpathy</span>
+                    <span className="mono" style={{ fontSize: "11.5px", color: "var(--fg-2)" }}>
+                      raw/exemplo/llm-wiki.md · 12 KB
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    disabled={concluindo}
+                    onClick={() =>
+                      acoes.aoIngerirExemplo
+                        ? acoes.aoIngerirExemplo(areasSelecionadas[0] ?? "pessoal")
+                        : acoes.aoConcluir("#/chat")
+                    }
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      height: "36px",
+                      padding: "0 14px",
+                      borderRadius: "8px",
+                      background: "var(--accent)",
+                      color: "var(--accent-text)",
+                      fontWeight: 500,
+                      border: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Ingerir em {areasSelecionadas[0] ?? "pessoal"}
+                  </button>
+                </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", color: "var(--fg-3)", fontSize: "12px" }}>
-              <span style={{ flex: 1, height: "1px", background: "var(--line)" }} />
-              ou traga a sua fonte
-              <span style={{ flex: 1, height: "1px", background: "var(--line)" }} />
-            </div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    color: "var(--fg-3)",
+                    fontSize: "12px",
+                  }}
+                >
+                  <span style={{ flex: 1, height: "1px", background: "var(--line)" }} />
+                  ou traga a sua fonte
+                  <span style={{ flex: 1, height: "1px", background: "var(--line)" }} />
+                </div>
+              </>
+            )}
 
             <button
               type="button"
@@ -935,7 +952,10 @@ export function criarAcoesDoOnboarding(ctx: ContextoAcoesDoOnboarding): AcoesDoO
       ctx.setCarregandoPasta(true);
       ctx.setErroPasta(null);
       try {
-        await chamarApi("/api/onboarding/pasta", "POST", { pasta: ctx.pasta });
+        const resp = await chamarApi<{ ok: boolean; pasta: string }>("/api/onboarding/pasta", "POST", { pasta: ctx.pasta });
+        if (resp && typeof resp.pasta === "string") {
+          ctx.setPasta(resp.pasta);
+        }
         if (ctx.aoAtualizar) await ctx.aoAtualizar();
         navegar("#/onboarding/2");
       } catch (erro) {
@@ -996,6 +1016,18 @@ export function criarAcoesDoOnboarding(ctx: ContextoAcoesDoOnboarding): AcoesDoO
         navegar(destino);
       } catch {
         navegar(destino);
+      } finally {
+        ctx.setConcluindo(false);
+      }
+    },
+    aoIngerirExemplo: async (area?: string) => {
+      ctx.setConcluindo(true);
+      try {
+        const resp = await chamarApi<{ ok: boolean; id: string }>("/api/onboarding/ingerir-exemplo", "POST", { area });
+        if (ctx.aoAtualizar) await ctx.aoAtualizar();
+        navegar(`#/chat/${resp.id}`);
+      } catch {
+        navegar("#/chat");
       } finally {
         ctx.setConcluindo(false);
       }
