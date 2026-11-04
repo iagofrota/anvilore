@@ -115,6 +115,7 @@ function decidirPatch(patchTexto: string, raiz: string, ambiente: Record<string,
   if (!patchTexto.trim()) return { acao: "liberar", motivo: "patch vazio" };
   const linhas = patchTexto.split(/\r?\n/);
   const cabecalhoRegex = /^\*\*\*\s*(?:Add|Update|Delete)\s+File:\s*(.+)$/i;
+  const moverRegex = /^(?:\*\*\*\s*(?:Move|Rename)\s+(?:to|from):\s*|rename\s+(?:to|from)\s+|\+\+\+\s+(?:b\/)?)(.+)$/i;
 
   let arquivoAtual: string | null = null;
   let arquivoEmWiki = false;
@@ -140,6 +141,23 @@ function decidirPatch(patchTexto: string, raiz: string, ambiente: Record<string,
         return { acao: "bloquear", motivo: `falha ao resolver caminho do patch ${arquivoAtual}: ${(erro as Error).message}` };
       }
       arquivoEmWiki = dentroDe(abs, wiki) || dentroDe(absReal, wikiReal);
+      continue;
+    }
+    const matchMover = linha.match(moverRegex);
+    if (matchMover) {
+      encontrouCabecalho = true;
+      const destino = matchMover[1]!.trim().replace(/^["']|["']$/g, "");
+      const absDestino = isAbsolute(destino) ? resolve(destino) : resolve(raiz, destino);
+      let absDestinoReal = absDestino;
+      try {
+        absDestinoReal = caminhoReal(absDestino, raiz);
+      } catch (erro) {
+        return { acao: "bloquear", motivo: `falha ao resolver destino do patch ${destino}: ${(erro as Error).message}` };
+      }
+      if (dentroDe(absDestino, wiki) || dentroDe(absDestinoReal, wikiReal)) {
+        arquivoEmWiki = true;
+        arquivoAtual = destino;
+      }
       continue;
     }
     if (arquivoEmWiki && (linha.startsWith("+") || linha.startsWith("-"))) {

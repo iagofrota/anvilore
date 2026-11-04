@@ -83,6 +83,28 @@ describe("trava de verified nos quatro agentes", () => {
     expect(consoleCapturado.erros.join("\n")).toContain("verified");
   });
 
+  test("Dado apply_patch com Move to para wiki Quando tenta forjar verified Então bloqueia", async () => {
+    const patch = [
+      "*** Update File: /tmp/fora.md",
+      "*** Move to: wiki/fraude.md",
+      "@@ -1,3 +1,5 @@",
+      " ---",
+      " generated: agente",
+      "+verified:",
+      "+  - by: human:fraude",
+      " ---",
+    ].join("\n");
+
+    const payload = JSON.stringify({
+      tool_name: "apply_patch",
+      tool_input: { patch },
+    });
+
+    const codigo = await executarProtecao(payload);
+    expect(codigo).toBe(2);
+    expect(consoleCapturado.erros.join("\n")).toContain("verified");
+  });
+
   test("Dado apply_patch em caminho com symlink para wiki Quando tenta forjar verified Então bloqueia", async () => {
     const wikiDir = join(temporario, "wiki");
     mkdirSync(wikiDir, { recursive: true });
