@@ -269,7 +269,7 @@ Adiados: N
 Contradições em aberto: N
 ```
 
-Se alguma página foi alterada, informe em poucas linhas o que mudou e pergunte **"Aprovar estas N páginas?"**. Se houver sim, execute `aprovar` com os caminhos alterados; Claude pede a confirmação em um clique. Nunca edite `verified` diretamente. Depois, execute o fechamento você mesmo:
+Se alguma página foi alterada, informe em poucas linhas o que mudou e pergunte **"Aprovar estas N páginas?"**. Se houver sim, rode `aprovar <caminhos>`; ele abre a Revisão; diga à pessoa que as páginas esperam o clique dela; rode `fechar wiki` só depois que ela disser que aprovou; se `fechar` acusar 'página gerada sem aprovação humana', pare e avise — não tente de novo. Se a pessoa não voltar ao chat, nada se perde: depois do clique a página já passa no validador, e o próximo `fechar`, de qualquer sessão ou da ingestão pela interface, fecha normalmente. Nunca edite `verified` diretamente. Depois, execute o fechamento você mesmo:
 
 ```bash
 `fechar wiki`
