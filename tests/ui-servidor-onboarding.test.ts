@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { iniciarServidorUi } from "../src/ui/servidor/servidor";
@@ -125,8 +125,14 @@ test("Dado pasta existente com conteúdo arbitrário Quando envio POST /api/onbo
   expect(dados.erro).toBeDefined();
 });
 
-test("Dado pasta válida diferente da raiz atendida pelo servidor Quando envio POST /api/onboarding/pasta Então recusa com 400 informando que o servidor atende a pasta original", async () => {
+test("Dado pasta válida diferente da raiz inicial Quando envio POST /api/onboarding/pasta Então altera a raiz ativa e operações subsequentes usam a nova pasta", async () => {
   const outraPasta = mkdtempSync(join(tmpdir(), "anvilore-outro-vault-"));
+  mkdirSync(join(outraPasta, "wiki"), { recursive: true });
+  mkdirSync(join(outraPasta, "raw"), { recursive: true });
+  writeFileSync(join(outraPasta, "SCHEMA.md"), "# Schema\n");
+  writeFileSync(join(outraPasta, "AGENTS.md"), "# Agents\n");
+  writeFileSync(join(outraPasta, "wiki/index.md"), "# Índice\n");
+
   try {
     const { chamar } = await servidor();
     const resp = await chamar("/api/onboarding/pasta", {
@@ -134,9 +140,23 @@ test("Dado pasta válida diferente da raiz atendida pelo servidor Quando envio P
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ pasta: outraPasta }),
     });
-    expect(resp.status).toBe(400);
+    expect(resp.status).toBe(200);
     const dados = await resp.json() as Record<string, unknown>;
-    expect(dados.erro).toContain("A interface está atendendo a pasta");
+    expect(dados.ok).toBe(true);
+    expect(dados.pasta).toBe(outraPasta);
+
+    const respGet = await chamar("/api/onboarding");
+    const estado = await respGet.json() as Record<string, unknown>;
+    expect(estado.pasta).toBe(outraPasta);
+
+    const respAreas = await chamar("/api/onboarding/areas", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ areas: ["nova-area"] }),
+    });
+    expect(respAreas.status).toBe(200);
+    expect(existsSync(join(outraPasta, "wiki/nova-area"))).toBe(true);
+    expect(existsSync(join(raiz, "wiki/nova-area"))).toBe(false);
   } finally {
     rmSync(outraPasta, { recursive: true, force: true });
   }

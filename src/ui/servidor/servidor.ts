@@ -163,11 +163,12 @@ function abrirNavegador(url: string): void {
   try { Bun.spawn(comando, { stdin: "ignore", stdout: "ignore", stderr: "ignore" }); } catch { /* UI permanece acessível pela URL mostrada */ }
 }
 
-export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {}) {
-  const wiki = caminhoWiki(raiz);
+export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServidor = {}) {
+  let raiz = resolve(raizInicial);
+  let wiki = caminhoWiki(raiz);
   const token = opcoes.token ?? randomBytes(32).toString("base64url");
   const portaInicial = opcoes.portaInicial ?? 4173;
-  const ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
+  let ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
   let servidor: Servidor | undefined;
   let ultimoErro: unknown;
 
@@ -251,11 +252,11 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
             if (typeof corpo.pasta !== "string") return json({ erro: "Caminho da pasta obrigatório." }, 400);
             try {
               const pastaValida = validarPastaVault(corpo.pasta);
-              if (resolve(pastaValida) !== resolve(raiz)) {
-                return json({ erro: `A interface está atendendo a pasta ${raiz}. Para configurar outro vault, inicie o Anvilore nele.` }, 400);
-              }
-              const inspecao = await inspecionarPasta(pastaValida);
-              return json({ ok: true, pasta: pastaValida, inspecao });
+              raiz = resolve(pastaValida);
+              wiki = caminhoWiki(raiz);
+              ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
+              const inspecao = await inspecionarPasta(raiz);
+              return json({ ok: true, pasta: raiz, inspecao });
             } catch (erro) {
               return json({ erro: (erro as Error).message }, 400);
             }

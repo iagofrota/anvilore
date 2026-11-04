@@ -78,9 +78,19 @@ function Aplicacao() {
   const abrir = useCallback((id?: string) => { window.location.hash = id ? `#/chat/${id}` : "#/chat"; }, []);
   const alternarTema = useCallback(() => setTema(atual => atual === "claro" ? "escuro" : "claro"), []);
 
+  const atualizarTudo = useCallback(async () => {
+    await Promise.all([carregarOnboarding(), recarregarEstado()]);
+  }, [carregarOnboarding, recarregarEstado]);
+
+  useEffect(() => {
+    if (rota.tela === "chat" || rota.tela === "inicio") {
+      void recarregarEstado();
+    }
+  }, [rota.tela, recarregarEstado]);
+
   const atualizador = estado?.atualizador && <PainelDoAtualizador atualizador={estado.atualizador} mensagem={mensagemAtualizador} operando={operandoAtualizador} acionar={acionarAtualizador} />;
   if (rota.tela === "onboarding" && dadosOnboarding) {
-    return <Onboarding passo={rota.passo ?? 1} tema={tema} alternarTema={alternarTema} dados={dadosOnboarding} aoAtualizar={carregarOnboarding} />;
+    return <Onboarding passo={rota.passo ?? 1} tema={tema} alternarTema={alternarTema} dados={dadosOnboarding} aoAtualizar={atualizarTudo} />;
   }
 
   return <Shell rota={rota} conversas={estado?.conversas ?? []} agente={estado?.agente ?? "Agente"} aviso={atualizador}>

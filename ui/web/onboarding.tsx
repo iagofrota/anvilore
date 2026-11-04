@@ -1013,6 +1013,7 @@ export function criarAcoesDoOnboarding(ctx: ContextoAcoesDoOnboarding): AcoesDoO
       ctx.setConcluindo(true);
       try {
         await chamarApi("/api/onboarding/concluir", "POST", {});
+        if (ctx.aoAtualizar) await ctx.aoAtualizar();
         navegar(destino);
       } catch {
         navegar(destino);
