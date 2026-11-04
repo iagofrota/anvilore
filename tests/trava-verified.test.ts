@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { executarProtecao } from "../src/comandos/hook-proteger-raw";
@@ -69,6 +69,35 @@ describe("trava de verified nos quatro agentes", () => {
       "+verified:",
       "+  - by: human:fraude",
       " ---",
+    ].join("\n");
+
+    const payload = JSON.stringify({
+      tool_name: "apply_patch",
+      tool_input: { patch },
+    });
+
+    const codigo = await executarProtecao(payload);
+    expect(codigo).toBe(2);
+    expect(consoleCapturado.erros.join("\n")).toContain("verified");
+  });
+
+  test("Dado apply_patch em caminho com symlink para wiki Quando tenta forjar verified Então bloqueia", async () => {
+    const wikiDir = join(temporario, "wiki");
+    mkdirSync(wikiDir, { recursive: true });
+    const link = join(temporario, "alias-wiki");
+    symlinkSync(wikiDir, link, "dir");
+    process.env.ANVILORE_WIKI = wikiDir;
+
+    const patch = [
+      `*** Add File: ${join(link, "fraude.md")}`,
+      "+---",
+      "+title: Fraude",
+      "+generated:",
+      "+  by: processo",
+      "+verified:",
+      "+  by: human:fraude",
+      "+---",
+      "+Conteúdo",
     ].join("\n");
 
     const payload = JSON.stringify({

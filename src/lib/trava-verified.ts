@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
-import { dentroDe } from "./caminhos";
+import { caminhoReal, dentroDe } from "./caminhos";
 import { caminhoWiki } from "./wiki-repo";
 
 export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
@@ -120,6 +120,12 @@ function decidirPatch(patchTexto: string, raiz: string, ambiente: Record<string,
   let arquivoEmWiki = false;
   let encontrouCabecalho = false;
   const wiki = caminhoWiki(raiz, ambiente);
+  let wikiReal = wiki;
+  try {
+    wikiReal = caminhoReal(wiki, raiz);
+  } catch {
+    // mantém wiki léxico se resolução falhar
+  }
 
   for (const linha of linhas) {
     const match = linha.match(cabecalhoRegex);
@@ -127,7 +133,13 @@ function decidirPatch(patchTexto: string, raiz: string, ambiente: Record<string,
       encontrouCabecalho = true;
       arquivoAtual = match[1]!.trim().replace(/^["']|["']$/g, "");
       const abs = isAbsolute(arquivoAtual) ? resolve(arquivoAtual) : resolve(raiz, arquivoAtual);
-      arquivoEmWiki = dentroDe(abs, wiki);
+      let absReal = abs;
+      try {
+        absReal = caminhoReal(abs, raiz);
+      } catch (erro) {
+        return { acao: "bloquear", motivo: `falha ao resolver caminho do patch ${arquivoAtual}: ${(erro as Error).message}` };
+      }
+      arquivoEmWiki = dentroDe(abs, wiki) || dentroDe(absReal, wikiReal);
       continue;
     }
     if (arquivoEmWiki && (linha.startsWith("+") || linha.startsWith("-"))) {
@@ -272,8 +284,20 @@ export async function decidirVerified(
   const caminho = entradaMapa ? (entradaMapa.file_path ?? entradaMapa.filePath ?? entradaMapa.path ?? entradaMapa.notebook_path ?? entradaMapa.target_path) : undefined;
   if (typeof caminho === "string") {
     const wiki = caminhoWiki(raiz, ambiente);
+    let wikiReal = wiki;
+    try {
+      wikiReal = caminhoReal(wiki, raiz);
+    } catch {
+      // mantém wiki léxico
+    }
     const abs = isAbsolute(caminho) ? resolve(caminho) : resolve(cwd || raiz, caminho);
-    if (!dentroDe(abs, wiki)) {
+    let absReal = abs;
+    try {
+      absReal = caminhoReal(abs, cwd || raiz);
+    } catch (erro) {
+      return { acao: "bloquear", motivo: `falha ao resolver caminho do arquivo ${caminho}: ${(erro as Error).message}` };
+    }
+    if (!dentroDe(abs, wiki) && !dentroDe(absReal, wikiReal)) {
       return { acao: "liberar", motivo: "caminho fora de wiki/" };
     }
 
