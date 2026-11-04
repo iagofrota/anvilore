@@ -98,7 +98,9 @@ function tokenizar(comando: string, windows = false): Token[] {
 }
 
 function verboNormalizado(palavra: string): string {
-  return palavra.replace(/^\\/, "").split(/[\\/]/).pop()!.toLowerCase().replace(/\.exe$/, "");
+  const limpo = palavra.replace(/^[\\/]+|[\\/]+$/g, "");
+  const partes = limpo ? limpo.split(/[\\/]/) : [];
+  return partes.pop()?.toLowerCase().replace(/\.exe$/, "") ?? "";
 }
 
 function analisarGit(args: string[]): { subcomando?: string; globais: string[] } {
@@ -223,7 +225,9 @@ function decidirTerminalVerified(cmdTexto: string, isWindows: boolean): Decisao 
       if (!comando.length) break;
       verbo = verboNormalizado(comando[0]!);
     }
-    if (!verbo) continue;
+    if (!verbo) {
+      return { acao: "bloquear", motivo: "comando com verbo vazio ou inválido citando verified ou aprovação" };
+    }
 
     if (CMDLETS_ESCRITA_PS.has(verbo)) {
       return { acao: "bloquear", motivo: `cmdlet de escrita PowerShell (${verbo}) citando verified` };
@@ -297,7 +301,7 @@ export async function decidirVerified(
         : typeof entrada === "string"
           ? entrada
           : "";
-    const isWindows = nome === "powershell" || nome === "pwsh" || (Array.isArray(comandoRaw) && /^(?:powershell|pwsh)(?:\.exe)?$/i.test(String(comandoRaw[0]))) || process.platform === "win32";
+    const isWindows = nome === "powershell" || nome === "pwsh" || (Array.isArray(comandoRaw) && /^(?:powershell|pwsh)(?:\.exe)?$/i.test(String(comandoRaw[0]))) || (process.platform === "win32" && !/bash/i.test(nome));
     return decidirTerminalVerified(cmdTexto, isWindows);
   }
 
