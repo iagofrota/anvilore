@@ -46,6 +46,8 @@ describe("trava de verified nos quatro agentes", () => {
       `perl -pi -e 's/generated/verified/g' wiki/a.md`,
       `python3 -c 'open("wiki/a.md","a").write("verified: human:x\\n")'`,
       `echo "verified:\\n  - by: human:fraude" >> wiki/a.md`,
+      `echo "$(printf 'verified: human:ana\\n' >> wiki/a.md)"`,
+      `echo "\`printf 'verified: human:ana\\n' >> wiki/a.md\`"`,
     ];
 
     for (const comando of comandos) {

@@ -66,9 +66,15 @@ function tokenizar(comando: string, windows = false): Token[] {
     const caractere = comando[i]!;
     const seguinte = comando[i + 1] ?? "";
     if (aspas) {
-      if (caractere === aspas) aspas = "";
-      else if (!windows && aspas === '"' && caractere === "\\" && /["\\$`]/.test(seguinte) && seguinte) palavra += comando[++i];
-      else palavra += caractere;
+      if (caractere === aspas) {
+        aspas = "";
+      } else if (!windows && aspas === '"' && caractere === "\\" && /["\\$`]/.test(seguinte) && seguinte) {
+        palavra += comando[++i];
+      } else if (aspas === '"' && (caractere === "`" || (caractere === "$" && /[({]/.test(seguinte) && seguinte))) {
+        throw new Error("subshell ou expansão não interpretável");
+      } else {
+        palavra += caractere;
+      }
     } else if (caractere === "'" || caractere === '"') {
       aspas = caractere;
     } else if (!windows && caractere === "\\" && seguinte && /[\s'";|&<>\\]/.test(seguinte)) {
