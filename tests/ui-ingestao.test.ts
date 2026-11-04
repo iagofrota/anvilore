@@ -384,7 +384,9 @@ test("Dado que apertei Cancelar Quando o escritor está rodando Então a ponte c
   } });
   const { ingestao, conversa } = await naParada(ponte);
   await ingestao.seguir(conversa.id, { takeaways: [0, 1, 2], paginas: [0, 1, 2], comentario: "" });
-  await Bun.sleep(5);
+  for (let i = 0; i < 200 && (await ingestao.obter(conversa.id))?.agora !== "Escrevendo wiki/pessoal/concepts/rag.md"; i++) {
+    await Bun.sleep(10);
+  }
   expect((await ingestao.obter(conversa.id))!.agora).toBe("Escrevendo wiki/pessoal/concepts/rag.md");
   await ingestao.cancelar(conversa.id);
   await ingestao.esperar(conversa.id);
