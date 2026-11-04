@@ -60,14 +60,26 @@ test("Dado configuração padrão Quando recebo SIGTERM Então o handler registr
   } finally { spy.mockRestore(); }
 });
 
-test("Dado comando válido Quando o servidor abre Então exibe a URL com token e encerra após o sinal", async () => {
+test("Dado comando válido Quando o servidor abre Então avisa abertura no navegador sem exibir o token e encerra após o sinal", async () => {
   const c = capturarConsole();
   let encerrou = false;
   const fake = { servidor: { stop: () => { encerrou = true; } }, porta: 4173, token: "token", url: "http://127.0.0.1:4173/?token=token" } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>;
   try {
     expect(await comandoUi([], async () => fake, async servidor => { servidor.stop(true); })).toBe(0);
-    expect(c.saida.join(" ")).toContain("http://127.0.0.1:4173/?token=token");
+    expect(c.saida.join(" ")).toContain("Interface do Anvilore aberta no navegador");
+    expect(c.saida.join(" ")).not.toContain("token=");
     expect(encerrou).toBe(true);
+  } finally { c.restaurar(); }
+});
+
+test("Dado comando com --revisao Quando o servidor abre Então passa soRevisao: true e não roda atualização inicial", async () => {
+  const c = capturarConsole();
+  let opcoesRecebidas: any;
+  const fake = { servidor: { stop: () => {} }, porta: 4173, token: "token", url: "http://127.0.0.1:4173/?token=token#revisao" } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>;
+  try {
+    expect(await comandoUi(["--revisao"], async (_raiz, opcoes) => { opcoesRecebidas = opcoes; return fake; }, async servidor => { servidor.stop(true); })).toBe(0);
+    expect(opcoesRecebidas?.soRevisao).toBe(true);
+    expect(c.saida.join(" ")).toContain("Interface do Anvilore aberta no navegador");
   } finally { c.restaurar(); }
 });
 

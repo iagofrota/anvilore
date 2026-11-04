@@ -2,7 +2,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { aprovarPaginas } from "../../comandos/aprovar";
+import { aprovarPelaInterface } from "../../comandos/aprovar";
 import { isoComOffset } from "../../lib/hora";
 import type { PonteDeAgente } from "../../lib/ponte-agente";
 import { PonteClaudeCode } from "../../lib/ponte-claude-code";
@@ -34,6 +34,7 @@ type OpcoesServidor = {
   ponte?: PonteDeAgente;
   fechar?: (raiz: string, wiki: string) => Promise<{ codigo: number; saida: string }>;
   ambiente?: Record<string, string | undefined>;
+  soRevisao?: boolean;
 };
 
 // Teto de uma fonte enviada pela tela. Acima da janela grande (~1,15 MB) a ingestão já pede para dividir;
@@ -177,9 +178,21 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
   let wiki = caminhoWiki(raiz, ambiente);
   const token = opcoes.token ?? randomBytes(32).toString("base64url");
   const portaInicial = opcoes.portaInicial ?? 4173;
-  let ingestao = await criarIngestao(raiz, opcoes);
+  const soRevisao = opcoes.soRevisao === true;
+  let ingestao: IngestaoNaInterface | undefined = soRevisao ? undefined : await criarIngestao(raiz, opcoes);
   let servidor: Servidor | undefined;
   let ultimoErro: unknown;
+
+  let timeoutInatividade: ReturnType<typeof setTimeout> | undefined;
+  const resetarInatividade = () => {
+    if (!soRevisao) return;
+    if (timeoutInatividade) clearTimeout(timeoutInatividade);
+    timeoutInatividade = setTimeout(() => {
+      servidor?.stop(true);
+    }, 30 * 60 * 1000);
+    timeoutInatividade.unref?.();
+  };
+  resetarInatividade();
 
   for (let porta = portaInicial; porta <= 65535; porta++) {
     try {
@@ -188,10 +201,23 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
         port: porta,
         maxRequestBodySize: LIMITE_DO_ENVIO * 2,
         fetch: async (request) => {
+          resetarInatividade();
           if (!localHost(request)) return respostaSegura("Acesso recusado", { status: 403 });
           const url = new URL(request.url);
           if (url.pathname === "/favicon.ico" && request.method === "GET") return respostaSegura(null, { status: 204 });
           if (!tokenValido(url, token)) return respostaSegura("Acesso recusado", { status: 403 });
+          if (soRevisao) {
+            if (
+              url.pathname === "/api/ingestao" ||
+              url.pathname === "/api/fontes" ||
+              url.pathname === "/api/conversas/de-raw" ||
+              url.pathname === "/api/atualizador" ||
+              url.pathname.startsWith("/api/onboarding") ||
+              ROTA_DA_CONVERSA.test(url.pathname)
+            ) {
+              return respostaSegura("Não encontrado", { status: 404 });
+            }
+          }
           const origem = request.headers.get("origin");
           if (request.method === "POST" && (!origem || origem !== url.origin)) return json({ erro: "Origem recusada." }, 403);
           if (url.pathname === "/api/rascunhos" && request.method === "GET") {
@@ -225,7 +251,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             const fila = await listarFilaRascunhos(raiz);
             const item = fila.find(rascunho => rascunho.caminho === corpo.caminho && rascunho.aprovavel);
             if (!item) return json({ codigo: 1, mensagens: ["Aprovação recusada: página ausente da fila ou inválida."] }, 409);
-            const resultado = await aprovarPaginas(raiz, [join(wiki, item.caminho)], process.env, corpo.versao);
+            const resultado = await aprovarPelaInterface(raiz, join(wiki, item.caminho), corpo.versao, ambiente);
             return json(resultado, resultado.codigo === 0 ? 200 : 409);
           }
           if (url.pathname === "/api/ajuste" && request.method === "POST") {
@@ -244,12 +270,12 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
           if (url.pathname === "/api/validar" && request.method === "POST") return json(await validar(raiz, wiki));
           if (url.pathname === "/api/inicio" && request.method === "GET") {
             try {
-              const conversas = (await ingestao.listar()).filter(c => CONVERSA_PENDENTE.includes(c.situacao));
+              const conversas = ingestao ? (await ingestao.listar()).filter(c => CONVERSA_PENDENTE.includes(c.situacao)) : [];
               const abertas = new Map(conversas.map(c => [c.fonte, c.id]));
               // `validarWiki` lê a wiki inteira de forma síncrona: o Início a paga uma vez só e a saúde vai no mesmo JSON.
               // Sem cache no servidor: cada carga vê a wiki como ela está, e "Validar agora" (/api/saude) valida na hora.
               const validada = await validarWiki(wiki);
-              return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas, ...await resumoDoInicio(raiz, abertas, process.env, validada), saude: await saudeDaWiki(wiki, validada) });
+              return json({ agente: ingestao?.nomeDoAgente, areas: await areasDaWiki(wiki), conversas, ...await resumoDoInicio(raiz, abertas, process.env, validada), saude: await saudeDaWiki(wiki, validada) });
             } catch (erro) { return erroDaIngestao(erro); }
           }
           if (url.pathname === "/api/saude" && request.method === "GET") return json(await saudeDaWiki(wiki));
@@ -275,7 +301,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
           }
           if (url.pathname === "/api/ingestao" && request.method === "GET") {
             try {
-              return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas: await ingestao.listar(), atualizador: await estadoAtualizador(raiz) });
+              return json({ agente: ingestao?.nomeDoAgente, areas: await areasDaWiki(wiki), conversas: (await ingestao?.listar()) ?? [], atualizador: await estadoAtualizador(raiz) });
             } catch (erro) { return erroDaIngestao(erro); }
           }
           if (url.pathname === "/api/onboarding" && request.method === "GET") {
@@ -283,6 +309,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             return json(estado);
           }
           if (url.pathname === "/api/onboarding/pasta" && request.method === "POST") {
+            if (!ingestao) return respostaSegura("Não encontrado", { status: 404 });
             let corpo: { pasta?: unknown };
             try { corpo = await request.json() as { pasta?: unknown }; } catch { return json({ erro: "Pedido inválido." }, 400); }
             if (typeof corpo.pasta !== "string") return json({ erro: "Caminho da pasta obrigatório." }, 400);
@@ -337,6 +364,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             }
           }
           if (url.pathname === "/api/onboarding/ingerir-exemplo" && request.method === "POST") {
+            if (!ingestao) return respostaSegura("Não encontrado", { status: 404 });
             let corpo: { area?: unknown } = {};
             try {
               if (request.headers.get("content-type")?.includes("application/json")) {
@@ -410,8 +438,12 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
               return json({ mensagem, atualizador: await estadoAtualizador(raiz) });
             } catch (erro) { return json({ mensagens: [(erro as Error).message], atualizador: await estadoAtualizador(raiz) }, 409); }
           }
-          if (url.pathname === "/api/fontes" && request.method === "POST") return receberFonte(request, ingestao, new Date());
+          if (url.pathname === "/api/fontes" && request.method === "POST") {
+            if (!ingestao) return respostaSegura("Não encontrado", { status: 404 });
+            return receberFonte(request, ingestao, new Date());
+          }
           if (url.pathname === "/api/conversas/de-raw" && request.method === "POST") {
+            if (!ingestao) return respostaSegura("Não encontrado", { status: 404 });
             let corpo: { caminho?: unknown; area?: unknown };
             try { corpo = await request.json() as { caminho?: unknown; area?: unknown }; } catch { return json({ mensagens: ["Pedido inválido."] }, 400); }
             if (typeof corpo.caminho !== "string" || !corpo.caminho.trim()) return json({ mensagens: ["Caminho inválido."] }, 400);
@@ -420,7 +452,10 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             catch (erro) { return erroDaIngestao(erro); }
           }
           const daConversa = ROTA_DA_CONVERSA.exec(url.pathname);
-          if (daConversa) return rotaDaConversa(request, daConversa[1]!, daConversa[2], ingestao);
+          if (daConversa) {
+            if (!ingestao) return respostaSegura("Não encontrado", { status: 404 });
+            return rotaDaConversa(request, daConversa[1]!, daConversa[2], ingestao);
+          }
           if (request.method === "GET" && (url.pathname === "/" || url.pathname.startsWith("/assets/"))) {
             const raizPublica = resolve(import.meta.dir, "../public");
             const caminho = url.pathname === "/" ? join(raizPublica, "index.html") : resolve(raizPublica, `.${url.pathname}`);
@@ -449,7 +484,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
   }
   if (!servidor) throw new Error(`Não há porta livre para a interface: ${(ultimoErro as Error | undefined)?.message ?? "sem portas disponíveis"}`);
 
-  const url = `http://127.0.0.1:${servidor.port}/?token=${encodeURIComponent(token)}`;
+  const url = `http://127.0.0.1:${servidor.port}/?token=${encodeURIComponent(token)}${soRevisao ? "#revisao" : ""}`;
   if (opcoes.abrirNavegador !== false) (opcoes.abrir ?? abrirNavegador)(url);
-  return { servidor, porta: servidor.port, token, url, encerrar: () => ingestao.encerrar() };
+  return { servidor, porta: servidor.port, token, url, encerrar: async () => { await ingestao?.encerrar(); } };
 }

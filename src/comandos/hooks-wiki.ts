@@ -114,14 +114,9 @@ function negarPermissao(evento: "PreToolUse", mensagem: string): void {
   console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: evento, permissionDecision: "deny", permissionDecisionReason: mensagem } }));
 }
 
-async function protegerAprovacao(raiz: string, entrada: string): Promise<void> {
-  let payload: Json;
-  try { payload = JSON.parse(entrada) as Json; }
-  catch { negarPermissao("PreToolUse", "Não foi possível conferir o modo da sessão; aprovação recusada."); return; }
-  const ferramenta = (payload.tool_input ?? payload.toolInput ?? {}) as Json;
-  const comando = ferramenta.command;
-  if (typeof comando !== "string" || !/(?:^|[\s;&|])(?:bun\s+[^\n;&|]*\s+|anvilore\s+)aprovar(?:\s|$)/i.test(comando)) return;
-  if (payload.permission_mode !== "default") negarPermissao("PreToolUse", "Para aprovar, saia do modo automático (Shift+Tab) e peça de novo");
+async function protegerAprovacao(_raiz: string, _entrada: string): Promise<void> {
+  // O comando aprovar agora só abre a interface na Revisão e não grava verified;
+  // a verificação prévia deixa de barrar o comando.
 }
 
 async function protegerVerified(raiz: string, entrada: string): Promise<void> {

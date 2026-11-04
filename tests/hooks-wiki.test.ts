@@ -43,12 +43,12 @@ describe("hooks da wiki", () => {
     const copilot = (await configuracaoDoHook("copilot", raiz)).json as { hooks: Record<string, unknown[]> };
     expect(copilot.hooks.preToolUse).toHaveLength(1); expect(copilot.hooks.sessionEnd).toBeUndefined();
     expect(copilot.hooks.fileChanged).toBeUndefined(); expect(copilot.hooks.sessionStart).toBeUndefined();
-    const camposClaude = (await configuracaoDoHook("claude", raiz)).json as { permissions: { ask: string[] }; hooks: Record<string, any[]> };
+    const camposClaude = (await configuracaoDoHook("claude", raiz)).json as { permissions?: { ask?: string[] }; hooks: Record<string, any[]> };
     for (const grupo of Object.values(camposClaude.hooks).flat()) for (const hook of grupo.hooks ?? []) {
       if (hook.command.includes("hooks-wiki")) expect(hook.shell).toBe("bash");
     }
-    expect(camposClaude.permissions.ask).toContain("Bash(bun src/cli.ts aprovar *)");
-    expect(camposClaude.hooks.PreToolUse!.some(grupo => grupo.matcher === "Bash")).toBe(true);
+    expect(camposClaude.permissions?.ask).toBeUndefined();
+    expect(camposClaude.hooks.PreToolUse!.some(grupo => grupo.matcher === "Write|Edit|NotebookEdit|Bash")).toBe(true);
     expect(camposClaude.hooks.PreToolUse!.some(grupo => grupo.matcher === "Write|Edit|MultiEdit")).toBe(true);
   });
 
@@ -162,22 +162,15 @@ describe("hooks da wiki", () => {
     expect((await comando("desconhecido")).codigo).toBe(2);
   });
 
-  test("Dado comando de aprovação Quando o modo não garante confirmação humana Então o hook o nega", async () => {
-    for (const permission_mode of ["auto", "bypassPermissions", "acceptEdits", "dontAsk", "plan", undefined, "novo-modo"]) {
+  test("Dado comando de aprovação em qualquer modo Quando proteger-aprovacao roda Então libera sem negar nem avisar", async () => {
+    for (const permission_mode of ["auto", "bypassPermissions", "acceptEdits", "dontAsk", "plan", undefined, "novo-modo", "default"]) {
       const c = capturarConsole();
       try {
-        await comandoHooksWiki(["proteger-aprovacao", raiz], async () => JSON.stringify({ permission_mode, tool_input: { command: "bun src/cli.ts aprovar wiki/pessoal/a.md" } }));
-        expect(JSON.parse(c.saida.join("\n"))).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny", permissionDecisionReason: "Para aprovar, saia do modo automático (Shift+Tab) e peça de novo" } });
+        expect(await comandoHooksWiki(["proteger-aprovacao", raiz], async () => JSON.stringify({ permission_mode, tool_input: { command: "bun src/cli.ts aprovar wiki/pessoal/a.md" } }))).toBe(0);
+        expect(c.saida.join("\n")).toBe("");
+        expect(c.erros.join("\n")).toBe("");
       } finally { c.restaurar(); }
     }
-  });
-
-  test("Dado aprovação em modo manual Quando o hook avalia Então deixa permissions.ask pedir confirmação", async () => {
-    const c = capturarConsole();
-    try {
-      await comandoHooksWiki(["proteger-aprovacao", raiz], async () => JSON.stringify({ permission_mode: "default", tool_input: { command: "bun src/cli.ts aprovar wiki/a.md" } }));
-      expect(c.saida.join("\n")).toBe("");
-    } finally { c.restaurar(); }
   });
 
   test("Dado tentativa de acrescentar verified em wiki Quando Write, Edit ou MultiEdit chama o hook Então nega", async () => {
@@ -341,5 +334,27 @@ describe("hooks da wiki", () => {
       expect(await comandoHooksWiki(["backup", raiz])).toBe(0);
       expect(c.saida.join("\n")).toContain("Novo arquivo em raw/");
     } finally { c.restaurar(); }
+  });
+
+  test("Dado ação atualizar Quando chamada pelo hooks-wiki Então executa conforme o estado do atualizador", async () => {
+    expect(await comandoHooksWiki(["atualizar", raiz])).toBe(0);
+
+    const dirAnvilore = join(raiz, ".anvilore");
+    mkdirSync(dirAnvilore, { recursive: true });
+    const arqAtualizacao = join(dirAnvilore, "atualizacao.json");
+
+    // Estado aplicando
+    writeFileSync(arqAtualizacao, JSON.stringify({ estado: "aplicando" }));
+    expect(await comandoHooksWiki(["atualizar", raiz])).toBe(0);
+
+    // Estado baixada
+    writeFileSync(arqAtualizacao, JSON.stringify({ estado: "baixada" }));
+    expect(await comandoHooksWiki(["atualizar", raiz])).toBe(0);
+
+    writeFileSync(arqAtualizacao, JSON.stringify({ verificadoEm: new Date().toISOString() }));
+    expect(await comandoHooksWiki(["atualizar", raiz])).toBe(0);
+
+    writeFileSync(arqAtualizacao, JSON.stringify({ verificadoEm: new Date(Date.now() - 48 * 3600 * 1000).toISOString() }));
+    expect(await comandoHooksWiki(["atualizar", raiz])).toBe(0);
   });
 });

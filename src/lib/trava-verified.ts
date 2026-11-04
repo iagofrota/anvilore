@@ -231,7 +231,7 @@ export async function decidirVerified(
   if (!mapa(dados)) throw new Error("payload deve ser um objeto JSON");
 
   const nome = String(dados.tool_name ?? dados.toolName ?? "").toLowerCase();
-  let entrada = dados.tool_input ?? dados.toolInput ?? dados.toolArgs ?? dados.tool_args ?? dados.arguments ?? {};
+  let entrada: unknown = dados.tool_input ?? dados.toolInput ?? dados.toolArgs ?? dados.tool_args ?? dados.arguments ?? {};
   if (typeof entrada === "string" && ("toolArgs" in dados || "tool_args" in dados || "arguments" in dados)) {
     try {
       const parsed = JSON.parse(entrada);
@@ -239,16 +239,17 @@ export async function decidirVerified(
     } catch { /* texto puro */ }
   }
 
-  const cwd = String(mapa(entrada) ? (entrada.workdir ?? entrada.cwd ?? entrada.directory ?? entrada.dir_path ?? dados.cwd ?? "") : (dados.cwd ?? ""));
+  const entradaMapa = mapa(entrada) ? entrada : undefined;
+  const cwd = String(entradaMapa ? (entradaMapa.workdir ?? entradaMapa.cwd ?? entradaMapa.directory ?? entradaMapa.dir_path ?? dados.cwd ?? "") : (dados.cwd ?? ""));
 
   // 1. apply_patch (Codex)
-  if (nome === "apply_patch" || (mapa(entrada) && typeof entrada.patch === "string")) {
-    const patchTexto = typeof entrada === "string" ? entrada : typeof entrada.patch === "string" ? entrada.patch : "";
+  if (nome === "apply_patch" || (entradaMapa && typeof entradaMapa.patch === "string")) {
+    const patchTexto = typeof entrada === "string" ? entrada : (entradaMapa && typeof entradaMapa.patch === "string") ? String(entradaMapa.patch) : "";
     return decidirPatch(patchTexto, raiz, ambiente);
   }
 
   // 2. Terminal (Claude Bash, Codex exec_command, Gemini run_shell_command, Copilot bash/powershell)
-  const comandoRaw = mapa(entrada) ? (entrada.command ?? entrada.cmd) : undefined;
+  const comandoRaw = entradaMapa ? (entradaMapa.command ?? entradaMapa.cmd) : undefined;
   if (TERMINAIS.has(nome) || comandoRaw !== undefined) {
     const cmdTexto = typeof comandoRaw === "string"
       ? comandoRaw
@@ -262,7 +263,7 @@ export async function decidirVerified(
   }
 
   // 3. Write / Edit / MultiEdit / NotebookEdit / write_file / replace
-  const caminho = mapa(entrada) ? (entrada.file_path ?? entrada.filePath ?? entrada.path ?? entrada.notebook_path ?? entrada.target_path) : undefined;
+  const caminho = entradaMapa ? (entradaMapa.file_path ?? entradaMapa.filePath ?? entradaMapa.path ?? entradaMapa.notebook_path ?? entradaMapa.target_path) : undefined;
   if (typeof caminho === "string") {
     const wiki = caminhoWiki(raiz, ambiente);
     const abs = isAbsolute(caminho) ? resolve(caminho) : resolve(cwd || raiz, caminho);
@@ -280,12 +281,13 @@ export async function decidirVerified(
     }
 
     let mudou = false;
-    if (typeof entrada.content === "string") {
-      mudou = mudouBloco(atual, entrada.content);
+    if (entradaMapa && typeof entradaMapa.content === "string") {
+      mudou = mudouBloco(atual, entradaMapa.content);
     } else {
-      const edicoes = Array.isArray(entrada.edits) ? entrada.edits as Json[] : [entrada];
+      const edicoes = (entradaMapa && Array.isArray(entradaMapa.edits)) ? entradaMapa.edits as unknown[] : (entradaMapa ? [entradaMapa] : []);
       let proposto = atual;
-      for (const edicao of edicoes) {
+      for (const item of edicoes) {
+        const edicao = mapa(item) ? item : {};
         const anterior = typeof edicao.old_string === "string" ? edicao.old_string : typeof edicao.oldText === "string" ? edicao.oldText : "";
         const novo = typeof edicao.new_string === "string" ? edicao.new_string : typeof edicao.newText === "string" ? edicao.newText : "";
         const indice = anterior ? proposto.indexOf(anterior) : -1;
