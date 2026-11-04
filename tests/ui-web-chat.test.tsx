@@ -36,7 +36,7 @@ const botao = (arvore: No, rotulo: string) => achar(arvore, e => e.type === "but
 function acoesQueAnotam() {
   const chamadas: string[] = [];
   const acoes: AcoesDaConversa = {
-    aoLer: () => chamadas.push("ler"),
+    aoLer: (area?: string) => chamadas.push(area ? `ler ${area}` : "ler"),
     aoCancelar: () => chamadas.push("cancelar"),
     aoSeguir: () => chamadas.push("seguir"),
     alternarTakeaway: i => chamadas.push(`takeaway ${i}`),
@@ -54,9 +54,9 @@ function conversa(extra: Partial<Conversa>): Conversa {
   } as Conversa;
 }
 
-function montar(c: Conversa, extra: { takeaways?: boolean[]; paginas?: boolean[] } = {}) {
+function montar(c: Conversa, extra: { takeaways?: boolean[]; paginas?: boolean[]; areas?: string[] } = {}) {
   const { acoes, chamadas } = acoesQueAnotam();
-  const props = { conversa: c, agente: "Claude Code", ocupado: false, takeaways: extra.takeaways ?? [true, true, true, true], paginas: extra.paginas ?? [true, true, true], comentario: "", acoes };
+  const props = { conversa: c, agente: "Claude Code", ocupado: false, takeaways: extra.takeaways ?? [true, true, true, true], paginas: extra.paginas ?? [true, true, true], comentario: "", acoes, areas: extra.areas ?? [] };
   return { html: renderToStaticMarkup(<ConversaDaIngestao {...props} />), arvore: expandir(<ConversaDaIngestao {...props} />), chamadas };
 }
 
@@ -157,6 +157,15 @@ test("Dado a fonte em raw/ ainda sem leitura Quando a tela monta Então mostra o
   expect(html).toContain("raw/pessoal/llm-wiki.md");
   (botao(arvore, "Ingerir")!.props.onClick as () => void)();
   expect(chamadas).toEqual(["ler"]);
+});
+
+test("Dado fonte sem área inferida e wiki com áreas Quando a conversa monta no passo fonte Então exibe campo de área e Ingerir envia a área escolhida", () => {
+  const { html, arvore, chamadas } = montar(conversa({ area: "" }), { areas: ["pessoal", "trabalho"] });
+  expect(html).toContain("Área");
+  expect(html).toContain("pessoal");
+  expect(html).toContain("trabalho");
+  (botao(arvore, "Ingerir")!.props.onClick as () => void)();
+  expect(chamadas).toEqual(["ler pessoal"]);
 });
 
 test("Dado a escrita cancelada Quando a tela monta Então diz que o que já foi escrito ficou como rascunho", () => {

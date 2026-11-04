@@ -345,3 +345,28 @@ test("Dado conversa criada de-raw Quando inicio a leitura com a ponte Então con
   }
   expect(conversa).toMatchObject({ passo: "parada", situacao: "esperando" });
 });
+
+test("Dado arquivo em subpasta de captura (raw/notas/) Quando POST /api/conversas/de-raw Então cria com área vazia e exige área no /ler", async () => {
+  const ponte = new PonteFalsa({
+    leitor: async (_pedido, aoEvento) => {
+      aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-opus-5-5/2.1.311" });
+      return { situacao: "concluida", sessao: SESSAO, saidaEstruturada: relatorioValido(), texto: "", recusas: [] };
+    },
+  });
+  const { postar } = await servidor(ponte);
+  mkdirSync(join(raiz, "raw/notas"), { recursive: true });
+  writeFileSync(join(raiz, "raw/notas/ideia.md"), FONTE);
+
+  const resposta = await postar("/api/conversas/de-raw", { caminho: "raw/notas/ideia.md" });
+  expect(resposta.status).toBe(201);
+  const conversa = await resposta.json() as { id: string; area: string };
+  expect(conversa.area).toBe("");
+
+  const lerSemArea = await postar(`/api/conversas/${conversa.id}/ler`);
+  expect(lerSemArea.status).toBe(400);
+
+  const lerComArea = await postar(`/api/conversas/${conversa.id}/ler`, { area: "pessoal" });
+  expect(lerComArea.status).toBe(200);
+  const lendo = await lerComArea.json() as { id: string; area: string };
+  expect(lendo.area).toBe("pessoal");
+});

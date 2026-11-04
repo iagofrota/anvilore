@@ -651,6 +651,73 @@ test("Dado arquivo na raiz de raw/ Quando crio conversa de-raw Então cria com �
   });
 });
 
+test("Dado arquivo em subpasta de captura (como raw/notas/) com wiki tendo só área pessoal Quando crio conversa de-raw Então não infere notas como área e mantém área vazia", async () => {
+  const ingestao = servico(new PonteFalsa());
+  mkdirSync(join(raiz, "raw/notas"), { recursive: true });
+  writeFileSync(join(raiz, "raw/notas/captura.md"), "anotação rápida");
+  const conversa = await ingestao.criarDeRaw("raw/notas/captura.md");
+  expect(conversa.area).not.toBe("notas");
+  expect(conversa.area).toBe("");
+});
+
+test("Dado arquivo em subpasta de captura com wiki em layout plano Quando crio conversa de-raw Então não infere notas como área e mantém área vazia", async () => {
+  rmSync(join(wiki, "pessoal"), { recursive: true, force: true });
+  const ingestao = servico(new PonteFalsa());
+  mkdirSync(join(raiz, "raw/notas"), { recursive: true });
+  writeFileSync(join(raiz, "raw/notas/plano.md"), "anotação em layout plano");
+  const conversa = await ingestao.criarDeRaw("raw/notas/plano.md");
+  expect(conversa.area).not.toBe("notas");
+  expect(conversa.area).toBe("");
+});
+
+test("Dado conversa de-raw sem área inferida e wiki com áreas Quando tento ler sem definir área Então recusa e exige escolha de área da wiki", async () => {
+  const ingestao = servico(new PonteFalsa());
+  mkdirSync(join(raiz, "raw/notas"), { recursive: true });
+  writeFileSync(join(raiz, "raw/notas/captura.md"), "anotação");
+  const conversa = await ingestao.criarDeRaw("raw/notas/captura.md");
+  await expect(ingestao.ler(conversa.id)).rejects.toMatchObject({
+    status: 400,
+    message: expect.stringContaining("Escolha uma área da wiki: pessoal"),
+  });
+});
+
+test("Dado conversa de-raw sem área inferida e wiki com áreas Quando leio informando área válida Então define a área e inicia a leitura", async () => {
+  let mensagemEnviada = "";
+  const ponte = new PonteFalsa({
+    leitor: async (pedido, aoEvento) => {
+      mensagemEnviada = pedido.mensagem;
+      aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-opus-5-5/2.1.311" });
+      return { situacao: "concluida", sessao: SESSAO, saidaEstruturada: relatorioValido(), texto: "", recusas: [] };
+    },
+  });
+  const ingestao = servico(ponte);
+  mkdirSync(join(raiz, "raw/notas"), { recursive: true });
+  writeFileSync(join(raiz, "raw/notas/captura.md"), FONTE);
+  const conversa = await ingestao.criarDeRaw("raw/notas/captura.md");
+  const lendo = await ingestao.ler(conversa.id, "pessoal");
+  expect(lendo.area).toBe("pessoal");
+  expect(mensagemEnviada).toContain("Área escolhida pela pessoa: pessoal");
+});
+
+test("Dado conversa de-raw em wiki de layout plano Quando leio sem área Então inicia a leitura usando layout plano", async () => {
+  rmSync(join(wiki, "pessoal"), { recursive: true, force: true });
+  let mensagemEnviada = "";
+  const ponte = new PonteFalsa({
+    leitor: async (pedido, aoEvento) => {
+      mensagemEnviada = pedido.mensagem;
+      aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-opus-5-5/2.1.311" });
+      return { situacao: "concluida", sessao: SESSAO, saidaEstruturada: relatorioValido(), texto: "", recusas: [] };
+    },
+  });
+  const ingestao = servico(ponte);
+  mkdirSync(join(raiz, "raw/notas"), { recursive: true });
+  writeFileSync(join(raiz, "raw/notas/plano.md"), FONTE);
+  const conversa = await ingestao.criarDeRaw("raw/notas/plano.md");
+  const lendo = await ingestao.ler(conversa.id);
+  expect(lendo.area).toBe("");
+  expect(mensagemEnviada).toContain("A wiki não tem áreas: use o layout plano.");
+});
+
 test("Dado caminho relativo sem o prefixo raw/ Quando crio conversa de-raw Então normaliza para raw/<caminho>", async () => {
   const ingestao = servico(new PonteFalsa());
   mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });

@@ -8,7 +8,7 @@ import { isoComOffset } from "./hora";
 import { rotaDaIngestao, type Papel } from "./papeis-ingestao";
 import type { EventoDoAgente, ExecucaoDeFase, FimDaFase, PedidoDeFase, PonteDeAgente, Recusa } from "./ponte-agente";
 import { extrairJson, type RelatorioLeitor } from "./relatorio-leitor";
-import { ErroDeFonte, salvarFonte } from "./ui-fonte";
+import { areasDaWiki, ErroDeFonte, salvarFonte } from "./ui-fonte";
 import { fontesCitadas } from "./ui-inicio";
 import { caminhoWiki } from "./wiki-repo";
 
@@ -221,7 +221,7 @@ export class IngestaoNaInterface {
     return this.iniciarConversa(salvo.fonte, fonte.area, salvo.bytes);
   }
 
-  async criarDeRaw(caminhoBruto: string): Promise<Conversa> {
+  async criarDeRaw(caminhoBruto: string, areaInformada?: string): Promise<Conversa> {
     if (typeof caminhoBruto !== "string" || !caminhoBruto.trim() || caminhoBruto.includes("\0")) {
       throw new ErroDeIngestao("Caminho inválido.", 400);
     }
@@ -276,8 +276,23 @@ export class IngestaoNaInterface {
       throw new ErroDeIngestao("O arquivo já foi ingerido na wiki.", 409);
     }
 
-    const partes = caminhoRelativo.split("/");
-    const area = partes.length > 1 ? partes[0]! : "";
+    const areas = await areasDaWiki(this.wiki());
+    let area = "";
+    if (areaInformada !== undefined) {
+      if (areas.length && !areas.includes(areaInformada)) {
+        throw new ErroDeIngestao(`Escolha uma área da wiki: ${areas.join(", ")}.`, 400);
+      }
+      if (!areas.length && areaInformada !== "") {
+        throw new ErroDeIngestao("A wiki não tem áreas: envie a fonte sem área.", 400);
+      }
+      area = areaInformada;
+    } else {
+      const partes = caminhoRelativo.split("/");
+      const candidata = partes.length > 1 ? partes[0]! : "";
+      if (areas.includes(candidata)) {
+        area = candidata;
+      }
+    }
 
     return this.iniciarConversa(completo, area, infoStat.size);
   }
@@ -304,13 +319,30 @@ export class IngestaoNaInterface {
     await this.fases.get(id);
   }
 
-  async ler(id: string): Promise<Conversa> {
+  async ler(id: string, area?: string): Promise<Conversa> {
     this.reservar();
     try {
       const conversa = await this.exigir(id);
       if (this.encerrando) throw new ErroDeIngestao("A interface está encerrando.", 409);
       const podeLer = conversa.passo === "fonte" || (conversa.passo === "leitura" && conversa.situacao !== "rodando");
       if (!podeLer) throw new ErroDeIngestao("Esta ingestão já passou da leitura.", 409);
+
+      const wiki = this.wiki();
+      const areas = await areasDaWiki(wiki);
+      const areaDesejada = area ?? conversa.area;
+
+      if (areas.length > 0) {
+        if (!areas.includes(areaDesejada)) {
+          throw new ErroDeIngestao(`Escolha uma área da wiki: ${areas.join(", ")}.`, 400);
+        }
+        conversa.area = areaDesejada;
+      } else {
+        if (areaDesejada !== "") {
+          throw new ErroDeIngestao("A wiki não tem áreas: use o layout plano.", 400);
+        }
+        conversa.area = "";
+      }
+
       let bytes: number;
       try { bytes = (await stat(join(this.raiz, conversa.fonte))).size; }
       catch { throw new ErroDeIngestao(`A fonte ${conversa.fonte} não está mais em raw/.`, 409); }
@@ -327,7 +359,6 @@ export class IngestaoNaInterface {
         await this.salvar(conversa);
         throw new ErroDeIngestao("A interface está encerrando.", 409);
       }
-      const wiki = this.wiki();
       this.iniciar(conversa, { papel: "leitor", mensagem: mensagemDoLeitor(conversa, wiki), raiz: this.raiz, wiki, rota }, new Set(), fim => this.terminarLeitura(conversa, fim));
       return (await this.obter(id))!;
     } finally { this.liberarReserva(); }

@@ -30,9 +30,15 @@ export function Chat({ id, lacuna, estado, recarregarEstado, abrir, tema, altern
   const [takeaways, setTakeaways] = useState<boolean[]>([]);
   const [paginas, setPaginas] = useState<boolean[]>([]);
   const [comentario, setComentario] = useState("");
+  const [areaEscolhida, setAreaEscolhida] = useState("");
   const situacaoAnterior = useRef("");
   // O motivo de não ter começado (ex.: sem login) vem da tela de envio e aparece na conversa aberta.
   const avisoAoAbrir = useRef("");
+
+  const areas = estado?.areas ?? [];
+  useEffect(() => {
+    if (!areaEscolhida && areas.length > 0) setAreaEscolhida(areas[0]!);
+  }, [areaEscolhida, areas]);
 
   const carregar = useCallback(async (alvo: string) => {
     try { setConversa(await api<Conversa>(`/api/conversas/${alvo}`)); }
@@ -74,7 +80,10 @@ export function Chat({ id, lacuna, estado, recarregarEstado, abrir, tema, altern
     finally { setOcupado(false); }
   }, [id, carregar]);
 
-  const ler = () => conversa && agir(() => api<Conversa>(`/api/conversas/${conversa.id}/ler`, "POST"));
+  const ler = (area?: string) => conversa && agir(() => {
+    const areaParaEnvio = area ?? (conversa.area ? undefined : (areaEscolhida || areas[0]));
+    return api<Conversa>(`/api/conversas/${conversa.id}/ler`, "POST", areaParaEnvio ? { area: areaParaEnvio } : undefined);
+  });
   const cancelar = () => conversa && agir(() => api<Conversa>(`/api/conversas/${conversa.id}/cancelar`, "POST"));
   const seguir = () => conversa?.relatorio && agir(() => api<Conversa>(`/api/conversas/${conversa.id}/seguir`, "POST", {
     takeaways: takeaways.flatMap((marcado, i) => marcado ? [i] : []),
@@ -83,12 +92,13 @@ export function Chat({ id, lacuna, estado, recarregarEstado, abrir, tema, altern
   }));
 
   const acoes: AcoesDaConversa = {
-    aoLer: () => void ler(),
+    aoLer: area => void ler(area),
     aoCancelar: () => void cancelar(),
     aoSeguir: () => void seguir(),
     alternarTakeaway: indice => setTakeaways(atual => atual.map((v, j) => j === indice ? !v : v)),
     alternarPagina: indice => setPaginas(atual => atual.map((v, j) => j === indice ? !v : v)),
     mudarComentario: setComentario,
+    aoMudarArea: setAreaEscolhida,
   };
 
   return <main className="main chat-main">
@@ -105,7 +115,7 @@ export function Chat({ id, lacuna, estado, recarregarEstado, abrir, tema, altern
         <div className="thread-scroll">
           {erro && <div className="alert" role="alert">{erro}</div>}
           {!conversa ? (id ? <div className="loading">Abrindo a ingestão…</div> : <NovaIngestao lacuna={lacuna} estado={estado} aoCriar={async (criada, motivo) => { avisoAoAbrir.current = motivo ?? ""; await recarregarEstado(); abrir(criada.id); }} />)
-            : <ConversaDaIngestao conversa={conversa} agente={estado?.agente ?? "Agente"} ocupado={ocupado} takeaways={takeaways} paginas={paginas} comentario={comentario} acoes={acoes} />}
+            : <ConversaDaIngestao conversa={conversa} agente={estado?.agente ?? "Agente"} ocupado={ocupado} takeaways={takeaways} paginas={paginas} comentario={comentario} acoes={acoes} areas={areas} areaEscolhida={areaEscolhida} />}
         </div>
       </section>
       <PainelDaIngestao conversa={conversa} />

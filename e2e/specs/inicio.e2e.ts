@@ -189,3 +189,24 @@ test("[I5-12] Dado um arquivo em raw/ sem ingestão Quando clico em Ingerir no I
 
   expect(mesmaArvore(rawAntes, await instantaneo(vault.raw))).toBe(true);
 });
+
+test("[I5-13] Dado um arquivo em subpasta de captura (como raw/notas/) Quando clico em Ingerir no Início Então navega para o Chat e exibe seleção de área da wiki", async ({ page, app, vault }) => {
+  await vault.escrever("raw/notas/captura.md", "conteúdo da captura rápida");
+
+  await page.goto(app.url);
+  const cartao = page.getByRole("region", { name: "Em raw/, sem ingestão" });
+  await expect(cartao).toContainText("raw/notas/captura.md");
+
+  const deRaw = page.waitForResponse(resposta => resposta.url().includes("/api/conversas/de-raw") && resposta.request().method() === "POST");
+  await cartao.getByRole("button", { name: "Ingerir" }).click();
+  const respostaDeRaw = await deRaw;
+  expect(respostaDeRaw.status()).toBe(201);
+  const conversa = await respostaDeRaw.json() as { id: string; fonte: string; area: string };
+  expect(conversa.fonte).toBe("raw/notas/captura.md");
+  expect(conversa.area).toBe("");
+
+  await expect(page).toHaveURL(new RegExp(`#/chat/${conversa.id}$`));
+  await expect(page.getByRole("heading", { name: "Ingerir: captura.md", level: 1 })).toBeVisible();
+  await expect(page.getByLabel("Área")).toBeVisible();
+  await expect(page.getByRole("combobox")).toHaveValue("pessoal");
+});
