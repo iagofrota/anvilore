@@ -219,6 +219,9 @@ function decidirTerminalVerified(cmdTexto: string, isWindows: boolean): Decisao 
       if (!subcomando || !GIT_LEITURA.has(subcomando)) {
         return { acao: "bloquear", motivo: `git com subcomando de escrita (${subcomando ?? "nenhum"}) citando verified` };
       }
+      if (comando.slice(1).some(arg => arg === "--output" || arg.startsWith("--output=") || arg === "-o" || arg.startsWith("-o") || /^--(?:output|output-directory)(?:=|$)/.test(arg))) {
+        return { acao: "bloquear", motivo: "git com opção de saída em arquivo citando verified" };
+      }
       continue;
     }
 

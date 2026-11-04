@@ -48,6 +48,8 @@ describe("trava de verified nos quatro agentes", () => {
       `echo "verified:\\n  - by: human:fraude" >> wiki/a.md`,
       `echo "$(printf 'verified: human:ana\\n' >> wiki/a.md)"`,
       `echo "\`printf 'verified: human:ana\\n' >> wiki/a.md\`"`,
+      `git show --format='verified: human:ana' --output=wiki/a.md HEAD`,
+      `git diff --output wiki/a.md HEAD:verified.md`,
     ];
 
     for (const comando of comandos) {
