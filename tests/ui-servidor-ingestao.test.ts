@@ -302,6 +302,20 @@ test("Dado caminho com .., absoluto ou symlink para fora Quando POST /api/conver
   expect((await postar("/api/conversas/de-raw", { caminho: "raw/pessoal" })).status).toBe(400);
 });
 
+test("Dado caminho com metacaracteres de padrão (* ? [ ] { } !) ou backslash Quando POST /api/conversas/de-raw Então recusa com 400", async () => {
+  const { postar } = await servidor();
+  mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
+  const metacaracteres = ["*", "?", "[", "]", "{", "}", "!", "\\"];
+  for (const char of metacaracteres) {
+    const caminho = char === "\\" ? "raw/pessoal\\invertida.md" : `raw/pessoal/weird${char}.md`;
+    if (char !== "\\") {
+      writeFileSync(join(raiz, caminho), "conteudo literal");
+    }
+    const res = await postar("/api/conversas/de-raw", { caminho });
+    expect(res.status).toBe(400);
+  }
+});
+
 test("Dado arquivo inexistente em raw/ Quando POST /api/conversas/de-raw Então 404", async () => {
   const { postar } = await servidor();
   const res = await postar("/api/conversas/de-raw", { caminho: "raw/pessoal/nao-existe.md" });

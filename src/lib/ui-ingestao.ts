@@ -225,6 +225,9 @@ export class IngestaoNaInterface {
     if (typeof caminhoBruto !== "string" || !caminhoBruto.trim() || caminhoBruto.includes("\0")) {
       throw new ErroDeIngestao("Caminho inválido.", 400);
     }
+    if (/[*?[\]{}!\\]/.test(caminhoBruto)) {
+      throw new ErroDeIngestao("Caminho inválido: metacaracteres de padrão (*, ?, [, ], {, }, !) e barras invertidas não são permitidos.", 400);
+    }
     if (isAbsolute(caminhoBruto)) {
       throw new ErroDeIngestao("Caminho absoluto recusado.", 400);
     }

@@ -739,6 +739,20 @@ test("Dado caminhos inválidos (vazio, absoluto ou com ..) Quando crio conversa 
   }
 });
 
+test("Dado caminho em raw/ contendo metacaracteres de padrão (* ? [ ] { } !) ou backslash Quando crio conversa de-raw Então recusa com 400 mesmo que o arquivo literal exista", async () => {
+  const ingestao = servico(new PonteFalsa());
+  mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
+  const metacaracteres = ["*", "?", "[", "]", "{", "}", "!", "\\"];
+  for (const char of metacaracteres) {
+    const nome = `weird${char === "\\" ? "barra" : char}.md`;
+    if (char !== "\\") {
+      writeFileSync(join(raiz, "raw/pessoal", nome), "conteudo literal");
+    }
+    const caminho = char === "\\" ? "raw/pessoal\\invertida.md" : `raw/pessoal/${nome}`;
+    await expect(ingestao.criarDeRaw(caminho)).rejects.toMatchObject({ status: 400 });
+  }
+});
+
 test("Dado symlink apontando para fora de raw/ Quando crio conversa de-raw Então recusa com 400", async () => {
   const ingestao = servico(new PonteFalsa());
   mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
