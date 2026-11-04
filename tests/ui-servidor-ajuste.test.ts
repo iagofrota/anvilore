@@ -296,4 +296,56 @@ describe("Servidor UI — Pedir ajuste na Revisão", () => {
     const aprovarNova = await postar("/api/aprovar", { caminho: caminhoRelativo, versao: item!.versao });
     expect(aprovarNova.status).toBe(200);
   });
+
+  test("Dado um rascunho que já possui cópia de baseline de ingestão anterior Quando peço ajuste Então preserva a cópia de baseline original e não a substitui pelo rascunho intermediário", async () => {
+    const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
+    const conteudoBaseOriginal = "---\ngenerated:\n  by: claude/2.1\n  at: 2026-10-20T10:00:00-03:00\nverified:\n  - by: human:iago\n    at: 2026-10-20T11:00:00-03:00\n---\nVersão baseline antes da ingestão.";
+    const copiaOriginalDir = join(raiz, ".anvilore/ui/copias/ingestao-antiga", "pessoal/concepts");
+    mkdirSync(copiaOriginalDir, { recursive: true });
+    writeFileSync(join(copiaOriginalDir, "segundo-cerebro.md"), conteudoBaseOriginal);
+
+    // Rascunho intermediário pendente na wiki após ingestão
+    const rascunhoIntermediario = "---\ngenerated:\n  by: claude/2.1\n  at: 2026-11-01T20:00:00-03:00\nverified:\n  - by: human:iago\n    at: 2026-10-20T11:00:00-03:00\n---\nPrimeiro rascunho gerado aguardando revisão.";
+    writeFileSync(join(raiz, "wiki", caminhoRelativo), rascunhoIntermediario);
+    const versaoIntermediaria = createHash("sha256").update(rascunhoIntermediario).digest("hex");
+
+    const ponte = new PonteFalsa({
+      escritor: async (_pedido, aoEvento) => {
+        aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-haiku/2.1.311" });
+        aoEvento({ tipo: "ferramenta", id: "w1", nome: "Edit", caminho: join(raiz, "wiki", caminhoRelativo) });
+        const conteudoAjustado = "---\ngenerated:\n  by: claude/2.1\n  at: 2026-11-01T21:00:00-03:00\nverified:\n  - by: human:iago\n    at: 2026-10-20T11:00:00-03:00\n---\nSegundo rascunho ajustado.";
+        writeFileSync(join(raiz, "wiki", caminhoRelativo), conteudoAjustado);
+        aoEvento({ tipo: "resultado-ferramenta", id: "w1", erro: false, texto: "Editado" });
+        return { situacao: "concluida", sessao: SESSAO, texto: "Ajuste feito", recusas: [] };
+      },
+    });
+
+    const { postar, chamar } = await subirServidor(ponte);
+
+    const res = await postar("/api/ajuste", {
+      caminho: caminhoRelativo,
+      versao: versaoIntermediaria,
+      pedido: "Ajustar texto",
+    });
+    expect(res.status).toBe(201);
+    const { id } = (await res.json()) as { id: string };
+
+    let conversa: Conversa | undefined;
+    for (let i = 0; i < 20; i++) {
+      conversa = (await (await chamar(`/api/conversas/${id}`)).json()) as Conversa;
+      if (conversa.situacao === "concluida") break;
+      await new Promise(r => setTimeout(r, 50));
+    }
+    expect(conversa?.situacao).toBe("concluida");
+
+    // Verifica que a cópia de ajuste NÃO foi criada para não sobrescrever a linha de base
+    const copiaAjuste = join(raiz, ".anvilore/ui/copias", id, caminhoRelativo);
+    expect(existsSync(copiaAjuste)).toBe(false);
+
+    // Consulta rascunhos e confere que 'anterior' continua sendo o baseline original pré-ingestão
+    const filaRes = await chamar("/api/rascunhos");
+    const fila = (await filaRes.json()) as Array<{ caminho: string; anterior?: string }>;
+    const item = fila.find(r => r.caminho === caminhoRelativo);
+    expect(item?.anterior).toBe(conteudoBaseOriginal);
+  });
 });

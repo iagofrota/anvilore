@@ -12,6 +12,7 @@ import type { EventoDoAgente, ExecucaoDeFase, FimDaFase, PedidoDeFase, PonteDeAg
 import { extrairJson, type RelatorioLeitor } from "./relatorio-leitor";
 import { areasDaWiki, ErroDeFonte, salvarFonte } from "./ui-fonte";
 import { fontesCitadas } from "./ui-inicio";
+import { caminhoDaCopia } from "./ui-fila";
 import { caminhoWiki } from "./wiki-repo";
 
 // A ingestão pela interface, sem HTTP: o servidor orquestra o que a skill faz numa conversa.
@@ -484,10 +485,13 @@ export class IngestaoNaInterface {
       const carimbo = isoComOffset(agora).slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
       const id = `${carimbo}-${randomBytes(3).toString("hex")}`;
 
-      // A linha de base da aba Mudanças: a cópia da página fora do git antes da escrita.
-      const copia = join(this.raiz, ".anvilore/ui/copias", id, dados.caminho);
-      await mkdir(dirname(copia), { recursive: true });
-      await writeFile(copia, conteudo);
+      // A linha de base da aba Mudanças: preserva a cópia original da página fora do git antes da primeira escrita
+      const copiaExistente = await caminhoDaCopia(this.raiz, dados.caminho);
+      if (!copiaExistente) {
+        const copia = join(this.raiz, ".anvilore/ui/copias", id, dados.caminho);
+        await mkdir(dirname(copia), { recursive: true });
+        await writeFile(copia, conteudo);
+      }
 
       const conversa: Conversa = {
         versao: 1,

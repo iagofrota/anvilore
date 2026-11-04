@@ -177,6 +177,11 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
   const filtrados = useMemo(() => (itens ?? []).filter(item => filtro === "Todas" || (filtro === "Novas" ? item.status === "nova" : item.status === "atualizada")), [itens, filtro]);
   const item = filtrados.find(candidato => candidato.caminho === selecionado) ?? filtrados[0];
 
+  useEffect(() => {
+    setAjusteAberto(false);
+    setTextoAjuste("");
+  }, [item?.caminho]);
+
   const aprovar = useCallback(async () => {
     if (!item?.aprovavel || salvando) return;
     setSalvando(true);
@@ -234,7 +239,7 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
         <div><h1>Revisão</h1><span className="subhead">{pendentes ? `${pendentes} aguardando você` : itens === null ? "Lendo a wiki…" : "nada pendente"}</span></div>
         <div className="top-actions">
           <div className="segmented" role="group" aria-label="Filtrar rascunhos">
-            {(["Todas", "Novas", "Atualizadas"] as Filtro[]).map(opcao => <button key={opcao} className={filtro === opcao ? "selected" : ""} aria-pressed={filtro === opcao} onClick={() => setFiltro(opcao)}>{opcao}</button>)}
+            {(["Todas", "Novas", "Atualizadas"] as Filtro[]).map(opcao => <button key={opcao} className={filtro === opcao ? "selected" : ""} aria-pressed={filtro === opcao} onClick={() => { setFiltro(opcao); setAjusteAberto(false); setTextoAjuste(""); }}>{opcao}</button>)}
           </div>
           <button className="icon-button" title="Alternar tema" aria-label="Alternar tema claro ou escuro" onClick={alternarTema}>{tema === "claro" ? "◐" : "☼"}</button>
         </div>

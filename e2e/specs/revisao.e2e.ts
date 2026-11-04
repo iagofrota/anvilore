@@ -128,3 +128,29 @@ test("[C23-Ajuste] Dado um rascunho na Revisão Quando peço ajuste com R, escre
   await expect(page.getByRole("option")).toHaveCount(1);
   await expect(page.getByRole("region", { name: "Pré-visualização do rascunho" })).toContainText("Texto ajustado pelo escritor conforme o pedido.");
 });
+
+test("[C24-Ajuste-Filtro] Dado um rascunho com campo de ajuste aberto e texto digitado Quando alterno o filtro Então o campo é fechado e limpo sem vazar o pedido para outra página", async ({ page, app, vault }) => {
+  await vault.escrever("wiki/pessoal/concepts/nova.md", paginaGerada("nova", "Texto da nova página"));
+  await vault.escrever("wiki/pessoal/concepts/atualizada.md", paginaAtualizada("atualizada", "Texto da página atualizada"));
+
+  await page.goto(`${app.base}/?token=${encodeURIComponent(app.token)}#/revisao`);
+  await expect(page.getByRole("option")).toHaveCount(2);
+
+  // Abre ajuste na primeira página com R e digita texto
+  await page.keyboard.press("r");
+  await expect(page.locator(".adjustment-box")).toBeVisible();
+  await page.getByLabel("O que o agente deve mudar nesta página?").fill("Instrução específica para a primeira página.");
+
+  // Alterna o filtro para "Atualizadas"
+  await page.getByRole("button", { name: "Atualizadas" }).click();
+  await expect(page.getByRole("option")).toHaveCount(1);
+  await expect(page.getByRole("option").first()).toContainText("atualizada");
+
+  // O campo de ajuste foi fechado
+  await expect(page.locator(".adjustment-box")).not.toBeVisible();
+
+  // Ao reabrir com R na nova página selecionada, o campo está vazio (não vazou o texto anterior)
+  await page.keyboard.press("r");
+  await expect(page.locator(".adjustment-box")).toBeVisible();
+  await expect(page.getByLabel("O que o agente deve mudar nesta página?")).toHaveValue("");
+});
