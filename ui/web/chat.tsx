@@ -81,7 +81,8 @@ export function Chat({ id, lacuna, estado, recarregarEstado, abrir, tema, altern
   }, [id, carregar]);
 
   const ler = (area?: string) => conversa && agir(() => {
-    const areaParaEnvio = area ?? (conversa.area ? undefined : (areaEscolhida || areas[0]));
+    const areaValida = typeof area === "string" ? area : undefined;
+    const areaParaEnvio = areaValida ?? (conversa.area ? undefined : (areaEscolhida || areas[0]));
     return api<Conversa>(`/api/conversas/${conversa.id}/ler`, "POST", areaParaEnvio ? { area: areaParaEnvio } : undefined);
   });
   const cancelar = () => conversa && agir(() => api<Conversa>(`/api/conversas/${conversa.id}/cancelar`, "POST"));
@@ -92,7 +93,7 @@ export function Chat({ id, lacuna, estado, recarregarEstado, abrir, tema, altern
   }));
 
   const acoes: AcoesDaConversa = {
-    aoLer: area => void ler(area),
+    aoLer: area => void ler(typeof area === "string" ? area : undefined),
     aoCancelar: () => void cancelar(),
     aoSeguir: () => void seguir(),
     alternarTakeaway: indice => setTakeaways(atual => atual.map((v, j) => j === indice ? !v : v)),

@@ -62,7 +62,7 @@ export function ConversaDaIngestao({
     </div>}
     {conversa.passo !== "fonte" && <Mensagem autor={agente} agente>
       <Leituras itens={conversa.atividade.filter(a => a.papel === "leitor")} />
-      {conversa.passo === "leitura" && <EstadoDaFase conversa={conversa} ocupado={ocupado} aoCancelar={acoes.aoCancelar} aoLerDeNovo={acoes.aoLer} />}
+      {conversa.passo === "leitura" && <EstadoDaFase conversa={conversa} ocupado={ocupado} aoCancelar={acoes.aoCancelar} aoLerDeNovo={() => acoes.aoLer()} />}
       {conversa.relatorio && <>
         <p>Li a fonte inteira. Estes são os pontos principais, cada um com o trecho que o sustenta. {naParada ? "Desmarque o que não deve entrar na wiki:" : ""}</p>
         {conversa.avisos.map(aviso => <div className="review-warning inline" role="note" key={aviso}>{aviso}</div>)}

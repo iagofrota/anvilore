@@ -150,6 +150,16 @@ test("Dado o leitor recusado pelo portão Quando a tela monta Então o erro e as
   expect(chamadas).toEqual(["ler"]);
 });
 
+test("Dado o leitor com erro Quando o botão Ler de novo recebe evento de clique Então chama a leitura sem passar o evento como área", () => {
+  const { arvore, chamadas } = montar(conversa({
+    passo: "leitura", situacao: "erro", erro: "Falha.",
+    atividade: [{ id: "r1", papel: "leitor", verbo: "Leu", alvo: "raw/pessoal/llm-wiki.md", estado: "ok" }],
+  }));
+  const eventoSimulado = { preventDefault: () => {}, target: {} };
+  (botao(arvore, "Ler de novo")!.props.onClick as (e: unknown) => void)(eventoSimulado);
+  expect(chamadas).toEqual(["ler"]);
+});
+
 test("Dado a fonte em raw/ ainda sem leitura Quando a tela monta Então mostra o arquivo salvo e Ingerir chama a leitura", () => {
   const { html, arvore, chamadas } = montar(conversa({}));
   expect(html).toContain("Ingere esta fonte na área pessoal.");
