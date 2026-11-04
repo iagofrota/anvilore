@@ -5,6 +5,8 @@ import { api } from "./api";
 import { Biblioteca } from "./biblioteca";
 import { Chat, type EstadoDaIngestao } from "./chat";
 import { Inicio } from "./inicio";
+import { Onboarding } from "./onboarding";
+import type { EstadoOnboarding } from "../../src/lib/ui-onboarding";
 import { lerRota } from "./navegacao";
 import { Nota } from "./nota";
 import { diffLinhas, ErroApi, indiceVizinho } from "./revisao";
@@ -26,8 +28,25 @@ function Aplicacao() {
   const [rota, setRota] = useState(() => lerRota(window.location.hash));
   const [tema, setTema] = useState<Tema>(() => localStorage.getItem("anvilore-tema") === "escuro" ? "escuro" : "claro");
   const [estado, setEstado] = useState<EstadoDaIngestao | null>(null);
+  const [dadosOnboarding, setDadosOnboarding] = useState<EstadoOnboarding | null>(null);
   const [operandoAtualizador, setOperandoAtualizador] = useState(false);
   const [mensagemAtualizador, setMensagemAtualizador] = useState("");
+
+  const carregarOnboarding = useCallback(async () => {
+    try {
+      const dados = await api<EstadoOnboarding>("/api/onboarding");
+      setDadosOnboarding(dados);
+      const hash = window.location.hash;
+      if (dados.precisaOnboarding && (hash === "" || hash === "#" || hash === "#/" || hash === "#/inicio")) {
+        window.location.hash = "#/onboarding/1";
+      } else if (!dados.precisaOnboarding && hash.startsWith("#/onboarding")) {
+        window.location.hash = "#/inicio";
+      }
+    } catch {
+      /* se falhar api, prossegue */
+    }
+  }, []);
+  useEffect(() => { void carregarOnboarding(); }, [carregarOnboarding]);
 
   useEffect(() => {
     const mudou = () => setRota(lerRota(window.location.hash));
@@ -60,6 +79,10 @@ function Aplicacao() {
   const alternarTema = useCallback(() => setTema(atual => atual === "claro" ? "escuro" : "claro"), []);
 
   const atualizador = estado?.atualizador && <PainelDoAtualizador atualizador={estado.atualizador} mensagem={mensagemAtualizador} operando={operandoAtualizador} acionar={acionarAtualizador} />;
+  if (rota.tela === "onboarding" && dadosOnboarding) {
+    return <Onboarding passo={rota.passo ?? 1} tema={tema} alternarTema={alternarTema} dados={dadosOnboarding} aoAtualizar={carregarOnboarding} />;
+  }
+
   return <Shell rota={rota} conversas={estado?.conversas ?? []} agente={estado?.agente ?? "Agente"} aviso={atualizador}>
     {rota.tela === "revisao" ? <Revisao tema={tema} alternarTema={alternarTema} />
       : rota.tela === "chat" ? <Chat id={rota.id} lacuna={rota.lacuna} estado={estado} recarregarEstado={recarregarEstado} abrir={abrir} tema={tema} alternarTema={alternarTema} />

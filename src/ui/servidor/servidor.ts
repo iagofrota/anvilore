@@ -14,6 +14,14 @@ import { listarBiblioteca } from "../../lib/ui-biblioteca";
 import { ErroDeCaminhoInvalido, obterNota } from "../../lib/ui-nota";
 import { caminhoWiki } from "../../lib/wiki-repo";
 import { atualizar } from "../../lib/atualizacao";
+import { diagnosticar } from "../../comandos/doctor";
+import {
+  concluirOnboarding,
+  estadoOnboarding,
+  inicializarAreasOnboarding,
+  inspecionarPasta,
+  validarPastaVault,
+} from "../../lib/ui-onboarding";
 
 type Servidor = ReturnType<typeof Bun.serve>;
 type OpcoesServidor = {
@@ -227,6 +235,59 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
             try {
               return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas: await ingestao.listar(), atualizador: await estadoAtualizador(raiz) });
             } catch (erro) { return erroDaIngestao(erro); }
+          }
+          if (url.pathname === "/api/onboarding" && request.method === "GET") {
+            const estado = await estadoOnboarding(raiz);
+            try {
+              const diag = await diagnosticar(raiz);
+              estado.agente.travas = diag.travas.map(t => ({ nome: t.nome, ligada: t.ligada, opcional: t.opcional, detalhe: t.detalhe }));
+            } catch { /* doctor indisponível: mantém valores padrão */ }
+            return json(estado);
+          }
+          if (url.pathname === "/api/onboarding/pasta" && request.method === "POST") {
+            let corpo: { pasta?: unknown };
+            try { corpo = await request.json() as { pasta?: unknown }; } catch { return json({ erro: "Pedido inválido." }, 400); }
+            if (typeof corpo.pasta !== "string") return json({ erro: "Caminho da pasta obrigatório." }, 400);
+            try {
+              const pastaValida = validarPastaVault(corpo.pasta);
+              const inspecao = await inspecionarPasta(pastaValida);
+              return json({ ok: true, pasta: pastaValida, inspecao });
+            } catch (erro) {
+              return json({ erro: (erro as Error).message }, 400);
+            }
+          }
+          if (url.pathname === "/api/onboarding/testar-agente" && request.method === "POST") {
+            try {
+              const ponte = opcoes.ponte ?? new PonteClaudeCode();
+              const disp = await ponte.disponibilidade();
+              if (disp.ok) {
+                return json({ ok: true, mensagem: "O Claude Code respondeu e leu AGENTS.md." });
+              }
+              return json({ ok: false, mensagem: disp.motivo });
+            } catch (erro) {
+              return json({ ok: false, mensagem: (erro as Error).message });
+            }
+          }
+          if (url.pathname === "/api/onboarding/areas" && request.method === "POST") {
+            let corpo: { areas?: unknown; removerExemplo?: unknown };
+            try { corpo = await request.json() as { areas?: unknown; removerExemplo?: unknown }; } catch { return json({ erro: "Pedido inválido." }, 400); }
+            if (!Array.isArray(corpo.areas) || corpo.areas.length === 0 || !corpo.areas.every(a => typeof a === "string")) {
+              return json({ erro: "Lista de áreas inválida." }, 400);
+            }
+            try {
+              const resultado = await inicializarAreasOnboarding(raiz, corpo.areas as string[], { removerExemplo: Boolean(corpo.removerExemplo) });
+              return json({ ok: true, ...resultado });
+            } catch (erro) {
+              return json({ erro: (erro as Error).message }, 400);
+            }
+          }
+          if (url.pathname === "/api/onboarding/concluir" && request.method === "POST") {
+            try {
+              await concluirOnboarding(raiz);
+              return json({ ok: true });
+            } catch (erro) {
+              return json({ erro: (erro as Error).message }, 500);
+            }
           }
           if (url.pathname === "/api/atualizador" && request.method === "POST") {
             let corpo: { acao?: unknown };
