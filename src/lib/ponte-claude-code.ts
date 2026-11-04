@@ -88,7 +88,12 @@ export function interpretarLinha(bruta: string): { eventos: EventoDoAgente[]; re
 // A regra de caminho absoluto do Claude Code: duas barras seguidas do caminho sem a barra inicial.
 // `Edit` vale para Edit e Write (provado); `Read` vale para Read, Grep e Glob (não provado com o
 // claude real). No Windows a forma `//C:/…` não foi provada.
+const METACARACTERES_DE_PADRAO = /[*?[\]{}!]/;
+
 function regraDeCaminho(ferramenta: "Edit" | "Read", caminhoAbsoluto: string): string {
+  if (METACARACTERES_DE_PADRAO.test(caminhoAbsoluto) || (caminhoAbsoluto.startsWith("/") && caminhoAbsoluto.includes("\\"))) {
+    throw new Error(`Caminho não pode conter metacaracteres de padrão: ${caminhoAbsoluto}`);
+  }
   const normalizado = caminhoAbsoluto.replaceAll("\\", "/").replace(/\/+$/, "").replace(/^\/+/, "");
   if (normalizado.endsWith(".md")) return `${ferramenta}(//${normalizado})`;
   return `${ferramenta}(//${normalizado}/**)`;

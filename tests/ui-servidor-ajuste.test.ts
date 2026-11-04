@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { iniciarServidorUi } from "../src/ui/servidor/servidor";
 import { PonteFalsa } from "./apoio/ponte-falsa";
 import { SESSAO } from "./apoio/eventos-claude";
+import { argumentosDoPapel } from "../src/lib/ponte-claude-code";
 import type { Conversa } from "../src/lib/ui-ingestao";
 
 let raiz: string;
@@ -157,7 +158,7 @@ describe("Servidor UI — Pedir ajuste na Revisão", () => {
     expect(corpo.mensagens[0]).toContain("A página mudou desde que você abriu");
   });
 
-  test("Dado uma tentativa do escritor de editar outra página durante o ajuste Quando ele tenta Então a operação é negada e registrada como recusa", async () => {
+  test("Dado uma recusa emitida pela ferramenta durante o ajuste Quando a conversa é atualizada Então registra o evento no histórico de atividade e na lista de recusas", async () => {
     const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
     const conteudoInicial = "---\ngenerated:\n  by: claude/2.1\n  at: 2026-10-26T14:35:00-03:00\n---\nCorpo\n";
     writeFileSync(join(raiz, "wiki", caminhoRelativo), conteudoInicial);
@@ -198,6 +199,134 @@ describe("Servidor UI — Pedir ajuste na Revisão", () => {
     expect(conversa?.recusas.length).toBeGreaterThan(0);
     expect(conversa?.recusas[0]?.caminho).toContain("outra.md");
     expect(conversa?.atividade.some(a => a.verbo === "Recusado" && a.alvo.includes("outra.md"))).toBe(true);
+  });
+
+  test("Dado um pedido de ajuste na Revisão Quando o escritor é disparado Então os argumentos do processo restringem a edição estritamente à página alvo e não incluem padrões amplos nem resume", async () => {
+    const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
+    const conteudoInicial = "---\ngenerated:\n  by: claude/2.1\n  at: 2026-10-26T14:35:00-03:00\n---\nCorpo\n";
+    writeFileSync(join(raiz, "wiki", caminhoRelativo), conteudoInicial);
+    const versao = createHash("sha256").update(conteudoInicial).digest("hex");
+
+    const ponte = new PonteFalsa();
+    const { postar, chamar } = await subirServidor(ponte);
+
+    const res = await postar("/api/ajuste", {
+      caminho: caminhoRelativo,
+      versao,
+      pedido: "Ajuste estrito",
+    });
+    expect(res.status).toBe(201);
+    const { id } = (await res.json()) as { id: string };
+
+    let conversa: Conversa | undefined;
+    for (let i = 0; i < 20; i++) {
+      conversa = (await (await chamar(`/api/conversas/${id}`)).json()) as Conversa;
+      if (conversa.situacao === "concluida") break;
+      await new Promise(r => setTimeout(r, 50));
+    }
+
+    expect(ponte.pedidos.length).toBe(1);
+    const pedido = ponte.pedidos[0]!;
+    expect(pedido.papel).toBe("escritor");
+    expect(pedido.pagina).toBe(caminhoRelativo);
+
+    const args = argumentosDoPapel(pedido);
+    const inicioAllowed = args.indexOf("--allowedTools") + 1;
+    const fimAllowed = args.findIndex((arg, i) => i >= inicioAllowed && arg.startsWith("--"));
+    const allowed = args.slice(inicioAllowed, fimAllowed < 0 ? undefined : fimAllowed);
+    const edits = allowed.filter(x => x.startsWith("Edit("));
+
+    // Apenas uma regra Edit para o arquivo exato
+    expect(edits).toEqual([`Edit(//${raiz.replaceAll("\\", "/").replace(/^\/+/, "")}/wiki/${caminhoRelativo})`]);
+    // Sem padrão glob amplo
+    expect(allowed.some(x => x.includes("*") && x.startsWith("Edit"))).toBe(false);
+    // Sem resume
+    expect(args).not.toContain("--resume");
+  });
+
+  test("Dado um pedido de ajuste para caminho contendo metacaracteres de glob ou backslash Quando envio Então a API recusa com 400", async () => {
+    const { postar } = await subirServidor();
+    const caracteres = ["*", "?", "[", "]", "{", "}", "!", "\\"];
+    for (const char of caracteres) {
+      const caminho = `pessoal/concepts/nota-${char}.md`;
+      const res = await postar("/api/ajuste", {
+        caminho,
+        versao: "a".repeat(64),
+        pedido: "Ajuste com metacaractere",
+      });
+      expect(res.status).toBe(400);
+    }
+  });
+
+  test("Dado links simbólicos apontando para raw, fora da wiki ou outra página Quando envio ajuste Então a API recusa com 400 e arquivos sentinela permanecem intactos", async () => {
+    // 1. Arquivo alvo legítimo e sentinela em raw
+    const conteudoRaw = "DADO BRUTO EM RAW - SENTINELA";
+    const rawArquivo = join(raiz, "raw/pessoal/fonte.md");
+    writeFileSync(rawArquivo, conteudoRaw);
+
+    // 2. Arquivo sentinela fora da wiki
+    const foraDir = join(raiz, "fora");
+    mkdirSync(foraDir, { recursive: true });
+    const foraArquivo = join(foraDir, "segredo.md");
+    writeFileSync(foraArquivo, "SEGREDO FORA DA WIKI - SENTINELA");
+
+    // 3. Outra página legítima na wiki
+    const outraArquivo = join(raiz, "wiki/pessoal/concepts/outra.md");
+    const conteudoOutra = "---\ngenerated:\n  by: test/1.0\n  at: 2026-11-01T10:00:00-03:00\n---\nOutra página - SENTINELA";
+    writeFileSync(outraArquivo, conteudoOutra);
+
+    // 4. Cria symlinks na wiki:
+    // a) symlink de arquivo apontando para raw
+    const symlinkRaw = join(raiz, "wiki/pessoal/concepts/alias-raw.md");
+    symlinkSync(rawArquivo, symlinkRaw);
+
+    // b) symlink de arquivo apontando para fora da wiki
+    const symlinkFora = join(raiz, "wiki/pessoal/concepts/alias-fora.md");
+    symlinkSync(foraArquivo, symlinkFora);
+
+    // c) symlink de diretório apontando para fora da wiki
+    const symlinkDirFora = join(raiz, "wiki/dir-fora");
+    symlinkSync(foraDir, symlinkDirFora);
+
+    // d) symlink de arquivo apontando para outra página dentro da wiki
+    const symlinkOutra = join(raiz, "wiki/pessoal/concepts/alias-outra.md");
+    symlinkSync(outraArquivo, symlinkOutra);
+
+    const hashRaw = createHash("sha256").update(conteudoRaw).digest("hex");
+    const hashFora = createHash("sha256").update("SEGREDO FORA DA WIKI - SENTINELA").digest("hex");
+    const hashOutra = createHash("sha256").update(conteudoOutra).digest("hex");
+
+    const ponte = new PonteFalsa({
+      escritor: async () => {
+        throw new Error("Ponte não deveria ter sido executada para symlink!");
+      },
+    });
+
+    const { postar } = await subirServidor(ponte);
+
+    // Tentativa 1: symlink para raw
+    const resRaw = await postar("/api/ajuste", { caminho: "pessoal/concepts/alias-raw.md", versao: hashRaw, pedido: "Ataque raw" });
+    expect(resRaw.status).toBe(400);
+
+    // Tentativa 2: symlink para fora
+    const resFora = await postar("/api/ajuste", { caminho: "pessoal/concepts/alias-fora.md", versao: hashFora, pedido: "Ataque fora" });
+    expect(resFora.status).toBe(400);
+
+    // Tentativa 3: symlink de diretório para fora
+    const resDirFora = await postar("/api/ajuste", { caminho: "dir-fora/segredo.md", versao: hashFora, pedido: "Ataque dir fora" });
+    expect(resDirFora.status).toBe(400);
+
+    // Tentativa 4: symlink para outra página
+    const resOutra = await postar("/api/ajuste", { caminho: "pessoal/concepts/alias-outra.md", versao: hashOutra, pedido: "Ataque outra" });
+    expect(resOutra.status).toBe(400);
+
+    // Confere que zero execuções da ponte ocorreram
+    expect(ponte.pedidos.length).toBe(0);
+
+    // Confere por arquivos sentinela que os bytes NÃO mudaram
+    expect(readFileSync(rawArquivo, "utf8")).toBe(conteudoRaw);
+    expect(readFileSync(foraArquivo, "utf8")).toBe("SEGREDO FORA DA WIKI - SENTINELA");
+    expect(readFileSync(outraArquivo, "utf8")).toBe(conteudoOutra);
   });
 
   test("Dado um pedido de ajuste para caminho fora da wiki Quando envio Então a API recusa com 400", async () => {

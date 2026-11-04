@@ -13,6 +13,13 @@ describe("Ponte Claude Code — Ajuste restrito a uma página", () => {
     expect(regraDeEdicao("C:\\v\\wiki\\pessoal\\concepts\\segundo-cerebro.md")).toBe("Edit(//C:/v/wiki/pessoal/concepts/segundo-cerebro.md)");
   });
 
+  test("Dado um caminho contendo metacaracteres de glob Quando tento gerar regra de edição Então lança erro como defesa em profundidade", () => {
+    for (const char of ["*", "?", "[", "]", "{", "}", "!"]) {
+      expect(() => regraDeEdicao(`/v/wiki/pessoal/concepts/nota-${char}.md`)).toThrow(/metacaractere/i);
+    }
+    expect(() => regraDeEdicao("/v/wiki/pessoal/concepts/nota\\invalida.md")).toThrow(/metacaractere/i);
+  });
+
   test("Dado o escritor de ajuste com página definida Quando monto os argumentos Então não exige sessão e restringe edição só àquela página", () => {
     const args = argumentosDoPapel({
       papel: "escritor",

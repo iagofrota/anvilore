@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { conferirArquivoDeLeitura } from "../comandos/conferir-leitura";
 import { caminhoReal, dentroDe } from "./caminhos";
@@ -449,8 +449,12 @@ export class IngestaoNaInterface {
     if (typeof dados?.caminho !== "string" || !dados.caminho.endsWith(".md") || isAbsolute(dados.caminho)) {
       throw new ErroDeIngestao("Página inválida.", 400);
     }
-    const partes = dados.caminho.split(/[\\/]/);
-    if (partes.includes("..") || partes.includes(".")) {
+    // Não permite metacaracteres de glob ou backslash (P1)
+    if (/[*?[\]{}!\\]/.test(dados.caminho)) {
+      throw new ErroDeIngestao("Caminho inválido.", 400);
+    }
+    const partes = dados.caminho.split("/");
+    if (partes.some(p => !p || p === "." || p === "..")) {
       throw new ErroDeIngestao("Caminho inválido.", 400);
     }
     if (typeof dados?.versao !== "string" || !/^[a-f0-9]{64}$/.test(dados.versao)) {
@@ -461,6 +465,41 @@ export class IngestaoNaInterface {
     const arquivoPagina = resolve(wiki, dados.caminho);
     if (dentro(arquivoPagina, wiki) === undefined) {
       throw new ErroDeIngestao("Página fora da wiki.", 400);
+    }
+
+    // Validação de caminho real e symlinks (P2)
+    let cursor = wiki;
+    for (const segmento of partes) {
+      cursor = join(cursor, segmento);
+      try {
+        const stSegmento = await lstat(cursor);
+        if (stSegmento.isSymbolicLink()) {
+          throw new ErroDeIngestao("Caminho não pode conter links simbólicos.", 400);
+        }
+      } catch (erro) {
+        if (erro instanceof ErroDeIngestao) throw erro;
+        const codigo = (erro as NodeJS.ErrnoException).code;
+        if (codigo === "ENOENT") throw new ErroDeIngestao("Página não encontrada na wiki.", 404);
+        throw erro;
+      }
+    }
+
+    let wikiReal: string;
+    let caminhoReal: string;
+    try {
+      [wikiReal, caminhoReal] = await Promise.all([
+        realpath(wiki),
+        realpath(arquivoPagina),
+      ]);
+    } catch (erro) {
+      const codigo = (erro as NodeJS.ErrnoException).code;
+      if (codigo === "ENOENT") throw new ErroDeIngestao("Página não encontrada na wiki.", 404);
+      throw erro;
+    }
+
+    const relReal = relative(wikiReal, caminhoReal).split(sep).join("/");
+    if (relReal === ".." || relReal.startsWith("../") || isAbsolute(relReal) || relReal !== dados.caminho) {
+      throw new ErroDeIngestao("Página fora da wiki ou inválida.", 400);
     }
 
     let conteudo: string;
