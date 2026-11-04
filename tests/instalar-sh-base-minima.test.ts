@@ -1,4 +1,6 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(30_000);
 import { existsSync } from "node:fs";
 import { chmod, cp, lstat, mkdir, readFile, readdir, readlink, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";

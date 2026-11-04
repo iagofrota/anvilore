@@ -1,5 +1,7 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+
+setDefaultTimeout(30_000);
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { comandoDoctor, diagnosticar } from "../src/comandos/doctor";

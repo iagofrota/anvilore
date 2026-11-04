@@ -38,21 +38,37 @@ function ponteCom(roteiro: RoteiroDoFalso, extra: { prazoDoSinalMs?: number } = 
 function esperarArquivo(caminho: string): Promise<void> {
   if (existsSync(caminho)) return Promise.resolve();
   return new Promise(resolveEspera => {
-    try {
-      const watcher = watch(dirname(caminho), (_evento, nome) => {
-        if ((!nome || nome.toString() === caminho.split(/[\\/]/).at(-1)) && existsSync(caminho)) {
-          watcher.close();
+    let resolvido = false;
+    let watcher: ReturnType<typeof watch> | undefined;
+    const interval = setInterval(() => {
+      if (existsSync(caminho)) {
+        if (!resolvido) {
+          resolvido = true;
+          clearInterval(interval);
+          watcher?.close();
           resolveEspera();
+        }
+      }
+    }, 10);
+    try {
+      watcher = watch(dirname(caminho), (_evento, nome) => {
+        if ((!nome || nome.toString() === caminho.split(/[\\/]/).at(-1)) && existsSync(caminho)) {
+          if (!resolvido) {
+            resolvido = true;
+            clearInterval(interval);
+            watcher?.close();
+            resolveEspera();
+          }
         }
       });
-      if (existsSync(caminho)) { watcher.close(); resolveEspera(); }
     } catch {
-      const timer = setInterval(() => {
-        if (existsSync(caminho)) {
-          clearInterval(timer);
-          resolveEspera();
-        }
-      }, 10);
+      // Se watch falhar por escassez de inotify (EMFILE), o intervalo resolve
+    }
+    if (existsSync(caminho) && !resolvido) {
+      resolvido = true;
+      clearInterval(interval);
+      watcher?.close();
+      resolveEspera();
     }
   });
 }
