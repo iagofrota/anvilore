@@ -92,14 +92,34 @@ avisar() { printf 'Aviso: %s\n' "$*"; registrar "AVISO: $*"; AVISOS="${AVISOS}${
 }$*"; }
 
 iniciar_registro() {
+  case "${TMPDIR:-}" in ""|/*) ;; *) TMPDIR="$PWD/$TMPDIR" ;; esac
   case "${ANVILORE_ORIGEM:-}" in
     ""|*://*|/*) ;;
     *) ANVILORE_ORIGEM="$PWD/$ANVILORE_ORIGEM" ;;
   esac
   TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/anvilore-instalar.XXXXXX") || { echo "Erro: não consegui criar uma pasta temporária." >&2; exit 1; }
+  case "$TMP_DIR" in /*) ;; *) TMP_DIR="$PWD/$TMP_DIR" ;; esac
   LOG="$TMP_DIR/instalacao.log"
   : >"$LOG"
   registrar "início: instalar.sh (uid $(id -u), $(uname -s) $(uname -m))"
+}
+
+# Obtém diretório neutro para invocar o Bun com cwd controlado (isolado de bunfig.toml do cwd do usuário).
+pasta_neutra_obter() {
+  if [ -n "${TMP_DIR:-}" ] && [ -d "$TMP_DIR" ]; then
+    printf '%s' "$TMP_DIR"
+    return 0
+  fi
+  local base="${TMPDIR:-/tmp}"
+  case "$base" in /*) ;; *) base="$PWD/$base" ;; esac
+  mktemp -d "$base/anvilore-instalar.XXXXXX"
+}
+
+pasta_neutra_limpar() {
+  local pasta="$1"
+  if [ -n "$pasta" ] && [ "$pasta" != "${TMP_DIR:-}" ] && [ -d "$pasta" ]; then
+    rm -rf "$pasta"
+  fi
 }
 
 # Quando a pasta da instalação existe, o registro passa a morar em .anvilore/instalacao.log (PLANO §2 passo 12).
@@ -307,8 +327,10 @@ baixar_dependencia() {
 # ---------------------------------------------------------------------------------------------------------------
 
 versao_do_bun() {
-  local neutro="${TMP_DIR:-${TMPDIR:-/tmp}}"
+  local neutro
+  neutro=$(pasta_neutra_obter 2>/dev/null) || neutro="${TMP_DIR:-${TMPDIR:-/tmp}}"
   ( cd "$neutro" 2>/dev/null || exit 1; bun --version 2>/dev/null | head -n1 )
+  pasta_neutra_limpar "$neutro"
 }
 
 # Imprime o que falta no sistema (nomes de comando separados por espaço).
@@ -455,10 +477,21 @@ acrescentar_bloco_path() {
   temporario=$(mktemp "$(dirname "$arq")/.anvilore-path.XXXXXX") || return 1
   PATH_ATOMICO_TMP="$temporario"
   if [ -e "$arq" ] && ! cp -p -- "$arq" "$temporario"; then rm -f -- "$temporario"; PATH_ATOMICO_TMP=""; return 1; fi
-  neutro="${TMP_DIR:-${TMPDIR:-/tmp}}"
-  mkdir -p "$neutro" 2>/dev/null
+  neutro=$(pasta_neutra_obter) || {
+    echo "Erro: não consegui criar uma pasta temporária para atualizar o PATH." >&2
+    rm -f -- "$temporario"
+    PATH_ATOMICO_TMP=""
+    return 1
+  }
+  if ! mkdir -p "$neutro"; then
+    echo "Erro: não consegui acessar a pasta temporária $neutro para atualizar o PATH." >&2
+    pasta_neutra_limpar "$neutro"
+    rm -f -- "$temporario"
+    PATH_ATOMICO_TMP=""
+    return 1
+  fi
   script="$neutro/persistir-path.mjs"
-  cat >"$script" <<'ANVILORE_FIM_PATH'
+  if ! cat >"$script" <<'ANVILORE_FIM_PATH'
 import { readFileSync, writeFileSync } from "node:fs";
 const origem = process.env.ANVILORE_PATH_ORIGEM;
 const temporario = process.env.ANVILORE_PATH_TEMP;
@@ -497,8 +530,18 @@ let separador = Buffer.alloc(0);
 if (prefixo.length) separador = prefixo[prefixo.length - 1] === 10 ? Buffer.from("\n") : Buffer.from("\n\n");
 writeFileSync(temporario, Buffer.concat([prefixo, separador, bloco, sufixo]));
 ANVILORE_FIM_PATH
+  then
+    echo "Erro: não consegui preparar o script de atualização do PATH em $script." >&2
+    rm -f -- "$script"
+    pasta_neutra_limpar "$neutro"
+    rm -f -- "$temporario"
+    PATH_ATOMICO_TMP=""
+    return 1
+  fi
   ( cd "$neutro" 2>/dev/null && ANVILORE_PATH_ORIGEM="$arq" ANVILORE_PATH_TEMP="$temporario" ANVILORE_PATH_BLOCO="$bloco" bun --no-install "$script" )
   codigo=$?
+  rm -f -- "$script"
+  pasta_neutra_limpar "$neutro"
   if [ "$codigo" -eq 10 ]; then rm -f -- "$temporario"; PATH_ATOMICO_TMP=""; return 0; fi
   if [ "$codigo" -eq 3 ]; then rm -f -- "$temporario"; PATH_ATOMICO_TMP=""; return 3; fi
   if [ "$codigo" -ne 0 ] || ! mv -f -- "$temporario" "$arq"; then rm -f -- "$temporario"; PATH_ATOMICO_TMP=""; return 1; fi
@@ -874,11 +917,15 @@ passo_configurar() {
 # ---------------------------------------------------------------------------------------------------------------
 
 passo_estado() {
-  local neutro="${TMP_DIR:-${TMPDIR:-/tmp}}" pasta_abs="$PASTA"
+  local pasta_abs="$PASTA" neutro
   case "$pasta_abs" in /*) ;; *) pasta_abs="$PWD/$pasta_abs" ;; esac
-  mkdir -p "$neutro" 2>/dev/null
+  neutro=$(pasta_neutra_obter) || falhar "não consegui criar uma pasta temporária para gravar o estado."
+  if ! mkdir -p "$neutro"; then
+    pasta_neutra_limpar "$neutro"
+    falhar "não consegui acessar a pasta temporária $neutro para gravar o estado."
+  fi
   local script="$neutro/estado.ts"
-  cat >"$script" <<'ANVILORE_FIM_ESTADO'
+  if ! cat >"$script" <<'ANVILORE_FIM_ESTADO'
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 const [arquivo, alvos, bunGerenciado, autoCommit] = process.argv.slice(2);
 let atual: Record<string, unknown> = {};
@@ -893,9 +940,20 @@ const novo = {
 writeFileSync(`${arquivo}.tmp`, `${JSON.stringify(novo, null, 2)}\n`, { mode: 0o600 });
 renameSync(`${arquivo}.tmp`, arquivo!);
 ANVILORE_FIM_ESTADO
+  then
+    rm -f -- "$script"
+    pasta_neutra_limpar "$neutro"
+    falhar "não consegui preparar o script de gravação do estado em $script."
+  fi
   local alvos
   alvos=$(printf '%s' "$INSTALADOS" | tr ' ' ',')
-  rodar bash -c 'cd "$1" && bun --no-install "$2" "$3" "$4" "$5" "$6"' _ "$neutro" "$script" "$pasta_abs/.anvilore/atualizacao.json" "$alvos" "$BUN_GERENCIADO" "$AUTO_COMMIT" || falhar "não consegui gravar o estado da atualização."
+  local codigo=0
+  rodar bash -c 'cd "$1" && bun --no-install "$2" "$3" "$4" "$5" "$6"' _ "$neutro" "$script" "$pasta_abs/.anvilore/atualizacao.json" "$alvos" "$BUN_GERENCIADO" "$AUTO_COMMIT" || codigo=$?
+  rm -f -- "$script"
+  pasta_neutra_limpar "$neutro"
+  if [ "$codigo" -ne 0 ]; then
+    falhar "não consegui gravar o estado da atualização."
+  fi
   rm -f "$pasta_abs/.anvilore/instalacao-em-andamento"
 }
 
@@ -999,8 +1057,9 @@ semver_maior_ou_igual() {
 # trecho do próprio instalador, com a pasta de trabalho na pasta temporária (o bunfig.toml da pasta instalada não é carregado)
 # e nada é importado, instalado nem executado a partir da pasta. A pasta nem sequer é a pasta atual do processo.
 versao_da_pasta() {
-  local pasta="$1" saida neutro="${TMP_DIR:-${TMPDIR:-/tmp}}"
+  local pasta="$1" saida neutro
   case "$pasta" in /*) ;; *) pasta="$PWD/$pasta" ;; esac
+  neutro=$(pasta_neutra_obter 2>/dev/null) || neutro="${TMP_DIR:-${TMPDIR:-/tmp}}"
   saida=$(cd "$neutro" 2>/dev/null && ANV_PACOTE="$pasta/package.json" bun --no-install -e '
     try {
       const texto = new TextDecoder("utf-8", { fatal: true }).decode(require("node:fs").readFileSync(process.env.ANV_PACOTE));
@@ -1009,6 +1068,7 @@ versao_da_pasta() {
       if (typeof v === "string") process.stdout.write(v + "#");
     } catch {}
   ' 2>/dev/null)
+  pasta_neutra_limpar "$neutro"
   # O "#" no fim impede que o $(...) engula uma quebra de linha final da versão (que então não passaria no semver_simples).
   case "$saida" in *"#") saida="${saida%"#"}" ;; *) return 0 ;; esac
   semver_simples "$saida" && printf '%s' "$saida"
@@ -1049,10 +1109,12 @@ passo_atualizar_existente() {
     registrar "instalação anterior não terminou: retomando como instalação nova"
   elif [ -f "$PASTA/.anvilore/atualizacao.json" ]; then
     grep -Eq '"bunGerenciado": *true' "$PASTA/.anvilore/atualizacao.json" && BUN_GERENCIADO=1
-    local neutro="${TMP_DIR:-${TMPDIR:-/tmp}}" estado_json="$PASTA/.anvilore/atualizacao.json"
+    local neutro estado_json="$PASTA/.anvilore/atualizacao.json"
     case "$estado_json" in /*) ;; *) estado_json="$PWD/$estado_json" ;; esac
+    neutro=$(pasta_neutra_obter 2>/dev/null) || neutro="${TMP_DIR:-${TMPDIR:-/tmp}}"
     # Escolha da pessoa (ou do atualizador): só mantém commit automático se o JSON válido contém autoCommit booleano true.
     if ! ( cd "$neutro" 2>/dev/null && ANVILORE_ESTADO_JSON="$estado_json" bun --no-install -e 'import { readFileSync } from "node:fs"; let estado; try { estado = JSON.parse(readFileSync(process.env.ANVILORE_ESTADO_JSON, "utf8")); } catch {} process.exit(estado?.autoCommit === true ? 0 : 1);' ); then AUTO_COMMIT=0; fi
+    pasta_neutra_limpar "$neutro"
   fi
   # O atualizador da pasta confere a tag com o seguranca/assinantes que a pasta já tem, e uma instalação que ficou para trás
   # na troca de chave não conhece a chave nova. Entrega a ela as chaves embutidas deste instalador pela opção
