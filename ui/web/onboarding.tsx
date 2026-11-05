@@ -936,6 +936,7 @@ export type ContextoAcoesDoOnboarding = {
   setErroAreas: (e: string | null) => void;
   setConcluindo: (c: boolean) => void;
   aoAtualizar?: () => Promise<void>;
+  aoAtualizarIngestao?: () => Promise<void>;
   navegar?: (hash: string) => void;
   chamarApi?: typeof api;
 };
@@ -1002,6 +1003,7 @@ export function criarAcoesDoOnboarding(ctx: ContextoAcoesDoOnboarding): AcoesDoO
       try {
         await chamarApi("/api/onboarding/areas", "POST", { areas: ctx.areasSelecionadas, removerExemplo: ctx.removerExemplo });
         if (ctx.aoAtualizar) await ctx.aoAtualizar();
+        if (ctx.aoAtualizarIngestao) await ctx.aoAtualizarIngestao();
         navegar("#/onboarding/4");
       } catch (erro) {
         ctx.setErroAreas(erro instanceof Error ? erro.message : "Erro ao inicializar áreas.");
@@ -1014,6 +1016,7 @@ export function criarAcoesDoOnboarding(ctx: ContextoAcoesDoOnboarding): AcoesDoO
       try {
         await chamarApi("/api/onboarding/concluir", "POST", {});
         if (ctx.aoAtualizar) await ctx.aoAtualizar();
+        if (ctx.aoAtualizarIngestao) await ctx.aoAtualizarIngestao();
         navegar(destino);
       } catch {
         navegar(destino);
@@ -1026,6 +1029,7 @@ export function criarAcoesDoOnboarding(ctx: ContextoAcoesDoOnboarding): AcoesDoO
       try {
         const resp = await chamarApi<{ ok: boolean; id: string }>("/api/onboarding/ingerir-exemplo", "POST", { area });
         if (ctx.aoAtualizar) await ctx.aoAtualizar();
+        if (ctx.aoAtualizarIngestao) await ctx.aoAtualizarIngestao();
         navegar(`#/chat/${resp.id}`);
       } catch {
         navegar("#/chat");
@@ -1045,9 +1049,10 @@ type Propriedades = {
   alternarTema: () => void;
   dados: EstadoOnboarding;
   aoAtualizar?: () => Promise<void>;
+  aoAtualizarIngestao?: () => Promise<void>;
 };
 
-export function Onboarding({ passo, tema: _tema, alternarTema: _alternarTema, dados, aoAtualizar }: Propriedades) {
+export function Onboarding({ passo, tema: _tema, alternarTema: _alternarTema, dados, aoAtualizar, aoAtualizarIngestao }: Propriedades) {
   const [pasta, setPasta] = useState(dados.pasta);
   const [erroPasta, setErroPasta] = useState<string | null>(null);
   const [carregandoPasta, setCarregandoPasta] = useState(false);
@@ -1084,6 +1089,7 @@ export function Onboarding({ passo, tema: _tema, alternarTema: _alternarTema, da
     setErroAreas,
     setConcluindo,
     aoAtualizar,
+    aoAtualizarIngestao,
   });
 
   return (

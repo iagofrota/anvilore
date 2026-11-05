@@ -252,9 +252,17 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             if (typeof corpo.pasta !== "string") return json({ erro: "Caminho da pasta obrigatório." }, 400);
             try {
               const pastaValida = validarPastaVault(corpo.pasta);
-              raiz = resolve(pastaValida);
-              wiki = caminhoWiki(raiz);
-              ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
+              const novaRaiz = resolve(pastaValida);
+              if (novaRaiz !== raiz) {
+                const conversas = await ingestao.listar();
+                if (conversas.some(c => c.situacao === "rodando")) {
+                  return json({ erro: "Não é possível alterar a pasta enquanto houver uma ingestão em andamento." }, 409);
+                }
+                await ingestao.encerrar();
+                raiz = novaRaiz;
+                wiki = caminhoWiki(raiz);
+                ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
+              }
               const inspecao = await inspecionarPasta(raiz);
               return json({ ok: true, pasta: raiz, inspecao });
             } catch (erro) {

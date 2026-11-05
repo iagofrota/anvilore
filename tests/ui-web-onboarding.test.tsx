@@ -560,6 +560,7 @@ test("Dado criarAcoesDoOnboarding Quando crio áreas Então valida seleção mí
   let erroAreas: string | null = null;
   let navegou = "";
   let atualizou = false;
+  let atualizouIngestao = false;
 
   const ctx: ContextoAcoesDoOnboarding = {
     pasta: "/vault",
@@ -579,6 +580,7 @@ test("Dado criarAcoesDoOnboarding Quando crio áreas Então valida seleção mí
     setErroAreas: v => { erroAreas = v; },
     setConcluindo: () => {},
     aoAtualizar: async () => { atualizou = true; },
+    aoAtualizarIngestao: async () => { atualizouIngestao = true; },
     navegar: h => { navegou = h; },
   };
 
@@ -596,6 +598,7 @@ test("Dado criarAcoesDoOnboarding Quando crio áreas Então valida seleção mí
   await acoesSucesso.aoCriarAreas();
   expect(criando).toBe(false);
   expect(atualizou).toBe(true);
+  expect(atualizouIngestao).toBe(true);
   expect(navegou).toBe("#/onboarding/4");
 
   // Com seleção e erro na API

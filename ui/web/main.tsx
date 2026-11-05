@@ -90,7 +90,16 @@ function Aplicacao() {
 
   const atualizador = estado?.atualizador && <PainelDoAtualizador atualizador={estado.atualizador} mensagem={mensagemAtualizador} operando={operandoAtualizador} acionar={acionarAtualizador} />;
   if (rota.tela === "onboarding" && dadosOnboarding) {
-    return <Onboarding passo={rota.passo ?? 1} tema={tema} alternarTema={alternarTema} dados={dadosOnboarding} aoAtualizar={atualizarTudo} />;
+    return (
+      <Onboarding
+        passo={rota.passo ?? 1}
+        tema={tema}
+        alternarTema={alternarTema}
+        dados={dadosOnboarding}
+        aoAtualizar={carregarOnboarding}
+        aoAtualizarIngestao={recarregarEstado}
+      />
+    );
   }
 
   return <Shell rota={rota} conversas={estado?.conversas ?? []} agente={estado?.agente ?? "Agente"} aviso={atualizador}>
