@@ -60,7 +60,7 @@ export async function listarFilaRascunhos(raiz: string, ambiente: Record<string,
   for (const caminho of arquivos) {
     if (basename(caminho) === "index.md" || caminho === "log.md" || caminho.startsWith("log/") || caminho.startsWith("_meta/")) continue;
     const arquivoAbsoluto = join(wiki, caminho);
-    const especial = caminhoTemCaractereEspecialDeAjuste(arquivoAbsoluto);
+    const especial = caminho.includes("\\") || caminhoTemCaractereEspecialDeAjuste(arquivoAbsoluto);
     const ajustavel = !especial;
     const motivoNaoAjustavel = especial ? MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE : undefined;
     const conteudo = await readFile(arquivoAbsoluto, "utf8");

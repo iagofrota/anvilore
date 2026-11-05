@@ -463,7 +463,7 @@ export class IngestaoNaInterface {
     if (dentro(arquivoPagina, wiki) === undefined) {
       throw new ErroDeIngestao("Página fora da wiki.", 400);
     }
-    if (caminhoTemCaractereEspecialDeAjuste(arquivoPagina)) {
+    if (dados.caminho.includes("\\") || caminhoTemCaractereEspecialDeAjuste(arquivoPagina)) {
       throw new ErroDeIngestao(MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE, 400);
     }
 
