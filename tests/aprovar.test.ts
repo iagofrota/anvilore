@@ -3,23 +3,25 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { aprovarPelaInterface, comandoAprovar } from "../src/comandos/aprovar";
+import { aprovarPelaInterface, comandoAprovar, fecharProcessosRevisao } from "../src/comandos/aprovar";
 import { lerFrontmatter } from "../src/lib/frontmatter";
 import { iniciarServidorUi } from "../src/ui/servidor/servidor";
 import { capturarConsole } from "./apoio/console";
 
 let raiz: string;
 beforeEach(() => {
-  process.env.ANVILORE_SEM_UI = "1";
   raiz = mkdtempSync(join(tmpdir(), "anvilore-aprovar-"));
   mkdirSync(join(raiz, "wiki/pessoal"), { recursive: true });
 });
-afterEach(() => {
-  delete process.env.ANVILORE_SEM_UI;
+afterEach(async () => {
+  fecharProcessosRevisao();
   try {
     rmSync(raiz, { recursive: true, force: true });
   } catch {
-    // Tolerância para locks transitórios no Windows
+    await new Promise(r => setTimeout(r, 50));
+    try {
+      rmSync(raiz, { recursive: true, force: true });
+    } catch {}
   }
 });
 
@@ -292,7 +294,7 @@ test("Dado página gerada na fila e sessão em bypass Quando o agente roda bun s
 
   const proc = Bun.spawnSync([process.execPath, resolve(import.meta.dir, "../src/cli.ts"), "aprovar", "wiki/pessoal/ideia.md"], {
     cwd: raiz,
-    env: { ...process.env, ANVILORE_DESTINO: raiz, ANVILORE_SEM_UI: "1" },
+    env: { ...process.env, ANVILORE_DESTINO: raiz },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -304,4 +306,30 @@ test("Dado página gerada na fila e sessão em bypass Quando o agente roda bun s
   const conteudoDepois = readFileSync(pagina, "utf8");
   expect(conteudoDepois).not.toContain("verified:");
   expect(conteudoDepois).toBe(conteudoOriginal);
+});
+
+test("Dado página com campos extras no verified Quando aprova Então serializa tipos não-padrão no YAML", async () => {
+  const wiki = join(raiz, "wiki");
+  const pagina = join(wiki, "pessoal/extra.md");
+  writeFileSync(pagina, "---\ntitle: Extra\ntype: concept\nslug: extra\ngenerated:\n  by: process:agente\n  at: 2026-10-27T10:00:00Z\nverified:\n  - by: human:ana\n    at: 2026-10-27T09:00:00Z\n    nota: \"revisão aprovada com ressalvas\"\n    pontos: 42\n---\nCorpo.\n");
+  const resultado = await aprovarPelaInterface(raiz, pagina, versaoArquivo(pagina));
+  expect(resultado.codigo).toBe(0);
+  const texto = readFileSync(pagina, "utf8");
+  expect(texto).toContain("nota: \"revisão aprovada com ressalvas\"");
+  expect(texto).toContain("pontos: 42");
+});
+
+test("Dado falha ao listar fila de rascunhos Quando aprovar roda Então exibe erro e retorna 1", async () => {
+  const raizInvalida = join(raiz, "inexistente-total");
+  const raizAnterior = process.env.ANVILORE_DESTINO;
+  process.env.ANVILORE_DESTINO = raizInvalida;
+  const c = capturarConsole();
+  try {
+    expect(await comandoAprovar(["wiki/qualquer.md"])).toBe(1);
+    expect(c.erros.join(" ")).toContain("Aprovação recusada:");
+  } finally {
+    c.restaurar();
+    if (raizAnterior === undefined) delete process.env.ANVILORE_DESTINO;
+    else process.env.ANVILORE_DESTINO = raizAnterior;
+  }
 });

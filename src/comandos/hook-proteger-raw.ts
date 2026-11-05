@@ -628,16 +628,25 @@ async function registrarLog(decisao: Decisao): Promise<void> {
 }
 
 export async function executarProtecao(payload: string): Promise<number> {
-  const decisao = decidir(payload);
-  if (decisao.acao === "bloquear") {
-    await registrarLog(decisao);
-    console.error(MENSAGEM);
-    console.error(`Motivo: ${decisao.motivo}`);
+  let decisao: Decisao;
+  let decisaoVerified: Decisao;
+  try {
+    decisao = decidir(payload);
+    if (decisao.acao === "bloquear") {
+      await registrarLog(decisao);
+      console.error(MENSAGEM);
+      console.error(`Motivo: ${decisao.motivo}`);
+      return 2;
+    }
+
+    const raizClone = resolve(import.meta.dir, "../..");
+    decisaoVerified = await decidirVerified(payload, raizClone, process.env);
+  } catch (erro) {
+    console.error("Bloqueado: só o comando de aprovação pode alterar verified em wiki/.");
+    console.error(`Motivo: ${(erro as Error).message}`);
     return 2;
   }
 
-  const raizClone = resolve(import.meta.dir, "../..");
-  const decisaoVerified = await decidirVerified(payload, raizClone, process.env);
   if (decisaoVerified.acao === "bloquear") {
     await registrarLog(decisaoVerified);
     console.error("Bloqueado: só o comando de aprovação pode alterar verified em wiki/.");

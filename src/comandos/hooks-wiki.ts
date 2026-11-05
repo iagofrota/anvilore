@@ -119,11 +119,13 @@ async function protegerAprovacao(_raiz: string, _entrada: string): Promise<void>
   // a verificação prévia deixa de barrar o comando.
 }
 
-async function protegerVerified(raiz: string, entrada: string): Promise<void> {
+async function protegerVerified(raiz: string, entrada: string): Promise<number> {
   const decisao = await decidirVerified(entrada, raiz, process.env);
   if (decisao.acao === "bloquear") {
-    negarPermissao("PreToolUse", "Só o comando de aprovação pode alterar verified em wiki/.");
+    negarPermissao("PreToolUse", `Só o comando de aprovação pode alterar verified em wiki/: ${decisao.motivo}`);
+    return 2;
   }
+  return 0;
 }
 
 export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise<string> = () => Bun.stdin.text()): Promise<number> {
@@ -172,7 +174,7 @@ export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise
       return 0;
     }
     if (acao === "proteger-aprovacao") { await protegerAprovacao(raiz, await lerEntrada()); return 0; }
-    if (acao === "proteger-verified") { await protegerVerified(raiz, await lerEntrada()); return 0; }
+    if (acao === "proteger-verified") return await protegerVerified(raiz, await lerEntrada());
     if (acao === "backup") {
       if (!(await opcoesHooksWiki(raiz)).backup) return 0;
       const resultado = await backupGitHub(raiz);

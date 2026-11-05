@@ -1,7 +1,9 @@
 import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import type { Subprocess } from "bun";
 import { lerFrontmatter } from "../lib/frontmatter";
 import { estadoAprovacaoHumana } from "../lib/okf";
 import { caminhoWiki } from "../lib/wiki-repo";
@@ -9,6 +11,35 @@ import { listarFilaRascunhos } from "../lib/ui-fila";
 import { autoCommitWiki, opcoesHooksWiki } from "./hooks-wiki";
 
 export type ResultadoAprovacao = { codigo: number; mensagens: string[] };
+
+const processosRevisaoAtivos: Subprocess[] = [];
+
+export function fecharProcessosRevisao(): void {
+  while (processosRevisaoAtivos.length > 0) {
+    const p = processosRevisaoAtivos.pop();
+    try { p?.kill(); } catch {}
+  }
+}
+
+export function lancarServidorRevisao(raiz: string): Subprocess | undefined {
+  const bun = Bun.which("bun") ?? process.execPath;
+  const cliPath = resolve(import.meta.dir, "../cli.ts");
+  try {
+    const processo = Bun.spawn([bun, cliPath, "ui", "--revisao"], {
+      cwd: tmpdir(),
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+      detached: true,
+      env: { ...process.env, ANVILORE_DESTINO: raiz },
+    });
+    processo.unref();
+    processosRevisaoAtivos.push(processo);
+    return processo;
+  } catch {
+    // Se o spawn falhar no sandbox, o comando segue imprimindo a mensagem
+  }
+}
 
 function identidadeSugerida(raiz: string, wiki: string, ambiente: Record<string, string | undefined>): string {
   const opcoes = { stdout: "pipe" as const, stderr: "ignore" as const, env: ambiente };
@@ -132,7 +163,10 @@ export async function aprovarPelaInterface(
   return gravarAprovacao(raiz, [caminho], ambiente, versao);
 }
 
-export async function comandoAprovar(args: string[]): Promise<number> {
+export async function comandoAprovar(
+  args: string[],
+  lancar: (raiz: string) => Subprocess | undefined = lancarServidorRevisao
+): Promise<number> {
   if (args.length === 0) {
     console.log("Uso: anvilore aprovar <página.md> [página.md ...]");
     return 2;
@@ -163,24 +197,8 @@ export async function comandoAprovar(args: string[]): Promise<number> {
     }
   }
 
-  // Sobe destacado anvilore ui --revisao (se não desligado por ANVILORE_SEM_UI)
-  if (process.env.ANVILORE_SEM_UI !== "1") {
-    const bun = Bun.which("bun") ?? process.execPath;
-    const cliPath = resolve(import.meta.dir, "../cli.ts");
-    try {
-      const processo = Bun.spawn([bun, cliPath, "ui", "--revisao"], {
-        cwd: raiz,
-        stdin: "ignore",
-        stdout: "ignore",
-        stderr: "ignore",
-        detached: true,
-        env: process.env,
-      });
-      processo.unref();
-    } catch {
-      // Se o spawn falhar no sandbox, o comando segue imprimindo a mensagem
-    }
-  }
+  // Sobe destacado anvilore ui --revisao
+  lancar(raiz);
 
   const total = args.length;
   console.log(`${total === 1 ? "A página está" : `As ${total} páginas estão`} na Revisão do Anvilore. Peça à pessoa para conferir e clicar em Aprovar.`);
