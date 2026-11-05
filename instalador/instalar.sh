@@ -92,6 +92,10 @@ avisar() { printf 'Aviso: %s\n' "$*"; registrar "AVISO: $*"; AVISOS="${AVISOS}${
 }$*"; }
 
 iniciar_registro() {
+  case "${ANVILORE_ORIGEM:-}" in
+    ""|*://*|/*) ;;
+    *) ANVILORE_ORIGEM="$PWD/$ANVILORE_ORIGEM" ;;
+  esac
   TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/anvilore-instalar.XXXXXX") || { echo "Erro: não consegui criar uma pasta temporária." >&2; exit 1; }
   LOG="$TMP_DIR/instalacao.log"
   : >"$LOG"
@@ -302,7 +306,10 @@ baixar_dependencia() {
 # Passos 2 e 3 — git e Bun
 # ---------------------------------------------------------------------------------------------------------------
 
-versao_do_bun() { bun --version 2>/dev/null | head -n1; }
+versao_do_bun() {
+  local neutro="${TMP_DIR:-${TMPDIR:-/tmp}}"
+  ( cd "$neutro" 2>/dev/null || exit 1; bun --version 2>/dev/null | head -n1 )
+}
 
 # Imprime o que falta no sistema (nomes de comando separados por espaço).
 ferramentas_que_faltam() {
@@ -440,14 +447,17 @@ bloco_path() {
 
 # 0 = o bloco esperado está no arquivo; 1 = falha ao gravar; 2 = symlink recusado.
 acrescentar_bloco_path() {
-  local arq="$1" bloco temporario script codigo
+  local arq="$1" bloco temporario script codigo neutro
+  case "$arq" in /*) ;; *) arq="$PWD/$arq" ;; esac
   # Recusa symlink: o replace atômico substituiria o link, e seguir o alvo pode editar um arquivo compartilhado fora do HOME.
   [ -L "$arq" ] && return 2
   bloco=$(bloco_path)
   temporario=$(mktemp "$(dirname "$arq")/.anvilore-path.XXXXXX") || return 1
   PATH_ATOMICO_TMP="$temporario"
   if [ -e "$arq" ] && ! cp -p -- "$arq" "$temporario"; then rm -f -- "$temporario"; PATH_ATOMICO_TMP=""; return 1; fi
-  script="$TMP_DIR/persistir-path.mjs"
+  neutro="${TMP_DIR:-${TMPDIR:-/tmp}}"
+  mkdir -p "$neutro" 2>/dev/null
+  script="$neutro/persistir-path.mjs"
   cat >"$script" <<'ANVILORE_FIM_PATH'
 import { readFileSync, writeFileSync } from "node:fs";
 const origem = process.env.ANVILORE_PATH_ORIGEM;
@@ -487,7 +497,7 @@ let separador = Buffer.alloc(0);
 if (prefixo.length) separador = prefixo[prefixo.length - 1] === 10 ? Buffer.from("\n") : Buffer.from("\n\n");
 writeFileSync(temporario, Buffer.concat([prefixo, separador, bloco, sufixo]));
 ANVILORE_FIM_PATH
-  ANVILORE_PATH_ORIGEM="$arq" ANVILORE_PATH_TEMP="$temporario" ANVILORE_PATH_BLOCO="$bloco" bun "$script"
+  ( cd "$neutro" 2>/dev/null && ANVILORE_PATH_ORIGEM="$arq" ANVILORE_PATH_TEMP="$temporario" ANVILORE_PATH_BLOCO="$bloco" bun --no-install "$script" )
   codigo=$?
   if [ "$codigo" -eq 10 ]; then rm -f -- "$temporario"; PATH_ATOMICO_TMP=""; return 0; fi
   if [ "$codigo" -eq 3 ]; then rm -f -- "$temporario"; PATH_ATOMICO_TMP=""; return 3; fi
@@ -864,7 +874,10 @@ passo_configurar() {
 # ---------------------------------------------------------------------------------------------------------------
 
 passo_estado() {
-  local script="$TMP_DIR/estado.ts"
+  local neutro="${TMP_DIR:-${TMPDIR:-/tmp}}" pasta_abs="$PASTA"
+  case "$pasta_abs" in /*) ;; *) pasta_abs="$PWD/$pasta_abs" ;; esac
+  mkdir -p "$neutro" 2>/dev/null
+  local script="$neutro/estado.ts"
   cat >"$script" <<'ANVILORE_FIM_ESTADO'
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 const [arquivo, alvos, bunGerenciado, autoCommit] = process.argv.slice(2);
@@ -882,8 +895,8 @@ renameSync(`${arquivo}.tmp`, arquivo!);
 ANVILORE_FIM_ESTADO
   local alvos
   alvos=$(printf '%s' "$INSTALADOS" | tr ' ' ',')
-  rodar bun "$script" "$PASTA/.anvilore/atualizacao.json" "$alvos" "$BUN_GERENCIADO" "$AUTO_COMMIT" || falhar "não consegui gravar o estado da atualização."
-  rm -f "$PASTA/.anvilore/instalacao-em-andamento"
+  rodar bash -c 'cd "$1" && bun --no-install "$2" "$3" "$4" "$5" "$6"' _ "$neutro" "$script" "$pasta_abs/.anvilore/atualizacao.json" "$alvos" "$BUN_GERENCIADO" "$AUTO_COMMIT" || falhar "não consegui gravar o estado da atualização."
+  rm -f "$pasta_abs/.anvilore/instalacao-em-andamento"
 }
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -986,8 +999,9 @@ semver_maior_ou_igual() {
 # trecho do próprio instalador, com a pasta de trabalho na pasta temporária (o bunfig.toml da pasta instalada não é carregado)
 # e nada é importado, instalado nem executado a partir da pasta. A pasta nem sequer é a pasta atual do processo.
 versao_da_pasta() {
-  local saida
-  saida=$(cd "$TMP_DIR" 2>/dev/null && ANV_PACOTE="$1/package.json" bun --no-install -e '
+  local pasta="$1" saida neutro="${TMP_DIR:-${TMPDIR:-/tmp}}"
+  case "$pasta" in /*) ;; *) pasta="$PWD/$pasta" ;; esac
+  saida=$(cd "$neutro" 2>/dev/null && ANV_PACOTE="$pasta/package.json" bun --no-install -e '
     try {
       const texto = new TextDecoder("utf-8", { fatal: true }).decode(require("node:fs").readFileSync(process.env.ANV_PACOTE));
       const pacote = JSON.parse(texto);
@@ -1035,8 +1049,10 @@ passo_atualizar_existente() {
     registrar "instalação anterior não terminou: retomando como instalação nova"
   elif [ -f "$PASTA/.anvilore/atualizacao.json" ]; then
     grep -Eq '"bunGerenciado": *true' "$PASTA/.anvilore/atualizacao.json" && BUN_GERENCIADO=1
+    local neutro="${TMP_DIR:-${TMPDIR:-/tmp}}" estado_json="$PASTA/.anvilore/atualizacao.json"
+    case "$estado_json" in /*) ;; *) estado_json="$PWD/$estado_json" ;; esac
     # Escolha da pessoa (ou do atualizador): só mantém commit automático se o JSON válido contém autoCommit booleano true.
-    if ! ANVILORE_ESTADO_JSON="$PASTA/.anvilore/atualizacao.json" bun -e 'import { readFileSync } from "node:fs"; let estado; try { estado = JSON.parse(readFileSync(process.env.ANVILORE_ESTADO_JSON, "utf8")); } catch {} process.exit(estado?.autoCommit === true ? 0 : 1);'; then AUTO_COMMIT=0; fi
+    if ! ( cd "$neutro" 2>/dev/null && ANVILORE_ESTADO_JSON="$estado_json" bun --no-install -e 'import { readFileSync } from "node:fs"; let estado; try { estado = JSON.parse(readFileSync(process.env.ANVILORE_ESTADO_JSON, "utf8")); } catch {} process.exit(estado?.autoCommit === true ? 0 : 1);' ); then AUTO_COMMIT=0; fi
   fi
   # O atualizador da pasta confere a tag com o seguranca/assinantes que a pasta já tem, e uma instalação que ficou para trás
   # na troca de chave não conhece a chave nova. Entrega a ela as chaves embutidas deste instalador pela opção
