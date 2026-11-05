@@ -86,7 +86,6 @@ A tela de Nota (`GET /api/nota?caminho=...`, `obterNota` em `src/lib/ui-nota.ts`
 ## O que não foi provado
 
 - O Início foi testado com o Claude Code falso e com Chromium. Não há prova em navegador no Windows nem no macOS.
-- **Ingerir** uma fonte que já está em `raw/` ainda não tem botão no Início: o Chat só cria a conversa a partir
-  de um arquivo ou texto enviado. Hoje a lista só informa e leva à conversa aberta.
+- **Ingerir** uma fonte que já está em `raw/`: o botão existe, e fica desativado quando o nome tem `* ? [ ] { } ! \`.
 - A validação varre a wiki inteira a cada carga do Início e a cada **Validar agora**, de forma síncrona no servidor; em
   wiki muito grande ela demora e bloqueia o servidor enquanto roda. A tela mostra "Lendo a wiki…" até chegar.
