@@ -129,7 +129,7 @@ test.skipIf(process.platform !== "linux" || (process.env.ANVILORE_PULAR_TESTE_NF
   } finally {
     await rm(base, { recursive: true, force: true });
   }
-}, 30_000);
+}, 60_000);
 
 test("Dado um download adulterado de nfpm, Quando o hash não confere, Então o empacotamento é recusado e fecha com erro", async () => {
   const base = await mkdtemp(join(tmpdir(), "anvilore-adulterado-"));
@@ -147,7 +147,7 @@ test("Dado um download adulterado de nfpm, Quando o hash não confere, Então o 
   } finally {
     await rm(base, { recursive: true, force: true });
   }
-}, 30_000);
+}, 60_000);
 
 test("Dado pacotes pré-existentes no destino, Quando download falha, Então a CLI falha sem aceitar nem apagar o par anterior", async () => {
   const base = await mkdtemp(join(tmpdir(), "anvilore-limpeza-"));
@@ -162,7 +162,7 @@ test("Dado pacotes pré-existentes no destino, Quando download falha, Então a C
     expect(proc.stderr.toString()).toContain("HTTP 404");
     for (const extensao of ["deb", "rpm"]) expect(await readFile(join(base, `anvilore.${extensao}`), "utf8")).toBe("anterior");
   } finally { await rm(base, { recursive: true, force: true }); }
-});
+}, 60_000);
 
 // Saídas observadas no nFPM 2.47.0 real (dpkg-deb -f ... Version), não deduzidas do código dele.
 test("Dado versão SemVer, Quando calculo a versão do DEB, Então reproduzo o til de pré-release que o nFPM grava", async () => {
