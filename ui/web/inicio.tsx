@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import type { ResumoDeConversa } from "../../src/lib/ui-ingestao";
 import type { ResumoDoInicio, SaudeDaWiki } from "../../src/lib/ui-inicio";
 import { api } from "./api";
-import { caminhoTemMetacaracteres, tamanhoLegivel } from "./ingestao";
+import { caminhoDeRawIngerivelPeloBotao, tamanhoLegivel } from "./ingestao";
 
 export type DadosDoInicio = ResumoDoInicio & { agente: string; areas: string[]; conversas: ResumoDeConversa[]; saude: SaudeDaWiki };
 export type SituacaoDaSaude = "ok" | "portao" | "atencao" | "problema";
@@ -134,12 +134,12 @@ function CartaoDeFontes({ fontes, aoIngerir, ingerindo }: { fontes: ResumoDoInic
     <header className="home-card-head"><h3>Em raw/, sem ingestão</h3><span className="count">{fontes.length}</span></header>
     {fontes.length === 0 ? <p className="home-card-empty">Tudo em raw/ já foi ingerido.</p> : <ul className="plain-list">
       {fontes.map(fonte => {
-        const comMetacaracteres = caminhoTemMetacaracteres(fonte.caminho);
+        const podeIngerir = caminhoDeRawIngerivelPeloBotao(fonte.caminho);
         const explicacao = "Renomeie o arquivo em raw/ para ingerir pelo botão";
         return <li key={fonte.caminho}>
           <code className="grow">{fonte.caminho}</code>
           <span className="item-meta">{tamanhoLegivel(fonte.bytes)}</span>
-          {comMetacaracteres && <span className="item-meta">{explicacao}</span>}
+          {!podeIngerir && <span className="item-meta">{explicacao}</span>}
           {fonte.conversa ? (
             <a href={`#/chat/${fonte.conversa}`}>Continuar</a>
           ) : (
@@ -147,8 +147,8 @@ function CartaoDeFontes({ fontes, aoIngerir, ingerindo }: { fontes: ResumoDoInic
               type="button"
               className="secondary-button"
               onClick={() => aoIngerir?.(fonte.caminho)}
-              disabled={comMetacaracteres || ingerindo === fonte.caminho}
-              title={comMetacaracteres ? explicacao : undefined}
+              disabled={!podeIngerir || ingerindo === fonte.caminho}
+              title={!podeIngerir ? explicacao : undefined}
             >
               {ingerindo === fonte.caminho ? "Abrindo…" : "Ingerir"}
             </button>
@@ -199,7 +199,7 @@ export async function executarIngerirFonte(
   iniciar: (caminho: string) => Promise<Leitura<{ id: string }>> = iniciarIngestaoDeRaw,
   mudarHash: (h: string) => void = h => { window.location.hash = h; },
 ) {
-  if (caminhoTemMetacaracteres(caminho)) {
+  if (!caminhoDeRawIngerivelPeloBotao(caminho)) {
     setErro("Renomeie o arquivo em raw/ para ingerir pelo botão");
     return;
   }

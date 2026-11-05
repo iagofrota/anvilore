@@ -38,13 +38,22 @@ function ponteCom(roteiro: RoteiroDoFalso, extra: { prazoDoSinalMs?: number } = 
 function esperarArquivo(caminho: string): Promise<void> {
   if (existsSync(caminho)) return Promise.resolve();
   return new Promise(resolveEspera => {
-    const watcher = watch(dirname(caminho), (_evento, nome) => {
-      if ((!nome || nome.toString() === caminho.split(/[\\/]/).at(-1)) && existsSync(caminho)) {
-        watcher.close();
-        resolveEspera();
-      }
-    });
-    if (existsSync(caminho)) { watcher.close(); resolveEspera(); }
+    try {
+      const watcher = watch(dirname(caminho), (_evento, nome) => {
+        if ((!nome || nome.toString() === caminho.split(/[\\/]/).at(-1)) && existsSync(caminho)) {
+          watcher.close();
+          resolveEspera();
+        }
+      });
+      if (existsSync(caminho)) { watcher.close(); resolveEspera(); }
+    } catch {
+      const timer = setInterval(() => {
+        if (existsSync(caminho)) {
+          clearInterval(timer);
+          resolveEspera();
+        }
+      }, 10);
+    }
   });
 }
 
