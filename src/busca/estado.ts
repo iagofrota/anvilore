@@ -18,8 +18,10 @@ export function estadoDaPagina(
   const fm = frontmatter ?? {};
   const proveniencia = validarProveniencia(fm, arquivo, raiz, agora);
   let estado: Estado;
-  if (!ehMapa(fm.generated)) {
+  if (fm.generated === undefined) {
     estado = "manual";
+  } else if (!ehMapa(fm.generated)) {
+    estado = "rascunho";
   } else {
     estado = estadoAprovacaoHumana(fm) === "vigente" ? "verificada" : "rascunho";
   }

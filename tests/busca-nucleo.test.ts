@@ -227,13 +227,35 @@ test("Dado páginas rascunho, meta e verificadas com títulos maliciosos, Quando
   expect(resumo.titulos).toEqual(["Revisada com quebra e controle", "X".repeat(80)]);
 });
 
-test("Dado páginas manual e verificada, Quando resume wiki, Então ambas entram nos títulos do MCP", async () => {
+test("Dado páginas manual e verificada, Quando resume wiki, Então só verificada entra nos títulos do MCP", async () => {
   const raiz = raizTemporaria();
   escrever(raiz, "manual.md", `---\ntitle: Guia Manual\nslug: manual\ntype: concept\n---\n## M\ntexto`);
   escrever(raiz, "verificada.md", `${frontmatter({ generated: true, verified: true })}\n## V\ntexto`);
   escrever(raiz, "rascunho.md", `${frontmatter({ generated: true, verified: false })}\n## R\ntexto`);
   const resumo = await nucleo(raiz).resumoDaWiki();
-  expect(resumo.titulos).toContain("Guia Manual");
+  expect(resumo.titulos).not.toContain("Guia Manual");
   expect(resumo.titulos).toContain("IBS");
-  expect(resumo.titulos.length).toBe(2);
+  expect(resumo.titulos.length).toBe(1);
+});
+
+test("Dado páginas MCP-06 (generated não-mapa) e MCP-07 (sem generated), Quando resume wiki, Então MCP-06 conta como rascunho em porEstado e ambas ficam fora dos títulos do MCP", async () => {
+  const raiz = raizTemporaria();
+  escrever(raiz, "mcp06-str.md", `---\ntitle: "Hostil String"\nslug: mcp06-str\ntype: concept\ngenerated: "agent"\n---\n## S\ntexto`);
+  escrever(raiz, "mcp06-arr.md", `---\ntitle: "Hostil Array"\nslug: mcp06-arr\ntype: concept\ngenerated: []\n---\n## A\ntexto`);
+  escrever(raiz, "mcp06-null.md", `---\ntitle: "Hostil Null"\nslug: mcp06-null\ntype: concept\ngenerated: null\n---\n## N\ntexto`);
+  escrever(raiz, "mcp06-num.md", `---\ntitle: "Hostil Num"\nslug: mcp06-num\ntype: concept\ngenerated: 42\n---\n## U\ntexto`);
+  escrever(raiz, "mcp07-sem-gen.md", `---\ntitle: "Manual Sem Generated"\nslug: mcp07-sem-gen\ntype: concept\n---\n## M\ntexto`);
+  escrever(raiz, "verificada.md", `${frontmatter({ generated: true, verified: true })}\n## V\ntexto`);
+
+  const resumo = await nucleo(raiz).resumoDaWiki();
+  expect(resumo.porEstado.rascunho).toBe(4);
+  expect(resumo.porEstado.manual).toBe(1);
+  expect(resumo.porEstado.verificada).toBe(1);
+
+  expect(resumo.titulos).toEqual(["IBS"]);
+  expect(resumo.titulos).not.toContain("Hostil String");
+  expect(resumo.titulos).not.toContain("Hostil Array");
+  expect(resumo.titulos).not.toContain("Hostil Null");
+  expect(resumo.titulos).not.toContain("Hostil Num");
+  expect(resumo.titulos).not.toContain("Manual Sem Generated");
 });

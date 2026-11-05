@@ -303,7 +303,7 @@ export function criarNucleo(cfg: Config): NucleoDeBusca {
         const porEstado = { manual: 0, verificada: 0, rascunho: 0 };
         for (const linha of db.query("SELECT estado, count(*) AS paginas FROM paginas GROUP BY estado").all() as { estado: string; paginas: number }[]) porEstado[estado(linha.estado)] = linha.paginas;
         const areas = db.query("SELECT area, count(*) AS paginas FROM paginas WHERE area IS NOT NULL GROUP BY area ORDER BY area").all() as { area: string; paginas: number }[];
-        const titulos = (db.query("SELECT titulo FROM paginas WHERE estado IN ('verificada', 'manual') AND categoria = 'conteudo' ORDER BY titulo LIMIT 12").all() as { titulo: string }[])
+        const titulos = (db.query("SELECT titulo FROM paginas WHERE estado = 'verificada' AND categoria = 'conteudo' ORDER BY titulo LIMIT 12").all() as { titulo: string }[])
           .map((linha) => sanearTitulo(linha.titulo))
           .filter(Boolean);
         return { paginas: contagem.paginas, secoes: secoes.secoes, porEstado, areas, titulos };

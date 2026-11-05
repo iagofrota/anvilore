@@ -8,8 +8,12 @@ test("Dado página sem generated, Quando classifica estado, Então é manual", (
   expect(estadoDaPagina("---\ntitle: X\n---\ntexto", arquivo, raiz).estado).toBe("manual");
 });
 
-test("Dado generated legado AAAA-MM-DD, Quando classifica estado, Então é manual", () => {
-  expect(estadoDaPagina("---\ngenerated: 2026-01-01\n---\ntexto", arquivo, raiz).estado).toBe("manual");
+test("Dado generated não-mapa (string, array, null, número, data legada), Quando classifica estado, Então é rascunho", () => {
+  expect(estadoDaPagina("---\ngenerated: 'agent'\n---\ntexto", arquivo, raiz).estado).toBe("rascunho");
+  expect(estadoDaPagina("---\ngenerated: []\n---\ntexto", arquivo, raiz).estado).toBe("rascunho");
+  expect(estadoDaPagina("---\ngenerated: null\n---\ntexto", arquivo, raiz).estado).toBe("rascunho");
+  expect(estadoDaPagina("---\ngenerated: 42\n---\ntexto", arquivo, raiz).estado).toBe("rascunho");
+  expect(estadoDaPagina("---\ngenerated: 2026-01-01\n---\ntexto", arquivo, raiz).estado).toBe("rascunho");
 });
 
 test("Dado generated aprovado por humano depois, Quando classifica estado, Então é verificada", () => {
