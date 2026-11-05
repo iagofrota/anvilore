@@ -6,7 +6,7 @@ import { decidirVerified, encontrarRaizVault } from "../lib/trava-verified";
 
 export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
 type Mapa = Record<string, unknown>;
-type Token = { texto: string; operador: boolean };
+type Token = { texto: string; operador: boolean; citada: boolean };
 
 const CHAVES = new Set(["file_path", "filepath", "notebook_path", "notebookpath", "absolute_path", "absolutepath", "path",
   // destino de ferramentas que movem, copiam ou exportam (o caminho de origem pode estar fora de raw/)
@@ -150,13 +150,28 @@ function caminhosDe(valor: unknown): string[] {
 
 function caminhosDoPatch(texto: string): string[] {
   const caminhos: string[] = [];
-  const regex = /^\*\*\*\s*(?:Add File|Update File|Delete File|Move to|Move from):\s*(\S.*?)\s*$/gmi;
+  const regex = /^\s*\*\*\*\s*(?:Add File|Update File|Delete File|Move to|Move from):\s*(\S.*?)\s*$/gmi;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(texto)) !== null) {
     const limpo = match[1]?.trim().replace(/^["'](.*)["']$/, "$1");
     if (limpo) caminhos.push(limpo);
   }
   return caminhos;
+}
+
+function extrairTextoPatch(entrada: Mapa, dados: Mapa): string {
+  const candidatos = [
+    entrada.patch, entrada.command, entrada.input, entrada.cmd, entrada.diff, entrada.content,
+    dados.patch, dados.command, dados.input, dados.cmd,
+  ];
+  for (const c of candidatos) {
+    if (typeof c === "string" && c.trim()) return c;
+    if (Array.isArray(c)) {
+      const texto = c.filter(item => typeof item === "string").join("\n");
+      if (texto.trim()) return texto;
+    }
+  }
+  return "";
 }
 
 function encontrarHeredoc(linha: string): { inicio: number; fim: number; delim: string; tab: boolean } | null {
@@ -168,6 +183,8 @@ function encontrarHeredoc(linha: string): { inicio: number; fim: number; delim: 
       else if (c === "\\" && aspas === '"' && i + 1 < linha.length) i++;
     } else if (c === "'" || c === '"') {
       aspas = c;
+    } else if (c === "#" && (i === 0 || /\s/.test(linha[i - 1]!))) {
+      break;
     } else if (c === "<" && linha[i + 1] === "<" && linha[i + 2] !== "<" && (i === 0 || linha[i - 1] !== "<")) {
       const inicio = i;
       i += 2;
@@ -182,14 +199,39 @@ function encontrarHeredoc(linha: string): { inicio: number; fim: number; delim: 
         const q = linha[i++]!;
         while (i < linha.length && linha[i] !== q) delim += linha[i++]!;
         if (i < linha.length) i++;
+        return { inicio, fim: i, delim, tab };
       } else {
-        if (linha[i] === "\\") i++;
-        while (i < linha.length && /[A-Za-z0-9_]/.test(linha[i]!)) delim += linha[i++]!;
+        while (i < linha.length && !/[\s;|<>()\r\n]/.test(linha[i]!)) {
+          if (linha[i] === "\\" && i + 1 < linha.length) i++;
+          delim += linha[i++]!;
+        }
+        if (delim) return { inicio, fim: i, delim, tab };
       }
-      if (delim) return { inicio, fim: i, delim, tab };
     }
   }
   return null;
+}
+
+const INTERPRETADORES_HEREDOC = new Set([
+  "bash", "sh", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd",
+  "eval", "source", ".", "xargs", "parallel",
+  "python", "python3", "perl", "ruby", "node", "bun", "deno", "php",
+]);
+
+function alimentaInterpretador(linhaComando: string): boolean {
+  const partes = linhaComando.split(/[|;&]+/);
+  for (const parte of partes) {
+    const palavras = parte.trim().split(/\s+/).filter(Boolean);
+    const inicio = palavras.findIndex(p => !/^[A-Za-z_]\w*=/.test(p));
+    if (inicio < 0) continue;
+    const verbo = verboNormalizado(palavras[inicio]!);
+    if (INTERPRETADORES_HEREDOC.has(verbo)) return true;
+    if (ENVOLVEDORES.has(verbo)) {
+      const { resto } = desembrulhar(verbo, palavras.slice(inicio + 1));
+      if (resto.length && INTERPRETADORES_HEREDOC.has(verboNormalizado(resto[0]!))) return true;
+    }
+  }
+  return false;
 }
 
 function descartarCorpoHeredoc(comando: string): string {
@@ -198,19 +240,26 @@ function descartarCorpoHeredoc(comando: string): string {
   const resultado: string[] = [];
   let delimitador: string | undefined;
   let ignoraTabs = false;
+  let corpoEhScript = false;
 
   for (let idx = 0; idx < linhas.length; idx++) {
     const linha = linhas[idx]!;
     if (delimitador !== undefined) {
-      const comparada = ignoraTabs ? linha.replace(/^\t+/, "").trimEnd() : linha.trimEnd();
-      if (comparada === delimitador) delimitador = undefined;
+      const limpa = linha.replace(/\r$/, "");
+      const comparada = ignoraTabs ? limpa.replace(/^\t+/, "").trimEnd() : limpa.trimEnd();
+      if (comparada === delimitador) {
+        delimitador = undefined;
+      } else if (corpoEhScript) {
+        resultado.push(limpa);
+      }
       continue;
     }
     const h = encontrarHeredoc(linha);
     if (h) {
       delimitador = h.delim;
       ignoraTabs = h.tab;
-      const linhaLimpa = (linha.slice(0, h.inicio) + " " + linha.slice(h.fim)).trimEnd();
+      const linhaLimpa = (linha.slice(0, h.inicio) + " " + linha.slice(h.fim)).replace(/\r$/, "").trimEnd();
+      corpoEhScript = alimentaInterpretador(linhaLimpa);
       if (linhaLimpa) resultado.push(linhaLimpa);
     } else {
       resultado.push(linha);
@@ -224,9 +273,11 @@ function descartarCorpoHeredoc(comando: string): string {
 function tokenizar(comando: string, windows = false): Token[] {
   const tokens: Token[] = [];
   let palavra = "", aspas = "";
+  let citada = false;
   function guardar() {
-    if (palavra) tokens.push({ texto: palavra, operador: false });
+    if (palavra || citada) tokens.push({ texto: palavra, operador: false, citada });
     palavra = "";
+    citada = false;
   }
   for (let i = 0; i < comando.length; i++) {
     const caractere = comando[i]!;
@@ -238,27 +289,29 @@ function tokenizar(comando: string, windows = false): Token[] {
       else palavra += caractere;
     } else if (caractere === "'" || caractere === '"') {
       aspas = caractere;
+      citada = true;
     } else if (!windows && caractere === "\\" && seguinte && /[\s'";|&<>\\]/.test(seguinte)) {
       palavra += comando[++i];
+      citada = true;
     } else if (caractere === "`" || caractere === "(" || caractere === ")" || (caractere === "$" && /[({]/.test(seguinte) && seguinte)) {
       throw new Error("subshell ou expansão não interpretável");
-    } else if (caractere === "#" && palavra === "") {
+    } else if (caractere === "#" && palavra === "" && !citada) {
       while (i + 1 < comando.length && comando[i + 1] !== "\n") i++;
     } else if (caractere === "&" && (seguinte === ">" || seguinte === "&")) {
       guardar();
       if (seguinte === "&") {
-        tokens.push({ texto: "&&", operador: true });
+        tokens.push({ texto: "&&", operador: true, citada: false });
         i++;
       } else if (depoisDeSeguinte === ">") {
-        tokens.push({ texto: "&>>", operador: true });
+        tokens.push({ texto: "&>>", operador: true, citada: false });
         i += 2;
       } else {
-        tokens.push({ texto: "&>", operador: true });
+        tokens.push({ texto: "&>", operador: true, citada: false });
         i++;
       }
     } else if (/[;|&<>\n]/.test(caractere)) {
       let fd = "";
-      if ((caractere === ">" || caractere === "<") && /^\d+$/.test(palavra)) {
+      if ((caractere === ">" || caractere === "<") && !citada && /^\d+$/.test(palavra)) {
         fd = palavra;
         palavra = "";
       } else {
@@ -281,7 +334,7 @@ function tokenizar(comando: string, windows = false): Token[] {
         op = caractere + seguinte;
         i++;
       }
-      tokens.push({ texto: fd ? `${fd}${op}` : op, operador: true });
+      tokens.push({ texto: fd ? `${fd}${op}` : op, operador: true, citada: false });
     } else if (/\s/.test(caractere)) {
       guardar();
     } else {
@@ -305,7 +358,7 @@ function tokensDoComando(comando: unknown, windows = false): Token[] {
     const script = argv[argumento + 1];
     if (argumento >= 0 && script !== undefined) return tokenizar(descartarCorpoHeredoc(script), /^(?:powershell|pwsh)(?:\.exe)?$/i.test(argv[0]!));
   }
-  return argv.map(texto => ({ texto, operador: false }));
+  return argv.map(texto => ({ texto, operador: false, citada: false }));
 }
 
 // Separa as opções globais do git (`-C dir`, `-c k=v`, `--git-dir=...`) do subcomando.
@@ -617,7 +670,7 @@ function citaRawSegmento(palavras: string[], cwd: string): boolean {
 }
 
 const REGEX_REDIRECAO = /^(?:\d+)?(?:>{1,2}|>\||>&|<{1,3}|<&|<>)|&(?:>{1,2})$/;
-const REGEX_REDIRECAO_SAIDA = /^(?:\d+)?(?:>{1,2}|>\|)|&(?:>{1,2})$/;
+const REGEX_REDIRECAO_SAIDA = /^(?:\d+)?(?:>{1,2}|>\||<>)|&(?:>{1,2})$/;
 
 function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cwdInicial, windows = false): boolean {
   windows ||= Array.isArray(comando) && /^(?:powershell|pwsh)(?:\.exe)?$/i.test(String(comando[0]));
@@ -637,36 +690,7 @@ function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cw
   let anterior: string | undefined;
   const tokens = tokensDoComando(comando, windows);
 
-  function limparPalavras(lista: string[]): { limpo: string[]; bloqueia: boolean } {
-    const limpo: string[] = [];
-    for (let j = 0; j < lista.length; j++) {
-      const p = lista[j]!;
-      if (p.startsWith("#")) break;
-      const matchRedir = /^(?:&>|&>>|\d*>{1,2}|\d*>&|<{1,3})(.*)$/.exec(p);
-      if (matchRedir) {
-        const resto = matchRedir[1]!;
-        const alvo = resto || lista[j + 1];
-        if (alvo && !/^\d+$/.test(alvo)) {
-          if (escreveEmRaw(alvo, cwd) || (alvo.includes("$") && dentroDeBlocoDeRaw())) return { limpo, bloqueia: true };
-          if (escreveEmRaw(alvo, cwd) || citaRaw(alvo)) {
-            citouEmRedirecao = true;
-            citouRawGlobal = true;
-            if (/^<?\d*</.test(p)) entradaDeRaw = true;
-          }
-        }
-        if (!resto && j + 1 < lista.length) j++;
-        continue;
-      }
-      limpo.push(p);
-    }
-    return { limpo, bloqueia: false };
-  }
-
   function fechar(): boolean {
-    const limpoResultado = limparPalavras(palavras);
-    if (limpoResultado.bloqueia) return true;
-    palavras = limpoResultado.limpo;
-
     const verbo = palavras[0]?.toLowerCase();
     if (verbo !== undefined && MUDAM_DIRETORIO.has(verbo)) {
       const alvos = palavras.slice(1).filter(palavra => !palavra.startsWith("-") || palavra === "-");
@@ -742,8 +766,14 @@ function decidirTerminal(comando: unknown, cwd: string, windows = false): Decisa
     // Comando que não dá para ler só falha fechado quando cita raw/; sem isso, todo $(...) seria recusado.
     const texto = textoDoComando(comando);
     if (citaRaw(texto)) return { acao: "bloquear", motivo: `${motivo} (${(erro as Error).message})` };
-    const palavras = texto.split(/[\s"'`=<>;|&()[\]{}]+/);
-    for (const palavra of palavras) {
+    const candidatos = new Set<string>();
+    for (const m of texto.matchAll(/["']([^"'\n\r]+)["']/g)) {
+      if (m[1]?.trim()) candidatos.add(m[1].trim());
+    }
+    for (const palavra of texto.split(/[\s"'`=<>;|&()[\]{}]+/)) {
+      if (palavra.trim()) candidatos.add(palavra.trim());
+    }
+    for (const palavra of candidatos) {
       if (palavra && escreveEmRaw(palavra, cwd)) {
         return { acao: "bloquear", motivo: `${motivo} (palavra no comando cai em raw pelo disco: ${palavra})` };
       }
@@ -763,11 +793,7 @@ export function decidir(payload: string): Decisao {
     const cwd = String(entrada.workdir ?? entrada.cwd ?? entrada.directory ?? entrada.dir_path ?? dados.cwd ?? "");
     if (LEITORES.has(nome)) return { acao: "liberar", motivo: "ferramenta de leitura" };
     if (nome === "apply_patch" || nome === "applypatch") {
-      const textoPatch = typeof entrada.patch === "string" ? entrada.patch
-        : typeof entrada.command === "string" ? entrada.command
-        : typeof entrada.diff === "string" ? entrada.diff
-        : typeof entrada.content === "string" ? entrada.content
-        : typeof dados.patch === "string" ? dados.patch : "";
+      const textoPatch = extrairTextoPatch(entrada, dados);
       const caminhosPatch = caminhosDoPatch(textoPatch);
       for (const caminho of caminhosPatch) {
         if (escreveEmRawPeloTexto(caminho, cwd)) return { acao: "bloquear", motivo: `caminho dentro de raw/: ${caminho}` };
@@ -784,7 +810,7 @@ export function decidir(payload: string): Decisao {
       if (caminhosPatch.length > 0) {
         return { acao: "liberar", motivo: caminhosPatch.join(" ") };
       }
-      return { acao: "liberar", motivo: "apply_patch sem caminhos para raw" };
+      return { acao: "bloquear", motivo: "apply_patch sem caminhos válidos identificáveis (falha fechada)" };
     }
     // Os caminhos vêm dos argumentos já decodificados (toolArgs do Copilot é texto) e do payload; o caminho em raw/ bloqueia
     // mesmo que a ferramenta também tenha um comando.
