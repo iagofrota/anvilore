@@ -163,21 +163,23 @@ export async function comandoAprovar(args: string[]): Promise<number> {
     }
   }
 
-  // Sobe destacado anvilore ui --revisao
-  const bun = Bun.which("bun") ?? process.execPath;
-  const cliPath = resolve(import.meta.dir, "../cli.ts");
-  try {
-    const processo = Bun.spawn([bun, cliPath, "ui", "--revisao"], {
-      cwd: raiz,
-      stdin: "ignore",
-      stdout: "ignore",
-      stderr: "ignore",
-      detached: true,
-      env: process.env,
-    });
-    processo.unref();
-  } catch {
-    // Se o spawn falhar no sandbox, o comando segue imprimindo a mensagem
+  // Sobe destacado anvilore ui --revisao (se não desligado por ANVILORE_SEM_UI)
+  if (process.env.ANVILORE_SEM_UI !== "1") {
+    const bun = Bun.which("bun") ?? process.execPath;
+    const cliPath = resolve(import.meta.dir, "../cli.ts");
+    try {
+      const processo = Bun.spawn([bun, cliPath, "ui", "--revisao"], {
+        cwd: raiz,
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
+        detached: true,
+        env: process.env,
+      });
+      processo.unref();
+    } catch {
+      // Se o spawn falhar no sandbox, o comando segue imprimindo a mensagem
+    }
   }
 
   const total = args.length;

@@ -10,10 +10,18 @@ import { capturarConsole } from "./apoio/console";
 
 let raiz: string;
 beforeEach(() => {
+  process.env.ANVILORE_SEM_UI = "1";
   raiz = mkdtempSync(join(tmpdir(), "anvilore-aprovar-"));
   mkdirSync(join(raiz, "wiki/pessoal"), { recursive: true });
 });
-afterEach(() => rmSync(raiz, { recursive: true, force: true }));
+afterEach(() => {
+  delete process.env.ANVILORE_SEM_UI;
+  try {
+    rmSync(raiz, { recursive: true, force: true });
+  } catch {
+    // Tolerância para locks transitórios no Windows
+  }
+});
 
 function versaoArquivo(caminho: string): string {
   return createHash("sha256").update(readFileSync(caminho)).digest("hex");
@@ -284,7 +292,7 @@ test("Dado página gerada na fila e sessão em bypass Quando o agente roda bun s
 
   const proc = Bun.spawnSync([process.execPath, resolve(import.meta.dir, "../src/cli.ts"), "aprovar", "wiki/pessoal/ideia.md"], {
     cwd: raiz,
-    env: { ...process.env, ANVILORE_DESTINO: raiz },
+    env: { ...process.env, ANVILORE_DESTINO: raiz, ANVILORE_SEM_UI: "1" },
     stdout: "pipe",
     stderr: "pipe",
   });
