@@ -88,12 +88,7 @@ export function interpretarLinha(bruta: string): { eventos: EventoDoAgente[]; re
 // A regra de caminho absoluto do Claude Code: duas barras seguidas do caminho sem a barra inicial.
 // `Edit` vale para Edit e Write (provado); `Read` vale para Read, Grep e Glob (não provado com o
 // claude real). No Windows a forma `//C:/…` não foi provada.
-const METACARACTERES_DE_PADRAO = /[*?[\]{}!]/;
-
 function regraDeCaminho(ferramenta: "Edit" | "Read", caminhoAbsoluto: string): string {
-  if (METACARACTERES_DE_PADRAO.test(caminhoAbsoluto) || (caminhoAbsoluto.startsWith("/") && caminhoAbsoluto.includes("\\"))) {
-    throw new Error(`Caminho não pode conter metacaracteres de padrão: ${caminhoAbsoluto}`);
-  }
   const normalizado = caminhoAbsoluto.replaceAll("\\", "/").replace(/\/+$/, "").replace(/^\/+/, "");
   if (normalizado.endsWith(".md")) return `${ferramenta}(//${normalizado})`;
   return `${ferramenta}(//${normalizado}/**)`;
@@ -101,6 +96,21 @@ function regraDeCaminho(ferramenta: "Edit" | "Read", caminhoAbsoluto: string): s
 
 export function regraDeEdicao(caminhoAbsoluto: string): string {
   return regraDeCaminho("Edit", caminhoAbsoluto);
+}
+
+export const CARACTERES_ESPECIAIS_DE_AJUSTE = /[*?[\]{}!\\]/;
+export const MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE =
+  "Não dá para pedir ajuste nesta página porque o nome dela ou da pasta do vault tem um caractere especial (* ? [ ] { } ! \\). Renomeie para usar o ajuste.";
+
+export function caminhoTemCaractereEspecialDeAjuste(caminhoAbsoluto: string): boolean {
+  return CARACTERES_ESPECIAIS_DE_AJUSTE.test(caminhoAbsoluto);
+}
+
+export function regraDeEdicaoDeAjuste(caminhoAbsoluto: string): string {
+  if (caminhoTemCaractereEspecialDeAjuste(caminhoAbsoluto)) {
+    throw new Error(MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE);
+  }
+  return regraDeEdicao(caminhoAbsoluto);
 }
 
 // Leitura só no vault e na wiki (que pode morar fora dele): uma fonte com instrução escondida não leva o
@@ -122,7 +132,7 @@ export function argumentosDoPapel(pedido: PedidoDeFase): string[] {
   const { papel } = pedido;
   if (papel === "escritor" && !pedido.sessao && !pedido.pagina) throw new Error("o escritor precisa da sessão do leitor");
   const leitura = regrasDeLeitura(pedido.raiz, pedido.wiki);
-  const edicao = pedido.pagina ? [regraDeEdicao(join(pedido.wiki, pedido.pagina))] : [regraDeEdicao(pedido.wiki)];
+  const edicao = pedido.pagina ? [regraDeEdicaoDeAjuste(join(pedido.wiki, pedido.pagina))] : [regraDeEdicao(pedido.wiki)];
   const permitidas = papel === "leitor" ? leitura : [...leitura, ...edicao];
   return [
     "-p", pedido.mensagem,

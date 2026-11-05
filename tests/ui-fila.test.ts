@@ -94,3 +94,27 @@ test("Dado caminho de cópia com sufixo semelhante Quando procuro Então ignoro 
   writeFileSync(falso, "cópia de outra página");
   expect(await caminhoDaCopia(raiz, "concepts/alvo.md")).toBeUndefined();
 });
+
+test("Dado páginas com caracteres especiais no nome ou em vault especial Quando listo a fila Então marca ajustavel: false com explicação", async () => {
+  pagina("nota-comum", "2026-10-27T10:00:00Z");
+  pagina("nota!", "2026-10-27T10:00:00Z");
+  const fila = await listarFilaRascunhos(raiz);
+  const comum = fila.find(item => item.caminho === "pessoal/concepts/nota-comum.md");
+  const especial = fila.find(item => item.caminho === "pessoal/concepts/nota!.md");
+  expect(comum?.ajustavel).toBe(true);
+  expect(comum?.motivoNaoAjustavel).toBeUndefined();
+  expect(especial?.ajustavel).toBe(false);
+  expect(especial?.motivoNaoAjustavel).toContain("caractere especial");
+
+  // Vault com raiz especial
+  const raizEspecial = mkdtempSync(join(tmpdir(), "anvilore-vault-[2026]!-"));
+  try {
+    mkdirSync(join(raizEspecial, "wiki/pessoal/concepts"), { recursive: true });
+    writeFileSync(join(raizEspecial, "wiki/pessoal/concepts/segura.md"), "---\ntype: concept\nslug: segura\ntitle: Segura\ngenerated:\n  by: teste\n  at: 2026-10-27T10:00:00Z\n---\nCorpo\n");
+    const filaEspecial = await listarFilaRascunhos(raizEspecial);
+    expect(filaEspecial[0]?.ajustavel).toBe(false);
+    expect(filaEspecial[0]?.motivoNaoAjustavel).toContain("caractere especial");
+  } finally {
+    rmSync(raizEspecial, { recursive: true, force: true });
+  }
+});

@@ -198,7 +198,7 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
   }, [item, salvando, carregar]);
 
   const enviarAjuste = useCallback(async () => {
-    if (!item || !textoAjuste.trim() || enviandoAjuste) return;
+    if (!item || !item.ajustavel || !textoAjuste.trim() || enviandoAjuste) return;
     setEnviandoAjuste(true);
     try {
       const criada = await api<{ id: string }>("/api/ajuste", "POST", {
@@ -225,7 +225,7 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
       if (evento.key.toLowerCase() === "j") { evento.preventDefault(); const proximo = indiceVizinho(atual, 1, filtrados.length); if (proximo >= 0) { setSelecionado(filtrados[proximo]!.caminho); setAjusteAberto(false); setTextoAjuste(""); } }
       if (evento.key.toLowerCase() === "k") { evento.preventDefault(); const anterior = indiceVizinho(atual, -1, filtrados.length); if (anterior >= 0) { setSelecionado(filtrados[anterior]!.caminho); setAjusteAberto(false); setTextoAjuste(""); } }
       if (evento.key.toLowerCase() === "a" && item?.aprovavel) { evento.preventDefault(); void aprovar(); }
-      if (evento.key.toLowerCase() === "r" && item) { evento.preventDefault(); setAjusteAberto(atual => !atual); }
+      if (evento.key.toLowerCase() === "r" && item?.ajustavel) { evento.preventDefault(); setAjusteAberto(atual => !atual); }
     };
     window.addEventListener("keydown", teclado);
     return () => window.removeEventListener("keydown", teclado);
@@ -292,8 +292,9 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
           </div>
           <footer className="review-actions">
             <button className="approve-button" disabled={!item.aprovavel || salvando} onClick={() => void aprovar()}><span>✓</span>{salvando ? "Aprovando…" : "Aprovar"}<kbd>A</kbd></button>
-            <button type="button" className="secondary-button" onClick={() => setAjusteAberto(atual => !atual)}>Pedir ajuste<kbd>R</kbd></button>
+            <button type="button" className="secondary-button" disabled={!item.ajustavel} title={item.motivoNaoAjustavel} onClick={() => setAjusteAberto(atual => !atual)}>Pedir ajuste<kbd>R</kbd></button>
             <span className="approval-note">A aprovação registra <code>verified: human:…</code></span>
+            {item.motivoNaoAjustavel && <span className="adjustment-disabled-note" role="note">{item.motivoNaoAjustavel}</span>}
           </footer>
         </section>}
       </div>}

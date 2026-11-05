@@ -244,8 +244,9 @@ describe("Servidor UI — Pedir ajuste na Revisão", () => {
     expect(args).not.toContain("--resume");
   });
 
-  test("Dado um pedido de ajuste para caminho contendo metacaracteres de glob ou backslash Quando envio Então a API recusa com 400", async () => {
+  test("Dado um pedido de ajuste para caminho contendo metacaracteres de glob ou backslash Quando envio Então a API recusa com 400 e mensagem explicativa", async () => {
     const { postar } = await subirServidor();
+    const mensagemEsperada = "Não dá para pedir ajuste nesta página porque o nome dela ou da pasta do vault tem um caractere especial (* ? [ ] { } ! \\). Renomeie para usar o ajuste.";
     const caracteres = ["*", "?", "[", "]", "{", "}", "!", "\\"];
     for (const char of caracteres) {
       const caminho = `pessoal/concepts/nota-${char}.md`;
@@ -255,7 +256,54 @@ describe("Servidor UI — Pedir ajuste na Revisão", () => {
         pedido: "Ajuste com metacaractere",
       });
       expect(res.status).toBe(400);
+      const json = await res.json() as { mensagens: string[] };
+      expect(json.mensagens).toEqual([mensagemEsperada]);
     }
+  });
+
+  test("Dado raiz do vault com caractere especial (! ou [) Quando peço ajuste de página segura Então a API recusa com 400 e mensagem explicativa", async () => {
+    const raizEspecial = mkdtempSync(join(tmpdir(), "anvilore-vault-[2026]!-"));
+    try {
+      mkdirSync(join(raizEspecial, "wiki/pessoal/concepts"), { recursive: true });
+      const conteudo = "---\ntype: concept\nslug: nota-segura\ntitle: Segura\ngenerated:\n  by: teste/1.0\n  at: 2026-11-01T10:00:00-03:00\n---\nConteudo seguro\n";
+      const caminho = "pessoal/concepts/nota-segura.md";
+      writeFileSync(join(raizEspecial, "wiki", caminho), conteudo);
+      const versao = createHash("sha256").update(conteudo).digest("hex");
+
+      const app = await iniciarServidorUi(raizEspecial, { portaInicial: 0, token: "token-especial", abrirNavegador: false });
+      servidores.push(app.servidor);
+      const base = `http://127.0.0.1:${app.porta}`;
+      const res = await fetch(`${base}/api/ajuste?token=token-especial`, {
+        method: "POST",
+        headers: { origin: base, "content-type": "application/json" },
+        body: JSON.stringify({ caminho, versao, pedido: "Ajuste em vault especial" }),
+      });
+      expect(res.status).toBe(400);
+      const json = await res.json() as { mensagens: string[] };
+      expect(json.mensagens).toEqual(["Não dá para pedir ajuste nesta página porque o nome dela ou da pasta do vault tem um caractere especial (* ? [ ] { } ! \\). Renomeie para usar o ajuste."]);
+    } finally {
+      rmSync(raizEspecial, { recursive: true, force: true });
+    }
+  });
+
+  test("Dado rascunhos na fila Quando consulto /api/rascunhos Então indica ajustavel: true para páginas seguras e ajustavel: false com motivo para páginas ou vaults com caracteres especiais", async () => {
+    const conteudoNormal = "---\ntype: concept\nslug: normal\ntitle: Normal\ngenerated:\n  by: teste/1.0\n  at: 2026-11-01T10:00:00-03:00\n---\nNormal\n";
+    const conteudoExclamacao = "---\ntype: concept\nslug: nota-alerta!\ntitle: Alerta\ngenerated:\n  by: teste/1.0\n  at: 2026-11-01T10:00:00-03:00\n---\nCom exclamacao\n";
+    writeFileSync(join(raiz, "wiki/pessoal/concepts/normal.md"), conteudoNormal);
+    writeFileSync(join(raiz, "wiki/pessoal/concepts/nota!.md"), conteudoExclamacao);
+
+    const { chamar } = await subirServidor();
+    const res = await chamar("/api/rascunhos");
+    expect(res.status).toBe(200);
+    const rascunhos = (await res.json()) as Array<{ caminho: string; ajustavel: boolean; motivoNaoAjustavel?: string }>;
+
+    const itemNormal = rascunhos.find(r => r.caminho === "pessoal/concepts/normal.md");
+    expect(itemNormal?.ajustavel).toBe(true);
+    expect(itemNormal?.motivoNaoAjustavel).toBeUndefined();
+
+    const itemExclamacao = rascunhos.find(r => r.caminho === "pessoal/concepts/nota!.md");
+    expect(itemExclamacao?.ajustavel).toBe(false);
+    expect(itemExclamacao?.motivoNaoAjustavel).toBe("Não dá para pedir ajuste nesta página porque o nome dela ou da pasta do vault tem um caractere especial (* ? [ ] { } ! \\). Renomeie para usar o ajuste.");
   });
 
   test("Dado links simbólicos apontando para raw, fora da wiki ou outra página Quando envio ajuste Então a API recusa com 400 e arquivos sentinela permanecem intactos", async () => {

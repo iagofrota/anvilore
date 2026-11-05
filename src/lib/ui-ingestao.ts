@@ -8,6 +8,7 @@ import { isoComOffset } from "./hora";
 import { caminhoDeRawIngerivelPeloBotao, caminhoTemMetacaracteres } from "./caminho-raw";
 export { caminhoDeRawIngerivelPeloBotao, caminhoTemMetacaracteres } from "./caminho-raw";
 import { rotaDaIngestao, type Papel } from "./papeis-ingestao";
+import { caminhoTemCaractereEspecialDeAjuste, MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE } from "./ponte-claude-code";
 import type { EventoDoAgente, ExecucaoDeFase, FimDaFase, PedidoDeFase, PonteDeAgente, Recusa } from "./ponte-agente";
 import { extrairJson, type RelatorioLeitor } from "./relatorio-leitor";
 import { areasDaWiki, ErroDeFonte, salvarFonte } from "./ui-fonte";
@@ -449,10 +450,6 @@ export class IngestaoNaInterface {
     if (typeof dados?.caminho !== "string" || !dados.caminho.endsWith(".md") || isAbsolute(dados.caminho)) {
       throw new ErroDeIngestao("Página inválida.", 400);
     }
-    // Não permite metacaracteres de glob ou backslash (P1)
-    if (/[*?[\]{}!\\]/.test(dados.caminho)) {
-      throw new ErroDeIngestao("Caminho inválido.", 400);
-    }
     const partes = dados.caminho.split("/");
     if (partes.some(p => !p || p === "." || p === "..")) {
       throw new ErroDeIngestao("Caminho inválido.", 400);
@@ -465,6 +462,9 @@ export class IngestaoNaInterface {
     const arquivoPagina = resolve(wiki, dados.caminho);
     if (dentro(arquivoPagina, wiki) === undefined) {
       throw new ErroDeIngestao("Página fora da wiki.", 400);
+    }
+    if (caminhoTemCaractereEspecialDeAjuste(arquivoPagina)) {
+      throw new ErroDeIngestao(MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE, 400);
     }
 
     // Validação de caminho real e symlinks (P2)

@@ -6,6 +6,7 @@ import { lerFrontmatter } from "./frontmatter";
 import { caminhoWiki } from "./wiki-repo";
 import { validarWiki, type ResultadoValidacao } from "../comandos/validar";
 import { estadoAprovacaoHumana, timestampValido } from "./okf";
+import { caminhoTemCaractereEspecialDeAjuste, MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE } from "./ponte-claude-code";
 
 export type Rascunho = {
   caminho: string;
@@ -21,6 +22,8 @@ export type Rascunho = {
   avisos?: string[];
   conteudo: string;
   versao: string;
+  ajustavel: boolean;
+  motivoNaoAjustavel?: string;
 };
 
 async function listarMarkdown(diretorio: string, prefixo = ""): Promise<string[]> {
@@ -56,11 +59,26 @@ export async function listarFilaRascunhos(raiz: string, ambiente: Record<string,
   const fila: Rascunho[] = [];
   for (const caminho of arquivos) {
     if (basename(caminho) === "index.md" || caminho === "log.md" || caminho.startsWith("log/") || caminho.startsWith("_meta/")) continue;
-    const conteudo = await readFile(join(wiki, caminho), "utf8");
+    const arquivoAbsoluto = join(wiki, caminho);
+    const especial = caminhoTemCaractereEspecialDeAjuste(arquivoAbsoluto);
+    const ajustavel = !especial;
+    const motivoNaoAjustavel = especial ? MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE : undefined;
+    const conteudo = await readFile(arquivoAbsoluto, "utf8");
     let frontmatter: Record<string, unknown> | null;
     try { frontmatter = lerFrontmatter(conteudo); }
     catch {
-      fila.push({ caminho, titulo: basename(caminho, ".md"), tipo: "", status: "erro", aprovavel: false, erros: erroDoValidador(validacao.erros, caminho), conteudo, versao: createHash("sha256").update(conteudo).digest("hex") });
+      fila.push({
+        caminho,
+        titulo: basename(caminho, ".md"),
+        tipo: "",
+        status: "erro",
+        aprovavel: false,
+        ajustavel,
+        ...(motivoNaoAjustavel ? { motivoNaoAjustavel } : {}),
+        erros: erroDoValidador(validacao.erros, caminho),
+        conteudo,
+        versao: createHash("sha256").update(conteudo).digest("hex"),
+      });
       continue;
     }
     if (!frontmatter || frontmatter.generated === undefined) continue;
@@ -71,7 +89,18 @@ export async function listarFilaRascunhos(raiz: string, ambiente: Record<string,
     const erros = diagnosticos.filter(erro => !erroGlobal(erro));
     const avisos = diagnosticos.filter(erroGlobal);
     if (!geradaEm || estadoAprovacao === "invalida") {
-      fila.push({ caminho, titulo: String(frontmatter.title ?? basename(caminho, ".md")), tipo: String(frontmatter.type ?? ""), status: "erro", aprovavel: false, erros, conteudo, versao: createHash("sha256").update(conteudo).digest("hex") });
+      fila.push({
+        caminho,
+        titulo: String(frontmatter.title ?? basename(caminho, ".md")),
+        tipo: String(frontmatter.type ?? ""),
+        status: "erro",
+        aprovavel: false,
+        ajustavel,
+        ...(motivoNaoAjustavel ? { motivoNaoAjustavel } : {}),
+        erros,
+        conteudo,
+        versao: createHash("sha256").update(conteudo).digest("hex"),
+      });
       continue;
     }
     if (estadoAprovacao === "vigente") continue;
@@ -88,6 +117,8 @@ export async function listarFilaRascunhos(raiz: string, ambiente: Record<string,
       fonte: primeiraFonte && typeof primeiraFonte.resource === "string" ? primeiraFonte.resource : undefined,
       status: erros.length ? "erro" : atualizada ? "atualizada" : "nova",
       aprovavel: erros.length === 0,
+      ajustavel,
+      ...(motivoNaoAjustavel ? { motivoNaoAjustavel } : {}),
       ...(atualizada ? { aprovacaoAnterior: "deixa de valer" as const } : {}),
       ...(erros.length ? { erros } : {}),
       ...(avisos.length ? { avisos } : {}),

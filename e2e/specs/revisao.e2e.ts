@@ -154,3 +154,21 @@ test("[C24-Ajuste-Filtro] Dado um rascunho com campo de ajuste aberto e texto di
   await expect(page.locator(".adjustment-box")).toBeVisible();
   await expect(page.getByLabel("O que o agente deve mudar nesta página?")).toHaveValue("");
 });
+
+test("[C25-Ajuste-Nome-Especial] Dado um rascunho com caractere especial no nome Quando visualizo na Revisão Então Pedir ajuste fica desabilitado com explicação visível e R não abre o campo", async ({ page, app, vault }) => {
+  await vault.escrever("wiki/pessoal/concepts/nota!.md", paginaGerada("nota!", "Conteúdo de página com ponto de exclamação"));
+
+  await page.goto(`${app.base}/?token=${encodeURIComponent(app.token)}#/revisao`);
+  await expect(page.getByRole("option")).toHaveCount(1);
+
+  // O botão Pedir ajuste fica desabilitado
+  const botaoAjuste = page.getByRole("button", { name: "Pedir ajuste" });
+  await expect(botaoAjuste).toBeDisabled();
+
+  // A explicação está visível na tela
+  await expect(page.getByText("Não dá para pedir ajuste nesta página porque o nome dela ou da pasta do vault tem um caractere especial")).toBeVisible();
+
+  // Tecla R não abre o campo de ajuste
+  await page.keyboard.press("r");
+  await expect(page.locator(".adjustment-box")).not.toBeVisible();
+});

@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { argumentosDoPapel, regraDeEdicao } from "../src/lib/ponte-claude-code";
+import {
+  argumentosDoPapel,
+  caminhoTemCaractereEspecialDeAjuste,
+  MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE,
+  regraDeEdicao,
+  regraDeEdicaoDeAjuste,
+  regrasDeLeitura,
+} from "../src/lib/ponte-claude-code";
 
 describe("Ponte Claude Code — Ajuste restrito a uma página", () => {
   test("Dado um caminho de diretório Quando gero regra de edição Então inclui /**", () => {
@@ -13,11 +20,38 @@ describe("Ponte Claude Code — Ajuste restrito a uma página", () => {
     expect(regraDeEdicao("C:\\v\\wiki\\pessoal\\concepts\\segundo-cerebro.md")).toBe("Edit(//C:/v/wiki/pessoal/concepts/segundo-cerebro.md)");
   });
 
-  test("Dado um caminho contendo metacaracteres de glob Quando tento gerar regra de edição Então lança erro como defesa em profundidade", () => {
+  test("Dado raiz ou wiki contendo caracteres especiais (! e [) Quando gero regras de leitura e de edição geral Então não lança erro", () => {
+    const raizEspecial = "/vault/Notas[2026]!";
+    const wikiEspecial = "/vault/Notas[2026]!/wiki";
+    // Leitura não lança
+    expect(regrasDeLeitura(raizEspecial, wikiEspecial)).toEqual(["Read(//vault/Notas[2026]!/**)"]);
+    // Edição geral de diretório não lança
+    expect(regraDeEdicao(wikiEspecial)).toBe("Edit(//vault/Notas[2026]!/wiki/**)");
+    // Papel leitor não lança
+    expect(() => argumentosDoPapel({ papel: "leitor", mensagem: "Ler", raiz: raizEspecial, wiki: wikiEspecial })).not.toThrow();
+    // Papel escritor de ingestão comum (sem pagina) não lança
+    expect(() => argumentosDoPapel({ papel: "escritor", mensagem: "Escrever", raiz: raizEspecial, wiki: wikiEspecial, sessao: "sess-123" })).not.toThrow();
+  });
+
+  test("Dado um caminho de ajuste contendo metacaracteres (* ? [ ] { } ! ou \\) Quando tento gerar regra de ajuste Então lança erro explicativo", () => {
     for (const char of ["*", "?", "[", "]", "{", "}", "!"]) {
-      expect(() => regraDeEdicao(`/v/wiki/pessoal/concepts/nota-${char}.md`)).toThrow(/metacaractere/i);
+      const caminho = `/v/wiki/pessoal/concepts/nota-${char}.md`;
+      expect(caminhoTemCaractereEspecialDeAjuste(caminho)).toBe(true);
+      expect(() => regraDeEdicaoDeAjuste(caminho)).toThrow(MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE);
     }
-    expect(() => regraDeEdicao("/v/wiki/pessoal/concepts/nota\\invalida.md")).toThrow(/metacaractere/i);
+    const caminhoBackslash = "/v/wiki/pessoal/concepts/nota\\invalida.md";
+    expect(caminhoTemCaractereEspecialDeAjuste(caminhoBackslash)).toBe(true);
+    expect(() => regraDeEdicaoDeAjuste(caminhoBackslash)).toThrow(MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE);
+  });
+
+  test("Dado o escritor de ajuste Quando a raiz do vault tem caractere especial Então argumentosDoPapel lança erro de ajuste", () => {
+    expect(() => argumentosDoPapel({
+      papel: "escritor",
+      mensagem: "Ajuste.",
+      raiz: "/vault/Notas[2026]!",
+      wiki: "/vault/Notas[2026]!/wiki",
+      pagina: "pessoal/concepts/seguro.md",
+    })).toThrow(MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE);
   });
 
   test("Dado o escritor de ajuste com página definida Quando monto os argumentos Então não exige sessão e restringe edição só àquela página", () => {

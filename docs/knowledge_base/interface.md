@@ -92,6 +92,7 @@ Se a wiki já estiver configurada ou o onboarding concluído, o acesso a `#/onbo
   - Cria uma conversa de ajuste (`tipo: "ajuste"`) em `.anvilore/ui/conversas/<id>.json` e redireciona para `#/chat/<id>`.
   - Salva uma cópia de referência do rascunho em `.anvilore/ui/copias/<id>/<caminho>` para visualização de diff posterior.
   - Dispara o agente escritor com escopo restrito exclusivamente à página em questão (`join(pedido.wiki, pedido.pagina)` em `src/lib/ponte-claude-code.ts`), impedindo alterações em outras páginas.
+  - Se o caminho absoluto final da página (`join(wiki, pagina)`) contiver metacaracteres (`* ? [ ] { } ! \`), a ação de ajuste é desabilitada na interface (tecla `R` e botão) com explicação visível, e a rota `POST /api/ajuste` recusa com HTTP 400 (`Não dá para pedir ajuste nesta página porque o nome dela ou da pasta do vault tem um caractere especial (* ? [ ] { } ! \). Renomeie para usar o ajuste.`), evitando regras ambíguas no Claude Code enquanto leitura e ingestão em vaults com tais nomes seguem normais.
   - Ao concluir a escrita, o servidor roda `fechar` e `validar`. A página ajustada recebe um novo SHA-256 e reaparece na fila de Revisão como uma nova geração de rascunho pendente de validação humana; aprovações anteriores deixam de valer.
 
 ## Como acrescentar uma tela (Nota, Biblioteca, Onboarding)
