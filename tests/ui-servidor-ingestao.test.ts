@@ -309,7 +309,11 @@ test("Dado caminho com metacaracteres de padrão (* ? [ ] { } !) ou backslash Qu
   for (const char of metacaracteres) {
     const caminho = char === "\\" ? "raw/pessoal\\invertida.md" : `raw/pessoal/weird${char}.md`;
     if (char !== "\\") {
-      writeFileSync(join(raiz, caminho), "conteudo literal");
+      try {
+        writeFileSync(join(raiz, caminho), "conteudo literal");
+      } catch {
+        // Windows NTFS não permite * ou ? em nomes de arquivos no disco
+      }
     }
     const res = await postar("/api/conversas/de-raw", { caminho });
     expect(res.status).toBe(400);

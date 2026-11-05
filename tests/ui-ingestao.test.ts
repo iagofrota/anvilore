@@ -746,7 +746,11 @@ test("Dado caminho em raw/ contendo metacaracteres de padrão (* ? [ ] { } !) ou
   for (const char of metacaracteres) {
     const nome = `weird${char === "\\" ? "barra" : char}.md`;
     if (char !== "\\") {
-      writeFileSync(join(raiz, "raw/pessoal", nome), "conteudo literal");
+      try {
+        writeFileSync(join(raiz, "raw/pessoal", nome), "conteudo literal");
+      } catch {
+        // Windows NTFS não permite * ou ? em nomes de arquivos no disco
+      }
     }
     const caminho = char === "\\" ? "raw/pessoal\\invertida.md" : `raw/pessoal/${nome}`;
     await expect(ingestao.criarDeRaw(caminho)).rejects.toMatchObject({ status: 400 });
