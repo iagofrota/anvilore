@@ -7,7 +7,11 @@ import { capturarConsole } from "./apoio/console";
 import { configuracaoDoHook } from "../src/comandos/instalar";
 
 let raiz: string;
-beforeEach(() => { raiz = mkdtempSync(join(tmpdir(), "anvilore-hooks-")); });
+beforeEach(() => {
+  raiz = mkdtempSync(join(tmpdir(), "anvilore-hooks-"));
+  writeFileSync(join(raiz, "SCHEMA.md"), "# Schema\n");
+  mkdirSync(join(raiz, "wiki"), { recursive: true });
+});
 afterEach(() => { rmSync(raiz, { recursive: true, force: true }); rmSync(`${raiz}-remote.git`, { recursive: true, force: true }); });
 
 async function git(...args: string[]) {
@@ -174,14 +178,14 @@ describe("hooks da wiki", () => {
   });
 
   test("Dado tentativa de acrescentar verified em wiki Quando Write, Edit ou MultiEdit chama o hook Então nega", async () => {
-    for (const tool_input of [
-      { file_path: join(raiz, "wiki/a.md"), content: "---\nverified:\n  - by: human:x\n---" },
-      { file_path: join(raiz, "wiki/a.md"), new_string: "verified: human:x" },
-      { file_path: join(raiz, "wiki/a.md"), edits: [{ new_string: "verified: human:x" }] },
+    for (const tool of [
+      { tool_name: "Write", tool_input: { file_path: join(raiz, "wiki/a.md"), content: "---\nverified:\n  - by: human:x\n---" } },
+      { tool_name: "Edit", tool_input: { file_path: join(raiz, "wiki/a.md"), old_string: "Antigo.", new_string: "verified: human:x" } },
+      { tool_name: "MultiEdit", tool_input: { file_path: join(raiz, "wiki/a.md"), edits: [{ old_string: "Antigo.", new_string: "verified: human:x" }] } },
     ]) {
       const c = capturarConsole();
       try {
-        await comandoHooksWiki(["proteger-verified", raiz], async () => JSON.stringify({ cwd: raiz, tool_input }));
+        await comandoHooksWiki(["proteger-verified", raiz], async () => JSON.stringify({ cwd: raiz, ...tool }));
         expect(JSON.parse(c.saida.join("\n"))).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
       } finally { c.restaurar(); }
     }
@@ -193,23 +197,26 @@ describe("hooks da wiki", () => {
     const verified = "verified:\n  - by: human:ana\n    at: 2026-10-27T11:00:00Z";
     writeFileSync(pagina, `---\ngenerated: agente\n${verified}\n---\nAntigo.\n`);
     const inputs = [
-      { file_path: pagina, content: `---\ngenerated: agente\n${verified}\n---\nNovo.\n` },
-      { file_path: pagina, old_string: "Antigo.", new_string: "Novo." },
+      { tool_name: "Write", tool_input: { file_path: pagina, content: `---\ngenerated: agente\n${verified}\n---\nNovo.\n` } },
+      { tool_name: "Edit", tool_input: { file_path: pagina, old_string: "Antigo.", new_string: "Novo." } },
     ];
-    for (const tool_input of inputs) {
+    for (const tool of inputs) {
       const c = capturarConsole();
       try {
-        await comandoHooksWiki(["proteger-verified", raiz], async () => JSON.stringify({ cwd: raiz, tool_input }));
+        await comandoHooksWiki(["proteger-verified", raiz], async () => JSON.stringify({ cwd: raiz, ...tool }));
         expect(c.saida.join("\n")).toBe("");
       } finally { c.restaurar(); }
     }
   });
 
   test("Dado Edit que introduz uma nova entrada verified Quando o hook avalia Então nega", async () => {
+    const pagina = join(raiz, "wiki/a.md");
+    mkdirSync(join(raiz, "wiki"), { recursive: true });
+    writeFileSync(pagina, "generated: agente\n");
     const c = capturarConsole();
     try {
-      await comandoHooksWiki(["proteger-verified", raiz], async () => JSON.stringify({ cwd: raiz, tool_input: {
-        file_path: join(raiz, "wiki/a.md"), old_string: "generated: agente", new_string: "generated: agente\nverified:\n  - by: human:ana",
+      await comandoHooksWiki(["proteger-verified", raiz], async () => JSON.stringify({ cwd: raiz, tool_name: "Edit", tool_input: {
+        file_path: pagina, old_string: "generated: agente", new_string: "generated: agente\nverified:\n  - by: human:ana",
       } }));
       expect(JSON.parse(c.saida.join("\n"))).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
     } finally { c.restaurar(); }
@@ -221,7 +228,7 @@ describe("hooks da wiki", () => {
     writeFileSync(pagina, "---\ngenerated:\n  at: 2026-10-27T10:00:00Z\nverified:\n  - by: human:ana\n    at: 2026-10-27T11:00:00Z\n---\nTexto.\n");
     const c = capturarConsole();
     try {
-      await comandoHooksWiki(["proteger-verified", raiz], async () => JSON.stringify({ cwd: raiz, tool_input: {
+      await comandoHooksWiki(["proteger-verified", raiz], async () => JSON.stringify({ cwd: raiz, tool_name: "Edit", tool_input: {
         file_path: pagina, old_string: "    at: 2026-10-27T11:00:00Z", new_string: "    at: 2026-10-27T09:00:00Z",
       } }));
       expect(JSON.parse(c.saida.join("\n"))).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });

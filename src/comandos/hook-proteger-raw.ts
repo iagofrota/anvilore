@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
 import { dirname, join, posix, resolve } from "node:path";
 import { caminhoReal, dentroDe, estaEmRaw } from "../lib/caminhos";
-import { decidirVerified } from "../lib/trava-verified";
+import { decidirVerified, encontrarRaizVault } from "../lib/trava-verified";
 
 export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
 type Mapa = Record<string, unknown>;
@@ -644,12 +644,10 @@ export async function executarProtecao(payload: string): Promise<number> {
       dados = JSON.parse(payload);
     } catch {}
 
-    const raiz =
-      process.env.ANVILORE_DESTINO ||
-      (mapa(dados) && typeof dados.cwd === "string" && dados.cwd.trim() ? resolve(dados.cwd.trim()) : undefined) ||
-      (process.env.ANVILORE_WIKI ? dirname(resolve(process.env.ANVILORE_WIKI)) : undefined) ||
-      process.cwd() ||
-      resolve(import.meta.dir, "../..");
+    const raiz = encontrarRaizVault(
+      mapa(dados) && typeof dados.cwd === "string" ? dados.cwd : undefined,
+      process.env
+    );
 
     decisaoVerified = await decidirVerified(payload, raiz, process.env);
   } catch (erro) {
