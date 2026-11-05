@@ -211,3 +211,18 @@ test("Dado páginas com estados e áreas, Quando resume wiki, Então agrega cont
   expect(resumo).toMatchObject({ paginas: 2, secoes: 2, porEstado: { manual: 2, verificada: 0, rascunho: 0 } });
   expect(resumo.areas).toEqual([{ area: "saude", paginas: 1 }, { area: "tributos", paginas: 1 }]);
 });
+
+test("Dado páginas rascunho, meta e verificadas com títulos maliciosos, Quando resume wiki, Então filtra rascunho e meta e saneia títulos revisados", async () => {
+  const raiz = raizTemporaria();
+  escrever(raiz, "hostil.md", `${frontmatter({ generated: true, verified: false })}\n## H\ntexto`);
+  escrever(raiz, "index.md", `---\ntitle: Índice Geral\nslug: index\ntype: index\n---\n## I\ntexto`);
+  escrever(raiz, "log.md", `---\ntitle: Log da Wiki\nslug: log\ntype: index\n---\n## L\ntexto`);
+  escrever(raiz, "revisada.md", `---\ntitle: "Revisada\\ncom quebra\\x00e controle"\nslug: revisada\ntype: concept\ngenerated:\n  by: agent\n  at: '2026-01-01T00:00:00Z'\nverified:\n  by: human:iago\n  at: '2026-01-02T00:00:00Z'\n---\n## R\ntexto`);
+  escrever(raiz, "longa.md", `---\ntitle: "${"X".repeat(120)}"\nslug: longa\ntype: concept\ngenerated:\n  by: agent\n  at: '2026-01-01T00:00:00Z'\nverified:\n  by: human:iago\n  at: '2026-01-02T00:00:00Z'\n---\n## Longa\ntexto`);
+
+  const resumo = await nucleo(raiz).resumoDaWiki();
+  expect(resumo.titulos).not.toContain("Índice Geral");
+  expect(resumo.titulos).not.toContain("Log da Wiki");
+  expect(resumo.titulos.some(t => t.includes("Hostil") || t.includes("IBS"))).toBe(false);
+  expect(resumo.titulos).toEqual(["Revisada com quebra e controle", "X".repeat(80)]);
+});
