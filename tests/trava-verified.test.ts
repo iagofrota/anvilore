@@ -23,11 +23,18 @@ describe("trava de verified nos quatro agentes", () => {
     delete process.env.ANVILORE_LOG_HOOK;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     consoleCapturado.restaurar();
     for (const chave of Object.keys(process.env)) if (!(chave in ambiente)) delete process.env[chave];
     Object.assign(process.env, ambiente);
-    rmSync(temporario, { recursive: true, force: true });
+    try {
+      rmSync(temporario, { recursive: true, force: true });
+    } catch {
+      await new Promise(r => setTimeout(r, 50));
+      try {
+        rmSync(temporario, { recursive: true, force: true });
+      } catch {}
+    }
   });
 
   // --- Ataques A1 (A1.1 a A1.4): aprovar desarmado na CLI ---

@@ -12,7 +12,18 @@ beforeEach(() => {
   writeFileSync(join(raiz, "SCHEMA.md"), "# Schema\n");
   mkdirSync(join(raiz, "wiki"), { recursive: true });
 });
-afterEach(() => { rmSync(raiz, { recursive: true, force: true }); rmSync(`${raiz}-remote.git`, { recursive: true, force: true }); });
+afterEach(async () => {
+  for (const dir of [raiz, `${raiz}-remote.git`]) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      await new Promise(r => setTimeout(r, 50));
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {}
+    }
+  }
+});
 
 async function git(...args: string[]) {
   const wiki = join(raiz, "wiki");
