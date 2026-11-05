@@ -148,6 +148,77 @@ function caminhosDe(valor: unknown): string[] {
   });
 }
 
+function caminhosDoPatch(texto: string): string[] {
+  const caminhos: string[] = [];
+  const regex = /^\*\*\*\s*(?:Add File|Update File|Delete File|Move to|Move from):\s*(\S.*?)\s*$/gmi;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(texto)) !== null) {
+    const limpo = match[1]?.trim().replace(/^["'](.*)["']$/, "$1");
+    if (limpo) caminhos.push(limpo);
+  }
+  return caminhos;
+}
+
+function encontrarHeredoc(linha: string): { inicio: number; fim: number; delim: string; tab: boolean } | null {
+  let aspas = "";
+  for (let i = 0; i < linha.length; i++) {
+    const c = linha[i]!;
+    if (aspas) {
+      if (c === aspas) aspas = "";
+      else if (c === "\\" && aspas === '"' && i + 1 < linha.length) i++;
+    } else if (c === "'" || c === '"') {
+      aspas = c;
+    } else if (c === "<" && linha[i + 1] === "<" && linha[i + 2] !== "<" && (i === 0 || linha[i - 1] !== "<")) {
+      const inicio = i;
+      i += 2;
+      let tab = false;
+      if (linha[i] === "-") {
+        tab = true;
+        i++;
+      }
+      while (i < linha.length && /\s/.test(linha[i]!)) i++;
+      let delim = "";
+      if (linha[i] === "'" || linha[i] === '"') {
+        const q = linha[i++]!;
+        while (i < linha.length && linha[i] !== q) delim += linha[i++]!;
+        if (i < linha.length) i++;
+      } else {
+        if (linha[i] === "\\") i++;
+        while (i < linha.length && /[A-Za-z0-9_]/.test(linha[i]!)) delim += linha[i++]!;
+      }
+      if (delim) return { inicio, fim: i, delim, tab };
+    }
+  }
+  return null;
+}
+
+function descartarCorpoHeredoc(comando: string): string {
+  if (!comando.includes("<<")) return comando;
+  const linhas = comando.split("\n");
+  const resultado: string[] = [];
+  let delimitador: string | undefined;
+  let ignoraTabs = false;
+
+  for (let idx = 0; idx < linhas.length; idx++) {
+    const linha = linhas[idx]!;
+    if (delimitador !== undefined) {
+      const comparada = ignoraTabs ? linha.replace(/^\t+/, "").trimEnd() : linha.trimEnd();
+      if (comparada === delimitador) delimitador = undefined;
+      continue;
+    }
+    const h = encontrarHeredoc(linha);
+    if (h) {
+      delimitador = h.delim;
+      ignoraTabs = h.tab;
+      const linhaLimpa = (linha.slice(0, h.inicio) + " " + linha.slice(h.fim)).trimEnd();
+      if (linhaLimpa) resultado.push(linhaLimpa);
+    } else {
+      resultado.push(linha);
+    }
+  }
+  return resultado.join("\n");
+}
+
 // Reconhece palavras, aspas e operadores; não executa nem expande código de shell.
 // `windows`: no PowerShell e no cmd a barra invertida é separador de caminho, não escape (`raw\ -Force`, `"raw\"`).
 function tokenizar(comando: string, windows = false): Token[] {
@@ -160,6 +231,7 @@ function tokenizar(comando: string, windows = false): Token[] {
   for (let i = 0; i < comando.length; i++) {
     const caractere = comando[i]!;
     const seguinte = comando[i + 1] ?? "";
+    const depoisDeSeguinte = comando[i + 2] ?? "";
     if (aspas) {
       if (caractere === aspas) aspas = "";
       else if (!windows && aspas === '"' && caractere === "\\" && /["\\$`]/.test(seguinte) && seguinte) palavra += comando[++i];
@@ -170,10 +242,46 @@ function tokenizar(comando: string, windows = false): Token[] {
       palavra += comando[++i];
     } else if (caractere === "`" || caractere === "(" || caractere === ")" || (caractere === "$" && /[({]/.test(seguinte) && seguinte)) {
       throw new Error("subshell ou expansão não interpretável");
-    } else if (/[;|&<>\n]/.test(caractere)) {
+    } else if (caractere === "#" && palavra === "") {
+      while (i + 1 < comando.length && comando[i + 1] !== "\n") i++;
+    } else if (caractere === "&" && (seguinte === ">" || seguinte === "&")) {
       guardar();
-      const operador = caractere === "\n" ? ";" : caractere + (seguinte === caractere ? comando[++i] : "");
-      tokens.push({ texto: operador, operador: true });
+      if (seguinte === "&") {
+        tokens.push({ texto: "&&", operador: true });
+        i++;
+      } else if (depoisDeSeguinte === ">") {
+        tokens.push({ texto: "&>>", operador: true });
+        i += 2;
+      } else {
+        tokens.push({ texto: "&>", operador: true });
+        i++;
+      }
+    } else if (/[;|&<>\n]/.test(caractere)) {
+      let fd = "";
+      if ((caractere === ">" || caractere === "<") && /^\d+$/.test(palavra)) {
+        fd = palavra;
+        palavra = "";
+      } else {
+        guardar();
+      }
+      let op = caractere;
+      if (caractere === "\n") {
+        op = ";";
+      } else if (caractere === ">") {
+        if (seguinte === ">") { op = ">>"; i++; }
+        else if (seguinte === "&") { op = ">&"; i++; }
+        else if (seguinte === "|") { op = ">|"; i++; }
+      } else if (caractere === "<") {
+        if (seguinte === "<") {
+          if (depoisDeSeguinte === "<") { op = "<<<"; i += 2; }
+          else { op = "<<"; i++; }
+        } else if (seguinte === "&") { op = "<&"; i++; }
+        else if (seguinte === ">") { op = "<>"; i++; }
+      } else if (caractere === seguinte) {
+        op = caractere + seguinte;
+        i++;
+      }
+      tokens.push({ texto: fd ? `${fd}${op}` : op, operador: true });
     } else if (/\s/.test(caractere)) {
       guardar();
     } else {
@@ -187,7 +295,7 @@ function tokenizar(comando: string, windows = false): Token[] {
 }
 
 function tokensDoComando(comando: unknown, windows = false): Token[] {
-  if (typeof comando === "string") return tokenizar(comando, windows);
+  if (typeof comando === "string") return tokenizar(descartarCorpoHeredoc(comando), windows);
   if (!Array.isArray(comando) || !comando.length || !comando.every(item => typeof item === "string")) {
     throw new Error("comando de terminal ilegível");
   }
@@ -195,7 +303,7 @@ function tokensDoComando(comando: unknown, windows = false): Token[] {
   if (/^(?:bash|sh|zsh|powershell)(?:\.exe)?$/i.test(argv[0]!)) {
     const argumento = argv.findIndex(item => /^(?:-[a-z]*c|-command)$/i.test(item));
     const script = argv[argumento + 1];
-    if (argumento >= 0 && script !== undefined) return tokenizar(script, /^(?:powershell|pwsh)(?:\.exe)?$/i.test(argv[0]!));
+    if (argumento >= 0 && script !== undefined) return tokenizar(descartarCorpoHeredoc(script), /^(?:powershell|pwsh)(?:\.exe)?$/i.test(argv[0]!));
   }
   return argv.map(texto => ({ texto, operador: false }));
 }
@@ -405,15 +513,15 @@ function segmentoEscreve(palavras: string[], cwd: string, contexto: Contexto): b
       const agrupado = /^-[a-zA-Z]*?t(.+)$/.exec(arg);
       return agrupado ? [agrupado[1]!] : [];
     });
-    let ultimoOperando = "";
+    const operandos: string[] = [];
     let soOperandos = false;
     for (let i = 0; i < args.length; i++) {
       const arg = args[i]!;
-      if (soOperandos || arg === "-" || !arg.startsWith("-")) ultimoOperando = arg;
+      if (soOperandos || arg === "-" || !arg.startsWith("-")) operandos.push(arg);
       else if (arg === "--") soOperandos = true;
       else if ((opcaoLongaGnu(arg, "--suffix", "--su") && !arg.includes("=")) || /^-[a-zA-Z]*S$/.test(arg)) i++;
     }
-    return (alvos.length ? alvos : [ultimoOperando]).some(alvo => escreveEmRaw(alvo, cwd));
+    return (alvos.length ? alvos : operandos.slice(1)).some(alvo => escreveEmRaw(alvo, cwd));
   }
   if (!forcar && !estaEmRaw(comando[0]!) && !args.some(palavra => escreveEmRaw(palavra, cwd) || citaRaw(palavra))) return false;
   if (verbo === "rg") return args.some(arg => arg === "--pre" || arg.startsWith("--pre="));
@@ -508,6 +616,9 @@ function citaRawSegmento(palavras: string[], cwd: string): boolean {
   return palavras.slice(1).some(palavra => escreveEmRaw(palavra, cwd) || citaRaw(palavra));
 }
 
+const REGEX_REDIRECAO = /^(?:\d+)?(?:>{1,2}|>\||>&|<{1,3}|<&|<>)|&(?:>{1,2})$/;
+const REGEX_REDIRECAO_SAIDA = /^(?:\d+)?(?:>{1,2}|>\|)|&(?:>{1,2})$/;
+
 function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cwdInicial, windows = false): boolean {
   windows ||= Array.isArray(comando) && /^(?:powershell|pwsh)(?:\.exe)?$/i.test(String(comando[0]));
   let cwd = cwdInicial;
@@ -517,12 +628,45 @@ function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cw
   let profundidade = 0;
   let blocoAlimentado = false;
   let lacoAlimentado = false;
+  let citouEmRedirecao = false;
+  let citouRawGlobal = false;
+  let entradaDeRaw = false;
   const segmentos: string[][] = [];
   const chaves = (itens: string[]) => { const texto = itens.join(" "); return (texto.match(/\{/g) ?? []).length - (texto.match(/\}/g) ?? []).length; };
   const dentroDeBlocoDeRaw = () => profundidade + chaves(palavras) > 0 && (blocoAlimentado || doPipe || listagemAncestral);
   let anterior: string | undefined;
   const tokens = tokensDoComando(comando, windows);
+
+  function limparPalavras(lista: string[]): { limpo: string[]; bloqueia: boolean } {
+    const limpo: string[] = [];
+    for (let j = 0; j < lista.length; j++) {
+      const p = lista[j]!;
+      if (p.startsWith("#")) break;
+      const matchRedir = /^(?:&>|&>>|\d*>{1,2}|\d*>&|<{1,3})(.*)$/.exec(p);
+      if (matchRedir) {
+        const resto = matchRedir[1]!;
+        const alvo = resto || lista[j + 1];
+        if (alvo && !/^\d+$/.test(alvo)) {
+          if (escreveEmRaw(alvo, cwd) || (alvo.includes("$") && dentroDeBlocoDeRaw())) return { limpo, bloqueia: true };
+          if (escreveEmRaw(alvo, cwd) || citaRaw(alvo)) {
+            citouEmRedirecao = true;
+            citouRawGlobal = true;
+            if (/^<?\d*</.test(p)) entradaDeRaw = true;
+          }
+        }
+        if (!resto && j + 1 < lista.length) j++;
+        continue;
+      }
+      limpo.push(p);
+    }
+    return { limpo, bloqueia: false };
+  }
+
   function fechar(): boolean {
+    const limpoResultado = limparPalavras(palavras);
+    if (limpoResultado.bloqueia) return true;
+    palavras = limpoResultado.limpo;
+
     const verbo = palavras[0]?.toLowerCase();
     if (verbo !== undefined && MUDAM_DIRETORIO.has(verbo)) {
       const alvos = palavras.slice(1).filter(palavra => !palavra.startsWith("-") || palavra === "-");
@@ -542,26 +686,39 @@ function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cw
     if (palavras.includes("done")) lacoAlimentado = false;
     const abreAgora = profundidade === 0 && chaves(palavras) > 0;
     if (abreAgora && (doPipe || listagemAncestral)) blocoAlimentado = true;
-    const escreve = segmentoEscreve(palavras, cwd, { raiz, doPipe, windows }) || (listagemAncestral && (escritaDeShell(palavras) || gravaPelaPipeline(palavras)))
+    const escreve = segmentoEscreve(palavras, cwd, { raiz, doPipe: doPipe || entradaDeRaw, windows }) || (listagemAncestral && (escritaDeShell(palavras) || gravaPelaPipeline(palavras)))
       || (blocoAlimentado && (profundidade > 0 || abreAgora) && gravaComVariavel(palavras)) || (noLaco && escritaDeShell(palavras));
+    entradaDeRaw = false;
     profundidade = Math.max(0, profundidade + chaves(palavras));
     if (profundidade === 0) blocoAlimentado = false;
     segmentos.push(palavras);
     palavras = [];
     return escreve;
   }
+
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i]!;
     if (!token.operador) {
       palavras.push(token.texto);
       continue;
     }
-    if (/^>{1,2}$/.test(token.texto)) {
+    if (REGEX_REDIRECAO.test(token.texto)) {
       let alvo = tokens[i + 1];
       if (alvo?.operador && /^[|&]$/.test(alvo.texto)) alvo = tokens[i + 2];
-      if (alvo !== undefined && !alvo.operador && (escreveEmRaw(alvo.texto, cwd) || (alvo.texto.includes("$") && dentroDeBlocoDeRaw()))) return true;
-    } else if ([";", "|", "||", "&&", "&"].includes(token.texto)) {
-      const citou = citaRawSegmento(palavras, cwd);
+      if (alvo !== undefined && !alvo.operador) {
+        const ehSaida = REGEX_REDIRECAO_SAIDA.test(token.texto) || (token.texto.endsWith(">&") && !/^\d+$/.test(alvo.texto));
+        if (ehSaida && (escreveEmRaw(alvo.texto, cwd) || (alvo.texto.includes("$") && dentroDeBlocoDeRaw()))) return true;
+        if (escreveEmRaw(alvo.texto, cwd) || citaRaw(alvo.texto)) {
+          citouEmRedirecao = true;
+          citouRawGlobal = true;
+          if (/^<?\d*</.test(token.texto)) entradaDeRaw = true;
+        }
+        if (tokens[i + 1]?.operador && /^[|&]$/.test(tokens[i + 1]!.texto)) i++;
+        i++; // Consome o alvo para não entrar em palavras
+      }
+    } else if ([";", ";;", "|", "||", "&&", "&"].includes(token.texto)) {
+      const citou = citaRawSegmento(palavras, cwd) || citouEmRedirecao;
+      citouEmRedirecao = false;
       const recursiva = palavras.length > 0 && listagemRecursivaAncestral(verboNormalizado(palavras[0]!), palavras.slice(1), cwd, raiz);
       if (fechar()) return true;
       doPipe = token.texto === "|" && (doPipe || citou);
@@ -569,7 +726,7 @@ function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cw
     }
   }
   if (fechar()) return true;
-  const cita = segmentos.some(segmento => segmento.some(citaRaw));
+  const cita = citouRawGlobal || segmentos.some(segmento => segmento.some(citaRaw));
   return cita && segmentos.some(escritaDeShell);
 }
 
@@ -583,8 +740,15 @@ function decidirTerminal(comando: unknown, cwd: string, windows = false): Decisa
     return { acao: terminalEscreve(comando, cwd, cwd, windows) ? "bloquear" : "liberar", motivo };
   } catch (erro) {
     // Comando que não dá para ler só falha fechado quando cita raw/; sem isso, todo $(...) seria recusado.
-    const cita = citaRaw(textoDoComando(comando));
-    return { acao: cita ? "bloquear" : "liberar", motivo: `${motivo} (${(erro as Error).message})` };
+    const texto = textoDoComando(comando);
+    if (citaRaw(texto)) return { acao: "bloquear", motivo: `${motivo} (${(erro as Error).message})` };
+    const palavras = texto.split(/[\s"'`=<>;|&()[\]{}]+/);
+    for (const palavra of palavras) {
+      if (palavra && escreveEmRaw(palavra, cwd)) {
+        return { acao: "bloquear", motivo: `${motivo} (palavra no comando cai em raw pelo disco: ${palavra})` };
+      }
+    }
+    return { acao: "liberar", motivo: `${motivo} (${(erro as Error).message})` };
   }
 }
 
@@ -598,6 +762,30 @@ export function decidir(payload: string): Decisao {
     if (!mapa(entrada)) throw new Error("argumentos da ferramenta ilegíveis");
     const cwd = String(entrada.workdir ?? entrada.cwd ?? entrada.directory ?? entrada.dir_path ?? dados.cwd ?? "");
     if (LEITORES.has(nome)) return { acao: "liberar", motivo: "ferramenta de leitura" };
+    if (nome === "apply_patch" || nome === "applypatch") {
+      const textoPatch = typeof entrada.patch === "string" ? entrada.patch
+        : typeof entrada.command === "string" ? entrada.command
+        : typeof entrada.diff === "string" ? entrada.diff
+        : typeof entrada.content === "string" ? entrada.content
+        : typeof dados.patch === "string" ? dados.patch : "";
+      const caminhosPatch = caminhosDoPatch(textoPatch);
+      for (const caminho of caminhosPatch) {
+        if (escreveEmRawPeloTexto(caminho, cwd)) return { acao: "bloquear", motivo: `caminho dentro de raw/: ${caminho}` };
+        try {
+          const real = caiEmRawPeloDisco(caminho, cwd);
+          if (real !== undefined) return { acao: "bloquear", motivo: `caminho dentro de raw/ pelo caminho real: ${caminho} -> ${real}` };
+        } catch (erro) {
+          return { acao: "bloquear", motivo: `falha fechada na resolução de link: ${(erro as Error).message}` };
+        }
+      }
+      if (citaRaw(textoPatch) || citaRaw(payload)) {
+        return { acao: "bloquear", motivo: "patch cita raw/ (falha fechado)" };
+      }
+      if (caminhosPatch.length > 0) {
+        return { acao: "liberar", motivo: caminhosPatch.join(" ") };
+      }
+      return { acao: "liberar", motivo: "apply_patch sem caminhos para raw" };
+    }
     // Os caminhos vêm dos argumentos já decodificados (toolArgs do Copilot é texto) e do payload; o caminho em raw/ bloqueia
     // mesmo que a ferramenta também tenha um comando.
     const caminhos = [...new Set(caminhosDe([dados, entrada]))];

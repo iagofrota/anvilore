@@ -996,3 +996,80 @@ test('Dado raw solto em interpretador, Quando bun avalia, Então bloqueia',()=>{
 test('Dado Git destrutivo sobre raw, Quando decidir, Então clean -fdx e rm -r continuam bloqueados',()=>{
  for(const comando of ['git clean -fdx raw','git rm -r raw'])for(const payload of formasCaptura)expect(decidir(payload(comando)).acao).toBe('bloquear');
 });
+
+// Auditoria run-1 (S1) — achado medium: redirecionamento ou comentário contaminam operandos posicionais
+test("Dado cp com destino em raw e sufixo de redirecionamento ou comentário Quando decidir Então bloqueia", () => {
+  for (const comando of [
+    "cp wiki/rascunho.txt raw/fonte.txt 2>/dev/null",
+    "cp wiki/rascunho.txt raw/fonte.txt 2>&1",
+    "cp wiki/rascunho.txt raw/fonte.txt > /dev/null",
+    "cp wiki/rascunho.txt raw/fonte.txt # comentário",
+    "cp wiki/rascunho.txt raw/fonte.txt 2>log.txt",
+    "cp wiki/rascunho.txt raw/fonte.txt &>log.txt",
+    "cp wiki/rascunho.txt raw/fonte.txt >>log.txt",
+  ]) {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  }
+});
+
+test("Dado pdftotext com entrada em raw e sufixo de redirecionamento Quando decidir Então bloqueia", () => {
+  for (const comando of [
+    "pdftotext raw/a.pdf 2>&1",
+    "pdftotext raw/a.pdf 2>/dev/null",
+  ]) {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  }
+});
+
+test("Dado uso legítimo com redirecionamento de erro ou saída fora de raw Quando decidir Então libera", () => {
+  expect(decidir(terminal("cp raw/fonte.txt wiki/x 2>/dev/null")).acao).toBe("liberar");
+  expect(decidir(terminal("rg x wiki/ 2>/dev/null")).acao).toBe("liberar");
+  expect(decidir(terminal("cat raw/a.md 2>&1 | head")).acao).toBe("liberar");
+  expect(decidir(terminal("pdftotext raw/a.pdf /tmp/a.txt 2>/dev/null")).acao).toBe("liberar");
+  expect(decidir(terminal("cp raw/a.pdf /tmp/")).acao).toBe("liberar");
+});
+
+// Auditoria run-1 (S1) — achado low: pontuação no corpo de apply_patch/heredoc não pode ignorar resolução de link para raw/
+test("Dado apply_patch para link que aponta para raw Quando o corpo contém pontuação comum Então bloqueia", () => {
+  const base = projeto();
+  symlinkSync(join(base, "raw"), join(base, "wiki/ln"), linkDeDiretorio);
+  for (const corpo of [
+    "+x",
+    "+veja [x](y)",
+    `+it's`,
+    "+usa `code`",
+    "+valor $(x)",
+  ]) {
+    const patch = `*** Begin Patch\n*** Add File: wiki/ln/a.md\n${corpo}\n*** End Patch`;
+    const payload = JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: patch } });
+    expect(decidir(payload).acao).toBe("bloquear");
+  }
+});
+
+test("Dado heredoc para link que aponta para raw Quando o corpo contém pontuação comum Então bloqueia", () => {
+  const base = projeto();
+  symlinkSync(join(base, "raw"), join(base, "wiki/ln"), linkDeDiretorio);
+  for (const corpo of [
+    "texto simples",
+    "ver [fonte](https://x.org)",
+    "it's",
+    "usa `code`",
+    "valor $(x)",
+  ]) {
+    const comando = `cat > wiki/ln/pagina.md <<'EOF'\n${corpo}\nEOF`;
+    for (const tool_name of ["Bash", "run_shell_command"]) {
+      const payload = JSON.stringify({ tool_name, cwd: base, tool_input: { command: comando } });
+      expect(decidir(payload).acao).toBe("bloquear");
+    }
+    const payloadCopilot = JSON.stringify({ toolName: "bash", cwd: base, toolArgs: JSON.stringify({ command: comando }) });
+    expect(decidir(payloadCopilot).acao).toBe("bloquear");
+  }
+});
+
+test("Dado patch normal em wiki com pontuação no corpo Quando decidir Então continua liberado", () => {
+  const base = projeto();
+  const patch = `*** Begin Patch\n*** Add File: wiki/a.md\n+veja [x](y) e 'aspas' e \`code\` e $(cmd)\n*** End Patch`;
+  const payload = JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: patch } });
+  expect(decidir(payload).acao).toBe("liberar");
+});
+
