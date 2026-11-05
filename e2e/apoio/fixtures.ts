@@ -15,7 +15,7 @@ type Agente = { registro: string; invocacoes(papel?: "leitor" | "escritor" | "au
 type Oraculo = { get<T>(rota: string): Promise<T>; post<T>(rota: string, corpo?: unknown): Promise<{ status: number; body: T }> };
 
 type Fixtures = { vault: Vault; app: App; agente: Agente; oraculo: Oraculo; origensExternas: Set<string>; guardas: void };
-type Options = { roteiro: RoteiroDoFalso; manterVault: boolean; agenteAusente: boolean; ambienteDoRunner: NodeJS.ProcessEnv | undefined };
+type Options = { roteiro: RoteiroDoFalso; manterVault: boolean; agenteAusente: boolean; ambienteDoRunner: NodeJS.ProcessEnv | undefined; prefixoDoVault: string };
 
 async function lerRegistro(caminho: string): Promise<Record<string, unknown>[]> {
   try { return (await readFile(caminho, "utf8")).split("\n").filter(Boolean).map(linha => JSON.parse(linha) as Record<string, unknown>); }
@@ -55,8 +55,9 @@ export const test = base.extend<Fixtures & Options>({
   agenteAusente: [false, { option: true }],
   // Só a contraprova de isolamento troca isto: simula um runner com ANVILORE_WIKI etc. exportados.
   ambienteDoRunner: [undefined, { option: true }],
-  vault: async ({ manterVault }, use, testInfo) => {
-    const vault = await criarVault();
+  prefixoDoVault: ["anvilore-e2e-", { option: true }],
+  vault: async ({ manterVault, prefixoDoVault }, use, testInfo) => {
+    const vault = await criarVault(prefixoDoVault);
     await use(vault);
     const falhou = testInfo.status !== testInfo.expectedStatus;
     await vault.limparFora();

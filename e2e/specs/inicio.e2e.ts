@@ -210,3 +210,41 @@ test("[I5-13] Dado um arquivo em subpasta de captura (como raw/notas/) Quando cl
   await expect(page.getByLabel("Área")).toBeVisible();
   await expect(page.getByRole("combobox")).toHaveValue("pessoal");
 });
+
+test("[I5-14] Dado um arquivo em raw/ cujo caminho contém metacaracteres Quando abro o Início Então o botão Ingerir fica desabilitado e exibe a mensagem de renomear", async ({ page, app, vault }) => {
+  await vault.escrever("raw/pessoal/arquivo[1]!.md", "conteúdo com metacaractere no nome");
+
+  await page.goto(app.url);
+  const cartao = page.getByRole("region", { name: "Em raw/, sem ingestão" });
+  await expect(cartao).toContainText("raw/pessoal/arquivo[1]!.md");
+  await expect(cartao).toContainText("Renomeie o arquivo em raw/ para ingerir pelo botão");
+
+  const item = cartao.locator("li").filter({ hasText: "raw/pessoal/arquivo[1]!.md" });
+  const botaoIngerir = item.getByRole("button", { name: "Ingerir" });
+  await expect(botaoIngerir).toBeDisabled();
+  await expect(botaoIngerir).toHaveAttribute("title", "Renomeie o arquivo em raw/ para ingerir pelo botão");
+});
+
+test.describe("Vault com raiz contendo colchetes e exclamação (Notas[2026]!)", () => {
+  test.use({ prefixoDoVault: "anvilore-e2e-Notas[2026]!-" });
+
+  test("[I5-15] Dado um vault cuja raiz tem colchetes e exclamação no nome Quando clico em Ingerir no Início Então ingere pelo botão normalmente", async ({ page, app, vault }) => {
+    expect(vault.raiz).toContain("Notas[2026]!");
+    await vault.escrever("raw/pessoal/normal.md", "conteúdo normal em vault com raiz especial");
+
+    await page.goto(app.url);
+    const cartao = page.getByRole("region", { name: "Em raw/, sem ingestão" });
+    await expect(cartao).toContainText("raw/pessoal/normal.md");
+
+    const deRaw = page.waitForResponse(resposta => resposta.url().includes("/api/conversas/de-raw") && resposta.request().method() === "POST");
+    await cartao.getByRole("button", { name: "Ingerir" }).click();
+    const respostaDeRaw = await deRaw;
+    expect(respostaDeRaw.status()).toBe(201);
+    const conversa = await respostaDeRaw.json() as { id: string; fonte: string; area: string };
+    expect(conversa.fonte).toBe("raw/pessoal/normal.md");
+    expect(conversa.area).toBe("pessoal");
+
+    await expect(page).toHaveURL(new RegExp(`#/chat/${conversa.id}$`));
+    await expect(page.getByRole("heading", { name: "Ingerir: normal.md", level: 1 })).toBeVisible();
+  });
+});

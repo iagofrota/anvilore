@@ -388,3 +388,29 @@ test("Dado arquivo em subpasta de captura (raw/notas/) Quando POST /api/conversa
   const lendo = await lerComArea.json() as { id: string; area: string };
   expect(lendo.area).toBe("pessoal");
 });
+
+test("Dado um vault cuja raiz contém colchetes e exclamação (Notas[2026]!) Quando clico no botão (POST /api/conversas/de-raw) Então inicia a ingestão normalmente com status 201", async () => {
+  const raizEspecial = mkdtempSync(join(tmpdir(), "Notas[2026]!-"));
+  try {
+    for (const dir of ["wiki/pessoal/sources", "wiki/pessoal/concepts", "raw/pessoal"]) mkdirSync(join(raizEspecial, dir), { recursive: true });
+    writeFileSync(join(raizEspecial, "raw/pessoal/normal.md"), FONTE);
+
+    const app = await iniciarServidorUi(raizEspecial, { portaInicial: 0, token: "token-especial", abrirNavegador: false, ponte: new PonteFalsa(), fechar: async () => ({ codigo: 0, saida: "FECHAMENTO: OK" }) });
+    try {
+      const base = `http://127.0.0.1:${app.porta}`;
+      const res = await fetch(`${base}/api/conversas/de-raw?token=token-especial`, {
+        method: "POST",
+        headers: { origin: base, "content-type": "application/json" },
+        body: JSON.stringify({ caminho: "raw/pessoal/normal.md" }),
+      });
+      expect(res.status).toBe(201);
+      const json = await res.json() as { id: string; fonte: string; area: string };
+      expect(json.fonte).toBe("raw/pessoal/normal.md");
+      expect(json.area).toBe("pessoal");
+    } finally {
+      app.servidor.stop(true);
+    }
+  } finally {
+    rmSync(raizEspecial, { recursive: true, force: true });
+  }
+});

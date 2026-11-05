@@ -189,8 +189,8 @@ test("Dado fonte em raw/ com metacaractere (* ? [ ] { } ! \\) Quando a tela mont
     const btn = botao(arvore, "Ingerir");
     expect(btn).toBeDefined();
     expect(btn?.props.disabled).toBe(true);
-    expect(btn?.props.title).toBe("renomeie o arquivo em raw/ para ingerir pelo botão");
-    expect(html).toContain("renomeie o arquivo em raw/ para ingerir pelo botão");
+    expect(btn?.props.title).toBe("Renomeie o arquivo em raw/ para ingerir pelo botão");
+    expect(html).toContain("Renomeie o arquivo em raw/ para ingerir pelo botão");
   }
 });
 
@@ -324,6 +324,19 @@ test("Dado ação de ingerir fonte com sucesso ou erro Quando executa Então nav
     h => { hash = h; },
   );
   expect(erro).toBe("Recusado pelo servidor");
+  expect(ingerindo).toBeNull();
+
+  erro = "";
+  let iniciou = false;
+  await executarIngerirFonte(
+    "raw/pessoal/weird[1]!.md",
+    v => { ingerindo = v; },
+    e => { erro = e; },
+    async () => { iniciou = true; return { valor: { id: "conv-1" } }; },
+    h => { hash = h; },
+  );
+  expect(erro).toBe("Renomeie o arquivo em raw/ para ingerir pelo botão");
+  expect(iniciou).toBe(false);
   expect(ingerindo).toBeNull();
 });
 

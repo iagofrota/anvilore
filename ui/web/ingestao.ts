@@ -1,5 +1,7 @@
 import type { Conversa, Fechamento } from "../../src/lib/ui-ingestao";
 
+export { caminhoTemMetacaracteres, METACARACTERES_DE_RAW } from "../../src/lib/caminho-raw";
+
 export type EstadoDoPasso = "feito" | "atual" | "falta" | "parou";
 export type PassoDoPainel = { rotulo: string; dica: string; estado: EstadoDoPasso };
 

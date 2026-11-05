@@ -5,6 +5,8 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { conferirArquivoDeLeitura } from "../comandos/conferir-leitura";
 import { caminhoReal, dentroDe } from "./caminhos";
 import { isoComOffset } from "./hora";
+import { caminhoTemMetacaracteres } from "./caminho-raw";
+export { caminhoTemMetacaracteres } from "./caminho-raw";
 import { rotaDaIngestao, type Papel } from "./papeis-ingestao";
 import type { EventoDoAgente, ExecucaoDeFase, FimDaFase, PedidoDeFase, PonteDeAgente, Recusa } from "./ponte-agente";
 import { extrairJson, type RelatorioLeitor } from "./relatorio-leitor";
@@ -225,7 +227,7 @@ export class IngestaoNaInterface {
     if (typeof caminhoBruto !== "string" || !caminhoBruto.trim() || caminhoBruto.includes("\0")) {
       throw new ErroDeIngestao("Caminho inválido.", 400);
     }
-    if (/[*?[\]{}!\\]/.test(caminhoBruto)) {
+    if (caminhoTemMetacaracteres(caminhoBruto)) {
       throw new ErroDeIngestao("Caminho inválido: metacaracteres de padrão (*, ?, [, ], {, }, !) e barras invertidas não são permitidos.", 400);
     }
     if (isAbsolute(caminhoBruto)) {
