@@ -40,14 +40,27 @@ function extrairIpv4(ip: string, h: number[] | null): string | null {
  if (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0xffff) {
   return `${h[6]! >> 8}.${h[6]! & 255}.${h[7]! >> 8}.${h[7]! & 255}`;
  }
+ if (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0xffff && h[5] === 0) {
+  return `${h[6]! >> 8}.${h[6]! & 255}.${h[7]! >> 8}.${h[7]! & 255}`;
+ }
  if (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0) {
+  if (h[6] === 0 && (h[7] === 0 || h[7] === 1)) return null;
   return `${h[6]! >> 8}.${h[6]! & 255}.${h[7]! >> 8}.${h[7]! & 255}`;
  }
  if (h[0] === 0x64 && h[1] === 0xff9b && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0) {
   return `${h[6]! >> 8}.${h[6]! & 255}.${h[7]! >> 8}.${h[7]! & 255}`;
  }
+ if (h[0] === 0x64 && h[1] === 0xff9b && h[2] === 1 && h[3] === 0 && h[4] === 0 && h[5] === 0) {
+  return `${h[6]! >> 8}.${h[6]! & 255}.${h[7]! >> 8}.${h[7]! & 255}`;
+ }
  if (h[0] === 0x2002) {
   return `${h[1]! >> 8}.${h[1]! & 255}.${h[2]! >> 8}.${h[2]! & 255}`;
+ }
+ if (h[0] === 0x2001 && h[1] === 0) {
+  const s = `${h[2]! >> 8}.${h[2]! & 255}.${h[3]! >> 8}.${h[3]! & 255}`;
+  const c = `${(h[6]! ^ 0xffff) >> 8}.${(h[6]! ^ 0xffff) & 255}.${(h[7]! ^ 0xffff) >> 8}.${(h[7]! ^ 0xffff) & 255}`;
+  if (ipv4Proibido(s)) return s;
+  return c;
  }
  return null;
 }
@@ -58,15 +71,10 @@ export function enderecoProibido(ip: string): boolean {
  if (!h) return true;
  if (h.every(x => x === 0)) return true;
  if (h.slice(0, 7).every(x => x === 0) && h[7] === 1) return true;
- if ((h[0]! & 0xfe00) === 0xfc00) return true;
- if ((h[0]! & 0xffc0) === 0xfe80) return true;
- if ((h[0]! & 0xffc0) === 0xfec0) return true;
- if ((h[0]! & 0xff00) === 0xff00) return true;
- if (h[0] === 0x64 && h[1] === 0xff9b && h[2] === 1) return true;
- if (h[0] === 0x2001 && h[1] === 0) return true;
- if (h[0] === 0x2001 && h[1] === 0xdb8) return true;
- if (h[0] === 0x2001 && ((h[1]! & 0xfff0) === 0x10 || (h[1]! & 0xfff0) === 0x20)) return true;
- if (h[0] === 0x100 && h[1] === 0 && h[2] === 0 && h[3] === 0) return true;
+ if (h[0]! < 0x2000 || h[0]! > 0x3fff) return true;
+ if (h[0] === 0x2001 && (h[1]! & 0xfe00) === 0) return true;
+ if (h[0] === 0x2001 && h[1] === 0x0db8) return true;
+ if (h[0] === 0x3fff && (h[1]! & 0xf000) === 0) return true;
  return false;
 }
 function loopback(ip: string): boolean {

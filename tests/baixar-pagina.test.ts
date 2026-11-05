@@ -31,13 +31,18 @@ test('Dado tabela de endereços de uso especial da IANA e públicos comuns, Quan
   '64:ff9b:1::1', '64:ff9b:1::ffff',
   '2002:a00:1::', '2002:7f00:1::', '2002:a9fe:a9fe::',
   '2001::1', '2001::1234',
+  '2001:2::1', '2001:3::1',
+  '2001:0:4136:e378:8000:63bf:f5ff:fffe',
   '2001:db8::1',
   '2001:20::1',
   '100::1',
+  '3fff::1',
+  '5f00::1',
   'fc00::1', 'fdff::1',
   'fe80::1', 'febf::1',
   'fec0::1', 'feff::1',
-  'ff00::1', 'ff02::1'
+  'ff00::1', 'ff02::1',
+  '::ffff:0:127.0.0.1', '::ffff:0:10.0.0.1', '::ffff:0:100.64.0.1'
  ];
  for (const ip of bloqueados) {
   expect(enderecoProibido(ip)).toBe(true);
@@ -49,7 +54,7 @@ test('Dado tabela de endereços de uso especial da IANA e públicos comuns, Quan
   '2001:4860:4860::8888', '2606:4700:4700::1111', '2a00:1450:4001:828::200e',
   '64:ff9b::8.8.8.8', '64:ff9b::808:808',
   '2002:808:808::', '2002:101:101::',
-  '::ffff:8.8.8.8', '::8.8.8.8'
+  '::ffff:8.8.8.8', '::ffff:0:8.8.8.8', '::8.8.8.8'
  ];
  for (const ip of liberados) {
   expect(enderecoProibido(ip)).toBe(false);
@@ -66,6 +71,10 @@ test('Dado resolução DNS para faixas internas especiais, Quando baixarPagina e
  expect(pInvalido).toEqual({ motivo: 'o link aponta para um endereço local ou privado' });
 });
 test('Dado loopback, Quando baixar sem teste, Então recusa e não conecta',async()=>{const u=servir(()=>{throw new Error('não deve conectar');});expect(await baixarPagina(u,{})).toHaveProperty('motivo');});
+test('Dado IPv6 loopback ::1 com teste explícito, Quando baixarPagina resolve para ::1, Então não recusa por endereço local', async () => {
+ const p = await baixarPagina('http://[::1]:9999/teste', { teste: true, tempoMs: 50, resolver: async () => ['::1'] });
+ if ('motivo' in p) expect(p.motivo).not.toBe('o link aponta para um endereço local ou privado');
+});
 test('Dado servidor local e teste explícito, Quando baixar, Então retorna bytes e charset',async()=>{
  const u=servir(()=>new Response('ação',{headers:{'Content-Type':'text/html; charset=UTF-8'}}));const p=await baixarPagina(u,{teste:true});expect(p).toMatchObject({status:200,tipo:'text/html',charset:'UTF-8',urlFinal:u+'/'});if('bytes'in p)expect(new TextDecoder().decode(p.bytes)).toBe('ação');
 });
