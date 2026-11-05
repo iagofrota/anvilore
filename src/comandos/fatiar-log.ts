@@ -1,6 +1,7 @@
 import { lstatSync, statSync, type Stats } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { gravarArquivoWiki, validarDiretorioWiki, validarLeituraNaWiki } from "../lib/escrita-segura";
 
 // Fatia `<WIKI>/log.md` em um arquivo por dia sob `<WIKI>/log/`.
 //
@@ -107,6 +108,11 @@ async function lerUtf8(caminho: string): Promise<string> {
 export async function fatiarLog(wiki: string): Promise<ResultadoDoFatiamento> {
   const origem = join(wiki, "log.md");
   if (!ehArquivo(origem)) throw new ErroDeFatiamento(`${origem} não existe`);
+  try {
+    validarLeituraNaWiki(wiki, origem);
+  } catch (erro) {
+    throw new ErroDeFatiamento((erro as Error).message);
+  }
 
   const { entradas, linhasDePreambulo } = fatiar(await lerUtf8(origem));
   if (entradas.length === 0) throw new ErroDeFatiamento(`nenhuma entrada encontrada em ${origem}`);
@@ -119,6 +125,11 @@ export async function fatiarLog(wiki: string): Promise<ResultadoDoFatiamento> {
   }
 
   const pastaDestino = join(wiki, "log");
+  try {
+    validarDiretorioWiki(wiki, pastaDestino);
+  } catch (erro) {
+    throw new ErroDeFatiamento((erro as Error).message);
+  }
   const destinos = new Map([...porData.keys()].map((data) => [data, join(pastaDestino, `log-${data}.md`)]));
   const existentes = [...destinos.values()].filter(existe).sort();
   if (existentes.length > 0) {
@@ -129,6 +140,7 @@ export async function fatiarLog(wiki: string): Promise<ResultadoDoFatiamento> {
 
   try {
     await mkdir(pastaDestino, { recursive: true });
+    validarDiretorioWiki(wiki, pastaDestino);
   } catch (erro) {
     throw new ErroDeFatiamento(`não foi possível criar ${pastaDestino}: ${(erro as Error).message}`);
   }
@@ -136,7 +148,7 @@ export async function fatiarLog(wiki: string): Promise<ResultadoDoFatiamento> {
   for (const [data, destino] of destinos) {
     try {
       // `wx`: nunca sobrescreve, nem se o arquivo aparecer entre a checagem e a escrita.
-      await writeFile(destino, renderizar(data, porData.get(data)!), { encoding: "utf8", flag: "wx" });
+      await gravarArquivoWiki(wiki, destino, renderizar(data, porData.get(data)!), { encoding: "utf8", flag: "wx" });
     } catch (erro) {
       throw new ErroDeFatiamento(
         `não foi possível gravar ${destino}: ${(erro as Error).message}; já gravados: ${gravados.join(", ") || "nenhum"}`,

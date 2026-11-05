@@ -1,6 +1,7 @@
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { basename, join, relative, sep } from "node:path";
 import { parseArgs } from "node:util";
+import { gravarArquivoWiki, validarDiretorioWiki } from "../lib/escrita-segura";
 import { dataLocal, linhasPython, paginasMarkdown } from "../lib/paginas";
 import { DIR_META, diretorioDeTipo, nomeReservado } from "../lib/reservados";
 import { ErroDeEncoding, lerUtf8Estrito } from "../lib/utf8";
@@ -108,10 +109,11 @@ export async function listarLacunas(wiki: string, opcoes: Opcoes = {}): Promise<
 
   const relatorio = render(achados, dataLocal());
   if (opcoes.stdout) return [relatorio];
-  const destino = join(wiki, DIR_META, "lacunas.md");
+  const pastaMeta = join(wiki, DIR_META);
+  const destino = join(pastaMeta, "lacunas.md");
   try {
-    await mkdir(join(wiki, DIR_META), { recursive: true });
-    await writeFile(destino, relatorio, "utf8");
+    validarDiretorioWiki(wiki, pastaMeta);
+    await gravarArquivoWiki(wiki, destino, relatorio, { encoding: "utf8" });
   } catch (erro) {
     // O `path` do erro varia por sistema (no Windows pode ser a pasta): a mensagem nomeia o alvo.
     throw new Error(`erro: não foi possível escrever ${destino}: ${(erro as Error).message}`);

@@ -1,5 +1,6 @@
-import { readdir, stat, writeFile } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { gravarArquivoWiki } from "../lib/escrita-segura";
 import { ErroDeEncoding, lerUtf8Estrito } from "../lib/utf8";
 
 // Erro ao gravar `log.md`: a mensagem nomeia o arquivo alvo, não o `path` do erro (no Windows ele traz a pasta).
@@ -98,7 +99,7 @@ export async function indexarLog(wiki: string, opcoes: { stdout?: boolean } = {}
   if (opcoes.stdout) return { escreveu: false, saida: conteudo, avisos };
   const destino = join(wiki, "log.md");
   try {
-    await writeFile(destino, conteudo);
+    await gravarArquivoWiki(wiki, destino, conteudo);
   } catch (erro) {
     throw new ErroDeEscrita(`${destino}: ${(erro as Error).message}`);
   }

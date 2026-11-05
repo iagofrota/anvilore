@@ -1,7 +1,8 @@
 import { readdirSync, statSync, type Dirent } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
+import { gravarArquivoWiki, podeGravarNaWiki } from "../lib/escrita-segura";
 
 // Rejunta parágrafos quebrados à mão (~95-105 colunas) de volta a uma linha só por parágrafo,
 // item de lista ou blockquote.
@@ -541,13 +542,18 @@ export async function rejuntarLinhas(alvo: string, opcoes: OpcoesDeRejuntamento 
     if (novo !== original) mudados.push({ arquivo, original, novo, fimDeLinha: fimDeLinhaDominante(lido) });
   }
 
+  const raiz = stat.isDirectory() ? alvo : dirname(alvo);
   for (const { arquivo, original, novo, fimDeLinha } of mudados) {
     if (opcoes.simular) {
       if (opcoes.diff) for (const linha of diffUnificado(arquivo, `${arquivo} (rejuntado)`, original, novo)) console.log(linha);
       continue;
     }
+    if (!podeGravarNaWiki(raiz, arquivo)) {
+      console.error(`AVISO: link simbólico ignorado na gravação: ${arquivo}`);
+      continue;
+    }
     try {
-      await writeFile(arquivo, fimDeLinha === "\n" ? novo : novo.replaceAll("\n", fimDeLinha), "utf8");
+      await gravarArquivoWiki(raiz, arquivo, fimDeLinha === "\n" ? novo : novo.replaceAll("\n", fimDeLinha), { encoding: "utf8" });
     } catch (erro) {
       throw new ErroDeRejuntamento(`não foi possível gravar ${arquivo}: ${codigoDe(erro)}`);
     }

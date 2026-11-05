@@ -250,15 +250,50 @@ describe("rejuntar-linhas: diretório como alvo", () => {
   });
 
   test.skipIf(process.platform === "win32")(
-    "Dado um symlink para .md, Quando varro, Então o alvo do link é lido e reescrito (stat segue o link)",
+    "Dado um symlink para .md, Quando varro, Então o link é lido mas pulado com aviso na gravação e o alvo permanece inalterado",
     async () => {
       const real = join(pasta, "real.md");
       writeFileSync(real, "a\nb\n");
       mkdirSync(join(pasta, "dir"));
       symlinkSync(real, join(pasta, "dir", "link.md"));
-      const r = await rejuntarLinhas(join(pasta, "dir"));
-      expect(r.mudariam).toEqual([join(pasta, "dir", "link.md")]);
-      expect(readFileSync(real, "utf8")).toBe("a b\n");
+      const r = await capturar(() => comandoRejuntarLinhas([join(pasta, "dir")]));
+      expect(r.codigo).toBe(0);
+      expect(r.erro).toContain("AVISO:");
+      expect(readFileSync(real, "utf8")).toBe("a\nb\n");
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "Dado symlink para fora da pasta alvo, Quando rejunto linhas, Então o alvo do link permanece inalterado",
+    async () => {
+      const fora = join(tmpdir(), `anvilore-fora-${Date.now()}.md`);
+      try {
+        writeFileSync(fora, "x\ny\n");
+        mkdirSync(join(pasta, "wiki"));
+        symlinkSync(fora, join(pasta, "wiki", "link.md"));
+        const r = await capturar(() => comandoRejuntarLinhas([join(pasta, "wiki")]));
+        expect(r.codigo).toBe(0);
+        expect(r.erro).toContain("AVISO:");
+        expect(readFileSync(fora, "utf8")).toBe("x\ny\n");
+      } finally {
+        rmSync(fora, { force: true });
+      }
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "Dado symlink para raw/fonte.md, Quando rejunto linhas, Então raw/ permanece inalterado",
+    async () => {
+      const raw = join(pasta, "raw");
+      mkdirSync(raw, { recursive: true });
+      const fonte = join(raw, "fonte.md");
+      writeFileSync(fonte, "x\ny\n");
+      mkdirSync(join(pasta, "wiki"));
+      symlinkSync(fonte, join(pasta, "wiki", "link.md"));
+      const r = await capturar(() => comandoRejuntarLinhas([join(pasta, "wiki")]));
+      expect(r.codigo).toBe(0);
+      expect(r.erro).toContain("AVISO:");
+      expect(readFileSync(fonte, "utf8")).toBe("x\ny\n");
     },
   );
 

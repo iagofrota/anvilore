@@ -409,6 +409,62 @@ describe("subcomando fatiar-log", () => {
       process.chdir(original);
     }
   });
+
+  const semLink = process.platform === "win32";
+
+  test.skipIf(semLink)(
+    "Dado wiki/log como symlink de diretório para fora da wiki, Quando fatio log, Então recusa com erro e nada é criado fora",
+    async () => {
+      writeFileSync(join(wiki, "log.md"), LOG);
+      rmSync(join(wiki, "log"), { recursive: true });
+      const fora = join(tmp, "fora-log");
+      mkdirSync(fora, { recursive: true });
+      symlinkSync(fora, join(wiki, "log"));
+      const r = await capturar(() => comandoFatiarLog([wiki]));
+      expect(r.codigo).not.toBe(0);
+      expect(readdirSync(fora)).toHaveLength(0);
+    },
+  );
+
+  test.skipIf(semLink)(
+    "Dado wiki/log como symlink de diretório para raw, Quando fatio log, Então recusa com erro e nada é criado em raw",
+    async () => {
+      writeFileSync(join(wiki, "log.md"), LOG);
+      rmSync(join(wiki, "log"), { recursive: true });
+      const raw = join(tmp, "raw");
+      mkdirSync(raw, { recursive: true });
+      symlinkSync(raw, join(wiki, "log"));
+      const r = await capturar(() => comandoFatiarLog([wiki]));
+      expect(r.codigo).not.toBe(0);
+      expect(readdirSync(raw)).toHaveLength(0);
+    },
+  );
+
+  test.skipIf(semLink)(
+    "Dado wiki/log.md como symlink para fora da wiki, Quando fatio log, Então recusa a leitura e nada é fatiado",
+    async () => {
+      const fora = join(tmp, "fora.md");
+      writeFileSync(fora, LOG);
+      symlinkSync(fora, join(wiki, "log.md"));
+      const r = await capturar(() => comandoFatiarLog([wiki]));
+      expect(r.codigo).not.toBe(0);
+      expect(readdirSync(join(wiki, "log"))).toHaveLength(0);
+    },
+  );
+
+  test.skipIf(semLink)(
+    "Dado wiki/log.md como symlink para raw/fonte.md, Quando fatio log, Então recusa a leitura e nada é fatiado",
+    async () => {
+      const raw = join(tmp, "raw");
+      mkdirSync(raw, { recursive: true });
+      const fonte = join(raw, "fonte.md");
+      writeFileSync(fonte, LOG);
+      symlinkSync(fonte, join(wiki, "log.md"));
+      const r = await capturar(() => comandoFatiarLog([wiki]));
+      expect(r.codigo).not.toBe(0);
+      expect(readdirSync(join(wiki, "log"))).toHaveLength(0);
+    },
+  );
 });
 
 describe("fatiar-log: atribuição", () => {
