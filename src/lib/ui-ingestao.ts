@@ -201,6 +201,8 @@ export class IngestaoNaInterface {
 
   get nomeDoAgente(): string { return this.ponte.nome; }
 
+  get ocupada(): boolean { return Boolean(this.ativa || this.reservada); }
+
   private wiki(): string { return caminhoWiki(this.raiz, this.ambiente); }
 
   private async iniciarConversa(fonte: string, area: string, bytes: number): Promise<Conversa> {

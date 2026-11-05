@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { EstadoOnboarding } from "../../src/lib/ui-onboarding";
 import { api } from "./api";
 
@@ -20,6 +20,8 @@ export type AcoesDoOnboarding = {
 
 export type PropriedadesDoPainel = {
   passo: number;
+  tema?: Tema;
+  alternarTema?: () => void;
   dados: EstadoOnboarding;
   pasta: string;
   erroPasta: string | null;
@@ -38,6 +40,8 @@ export type PropriedadesDoPainel = {
 
 export function PainelDoOnboarding({
   passo,
+  tema,
+  alternarTema,
   dados,
   pasta,
   erroPasta,
@@ -80,23 +84,36 @@ export function PainelDoOnboarding({
           gap: "16px",
         }}
       >
-        <span style={{ display: "flex", alignItems: "center", gap: "10px", fontWeight: 600, fontSize: "14px" }}>
-          <span
-            style={{
-              width: "26px",
-              height: "26px",
-              borderRadius: "7px",
-              background: "var(--accent)",
-              color: "var(--accent-text)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            a
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: "10px", fontWeight: 600, fontSize: "14px" }}>
+            <span
+              style={{
+                width: "26px",
+                height: "26px",
+                borderRadius: "7px",
+                background: "var(--accent)",
+                color: "var(--accent-text)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              a
+            </span>
+            Anvilore
           </span>
-          Anvilore
-        </span>
+          {alternarTema && (
+            <button
+              className="icon-button"
+              type="button"
+              title="Alternar tema"
+              aria-label="Alternar tema claro ou escuro"
+              onClick={alternarTema}
+            >
+              {tema === "claro" ? "◐" : "☼"}
+            </button>
+          )}
+        </div>
         <ol aria-label="Etapas" style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", gap: "6px" }}>
           {[
             { num: 1, rotulo: "Vault" },
@@ -448,7 +465,7 @@ export function PainelDoOnboarding({
                   </span>
                   <span style={{ flex: 1 }}>{trava.nome}</span>
                   <span style={{ fontSize: "12px", color: "var(--fg-3)" }}>
-                    {trava.ligada ? "ligado" : trava.opcional ? (trava.detalhe ?? "opcional · desligada") : "desligado"}
+                    {trava.ligada ? "ligado" : trava.detalhe ? trava.detalhe : trava.opcional ? "opcional" : "desligado"}
                   </span>
                 </div>
               ))}
@@ -473,7 +490,7 @@ export function PainelDoOnboarding({
                     color: sucessoTeste ? "var(--ok)" : sucessoTeste === false ? "var(--danger)" : "var(--fg-3)",
                   }}
                 >
-                  {resultadoTeste ?? "Pede ao agente para ler AGENTS.md, sem escrever nada."}
+                  {resultadoTeste ?? "Verifica se o Claude Code está conectado e se o AGENTS.md existe."}
                 </span>
               </span>
               <button
@@ -694,7 +711,9 @@ export function PainelDoOnboarding({
               >
                 ← Voltar
               </button>
-              <span style={{ flex: 1 }} />
+              <span style={{ flex: 1, fontSize: "12px", color: "var(--fg-3)", textAlign: "right" }}>
+                {areasSelecionadas.length} {areasSelecionadas.length === 1 ? "área selecionada" : "áreas selecionadas"}
+              </span>
               <button
                 type="button"
                 disabled={criandoAreas}
@@ -729,6 +748,12 @@ export function PainelDoOnboarding({
                 Comece pelo texto que originou o padrão. Ele já está no vault e leva uns minutos.
               </p>
             </div>
+
+            {erroAreas && (
+              <div className="alert inline" role="alert" style={{ color: "var(--danger)", fontSize: "12px" }}>
+                {erroAreas}
+              </div>
+            )}
 
             {dados.primeiraIngestao.exemploDisponivel && (
               <>
@@ -833,6 +858,10 @@ export function PainelDoOnboarding({
               </span>
             </button>
 
+            <p style={{ margin: "-4px 0 0", fontSize: "12px", color: "var(--fg-3)", textAlign: "center" }}>
+              Tem um link? Salve o texto integral primeiro. Um resumo não serve como fonte.
+            </p>
+
             <ol
               style={{
                 listStyle: "none",
@@ -911,8 +940,12 @@ export function PainelDoOnboarding({
       </main>
 
       <p style={{ margin: 0, maxWidth: "560px", textAlign: "center", fontSize: "12px", color: "var(--fg-3)" }}>
-        A interface roda nesta máquina, em <span className="mono">localhost</span>. O que o agente lê é enviado ao provedor
-        dele.
+        {passo === 3 ? "Repetir esta etapa não altera o que já existe." : (
+          <>
+            A interface roda nesta máquina, em <span className="mono">localhost</span>. O que o agente lê é enviado ao provedor
+            dele.
+          </>
+        )}
       </p>
     </div>
   );
@@ -953,12 +986,17 @@ export function criarAcoesDoOnboarding(ctx: ContextoAcoesDoOnboarding): AcoesDoO
       ctx.setCarregandoPasta(true);
       ctx.setErroPasta(null);
       try {
-        const resp = await chamarApi<{ ok: boolean; pasta: string }>("/api/onboarding/pasta", "POST", { pasta: ctx.pasta });
+        const resp = await chamarApi<{ ok: boolean; pasta: string; inspecao?: { wikiPronta?: boolean }; precisaOnboarding?: boolean }>("/api/onboarding/pasta", "POST", { pasta: ctx.pasta });
         if (resp && typeof resp.pasta === "string") {
           ctx.setPasta(resp.pasta);
         }
         if (ctx.aoAtualizar) await ctx.aoAtualizar();
-        navegar("#/onboarding/2");
+        if (ctx.aoAtualizarIngestao) await ctx.aoAtualizarIngestao();
+        if (resp && (resp.inspecao?.wikiPronta || resp.precisaOnboarding === false)) {
+          navegar("#/inicio");
+        } else {
+          navegar("#/onboarding/2");
+        }
       } catch (erro) {
         ctx.setErroPasta(erro instanceof Error ? erro.message : "Erro ao validar a pasta.");
       } finally {
@@ -1031,8 +1069,8 @@ export function criarAcoesDoOnboarding(ctx: ContextoAcoesDoOnboarding): AcoesDoO
         if (ctx.aoAtualizar) await ctx.aoAtualizar();
         if (ctx.aoAtualizarIngestao) await ctx.aoAtualizarIngestao();
         navegar(`#/chat/${resp.id}`);
-      } catch {
-        navegar("#/chat");
+      } catch (erro) {
+        ctx.setErroAreas(erro instanceof Error ? erro.message : "Falha ao iniciar leitura do exemplo.");
       } finally {
         ctx.setConcluindo(false);
       }
@@ -1045,14 +1083,14 @@ export function criarAcoesDoOnboarding(ctx: ContextoAcoesDoOnboarding): AcoesDoO
 
 type Propriedades = {
   passo: number;
-  tema: Tema;
-  alternarTema: () => void;
+  tema?: Tema;
+  alternarTema?: () => void;
   dados: EstadoOnboarding;
   aoAtualizar?: () => Promise<void>;
   aoAtualizarIngestao?: () => Promise<void>;
 };
 
-export function Onboarding({ passo, tema: _tema, alternarTema: _alternarTema, dados, aoAtualizar, aoAtualizarIngestao }: Propriedades) {
+export function Onboarding({ passo, tema, alternarTema, dados, aoAtualizar, aoAtualizarIngestao }: Propriedades) {
   const [pasta, setPasta] = useState(dados.pasta);
   const [erroPasta, setErroPasta] = useState<string | null>(null);
   const [carregandoPasta, setCarregandoPasta] = useState(false);
@@ -1070,6 +1108,12 @@ export function Onboarding({ passo, tema: _tema, alternarTema: _alternarTema, da
   const [erroAreas, setErroAreas] = useState<string | null>(null);
 
   const [concluindo, setConcluindo] = useState(false);
+
+  useEffect(() => {
+    setPasta(dados.pasta);
+    setAreasSelecionadas(dados.areas.existentes.length > 0 ? dados.areas.existentes : dados.areas.padrao);
+    setRemoverExemplo(dados.areas.temExemplo);
+  }, [dados]);
 
   const acoes = criarAcoesDoOnboarding({
     pasta,
@@ -1095,6 +1139,8 @@ export function Onboarding({ passo, tema: _tema, alternarTema: _alternarTema, da
   return (
     <PainelDoOnboarding
       passo={passo}
+      tema={tema}
+      alternarTema={alternarTema}
       dados={dados}
       pasta={pasta}
       erroPasta={erroPasta}

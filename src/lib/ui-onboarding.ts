@@ -1,6 +1,8 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { resolve, join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve, sep } from "node:path";
+import { diagnosticar } from "../comandos/doctor";
 import { inicializar, type ResultadoInit } from "../comandos/init";
 import { isoComOffset } from "./hora";
 import { areasDaWiki } from "./ui-fonte";
@@ -12,6 +14,7 @@ export type InspecaoPasta = {
   raw: InspecaoItem;
   contratos: InspecaoItem;
   bun: InspecaoItem;
+  wikiPronta?: boolean;
 };
 
 export type StatusAgente = {
@@ -43,17 +46,60 @@ export type EstadoOnboarding = {
   primeiraIngestao: StatusPrimeiraIngestao;
 };
 
-export function validarPastaVault(pasta: string): string {
+export function validarPastaVault(
+  pasta: string,
+  ambiente: Record<string, string | undefined> = process.env,
+): string {
   if (!pasta || typeof pasta !== "string" || !pasta.trim()) {
     throw new Error("O caminho da pasta não pode ser vazio.");
   }
   if (/[\u0000-\u001f]/.test(pasta)) {
     throw new Error("O caminho contém caracteres inválidos.");
   }
-  const caminhoAbsoluto = resolve(pasta.trim());
-  if (!existsSync(caminhoAbsoluto)) {
-    throw new Error(`A pasta não existe: ${caminhoAbsoluto}`);
+
+  const partes = pasta.trim().split(/[/\\]/);
+  if (partes.some(p => p === "..")) {
+    throw new Error("O caminho não pode conter segmentos '..'.");
   }
+
+  const caminhoAbsoluto = resolve(pasta.trim());
+  const pastaPessoal = resolve(ambiente.HOME ?? homedir());
+
+  const dentroDaHome = (caminho: string) =>
+    caminho.startsWith(pastaPessoal + sep) ||
+    caminho === pastaPessoal ||
+    pastaPessoal === join(caminho, ".home");
+
+  if (existsSync(caminhoAbsoluto)) {
+    const lstat = lstatSync(caminhoAbsoluto);
+    if (lstat.isSymbolicLink()) {
+      throw new Error("Links simbólicos não são permitidos como pasta do vault.");
+    }
+    const caminhoReal = realpathSync(caminhoAbsoluto);
+    if (!dentroDaHome(caminhoReal)) {
+      throw new Error(`A pasta do vault deve estar dentro da sua pasta pessoal (${pastaPessoal}).`);
+    }
+  } else {
+    if (!dentroDaHome(caminhoAbsoluto)) {
+      throw new Error(`A pasta do vault deve estar dentro da sua pasta pessoal (${pastaPessoal}).`);
+    }
+    let atual = dirname(caminhoAbsoluto);
+    while (atual && atual !== dirname(atual)) {
+      if (existsSync(atual)) {
+        if (lstatSync(atual).isSymbolicLink()) {
+          throw new Error("Links simbólicos não são permitidos como pasta do vault.");
+        }
+        const real = realpathSync(atual);
+        if (!dentroDaHome(real)) {
+          throw new Error(`A pasta do vault deve estar dentro da sua pasta pessoal (${pastaPessoal}).`);
+        }
+        break;
+      }
+      atual = dirname(atual);
+    }
+    return caminhoAbsoluto;
+  }
+
   let info;
   try {
     info = statSync(caminhoAbsoluto);
@@ -64,36 +110,37 @@ export function validarPastaVault(pasta: string): string {
     throw new Error(`O caminho não é um diretório: ${caminhoAbsoluto}`);
   }
 
-  // Não sobrescrever pasta existente com conteúdo que não seja Anvilore
   const entradas = readdirSync(caminhoAbsoluto) as string[];
-  if (entradas.length > 0) {
-    const eAnvilore =
-      entradas.includes("SCHEMA.md") ||
-      entradas.includes("wiki") ||
-      entradas.includes("raw") ||
-      entradas.includes(".anvilore") ||
-      entradas.includes("package.json");
-    if (!eAnvilore) {
-      throw new Error(
-        "A pasta já existe e contém arquivos que não pertencem ao Anvilore. Escolha a pasta do kit ou uma pasta vazia.",
-      );
-    }
+  if (entradas.length === 0) {
+    return caminhoAbsoluto;
   }
 
-  return caminhoAbsoluto;
+  const temSchema = existsSync(join(caminhoAbsoluto, "SCHEMA.md"));
+  const caminhoWikiDir = join(caminhoAbsoluto, "wiki");
+  const temWiki = existsSync(caminhoWikiDir) && statSync(caminhoWikiDir).isDirectory();
+  if (temSchema && temWiki) {
+    return caminhoAbsoluto;
+  }
+
+  throw new Error("Esta pasta já tem outros arquivos. Escolha uma pasta vazia ou uma wiki do Anvilore.");
 }
 
-export async function inspecionarPasta(pasta: string): Promise<InspecaoPasta> {
+export async function inspecionarPasta(
+  pasta: string,
+  ambiente: Record<string, string | undefined> = process.env,
+): Promise<InspecaoPasta> {
   const caminho = resolve(pasta);
-  const caminhoDaWiki = join(caminho, "wiki");
+  const caminhoDaWiki = caminhoWiki(caminho, ambiente);
   const caminhoDoRaw = join(caminho, "raw");
 
   let wikiExiste = false;
   let wikiDetalhe = "não encontrada";
+  let totalAreas = 0;
   try {
     if (existsSync(caminhoDaWiki)) {
       wikiExiste = true;
       const areas = await areasDaWiki(caminhoDaWiki);
+      totalAreas = areas.length;
       if (areas.length > 0) {
         wikiDetalhe = `${areas.length} ${areas.length === 1 ? "área encontrada" : "áreas encontradas"}: ${areas.join(", ")}`;
       } else if (existsSync(join(caminhoDaWiki, "exemplo"))) {
@@ -138,11 +185,14 @@ export async function inspecionarPasta(pasta: string): Promise<InspecaoPasta> {
   const bunExiste = Bun.which("bun") !== null;
   const bunDetalhe = bunExiste ? "no PATH: validador e hook rodam" : "não encontrado no PATH";
 
+  const wikiPronta = wikiExiste && contratosExiste && totalAreas > 0;
+
   return {
     wiki: { existe: wikiExiste, detalhe: wikiDetalhe },
     raw: { existe: rawExiste, detalhe: rawDetalhe },
     contratos: { existe: contratosExiste, detalhe: contratosDetalhe },
     bun: { existe: bunExiste, detalhe: bunDetalhe },
+    wikiPronta,
   };
 }
 
@@ -182,11 +232,13 @@ export async function estadoOnboarding(
   raiz: string,
   ambiente: Record<string, string | undefined> = process.env,
 ): Promise<EstadoOnboarding> {
+  let temArquivoOnboarding = false;
   let concluido = false;
   let etapa = 1;
   const caminhoOnboardingJson = join(raiz, ".anvilore", "onboarding.json");
   try {
     const dados = JSON.parse(await readFile(caminhoOnboardingJson, "utf8")) as Record<string, unknown>;
+    temArquivoOnboarding = true;
     if (dados.concluido === true) concluido = true;
     if (typeof dados.etapa === "number") etapa = dados.etapa;
   } catch {
@@ -198,11 +250,19 @@ export async function estadoOnboarding(
   const temExemplo = existsSync(join(wiki, "exemplo"));
   const caminhoIdentidade = join(raiz, ".anvilore", "identidade");
   const temIdentidade = existsSync(caminhoIdentidade);
+  const temSchema = existsSync(join(raiz, "SCHEMA.md"));
 
-  // Com wiki já pronta (áreas reais configuradas), identidade já existente ou concluído pelo arquivo de estado
-  const precisaOnboarding = !concluido && !temIdentidade && areasExistentes.length === 0;
+  let precisaOnboarding: boolean;
+  if (temArquivoOnboarding) {
+    // Com o arquivo de onboarding presente ({ concluido: false }), continua até o O4
+    precisaOnboarding = !concluido;
+  } else {
+    // Sem o arquivo e com a wiki pronta (instalação antiga), o onboarding não aparece
+    const wikiPronta = temIdentidade || areasExistentes.length > 0;
+    precisaOnboarding = !wikiPronta;
+  }
 
-  const inspecao = await inspecionarPasta(raiz);
+  const inspecao = await inspecionarPasta(raiz, ambiente);
 
   // Status do agente
   const claudeExe = Bun.which("claude", { PATH: ambiente.PATH ?? process.env.PATH ?? "" });
@@ -215,6 +275,19 @@ export async function estadoOnboarding(
     } catch {
       /* não foi possível ler versão */
     }
+  }
+
+  let travas: Array<{ nome: string; ligada: boolean; opcional?: boolean; detalhe?: string }> = [];
+  try {
+    const diag = await diagnosticar(raiz, ambiente);
+    travas = diag.travas.map(t => ({
+      nome: t.nome,
+      ligada: t.ligada,
+      opcional: t.opcional,
+      detalhe: t.detalhe,
+    }));
+  } catch {
+    /* doctor falhou */
   }
 
   const caminhoExemploRaw = join(raiz, "raw", "exemplo", "llm-wiki.md");
@@ -230,12 +303,7 @@ export async function estadoOnboarding(
       nome: "Claude Code",
       disponivel: claudeExe !== null,
       versao: claudeVersao,
-      travas: [
-        { nome: "Hook que protege raw/", ligada: existsSync(join(raiz, ".claude/settings.json")) || existsSync(join(raiz, "hooks/proteger-raw.sh")) },
-        { nome: "Skills ingest, query e lint", ligada: existsSync(join(raiz, "skills/ingest/SKILL.md")) },
-        { nome: "Validador", ligada: existsSync(join(raiz, "src/comandos/validar.ts")) || Bun.which("bun") !== null },
-        { nome: "Validação no CI", ligada: false, opcional: true, detalhe: "opcional · desligada" },
-      ],
+      travas,
     },
     areas: {
       padrao: ["pessoal", "profissional", "projetos-paralelos", "saude"],

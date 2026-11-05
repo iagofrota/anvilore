@@ -1,6 +1,6 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { aprovarPaginas } from "../../comandos/aprovar";
 import { isoComOffset } from "../../lib/hora";
@@ -32,6 +32,7 @@ type OpcoesServidor = {
   abrir?: (url: string) => void;
   ponte?: PonteDeAgente;
   fechar?: (raiz: string, wiki: string) => Promise<{ codigo: number; saida: string }>;
+  ambiente?: Record<string, string | undefined>;
 };
 
 // Teto de uma fonte enviada pela tela. Acima da janela grande (~1,15 MB) a ingestão já pede para dividir;
@@ -164,8 +165,9 @@ function abrirNavegador(url: string): void {
 }
 
 export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServidor = {}) {
+  const ambiente = opcoes.ambiente ?? process.env;
   let raiz = resolve(raizInicial);
-  let wiki = caminhoWiki(raiz);
+  let wiki = caminhoWiki(raiz, ambiente);
   const token = opcoes.token ?? randomBytes(32).toString("base64url");
   const portaInicial = opcoes.portaInicial ?? 4173;
   let ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
@@ -239,11 +241,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             } catch (erro) { return erroDaIngestao(erro); }
           }
           if (url.pathname === "/api/onboarding" && request.method === "GET") {
-            const estado = await estadoOnboarding(raiz);
-            try {
-              const diag = await diagnosticar(raiz);
-              estado.agente.travas = diag.travas.map(t => ({ nome: t.nome, ligada: t.ligada, opcional: t.opcional, detalhe: t.detalhe }));
-            } catch { /* doctor indisponível: mantém valores padrão */ }
+            const estado = await estadoOnboarding(raiz, ambiente);
             return json(estado);
           }
           if (url.pathname === "/api/onboarding/pasta" && request.method === "POST") {
@@ -251,20 +249,26 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             try { corpo = await request.json() as { pasta?: unknown }; } catch { return json({ erro: "Pedido inválido." }, 400); }
             if (typeof corpo.pasta !== "string") return json({ erro: "Caminho da pasta obrigatório." }, 400);
             try {
-              const pastaValida = validarPastaVault(corpo.pasta);
+              const pastaValida = validarPastaVault(corpo.pasta, ambiente);
               const novaRaiz = resolve(pastaValida);
               if (novaRaiz !== raiz) {
                 const conversas = await ingestao.listar();
-                if (conversas.some(c => c.situacao === "rodando")) {
+                const emAndamento = conversas.some(c => c.situacao === "rodando");
+                if (ingestao.ocupada || emAndamento) {
                   return json({ erro: "Não é possível alterar a pasta enquanto houver uma ingestão em andamento." }, 409);
                 }
                 await ingestao.encerrar();
                 raiz = novaRaiz;
-                wiki = caminhoWiki(raiz);
+                wiki = caminhoWiki(raiz, ambiente);
                 ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
               }
-              const inspecao = await inspecionarPasta(raiz);
-              return json({ ok: true, pasta: raiz, inspecao });
+              const inspecao = await inspecionarPasta(raiz, ambiente);
+              if (!inspecao.wikiPronta) {
+                await mkdir(join(raiz, ".anvilore"), { recursive: true });
+                await writeFile(join(raiz, ".anvilore", "onboarding.json"), JSON.stringify({ concluido: false }, null, 2), "utf8");
+              }
+              const estado = await estadoOnboarding(raiz, ambiente);
+              return json({ ok: true, pasta: raiz, inspecao, precisaOnboarding: estado.precisaOnboarding });
             } catch (erro) {
               return json({ erro: (erro as Error).message }, 400);
             }
@@ -313,8 +317,8 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
               });
               try {
                 await ingestao.ler(conversa.id);
-              } catch {
-                /* se agente ainda não estiver pronto para ler, conversa fica criada e exibe motivo */
+              } catch (erro) {
+                return json({ erro: (erro as Error).message }, 400);
               }
               await concluirOnboarding(raiz);
               return json({ ok: true, id: conversa.id }, 201);
@@ -329,7 +333,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
               return json({ erro: "Lista de áreas inválida." }, 400);
             }
             try {
-              const resultado = await inicializarAreasOnboarding(raiz, corpo.areas as string[], { removerExemplo: Boolean(corpo.removerExemplo) });
+              const resultado = await inicializarAreasOnboarding(raiz, corpo.areas as string[], { removerExemplo: Boolean(corpo.removerExemplo) }, ambiente);
               return json({ ok: true, ...resultado });
             } catch (erro) {
               return json({ erro: (erro as Error).message }, 400);

@@ -661,13 +661,15 @@ test("Dado criarAcoesDoOnboarding Quando concluo ou navego Então persiste e dir
   expect(atualizouIngestao).toBe(true);
   expect(destinoNavegado).toBe("#/chat/conversa-xyz");
 
-  // Ingerir exemplo com falha na API navega para o chat padrão
+  // Ingerir exemplo com falha na API exibe o erro
+  let erroAreasIngestao: string | null = null;
   const acoesIngerirFalha = criarAcoesDoOnboarding({
     ...ctx,
+    setErroAreas: e => { erroAreasIngestao = e; },
     chamarApi: (async () => { throw new Error("Erro ingestao"); }) as never,
   });
   await acoesIngerirFalha.aoIngerirExemplo?.("pessoal");
-  expect(destinoNavegado).toBe("#/chat");
+  expect<unknown>(erroAreasIngestao).toBe("Erro ingestao");
 
   acoes.aoNavegar(3);
   expect(destinoNavegado).toBe("#/onboarding/3");
@@ -881,5 +883,254 @@ test("Dado criarAcoesDoOnboarding sem função navegar customizada Quando chamo 
   } finally {
     (globalThis as { window?: unknown }).window = originalWindow;
   }
+});
+
+test("Dado PainelDoOnboarding com tema e alternarTema Quando renderizo Então exibe o botão de alternar tema", () => {
+  let alternou = false;
+  const painelClaro = (
+    <PainelDoOnboarding
+      passo={1}
+      tema="claro"
+      alternarTema={() => { alternou = true; }}
+      dados={{
+        precisaOnboarding: true,
+        concluido: false,
+        etapa: 1,
+        pasta: "/vault",
+        inspecao: {
+          wiki: { existe: false, detalhe: "" },
+          raw: { existe: false, detalhe: "" },
+          contratos: { existe: false, detalhe: "" },
+          bun: { existe: true, detalhe: "" },
+        },
+        agente: { nome: "Claude Code", disponivel: true, versao: "1.0", travas: [] },
+        areas: { padrao: ["pessoal"], existentes: [], temExemplo: false },
+        primeiraIngestao: { exemploDisponivel: false, caminho: "" },
+      }}
+      pasta="/vault"
+      erroPasta={null}
+      carregandoPasta={false}
+      testandoAgente={false}
+      resultadoTeste={null}
+      sucessoTeste={null}
+      areasSelecionadas={["pessoal"]}
+      novaArea=""
+      removerExemplo={false}
+      criandoAreas={false}
+      erroAreas={null}
+      concluindo={false}
+      acoes={{
+        aoMudarPasta: () => {},
+        aoConfirmarPasta: async () => {},
+        aoTestarAgente: async () => {},
+        aoMudarNovaArea: () => {},
+        aoAlternarArea: () => {},
+        aoAdicionarArea: () => {},
+        aoAlternarRemoverExemplo: () => {},
+        aoCriarAreas: async () => {},
+        aoConcluir: async () => {},
+        aoIngerirExemplo: async () => {},
+        aoNavegar: () => {},
+      }}
+    />
+  );
+  const htmlClaro = renderToStaticMarkup(painelClaro);
+  expect(htmlClaro).toContain("Alternar tema claro ou escuro");
+  expect(htmlClaro).toContain("◐");
+
+  const arvore = expandir(painelClaro);
+  const botaoTema = achar(arvore, b => b.type === "button" && b.props["aria-label"] === "Alternar tema claro ou escuro")[0];
+  expect(botaoTema).toBeDefined();
+  (botaoTema!.props as { onClick: () => void }).onClick();
+  expect(alternou).toBe(true);
+
+  const painelEscuro = React.cloneElement(painelClaro, { tema: "escuro" });
+  const htmlEscuro = renderToStaticMarkup(painelEscuro);
+  expect(htmlEscuro).toContain("☼");
+});
+
+test("Dado aoConfirmarPasta com wiki pronta Quando confirmo Então navega para #/inicio", async () => {
+  let navegouPara = "";
+  let atualizou = false;
+  let atualizouIngestao = false;
+
+  const ctx: ContextoAcoesDoOnboarding = {
+    pasta: "/vault/pronto",
+    setPasta: () => {},
+    setCarregandoPasta: () => {},
+    setErroPasta: () => {},
+    setTestandoAgente: () => {},
+    setResultadoTeste: () => {},
+    setSucessoTeste: () => {},
+    areasSelecionadas: [],
+    setAreasSelecionadas: () => {},
+    novaArea: "",
+    setNovaArea: () => {},
+    removerExemplo: false,
+    setRemoverExemplo: () => {},
+    setCriandoAreas: () => {},
+    setErroAreas: () => {},
+    setConcluindo: () => {},
+    aoAtualizar: async () => { atualizou = true; },
+    aoAtualizarIngestao: async () => { atualizouIngestao = true; },
+    navegar: destino => { navegouPara = destino; },
+    chamarApi: (async () => ({
+      ok: true,
+      pasta: "/vault/pronto",
+      inspecao: { wikiPronta: true },
+      precisaOnboarding: false,
+    })) as never,
+  };
+
+  const acoes = criarAcoesDoOnboarding(ctx);
+  await acoes.aoConfirmarPasta();
+
+  expect(atualizou).toBe(true);
+  expect(atualizouIngestao).toBe(true);
+  expect(navegouPara).toBe("#/inicio");
+});
+
+test("Dado aoConfirmarPasta com wiki nova Quando confirmo Então navega para #/onboarding/2", async () => {
+  let navegouPara = "";
+
+  const ctx: ContextoAcoesDoOnboarding = {
+    pasta: "/vault/novo",
+    setPasta: () => {},
+    setCarregandoPasta: () => {},
+    setErroPasta: () => {},
+    setTestandoAgente: () => {},
+    setResultadoTeste: () => {},
+    setSucessoTeste: () => {},
+    areasSelecionadas: [],
+    setAreasSelecionadas: () => {},
+    novaArea: "",
+    setNovaArea: () => {},
+    removerExemplo: false,
+    setRemoverExemplo: () => {},
+    setCriandoAreas: () => {},
+    setErroAreas: () => {},
+    setConcluindo: () => {},
+    navegar: destino => { navegouPara = destino; },
+    chamarApi: (async () => ({
+      ok: true,
+      pasta: "/vault/novo",
+      inspecao: { wikiPronta: false },
+      precisaOnboarding: true,
+    })) as never,
+  };
+
+  const acoes = criarAcoesDoOnboarding(ctx);
+  await acoes.aoConfirmarPasta();
+
+  expect(navegouPara).toBe("#/onboarding/2");
+});
+
+test("Dado PainelDoOnboarding nos passos 2, 3 e 4 Quando renderizo Então exibe detalhes das travas, contagem e microtextos", () => {
+  const dadosBase = {
+    precisaOnboarding: true,
+    concluido: false,
+    etapa: 2,
+    pasta: "/vault",
+    inspecao: {
+      wiki: { existe: true, detalhe: "" },
+      raw: { existe: true, detalhe: "" },
+      contratos: { existe: true, detalhe: "" },
+      bun: { existe: true, detalhe: "" },
+    },
+    agente: {
+      nome: "Claude Code",
+      disponivel: true,
+      versao: "1.0",
+      travas: [
+        { nome: "Proteção do raw/", ligada: false, opcional: true, detalhe: "configuração opcional" },
+        { nome: "Validador", ligada: true },
+      ],
+    },
+    areas: { padrao: ["pessoal", "projetos"], existentes: [], temExemplo: true },
+    primeiraIngestao: { exemploDisponivel: true, caminho: "raw/exemplo/llm-wiki.md" },
+  };
+
+  const acoesBase = {
+    aoMudarPasta: () => {},
+    aoConfirmarPasta: async () => {},
+    aoTestarAgente: async () => {},
+    aoMudarNovaArea: () => {},
+    aoAlternarArea: () => {},
+    aoAdicionarArea: () => {},
+    aoAlternarRemoverExemplo: () => {},
+    aoCriarAreas: async () => {},
+    aoConcluir: async () => {},
+    aoIngerirExemplo: async () => {},
+    aoNavegar: () => {},
+  };
+
+  // Passo 2: exibe detalhe real da trava
+  const htmlPasso2 = renderToStaticMarkup(
+    <PainelDoOnboarding
+      passo={2}
+      dados={dadosBase}
+      pasta="/vault"
+      erroPasta={null}
+      carregandoPasta={false}
+      testandoAgente={false}
+      resultadoTeste={null}
+      sucessoTeste={null}
+      areasSelecionadas={["pessoal", "projetos"]}
+      novaArea=""
+      removerExemplo={false}
+      criandoAreas={false}
+      erroAreas={null}
+      concluindo={false}
+      acoes={acoesBase}
+    />
+  );
+  expect(htmlPasso2).toContain("configuração opcional");
+  expect(htmlPasso2).toContain("Verifica se o Claude Code está conectado e se o AGENTS.md existe.");
+
+  // Passo 3: exibe contagem de áreas e nota do rodapé
+  const htmlPasso3 = renderToStaticMarkup(
+    <PainelDoOnboarding
+      passo={3}
+      dados={dadosBase}
+      pasta="/vault"
+      erroPasta={null}
+      carregandoPasta={false}
+      testandoAgente={false}
+      resultadoTeste={null}
+      sucessoTeste={null}
+      areasSelecionadas={["pessoal", "projetos"]}
+      novaArea=""
+      removerExemplo={false}
+      criandoAreas={false}
+      erroAreas={null}
+      concluindo={false}
+      acoes={acoesBase}
+    />
+  );
+  expect(htmlPasso3).toContain("2 áreas selecionadas");
+  expect(htmlPasso3).toContain("Repetir esta etapa não altera o que já existe.");
+
+  // Passo 4: exibe microtexto de link e mensagem de erro se presente
+  const htmlPasso4 = renderToStaticMarkup(
+    <PainelDoOnboarding
+      passo={4}
+      dados={dadosBase}
+      pasta="/vault"
+      erroPasta={null}
+      carregandoPasta={false}
+      testandoAgente={false}
+      resultadoTeste={null}
+      sucessoTeste={null}
+      areasSelecionadas={["pessoal"]}
+      novaArea=""
+      removerExemplo={false}
+      criandoAreas={false}
+      erroAreas="Erro na ingestão do exemplo"
+      concluindo={false}
+      acoes={acoesBase}
+    />
+  );
+  expect(htmlPasso4).toContain("Tem um link? Salve o texto integral primeiro. Um resumo não serve como fonte.");
+  expect(htmlPasso4).toContain("Erro na ingestão do exemplo");
 });
 

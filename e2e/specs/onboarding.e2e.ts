@@ -103,24 +103,24 @@ test("[I7-02] Dado wiki já configurada Quando tento acessar o onboarding Então
   await expect(page.getByRole("heading", { name: "Início", level: 1 })).toBeVisible();
 });
 
-test("[I7-03] Dado Onboarding 4 Quando clico em Ingerir fonte Então conclui e navega para o chat", async ({ page, app, vault }) => {
-  // Prepara estado para estar no Onboarding 4
+test("[I7-03] Dado Onboarding no fluxo real O3→O4 Quando crio áreas e clico em Ingerir fonte Então ingere em pessoal e conclui", async ({ page, app, vault }) => {
+  // Prepara estado para estar no Onboarding 3 sem apagar áreas nem identidade
   await mkdir(join(vault.raw, "exemplo"), { recursive: true });
   await writeFile(join(vault.raw, "exemplo", "llm-wiki.md"), "# LLM Wiki\nTexto de teste.\n");
-  await rm(join(vault.raiz, ".anvilore", "identidade"), { force: true });
   await mkdir(join(vault.raiz, ".anvilore"), { recursive: true });
-  await writeFile(join(vault.raiz, ".anvilore", "onboarding.json"), JSON.stringify({ etapa: 4, concluido: false }));
+  await writeFile(join(vault.raiz, ".anvilore", "onboarding.json"), JSON.stringify({ etapa: 3, concluido: false }));
 
-  // Remove áreas existentes para permitir visualização do onboarding
-  await rm(join(vault.wiki, "pessoal"), { recursive: true, force: true });
-  await rm(join(vault.wiki, "trabalho"), { recursive: true, force: true });
+  await page.goto(`${app.url}#/onboarding/3`);
+  await expect(page).toHaveURL(/#\/onboarding\/3$/);
+  await expect(page.getByRole("heading", { name: "Você e suas áreas", level: 1 })).toBeVisible();
 
-  await page.goto(`${app.url}#/onboarding/4`);
+  // Submete áreas existentes/selecionadas em O3 e avança para O4
+  await page.getByRole("button", { name: "Criar áreas →" }).click();
   await expect(page).toHaveURL(/#\/onboarding\/4$/);
   await expect(page.getByRole("heading", { name: "Faça a primeira ingestão", level: 1 })).toBeVisible();
 
-  // Clica no botão de ingestão da fonte
-  const botaoIngerir = page.getByRole("button", { name: /Ingerir em/ });
+  // Botão de ingestão usa a área pessoal real
+  const botaoIngerir = page.getByRole("button", { name: "Ingerir em pessoal" });
   await expect(botaoIngerir).toBeVisible();
   await botaoIngerir.click();
 
@@ -130,4 +130,53 @@ test("[I7-03] Dado Onboarding 4 Quando clico em Ingerir fonte Então conclui e n
   // Verifica que onboarding foi marcado como concluído
   const conteudoOnboarding = JSON.parse(await readFile(join(vault.raiz, ".anvilore", "onboarding.json"), "utf8")) as Record<string, unknown>;
   expect(conteudoOnboarding.concluido).toBe(true);
+});
+
+test("[I7-04] Dado onboarding no tema claro e escuro Quando alterno o tema Então o documento reflete o tema nas 4 telas", async ({ page, app, vault }) => {
+  // Limpar áreas pré-existentes da fixture para simular primeiro uso
+  await rm(join(vault.wiki, "pessoal"), { recursive: true, force: true });
+  await rm(join(vault.wiki, "trabalho"), { recursive: true, force: true });
+  await rm(join(vault.raw, "pessoal"), { recursive: true, force: true });
+  await rm(join(vault.raiz, ".anvilore", "identidade"), { force: true });
+  await rm(join(vault.raiz, ".anvilore", "onboarding.json"), { force: true });
+
+  await writeFile(join(vault.raiz, "SCHEMA.md"), "# Schema\n");
+  await writeFile(join(vault.raiz, "AGENTS.md"), "# Agents\n");
+  await mkdir(join(vault.raw, "exemplo"), { recursive: true });
+  await writeFile(join(vault.raw, "exemplo", "llm-wiki.md"), "# Exemplo\n");
+
+  await page.goto(`${app.url}#/onboarding/1`);
+  await expect(page).toHaveURL(/#\/onboarding\/1$/);
+
+  // Inicia em claro por padrão
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "claro");
+  const botaoTema = page.getByRole("button", { name: "Alternar tema claro ou escuro" });
+  await expect(botaoTema).toBeVisible();
+
+  // Alterna para escuro no O1
+  await botaoTema.click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "escuro");
+
+  // Avança para O2 mantendo tema escuro
+  await page.getByRole("button", { name: "Continuar →" }).click();
+  await expect(page).toHaveURL(/#\/onboarding\/2$/);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "escuro");
+
+  // Alterna para claro no O2
+  await page.getByRole("button", { name: "Alternar tema claro ou escuro" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "claro");
+
+  // Avança para O3 mantendo tema claro
+  await page.getByRole("button", { name: "Continuar →" }).click();
+  await expect(page).toHaveURL(/#\/onboarding\/3$/);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "claro");
+
+  // Avança para O4 mantendo tema
+  await page.getByRole("button", { name: "Criar áreas →" }).click();
+  await expect(page).toHaveURL(/#\/onboarding\/4$/);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "claro");
+
+  // Alterna para escuro no O4
+  await page.getByRole("button", { name: "Alternar tema claro ou escuro" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "escuro");
 });

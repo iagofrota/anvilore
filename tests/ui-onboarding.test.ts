@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   concluirOnboarding,
@@ -14,7 +14,7 @@ import {
 let raiz: string;
 
 beforeEach(() => {
-  raiz = mkdtempSync(join(tmpdir(), "anvilore-test-onboarding-"));
+  raiz = mkdtempSync(join(homedir(), "anvilore-test-onboarding-"));
 });
 
 afterEach(() => {
@@ -32,9 +32,12 @@ test("Dado um vault sem wiki configurada Quando leio o estado do onboarding Ent�
   expect(estado.pasta).toBe(raiz);
 });
 
-test("Dado um vault com wiki já pronta Quando leio o estado do onboarding Então informa que o onboarding não é necessário", async () => {
+test("Dado um vault com wiki já pronta antiga (sem onboarding.json) Quando leio o estado do onboarding Então informa que o onboarding não é necessário", async () => {
   mkdirSync(join(raiz, "wiki/pessoal/concepts"), { recursive: true });
   writeFileSync(join(raiz, "wiki/pessoal/index.md"), "# Pessoal\n");
+  mkdirSync(join(raiz, ".anvilore"), { recursive: true });
+  writeFileSync(join(raiz, ".anvilore/identidade"), "human:revisor\n");
+  writeFileSync(join(raiz, "SCHEMA.md"), "# Schema\n");
 
   const estado = await estadoOnboarding(raiz);
   expect(estado.precisaOnboarding).toBe(false);
@@ -52,12 +55,20 @@ test("Dado o onboarding marcado como concluído em .anvilore Quando leio o estad
   expect(estado.concluido).toBe(true);
 });
 
-test("Dado um vault que já possui identidade registrada Quando leio o estado Então não precisa de onboarding", async () => {
+test("Dado onboarding em andamento ({ concluido: false }) Quando áreas e identidade já foram criadas Então precisaOnboarding continua true até o O4", async () => {
+  mkdirSync(join(raiz, "wiki/pessoal/concepts"), { recursive: true });
+  writeFileSync(join(raiz, "wiki/pessoal/index.md"), "# Pessoal\n");
   mkdirSync(join(raiz, ".anvilore"), { recursive: true });
   writeFileSync(join(raiz, ".anvilore/identidade"), "human:revisor\n");
+  writeFileSync(join(raiz, "SCHEMA.md"), "# Schema\n");
+  writeFileSync(
+    join(raiz, ".anvilore/onboarding.json"),
+    JSON.stringify({ concluido: false }),
+  );
 
   const estado = await estadoOnboarding(raiz);
-  expect(estado.precisaOnboarding).toBe(false);
+  expect(estado.precisaOnboarding).toBe(true);
+  expect(estado.concluido).toBe(false);
 });
 
 test("Dado uma pasta válida de vault Quando inspeciono a pasta Então relata o estado de wiki, raw, contratos e bun", async () => {
@@ -75,24 +86,60 @@ test("Dado uma pasta válida de vault Quando inspeciono a pasta Então relata o 
   expect(inspecao.bun.existe).toBe(true);
 });
 
-test("Dado uma pasta que não existe Quando valido a pasta Então recusa com erro descritivo", async () => {
-  const pastaInexistente = join(raiz, "pasta-que-nao-existe");
-  expect(() => validarPastaVault(pastaInexistente)).toThrow(/não existe/i);
+test("Dado uma pasta que não existe ainda no homedir Quando valido a pasta Então aceita pois será criada", () => {
+  const pastaInexistente = join(raiz, "minha-nova-wiki");
+  expect(validarPastaVault(pastaInexistente)).toBe(pastaInexistente);
 });
 
-test("Dado uma pasta existente com conteúdo alheio sem kit Anvilore Quando valido a pasta Então recusa para não sobrescrever", async () => {
-  const pastaAlheia = join(raiz, "pasta-alheia");
-  mkdirSync(pastaAlheia, { recursive: true });
-  writeFileSync(join(pastaAlheia, "documento-importante.docx"), "bytes");
+test("Dado um projeto React alheio com package.json Quando valido a pasta Então recusa com mensagem simples e nada é gravado", () => {
+  const pastaReact = join(raiz, "meu-app-react");
+  mkdirSync(pastaReact, { recursive: true });
+  writeFileSync(join(pastaReact, "package.json"), JSON.stringify({ name: "meu-app-react" }));
+  writeFileSync(join(pastaReact, "index.tsx"), "export default () => <div>App</div>;");
 
-  expect(() => validarPastaVault(pastaAlheia)).toThrow(/não pertencem/i);
+  expect(() => validarPastaVault(pastaReact)).toThrow(
+    "Esta pasta já tem outros arquivos. Escolha uma pasta vazia ou uma wiki do Anvilore.",
+  );
+  expect(existsSync(join(pastaReact, "SCHEMA.md"))).toBe(false);
+  expect(existsSync(join(pastaReact, "wiki"))).toBe(false);
+  expect(existsSync(join(pastaReact, ".anvilore"))).toBe(false);
 });
 
-test("Dado uma pasta vazia Quando valido a pasta Então aceita", async () => {
+test("Dado uma pasta existente vazia Quando valido a pasta Então aceita", () => {
   const pastaVazia = join(raiz, "pasta-vazia");
   mkdirSync(pastaVazia, { recursive: true });
 
   expect(validarPastaVault(pastaVazia)).toBe(pastaVazia);
+});
+
+test("Dado um vault Anvilore existente com SCHEMA.md e wiki/ Quando valido a pasta Então aceita", () => {
+  const pastaVault = join(raiz, "meu-vault");
+  mkdirSync(join(pastaVault, "wiki"), { recursive: true });
+  writeFileSync(join(pastaVault, "SCHEMA.md"), "# Schema\n");
+
+  expect(validarPastaVault(pastaVault)).toBe(pastaVault);
+});
+
+test("Dado caminho com segmentos '..' Quando valido a pasta Então recusa", () => {
+  const caminhoComDotDot = `${raiz}/sub/../outro`;
+  expect(() => validarPastaVault(caminhoComDotDot)).toThrow(/segmentos '\.\.'/i);
+});
+
+test("Dado diretórios de sistema fora do homedir (/srv e /var/opt) Quando valido a pasta Então recusa", () => {
+  expect(() => validarPastaVault("/srv")).toThrow(/pasta pessoal/i);
+  expect(() => validarPastaVault("/var/opt")).toThrow(/pasta pessoal/i);
+});
+
+test("Dado um symlink Quando valido a pasta Então recusa", () => {
+  const alvo = join(raiz, "alvo");
+  mkdirSync(alvo, { recursive: true });
+  const link = join(raiz, "link-para-alvo");
+  try {
+    symlinkSync(alvo, link, "dir");
+    expect(() => validarPastaVault(link)).toThrow(/links simbólicos/i);
+  } catch (erro) {
+    if ((erro as NodeJS.ErrnoException).code !== "EPERM") throw erro;
+  }
 });
 
 test("Dado uma lista de áreas válidas Quando inicializo áreas pelo onboarding Então executa o init real de forma idempotente e garante identidade automática sem campo de id", async () => {
