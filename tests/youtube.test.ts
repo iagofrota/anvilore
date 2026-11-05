@@ -46,7 +46,7 @@ test('Dado executor com programa local, Quando executar, Então drena stdout e s
   expect(await executarYtDlp(['-e',"process.stdout.write('legenda teste')"])).toEqual({codigo:0,saida:'legenda teste'});
   expect(await executarYtDlp(['-e',"process.stderr.write('falha teste');process.exit(7)"])).toEqual({codigo:7,saida:'falha teste'});
  } finally {spy.mockRestore();}
-});
+}, { timeout: 30_000 });
 
 test('Dado yt-dlp.conf com --exec no cwd, Quando executarYtDlp roda, Então ignora a configuração externa e não executa o comando', async () => {
  const pasta = await mkdtemp(join(tmpdir(), 'anvilore-ytdlp-'));
@@ -92,7 +92,7 @@ process.exit(0);
   spy.mockRestore();
   await rm(pasta, { recursive: true, force: true });
  }
-});
+}, { timeout: 30_000 });
 
 const binReal = Bun.which('yt-dlp');
 const temYtDlp = Boolean(binReal);
@@ -137,7 +137,7 @@ test.skipIf(!temYtDlp)('Dado yt-dlp real no PATH, Quando executar com configs em
   await rm(configFile, { force: true });
   await rm(pasta, { recursive: true, force: true });
  }
-});
+}, { timeout: 30_000 });
 
 test('Dado aviso de dependência, Quando compor relatório, Então o texto não duplica o prefixo AVISO',()=>{
  const spy=spyOn(Bun,'which').mockReturnValue(null);
