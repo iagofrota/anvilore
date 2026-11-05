@@ -639,8 +639,19 @@ export async function executarProtecao(payload: string): Promise<number> {
       return 2;
     }
 
-    const raizClone = resolve(import.meta.dir, "../..");
-    decisaoVerified = await decidirVerified(payload, raizClone, process.env);
+    let dados: unknown;
+    try {
+      dados = JSON.parse(payload);
+    } catch {}
+
+    const raiz =
+      process.env.ANVILORE_DESTINO ||
+      (mapa(dados) && typeof dados.cwd === "string" && dados.cwd.trim() ? resolve(dados.cwd.trim()) : undefined) ||
+      (process.env.ANVILORE_WIKI ? dirname(resolve(process.env.ANVILORE_WIKI)) : undefined) ||
+      process.cwd() ||
+      resolve(import.meta.dir, "../..");
+
+    decisaoVerified = await decidirVerified(payload, raiz, process.env);
   } catch (erro) {
     console.error("Bloqueado: só o comando de aprovação pode alterar verified em wiki/.");
     console.error(`Motivo: ${(erro as Error).message}`);

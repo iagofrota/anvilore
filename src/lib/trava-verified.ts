@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { caminhoReal, dentroDe } from "./caminhos";
@@ -8,9 +9,16 @@ export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
 type Json = Record<string, unknown>;
 type Token = { texto: string; operador: boolean };
 
-const TERMINAIS = new Set([
+const FERRAMENTAS_TERMINAL = new Set([
   "bash", "exec_command", "shell_command", "shell", "local_shell", "run_shell_command", "powershell", "pwsh", "run_in_terminal", "sh", "zsh", "dash", "ksh",
 ]);
+const TERMINAIS = FERRAMENTAS_TERMINAL;
+
+const FERRAMENTAS_PATCH = new Set(["apply_patch"]);
+const FERRAMENTAS_WRITE = new Set(["write", "write_file"]);
+const FERRAMENTAS_EDIT = new Set(["edit", "replace"]);
+const FERRAMENTAS_MULTIEDIT = new Set(["multiedit"]);
+const FERRAMENTAS_LEITURA = new Set(["read_file", "view", "show", "cat", "read"]);
 
 const LEITURAS_TERMINAL = new Set([
   "cat", "rg", "grep", "ls", "head", "tail", "wc", "echo", "printf", "pwd", "stat", "file", "diff",
@@ -233,11 +241,11 @@ function aplicarHunks(original: string, hunks: Hunk[]): string | null {
   const linhas = original.replace(/\r\n/g, "\n").split("\n");
   for (const hunk of hunks) {
     if (hunk.antigo.length === 0) {
-      linhas.push(...hunk.novo);
-      continue;
+      return null;
     }
-    let encontrou = -1;
     const qtdAntigo = hunk.antigo.length;
+    let encontrou = -1;
+    let totalCasamentos = 0;
     for (let i = 0; i <= linhas.length - qtdAntigo; i++) {
       let casa = true;
       for (let j = 0; j < qtdAntigo; j++) {
@@ -247,24 +255,36 @@ function aplicarHunks(original: string, hunks: Hunk[]): string | null {
         }
       }
       if (casa) {
+        totalCasamentos++;
         encontrou = i;
-        break;
       }
     }
-    if (encontrou < 0) return null;
+    if (totalCasamentos !== 1 || encontrou < 0) return null;
     linhas.splice(encontrou, qtdAntigo, ...hunk.novo);
   }
   return linhas.join("\n");
 }
 
-function parsearPatch(patchTexto: string): ArquivoPatch[] {
+function parsearPatchCodex(patchTexto: string): ArquivoPatch[] {
   const linhas = patchTexto.split(/\r?\n/);
   const arquivos: ArquivoPatch[] = [];
   let atual: ArquivoPatch | null = null;
   let hunkAtual: Hunk | null = null;
+  const temDelimitador = patchTexto.includes("*** Begin Patch");
+  let dentroDoBloco = !temDelimitador;
 
   for (let i = 0; i < linhas.length; i++) {
     const linha = linhas[i]!;
+
+    if (linha.trim() === "*** Begin Patch") {
+      dentroDoBloco = true;
+      continue;
+    }
+    if (linha.trim() === "*** End Patch") {
+      dentroDoBloco = false;
+      continue;
+    }
+    if (!dentroDoBloco) continue;
 
     const matchAdd = linha.match(/^\*\*\*\s*Add\s+File:\s*(.+)$/i);
     if (matchAdd) {
@@ -300,26 +320,6 @@ function parsearPatch(patchTexto: string): ArquivoPatch[] {
       continue;
     }
 
-    const matchDiff = linha.match(/^diff --git a\/(.+) b\/(.+)$/i);
-    if (matchDiff) {
-      atual = { origem: matchDiff[1]!.trim(), destino: matchDiff[2]!.trim(), acao: "update", hunks: [], linhasAdicionadas: [] };
-      arquivos.push(atual);
-      hunkAtual = null;
-      continue;
-    }
-
-    const matchOrigemDiff = linha.match(/^---\s+(?:a\/)?(.+)$/i);
-    if (matchOrigemDiff && atual && !atual.origem) {
-      atual.origem = matchOrigemDiff[1]!.trim().replace(/^["']|["']$/g, "");
-      continue;
-    }
-
-    const matchDestinoDiff = linha.match(/^\+\+\+\s+(?:b\/)?(.+)$/i);
-    if (matchDestinoDiff && atual && !atual.destino) {
-      atual.destino = matchDestinoDiff[1]!.trim().replace(/^["']|["']$/g, "");
-      continue;
-    }
-
     if (linha.startsWith("@@")) {
       hunkAtual = { antigo: [], novo: [] };
       if (atual) atual.hunks.push(hunkAtual);
@@ -348,13 +348,71 @@ function parsearPatch(patchTexto: string): ArquivoPatch[] {
   return arquivos;
 }
 
+function parsearPatchUnified(patchTexto: string): ArquivoPatch[] {
+  const linhas = patchTexto.split(/\r?\n/);
+  const arquivos: ArquivoPatch[] = [];
+  let atual: ArquivoPatch | null = null;
+  let hunkAtual: Hunk | null = null;
+
+  for (let i = 0; i < linhas.length; i++) {
+    const linha = linhas[i]!;
+
+    const matchDiff = linha.match(/^diff --git a\/(.+) b\/(.+)$/i);
+    if (matchDiff) {
+      atual = { origem: matchDiff[1]!.trim(), destino: matchDiff[2]!.trim(), acao: "update", hunks: [], linhasAdicionadas: [] };
+      arquivos.push(atual);
+      hunkAtual = null;
+      continue;
+    }
+
+    const matchOrigemDiff = linha.match(/^---\s+(?:a\/)?(.+)$/i);
+    if (matchOrigemDiff && atual && !atual.origem) {
+      atual.origem = matchOrigemDiff[1]!.trim().replace(/^["']|["']$/g, "");
+      continue;
+    }
+
+    const matchDestinoDiff = linha.match(/^\+\+\+\s+(?:b\/)?(.+)$/i);
+    if (matchDestinoDiff && atual && !atual.destino) {
+      atual.destino = matchDestinoDiff[1]!.trim().replace(/^["']|["']$/g, "");
+      continue;
+    }
+
+    if (linha.startsWith("@@")) {
+      hunkAtual = { antigo: [], novo: [] };
+      if (atual) atual.hunks.push(hunkAtual);
+      continue;
+    }
+
+    if (hunkAtual) {
+      if (linha.startsWith("-")) {
+        hunkAtual.antigo.push(linha.slice(1));
+      } else if (linha.startsWith("+")) {
+        hunkAtual.novo.push(linha.slice(1));
+      } else if (linha.startsWith(" ") || linha === "") {
+        const conteudo = linha.startsWith(" ") ? linha.slice(1) : linha;
+        hunkAtual.antigo.push(conteudo);
+        hunkAtual.novo.push(conteudo);
+      }
+    }
+  }
+
+  return arquivos;
+}
+
+function parsearPatch(patchTexto: string): ArquivoPatch[] {
+  if (patchTexto.includes("*** Begin Patch") || /^\*\*\*\s*(?:Add|Update|Delete|Move)\s+File/im.test(patchTexto)) {
+    return parsearPatchCodex(patchTexto);
+  }
+  return parsearPatchUnified(patchTexto);
+}
+
 async function decidirPatch(
   patchTexto: string,
   cwd: string,
   raiz: string,
   ambiente: Record<string, string | undefined>
 ): Promise<Decisao> {
-  if (!patchTexto.trim()) return { acao: "liberar", motivo: "patch vazio" };
+  if (!patchTexto.trim()) return { acao: "bloquear", motivo: "patch vazio (falha fechada)" };
 
   const arquivos = parsearPatch(patchTexto);
   if (!arquivos.length) {
@@ -366,12 +424,7 @@ async function decidirPatch(
 
   for (const arq of arquivos) {
     const caminhoRef = arq.destino ?? arq.origem;
-    if (!caminhoRef) {
-      if (/verified/i.test(patchTexto)) {
-        return { acao: "bloquear", motivo: "patch com arquivo sem caminho identificável citando verified" };
-      }
-      continue;
-    }
+    if (!caminhoRef) continue;
 
     const abs = isAbsolute(caminhoRef) ? resolve(caminhoRef) : resolve(cwd, caminhoRef);
     let absReal = abs;
@@ -383,6 +436,19 @@ async function decidirPatch(
 
     const tocaWiki = dentroDe(abs, wiki) || dentroDe(absReal, wikiReal);
     if (!tocaWiki) continue;
+
+    if (arq.acao === "update") {
+      if (arq.hunks.length === 0) {
+        if (!arq.destino || arq.destino === arq.origem) {
+          return { acao: "bloquear", motivo: "Update File em wiki/ sem hunks aplicáveis (falha fechada)" };
+        }
+      }
+      for (const hunk of arq.hunks) {
+        if (hunk.antigo.length === 0) {
+          return { acao: "bloquear", motivo: "inclua linhas de contexto no patch" };
+        }
+      }
+    }
 
     let novoConteudo = "";
     if (arq.acao === "delete") {
@@ -397,11 +463,24 @@ async function decidirPatch(
       } catch (erro) {
         return { acao: "bloquear", motivo: `falha ao ler arquivo em wiki/ para aplicar patch: ${(erro as Error).message}` };
       }
-      const aplicado = aplicarHunks(textoAtual, arq.hunks);
-      if (aplicado === null) {
-        return { acao: "bloquear", motivo: `patch não aplica limpo em ${caminhoRef} (falha fechada)` };
+      if (arq.hunks.length > 0) {
+        const aplicado = aplicarHunks(textoAtual, arq.hunks);
+        if (aplicado === null) {
+          return { acao: "bloquear", motivo: `patch não aplica limpo em ${caminhoRef} (falha fechada)` };
+        }
+        novoConteudo = aplicado;
+      } else {
+        novoConteudo = textoAtual;
       }
-      novoConteudo = aplicado;
+      if (arq.destino && arq.origem && arq.destino !== arq.origem) {
+        const absOrigem = isAbsolute(arq.origem) ? resolve(arq.origem) : resolve(cwd, arq.origem);
+        let absOrigemReal = absOrigem;
+        try { absOrigemReal = caminhoReal(absOrigem, cwd); } catch {}
+        if (dentroDe(absOrigem, wiki) || dentroDe(absOrigemReal, wikiReal)) {
+          const decisaoOrigem = await verificarMudancaVerified(absOrigem, "", raiz, ambiente);
+          if (decisaoOrigem.acao === "bloquear") return decisaoOrigem;
+        }
+      }
     }
 
     const decisao = await verificarMudancaVerified(abs, novoConteudo, raiz, ambiente);
@@ -469,27 +548,73 @@ function analisarGit(args: string[]): { subcomando?: string; globais: string[] }
   return { globais };
 }
 
-function escreveEmWiki(
+export function caminhoTocaWiki(
   caminhoStr: string,
-  cwd: string,
+  base: string,
   raiz: string,
   ambiente: Record<string, string | undefined>
 ): boolean {
-  const limpo = caminhoStr.replace(/^["']|["']$/g, "");
+  const limpo = caminhoStr.replace(/^["']|["']$/g, "").trim();
+  if (!limpo) return false;
   if (limpo === "/dev/null" || limpo.toLowerCase() === "nul" || limpo === "&1" || limpo === "&2") return false;
+
   const wiki = caminhoWiki(raiz, ambiente);
+  const wikiExiste = Boolean(ambiente.ANVILORE_WIKI || existsSync(wiki));
+  if (!wikiExiste) return false;
+
   let wikiReal = wiki;
   try { wikiReal = caminhoReal(wiki, raiz); } catch {}
-  const abs = isAbsolute(limpo) ? resolve(limpo) : resolve(cwd, limpo);
-  let absReal = abs;
-  try { absReal = caminhoReal(abs, cwd); } catch {}
-  return dentroDe(abs, wiki) || dentroDe(absReal, wikiReal);
+
+  const semGlob = limpo.includes("*") || limpo.includes("?")
+    ? limpo.replace(/[*?].*$/, "")
+    : limpo;
+  const caminhoParaResolver = semGlob || ".";
+
+  const absBase = isAbsolute(caminhoParaResolver) ? resolve(caminhoParaResolver) : resolve(base, caminhoParaResolver);
+  let absBaseReal = absBase;
+  try { absBaseReal = caminhoReal(absBase, base); } catch {}
+
+  if (dentroDe(absBase, wiki) || dentroDe(absBaseReal, wikiReal) || absBase === wiki || absBaseReal === wikiReal) {
+    return true;
+  }
+
+  const absRaiz = isAbsolute(caminhoParaResolver) ? resolve(caminhoParaResolver) : resolve(raiz, caminhoParaResolver);
+  let absRaizReal = absRaiz;
+  try { absRaizReal = caminhoReal(absRaiz, raiz); } catch {}
+
+  if (dentroDe(absRaiz, wiki) || dentroDe(absRaizReal, wikiReal) || absRaiz === wiki || absRaizReal === wikiReal) {
+    return true;
+  }
+
+  return false;
 }
+
+function extrairAlvosSed(args: string[]): string[] {
+  let temScriptExplicit = false;
+  const naoFlags: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "-e" || arg === "-f") {
+      temScriptExplicit = true;
+      i++;
+      continue;
+    }
+    if (arg.startsWith("-e") || arg.startsWith("-f")) {
+      temScriptExplicit = true;
+      continue;
+    }
+    if (arg.startsWith("-")) continue;
+    naoFlags.push(arg);
+  }
+  return temScriptExplicit ? naoFlags : naoFlags.slice(1);
+}
+
+const MSG_TERMINAL_WIKI = "Edite páginas da wiki pelas ferramentas de edição (Write/Edit/apply_patch); o terminal não escreve em wiki/.";
 
 function decidirTerminalVerified(
   cmdTexto: string,
   isWindows: boolean,
-  cwd: string,
+  base: string,
   raiz: string,
   ambiente: Record<string, string | undefined>
 ): Decisao {
@@ -499,30 +624,29 @@ function decidirTerminalVerified(
 
   const citaAprovar = /(?:aprovarPaginas|aprovarPelaInterface|comandos[\\/]aprovar)/i.test(cmdTexto);
   const citaVerified = /verified/i.test(cmdTexto) || /\bby\s*:\s*human:/i.test(cmdTexto);
-  const citaWikiOuMd = /(?:^|[\s"'\`\\/])wiki(?:[\\/]|$)/i.test(cmdTexto) || /\.md(?:["']|\s|$|[)\]}>;,])/i.test(cmdTexto);
-
-  if (!citaAprovar && !(citaVerified && citaWikiOuMd)) {
-    return { acao: "liberar", motivo: "terminal não altera verified nem chama aprovação" };
-  }
 
   let tokens: Token[];
   try {
     tokens = tokenizar(cmdTexto, isWindows);
   } catch (erro) {
-    return { acao: "bloquear", motivo: `comando com sintaxe não interpretável citando verified ou aprovação: ${(erro as Error).message}` };
+    if (citaVerified || citaAprovar) {
+      return { acao: "bloquear", motivo: `comando com sintaxe não interpretável citando verified ou aprovação: ${(erro as Error).message}` };
+    }
+    return { acao: "liberar", motivo: "comando de terminal com sintaxe não interpretável sem citação a verified ou aprovação" };
   }
 
+  // 1. Redirecionamentos de escrita
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i]!;
     if (token.operador && /^>{1,2}$/.test(token.texto)) {
       let alvo = tokens[i + 1];
       if (alvo?.operador && /^[|&]$/.test(alvo.texto)) alvo = tokens[i + 2];
       if (alvo !== undefined && !alvo.operador) {
-        if (escreveEmWiki(alvo.texto, cwd, raiz, ambiente)) {
-          return { acao: "bloquear", motivo: `redirecionamento de escrita para wiki/ (${token.texto} ${alvo.texto}) citando verified ou aprovação` };
+        if (caminhoTocaWiki(alvo.texto, base, raiz, ambiente)) {
+          return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
         }
       } else {
-        return { acao: "bloquear", motivo: `redirecionamento de escrita sem alvo claro citando verified ou aprovação` };
+        return { acao: "bloquear", motivo: "redirecionamento de escrita sem alvo claro (falha fechada)" };
       }
     }
   }
@@ -556,29 +680,14 @@ function decidirTerminalVerified(
     }
 
     if (!verbo) {
-      return { acao: "bloquear", motivo: "comando com verbo vazio ou inválido citando verified ou aprovação" };
+      return { acao: "bloquear", motivo: "comando com verbo vazio ou inválido (falha fechada)" };
     }
 
-    if (CMDLETS_ESCRITA_PS.has(verbo)) {
-      return { acao: "bloquear", motivo: `cmdlet de escrita PowerShell (${verbo}) citando verified` };
-    }
-
-    if (verbo === "git") {
-      const { subcomando, globais } = analisarGit(comando.slice(1));
-      if (globais.some(opt => opt === "-c" || /^--(?:config-env|exec-path)(?:=|$)/.test(opt))) {
-        return { acao: "bloquear", motivo: "git com opções de execução que citam verified" };
-      }
-      if (!subcomando || !GIT_LEITURA.has(subcomando)) {
-        return { acao: "bloquear", motivo: `git com subcomando de escrita (${subcomando ?? "nenhum"}) citando verified` };
-      }
-      if (comando.slice(1).some(arg => arg === "--output" || arg.startsWith("--output=") || arg === "-o" || arg.startsWith("-o") || /^--(?:output|output-directory)(?:=|$)/.test(arg))) {
-        return { acao: "bloquear", motivo: "git com opção de saída em arquivo citando verified" };
-      }
-      continue;
-    }
-
-    if (verbo === "anvilore" || ((verbo === "bun" || verbo === "node") && comando.length > 1 && /(?:^|[\\/])(?:src[\\/])?cli\.ts$/i.test(comando[1]!))) {
-      const offset = verbo === "anvilore" ? 1 : 2;
+    // A. Allowlist: CLI do próprio kit
+    const ehAnvilore = verbo === "anvilore";
+    const ehCliTs = (verbo === "bun" || verbo === "node") && comando.length > 1 && /(?:^|[\\/])(?:src[\\/])?cli\.ts$/i.test(comando[1]!);
+    if (ehAnvilore || ehCliTs) {
+      const offset = ehAnvilore ? 1 : 2;
       const subcomando = comando[offset]?.toLowerCase();
       const SUBCOMANDOS_SEGUROS = new Set([
         "validar", "doctor", "status", "metricas", "buscar", "capturar", "auditar", "checar-docs", "fechar", "aprovar", "ui"
@@ -591,6 +700,130 @@ function decidirTerminalVerified(
       }
     }
 
+    // B. Bloqueio de aprovação interna
+    const textoSegmento = comando.join(" ");
+    if (/(?:aprovarPaginas|aprovarPelaInterface|comandos[\\/]aprovar)/i.test(textoSegmento)) {
+      return { acao: "bloquear", motivo: "chamada direta a rotinas internas de aprovação" };
+    }
+
+    // C. Editores in-place: sed, perl, ruby
+    if (verbo === "sed" || verbo === "perl" || verbo === "ruby") {
+      const temInPlace = comando.slice(1).some(arg => arg === "-i" || arg.startsWith("-i") || arg === "--in-place" || arg.startsWith("--in-place="));
+      if (temInPlace) {
+        const alvos = verbo === "sed" ? extrairAlvosSed(comando.slice(1)) : comando.slice(1).filter(arg => !arg.startsWith("-"));
+        if (alvos.some(arg => caminhoTocaWiki(arg, base, raiz, ambiente)) || (alvos.length === 0 && caminhoTocaWiki(".", base, raiz, ambiente))) {
+          return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+        }
+      }
+    }
+
+    // D. tee
+    if (verbo === "tee") {
+      const alvos = comando.slice(1).filter(arg => !arg.startsWith("-"));
+      if (alvos.some(arg => caminhoTocaWiki(arg, base, raiz, ambiente))) {
+        return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+      }
+    }
+
+    // E. Escrita direta de arquivos: cp, mv, ln, install, rsync, truncate, dd
+    const ESCRITAS_ARQUIVO = new Set(["cp", "mv", "ln", "install", "rsync", "truncate", "dd"]);
+    if (ESCRITAS_ARQUIVO.has(verbo)) {
+      if (verbo === "dd") {
+        const argOf = comando.slice(1).find(arg => /^of=/i.test(arg));
+        const alvo = argOf ? argOf.slice(3) : undefined;
+        if (alvo && caminhoTocaWiki(alvo, base, raiz, ambiente)) {
+          return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+        }
+      } else if (verbo === "truncate") {
+        const alvos = comando.slice(1).filter(arg => !arg.startsWith("-"));
+        if (alvos.some(arg => caminhoTocaWiki(arg, base, raiz, ambiente))) {
+          return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+        }
+      } else {
+        const optT = comando.slice(1).find(arg => arg.startsWith("-t=") || arg.startsWith("--target-directory="));
+        let destino = optT ? optT.split("=")[1] : undefined;
+        if (!destino) {
+          const idxT = comando.slice(1).findIndex(arg => arg === "-t" || arg === "--target-directory");
+          if (idxT >= 0) destino = comando.slice(1)[idxT + 1];
+        }
+        if (!destino) {
+          destino = comando.slice(1).filter(arg => !arg.startsWith("-")).pop();
+        }
+        if (destino && caminhoTocaWiki(destino, base, raiz, ambiente)) {
+          return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+        }
+      }
+    }
+
+    // F. git
+    if (verbo === "git") {
+      const { subcomando, globais } = analisarGit(comando.slice(1));
+      if (globais.some(opt => opt === "-c" || /^--(?:config-env|exec-path)(?:=|$)/.test(opt))) {
+        return { acao: "bloquear", motivo: "git com opções de execução que citam verified" };
+      }
+      if (subcomando === "checkout" || subcomando === "restore" || subcomando === "apply") {
+        const alvos = comando.slice(1).filter(arg => !arg.startsWith("-") && arg !== subcomando);
+        if (alvos.some(arg => caminhoTocaWiki(arg, base, raiz, ambiente))) {
+          return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+        }
+      }
+      for (let i = 0; i < comando.slice(1).length; i++) {
+        const arg = comando.slice(1)[i]!;
+        let alvo: string | undefined;
+        if (arg.startsWith("--output=")) alvo = arg.slice("--output=".length);
+        else if (arg === "--output" || arg === "-o") alvo = comando.slice(1)[i + 1];
+        else if (arg.startsWith("-o") && !arg.startsWith("--")) alvo = arg.slice(2);
+        else if (arg.startsWith("--output-directory=")) alvo = arg.slice("--output-directory=".length);
+        else if (arg === "--output-directory") alvo = comando.slice(1)[i + 1];
+
+        if (alvo && caminhoTocaWiki(alvo, base, raiz, ambiente)) {
+          return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+        }
+      }
+      if (citaVerified) {
+        if (!subcomando || !GIT_LEITURA.has(subcomando)) {
+          return { acao: "bloquear", motivo: `git com subcomando de escrita (${subcomando ?? "nenhum"}) citando verified` };
+        }
+      }
+      continue;
+    }
+
+    // G. Interpretadores com -c ou -e
+    const INTERPRETES_EVAL = new Set(["python", "python3", "node", "bun", "perl", "ruby", "bash", "sh", "zsh"]);
+    if (INTERPRETES_EVAL.has(verbo)) {
+      const temEval = comando.slice(1).some(arg => arg === "-c" || arg === "-e" || arg.startsWith("-c=") || arg.startsWith("-e="));
+      if (temEval) {
+        const textoResto = comando.slice(1).join(" ");
+        const tocaWiki = comando.slice(1).some(arg => caminhoTocaWiki(arg, base, raiz, ambiente)) ||
+          (Boolean(ambiente.ANVILORE_WIKI || existsSync(caminhoWiki(raiz, ambiente))) && /(?:^|[\s"'`\\/])wiki(?:[\\/]|$)/i.test(textoResto));
+        if (tocaWiki) {
+          return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+        }
+      }
+    }
+
+    // H. Cmdlets de escrita PowerShell
+    if (CMDLETS_ESCRITA_PS.has(verbo)) {
+      const alvos: string[] = [];
+      const args = comando.slice(1);
+      for (let i = 0; i < args.length; i++) {
+        const arg = args[i]!;
+        if (/^-(?:p|pa|pat|path|lit|literal|literalpath|dest|destination|file|filepath|outfile|target)(?::.*)?$/i.test(arg)) {
+          if (arg.includes(":")) {
+            alvos.push(arg.slice(arg.indexOf(":") + 1));
+          } else if (i + 1 < args.length) {
+            alvos.push(args[++i]!);
+          }
+        } else if (!arg.startsWith("-")) {
+          alvos.push(arg);
+        }
+      }
+      if (alvos.some(arg => caminhoTocaWiki(arg, base, raiz, ambiente))) {
+        return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+      }
+    }
+
+    // I. Leitores puros
     if (LEITURAS_TERMINAL.has(verbo)) {
       if (verbo === "rg" && comando.some(arg => arg === "--pre" || arg.startsWith("--pre="))) {
         return { acao: "bloquear", motivo: "rg com pré-processador citando verified" };
@@ -598,10 +831,13 @@ function decidirTerminalVerified(
       continue;
     }
 
-    return { acao: "bloquear", motivo: `comando não leitor (${verbo}) citando verified ou aprovação` };
+    // J. Se cita verified ou aprovação em comando não leitor
+    if (/verified/i.test(textoSegmento) || /\bby\s*:\s*human:/i.test(textoSegmento)) {
+      return { acao: "bloquear", motivo: `comando não leitor (${verbo}) citando verified` };
+    }
   }
 
-  return { acao: "liberar", motivo: "comando de terminal apenas de leitura" };
+  return { acao: "liberar", motivo: "comando de terminal permitido" };
 }
 
 export async function decidirVerified(
@@ -617,146 +853,191 @@ export async function decidirVerified(
   }
   if (!mapa(dados)) throw new Error("payload deve ser um objeto JSON");
 
-  const nome = String(dados.tool_name ?? dados.toolName ?? "").toLowerCase();
+  const nome = String(dados.tool_name ?? dados.toolName ?? "").toLowerCase().trim();
 
-  // Resolve cwd: SEMPRE dados.cwd ou raiz; NUNCA tool_input.workdir
+  // cwd padrão: dados.cwd se fornecido, senão raiz
   const cwd = typeof dados.cwd === "string" && dados.cwd.trim() ? dados.cwd.trim() : raiz;
 
   let entrada: unknown = dados.tool_input ?? dados.toolInput ?? dados.toolArgs ?? dados.tool_args ?? dados.arguments;
-  if (entrada === undefined) {
-    if (TERMINAIS.has(nome)) {
-      return { acao: "bloquear", motivo: "ferramenta de terminal sem comando (falha fechada)" };
-    }
-    if (nome === "apply_patch") {
-      return { acao: "bloquear", motivo: "apply_patch sem patch (falha fechada)" };
-    }
-  }
 
   if (typeof entrada === "string" && ("toolArgs" in dados || "tool_args" in dados || "arguments" in dados)) {
     try {
       const parsed = JSON.parse(entrada);
       if (mapa(parsed)) entrada = parsed;
     } catch (erro) {
-      // Se toolArgs foi passado como string JSON inválida, falha fechado!
       throw new Error(`toolArgs com JSON inválido: ${(erro as Error).message}`);
     }
   }
 
   const entradaMapa = mapa(entrada) ? entrada : undefined;
 
+  let nomeEfetivo = nome;
+  if (!nomeEfetivo && entradaMapa && (entradaMapa.file_path || entradaMapa.filePath || entradaMapa.path || entradaMapa.target_path)) {
+    if (typeof entradaMapa.content === "string") {
+      nomeEfetivo = "write";
+    } else if (typeof entradaMapa.old_string === "string" || typeof entradaMapa.oldText === "string") {
+      nomeEfetivo = "edit";
+    } else if (Array.isArray(entradaMapa.edits)) {
+      nomeEfetivo = "multiedit";
+    }
+  }
+
   // 1. apply_patch (Codex)
-  if (nome === "apply_patch") {
+  if (FERRAMENTAS_PATCH.has(nomeEfetivo)) {
     if (!entradaMapa || typeof entradaMapa.patch !== "string") {
       return { acao: "bloquear", motivo: "apply_patch sem chave patch reconhecida (falha fechada)" };
     }
     return decidirPatch(entradaMapa.patch, cwd, raiz, ambiente);
   }
-  if (entradaMapa && typeof entradaMapa.patch === "string") {
-    return decidirPatch(entradaMapa.patch, cwd, raiz, ambiente);
-  }
 
   // 2. Terminal
-  const comandoRaw = entradaMapa ? (entradaMapa.command ?? entradaMapa.cmd) : undefined;
-  if (TERMINAIS.has(nome) || comandoRaw !== undefined) {
-    if (entradaMapa && !("command" in entradaMapa) && !("cmd" in entradaMapa)) {
-      return { acao: "bloquear", motivo: "ferramenta de terminal com chave desconhecida (falha fechada)" };
+  if (FERRAMENTAS_TERMINAL.has(nomeEfetivo)) {
+    if (!entradaMapa && typeof entrada !== "string") {
+      return { acao: "bloquear", motivo: "ferramenta de terminal sem comando (falha fechada)" };
     }
-    const cmdTexto = typeof comandoRaw === "string"
-      ? comandoRaw
-      : Array.isArray(comandoRaw)
-        ? comandoRaw.join(" ")
-        : typeof entrada === "string"
-          ? entrada
-          : "";
-    const isWindows = nome === "powershell" || nome === "pwsh" || (Array.isArray(comandoRaw) && /^(?:powershell|pwsh)(?:\.exe)?$/i.test(String(comandoRaw[0]))) || (process.platform === "win32" && !/bash/i.test(nome));
-    return decidirTerminalVerified(cmdTexto, isWindows, cwd, raiz, ambiente);
+    const comandoRaw = entradaMapa ? (entradaMapa.command ?? entradaMapa.cmd) : entrada;
+    if (typeof comandoRaw !== "string" && !Array.isArray(comandoRaw)) {
+      return { acao: "bloquear", motivo: "ferramenta de terminal com comando inválido (falha fechada)" };
+    }
+    const cmdTexto = typeof comandoRaw === "string" ? comandoRaw : comandoRaw.join(" ");
+
+    const workdirRel = entradaMapa ? (entradaMapa.workdir ?? entradaMapa.dir_path ?? ".") : ".";
+    const base = isAbsolute(String(workdirRel)) ? resolve(String(workdirRel)) : resolve(cwd, String(workdirRel));
+
+    const isWindows = nomeEfetivo === "powershell" || nomeEfetivo === "pwsh" ||
+      (Array.isArray(comandoRaw) && /^(?:powershell|pwsh)(?:\.exe)?$/i.test(String(comandoRaw[0]))) ||
+      (process.platform === "win32" && !/bash/i.test(nomeEfetivo));
+
+    return decidirTerminalVerified(cmdTexto, isWindows, base, raiz, ambiente);
   }
 
-  // 3. Write / Edit / MultiEdit / NotebookEdit / write_file / replace
-  const ehEdicaoConhecida = [
-    "write", "edit", "multiedit", "notebookedit", "write_file", "replace",
-  ].includes(nome);
+  // 3. Write / write_file
+  if (FERRAMENTAS_WRITE.has(nomeEfetivo)) {
+    if (!entradaMapa) {
+      return { acao: "bloquear", motivo: "ferramenta de escrita sem entrada (falha fechada)" };
+    }
+    const caminho = entradaMapa.file_path ?? entradaMapa.filePath ?? entradaMapa.path ?? entradaMapa.target_path;
+    if (typeof caminho !== "string" || !caminho.trim()) {
+      return { acao: "bloquear", motivo: "ferramenta de escrita sem caminho de arquivo (falha fechada)" };
+    }
+    const conteudo = typeof entradaMapa.content === "string" ? entradaMapa.content : "";
 
-  if (ehEdicaoConhecida || (entradaMapa && (entradaMapa.file_path || entradaMapa.filePath || entradaMapa.path || entradaMapa.target_path))) {
-    const caminho = entradaMapa ? (entradaMapa.file_path ?? entradaMapa.filePath ?? entradaMapa.path ?? entradaMapa.notebook_path ?? entradaMapa.target_path) : undefined;
-    if (typeof caminho !== "string") {
+    const wiki = caminhoWiki(raiz, ambiente);
+    const abs = isAbsolute(caminho)
+      ? resolve(caminho)
+      : (caminho.startsWith("wiki/") || caminho.startsWith("wiki\\"))
+        ? resolve(wiki, caminho.slice(5))
+        : resolve(cwd, caminho);
+
+    return verificarMudancaVerified(abs, conteudo, raiz, ambiente);
+  }
+
+  // 4. Edit / replace
+  if (FERRAMENTAS_EDIT.has(nomeEfetivo)) {
+    if (!entradaMapa) {
+      return { acao: "bloquear", motivo: "ferramenta de edição sem entrada (falha fechada)" };
+    }
+    const caminho = entradaMapa.file_path ?? entradaMapa.filePath ?? entradaMapa.path ?? entradaMapa.target_path;
+    if (typeof caminho !== "string" || !caminho.trim()) {
       return { acao: "bloquear", motivo: "ferramenta de edição sem caminho de arquivo (falha fechada)" };
     }
+    const oldStr = entradaMapa.old_string ?? entradaMapa.oldText;
+    const newStr = entradaMapa.new_string ?? entradaMapa.newText;
+    if (typeof oldStr !== "string" || typeof newStr !== "string") {
+      return { acao: "bloquear", motivo: "ferramenta de edição com old_string ou new_string ausente (falha fechada)" };
+    }
+    const replaceAll = Boolean(entradaMapa.replace_all ?? entradaMapa.replaceAll);
 
-    const abs = isAbsolute(caminho) ? resolve(caminho) : resolve(cwd, caminho);
+    const wiki = caminhoWiki(raiz, ambiente);
+    const abs = isAbsolute(caminho)
+      ? resolve(caminho)
+      : (caminho.startsWith("wiki/") || caminho.startsWith("wiki\\"))
+        ? resolve(wiki, caminho.slice(5))
+        : resolve(cwd, caminho);
 
-    // Caso A: Write / write_file (conteúdo novo completo)
-    if (nome === "write" || nome === "write_file" || (entradaMapa && typeof entradaMapa.content === "string")) {
-      const conteudo = (entradaMapa && typeof entradaMapa.content === "string") ? entradaMapa.content : "";
-      return verificarMudancaVerified(abs, conteudo, raiz, ambiente);
+    let textoAtual = "";
+    try {
+      textoAtual = await readFile(abs, "utf8");
+    } catch (erro) {
+      return { acao: "bloquear", motivo: `falha ao ler arquivo em wiki/ para edição: ${(erro as Error).message}` };
     }
 
-    // Caso B: Edit / replace (substituição old -> new)
-    if (entradaMapa && (typeof entradaMapa.old_string === "string" || typeof entradaMapa.oldText === "string")) {
-      const anterior = typeof entradaMapa.old_string === "string" ? entradaMapa.old_string : String(entradaMapa.oldText);
-      const novo = typeof entradaMapa.new_string === "string" ? entradaMapa.new_string : typeof entradaMapa.newText === "string" ? String(entradaMapa.newText) : "";
-      const replaceAll = Boolean(entradaMapa.replace_all ?? entradaMapa.replaceAll);
-
-      let textoAtual = "";
-      try {
-        textoAtual = await readFile(abs, "utf8");
-      } catch (erro) {
-        return { acao: "bloquear", motivo: `falha ao ler arquivo em wiki/ para edição: ${(erro as Error).message}` };
+    let novoTexto = textoAtual;
+    if (replaceAll) {
+      if (!textoAtual.includes(oldStr)) {
+        return { acao: "bloquear", motivo: "texto original não encontrado no arquivo (falha fechada)" };
       }
-
-      let novoTexto = textoAtual;
-      if (replaceAll) {
-        if (!textoAtual.includes(anterior)) {
-          return { acao: "bloquear", motivo: "texto original não encontrado no arquivo (falha fechada)" };
-        }
-        novoTexto = textoAtual.replaceAll(anterior, novo);
-      } else {
-        const idx = textoAtual.indexOf(anterior);
-        if (idx < 0) {
-          return { acao: "bloquear", motivo: "texto original não encontrado no arquivo (falha fechada)" };
-        }
-        novoTexto = textoAtual.slice(0, idx) + novo + textoAtual.slice(idx + anterior.length);
+      novoTexto = textoAtual.replaceAll(oldStr, newStr);
+    } else {
+      const idx = textoAtual.indexOf(oldStr);
+      if (idx < 0) {
+        return { acao: "bloquear", motivo: "texto original não encontrado no arquivo (falha fechada)" };
       }
-      return verificarMudancaVerified(abs, novoTexto, raiz, ambiente);
+      novoTexto = textoAtual.slice(0, idx) + newStr + textoAtual.slice(idx + oldStr.length);
     }
-
-    // Caso C: MultiEdit (edits array)
-    if (entradaMapa && Array.isArray(entradaMapa.edits)) {
-      let textoAtual = "";
-      try {
-        textoAtual = await readFile(abs, "utf8");
-      } catch (erro) {
-        return { acao: "bloquear", motivo: `falha ao ler arquivo em wiki/ para edição: ${(erro as Error).message}` };
-      }
-
-      let simulado = textoAtual;
-      for (const item of entradaMapa.edits) {
-        if (!mapa(item)) return { acao: "bloquear", motivo: "edição inválida no edits (falha fechada)" };
-        const ant = typeof item.old_string === "string" ? item.old_string : typeof item.oldText === "string" ? String(item.oldText) : "";
-        const nov = typeof item.new_string === "string" ? item.new_string : typeof item.newText === "string" ? String(item.newText) : "";
-        const repAll = Boolean(item.replace_all ?? item.replaceAll);
-
-        if (repAll) {
-          if (!simulado.includes(ant)) return { acao: "bloquear", motivo: "texto original não encontrado em edits (falha fechada)" };
-          simulado = simulado.replaceAll(ant, nov);
-        } else {
-          const idx = simulado.indexOf(ant);
-          if (idx < 0) return { acao: "bloquear", motivo: "texto original não encontrado em edits (falha fechada)" };
-          simulado = simulado.slice(0, idx) + nov + simulado.slice(idx + ant.length);
-        }
-      }
-      return verificarMudancaVerified(abs, simulado, raiz, ambiente);
-    }
-
-    return { acao: "bloquear", motivo: "ferramenta de edição com formato de entrada desconhecido (falha fechada)" };
+    return verificarMudancaVerified(abs, novoTexto, raiz, ambiente);
   }
 
-  // 4. Ferramenta desconhecida mexendo em wiki/
+  // 5. MultiEdit
+  if (FERRAMENTAS_MULTIEDIT.has(nomeEfetivo)) {
+    if (!entradaMapa) {
+      return { acao: "bloquear", motivo: "ferramenta de multiedit sem entrada (falha fechada)" };
+    }
+    const caminho = entradaMapa.file_path ?? entradaMapa.filePath ?? entradaMapa.path ?? entradaMapa.target_path;
+    if (typeof caminho !== "string" || !caminho.trim()) {
+      return { acao: "bloquear", motivo: "ferramenta de multiedit sem caminho de arquivo (falha fechada)" };
+    }
+    if (!Array.isArray(entradaMapa.edits) || entradaMapa.edits.length === 0) {
+      return { acao: "bloquear", motivo: "ferramenta de multiedit sem array edits (falha fechada)" };
+    }
+
+    const wiki = caminhoWiki(raiz, ambiente);
+    const abs = isAbsolute(caminho)
+      ? resolve(caminho)
+      : (caminho.startsWith("wiki/") || caminho.startsWith("wiki\\"))
+        ? resolve(wiki, caminho.slice(5))
+        : resolve(cwd, caminho);
+
+    let textoAtual = "";
+    try {
+      textoAtual = await readFile(abs, "utf8");
+    } catch (erro) {
+      return { acao: "bloquear", motivo: `falha ao ler arquivo em wiki/ para edição: ${(erro as Error).message}` };
+    }
+
+    let simulado = textoAtual;
+    for (const item of entradaMapa.edits) {
+      if (!mapa(item)) return { acao: "bloquear", motivo: "edição inválida no edits (falha fechada)" };
+      const ant = typeof item.old_string === "string" ? item.old_string : typeof item.oldText === "string" ? String(item.oldText) : undefined;
+      const nov = typeof item.new_string === "string" ? item.new_string : typeof item.newText === "string" ? String(item.newText) : undefined;
+      if (ant === undefined || nov === undefined) {
+        return { acao: "bloquear", motivo: "edição com old_string ou new_string ausente em edits (falha fechada)" };
+      }
+      const repAll = Boolean(item.replace_all ?? item.replaceAll);
+
+      if (repAll) {
+        if (!simulado.includes(ant)) return { acao: "bloquear", motivo: "texto original não encontrado em edits (falha fechada)" };
+        simulado = simulado.replaceAll(ant, nov);
+      } else {
+        const idx = simulado.indexOf(ant);
+        if (idx < 0) return { acao: "bloquear", motivo: "texto original não encontrado em edits (falha fechada)" };
+        simulado = simulado.slice(0, idx) + nov + simulado.slice(idx + ant.length);
+      }
+    }
+    return verificarMudancaVerified(abs, simulado, raiz, ambiente);
+  }
+
+  // 6. Ferramentas de Leitura
+  if (FERRAMENTAS_LEITURA.has(nomeEfetivo)) {
+    return { acao: "liberar", motivo: "ferramenta de leitura" };
+  }
+
+  // 7. Ferramenta desconhecida mexendo em wiki/
   if (payload.includes("wiki/") || payload.includes(".md")) {
     return { acao: "bloquear", motivo: `ferramenta desconhecida (${nome}) referenciando wiki/ ou .md (falha fechada)` };
   }
 
-  // 5. Payload genérico sem ferramentas isoláveis
+  // 8. Payload genérico sem ferramentas isoláveis
   if (/(?:aprovarPaginas|aprovarPelaInterface|comandos[\\/]aprovar)/i.test(payload)) {
     return { acao: "bloquear", motivo: "payload cita aprovação (falha fechada)" };
   }

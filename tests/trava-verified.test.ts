@@ -484,35 +484,35 @@ describe("trava de verified nos quatro agentes", () => {
     const pagina = join(wikiDir, "pessoal/concepts/a.md");
     writeFileSync(pagina, "---\ntitle: A\n---\n");
 
-    // C3: partindo a palavra
+    // C3: partindo a palavra (bloqueado pela Regra 4: terminal não escreve em wiki/ com >>)
     expect(await executarProtecao(JSON.stringify({
       cwd: temporario,
       tool_name: "Bash",
       tool_input: { command: `K=veri; V=fied; printf '%s%s:\n  - by: hu%s\n' $K $V man:ana >> wiki/pessoal/concepts/a.md` },
-    }))).toBe(0);
+    }))).toBe(2);
 
-    // C5: concatenação de aspas
+    // C5: concatenação de aspas (risco residual declarado: eval com concatenação de aspas)
     expect(await executarProtecao(JSON.stringify({
       cwd: temporario,
       tool_name: "Bash",
       tool_input: { command: `eval 'echo "veri""fied:" >> wiki/pessoal/concepts/a.md'` },
     }))).toBe(0);
 
-    // C6: base64
+    // C6: base64 (bloqueado pela Regra 4: terminal não escreve em wiki/ com >>)
     expect(await executarProtecao(JSON.stringify({
       cwd: temporario,
       tool_name: "Bash",
       tool_input: { command: `echo dmVyaWZpZWQ6CiAgLSBieTogaHVtYW46YW5hCg== | base64 -d >> wiki/pessoal/concepts/a.md` },
-    }))).toBe(0);
+    }))).toBe(2);
 
-    // C8: heredoc ofuscado
+    // C8: heredoc ofuscado (risco residual declarado: python sem -c via stdin)
     expect(await executarProtecao(JSON.stringify({
       cwd: temporario,
       tool_name: "Bash",
       tool_input: { command: `python3 - << 'EOF'\nopen("wiki/pessoal/concepts/a.md","a").write("veri"+"fied:...")\nEOF` },
     }))).toBe(0);
 
-    // C16: arquivo preparado em /tmp e cp
+    // C16: arquivo preparado em /tmp e cp (bloqueado pela Regra 4: cp com destino em wiki/)
     const prep = join(temporario, "prep.md");
     expect(await executarProtecao(JSON.stringify({
       cwd: temporario,
@@ -523,7 +523,7 @@ describe("trava de verified nos quatro agentes", () => {
       cwd: temporario,
       tool_name: "Bash",
       tool_input: { command: `cp ${prep} wiki/pessoal/concepts/a.md` },
-    }))).toBe(0);
+    }))).toBe(2);
 
     // C18: git apply /tmp/patch.diff
     expect(await executarProtecao(JSON.stringify({
@@ -979,5 +979,356 @@ describe("trava de verified nos quatro agentes", () => {
       tool_name: "Edit",
       tool_input: { file_path: "wiki/pessoal/concepts/a.md" },
     }))).toBe(2);
+  });
+
+  // --- Delta 1ba1405 (D1 a D4): Vetores descobertos no reQA do QA 2 ---
+  describe("Delta 1ba1405 (D1 a D4): Contratos do QA 2", () => {
+    test("Dado confusão de tipo por injeção de patch, cmd, command ou content (D1.1 a D1.5) Quando avaliado Então bloqueia com 2", async () => {
+      const pagina = join(wikiDir, "pessoal/concepts/a.md");
+      writeFileSync(pagina, "---\ntitle: Nota A\ngenerated:\n  by: process:agente\n  at: 2026-11-04T10:00:00Z\n---\nCorpo original.\n");
+
+      // D1.1: Bash com patch: ""
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Bash",
+        tool_input: {
+          command: "sed -i 's/generated:/verified:\\n  - by: human:fraude\\n    at: 2026-11-04T12:00:00Z\\ngenerated:/' wiki/pessoal/concepts/a.md",
+          patch: "",
+        },
+      }))).toBe(2);
+
+      // D1.2: Write com patch: ""
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Write",
+        tool_input: {
+          file_path: "wiki/pessoal/concepts/a.md",
+          content: "---\nverified:\n  - by: human:fraude\n---\n",
+          patch: "",
+        },
+      }))).toBe(2);
+
+      // D1.3: Write com cmd: "true"
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Write",
+        tool_input: {
+          file_path: "wiki/pessoal/concepts/a.md",
+          content: "---\nverified:\n  - by: human:fraude\n---\n",
+          cmd: "true",
+        },
+      }))).toBe(2);
+
+      // D1.4: Edit com command: "true"
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Edit",
+        tool_input: {
+          file_path: "wiki/pessoal/concepts/a.md",
+          old_string: "generated:\n  by: process:agente\n  at: 2026-11-04T10:00:00Z",
+          new_string: "verified:\n  - by: human:fraude\n    at: 2026-11-04T12:00:00Z",
+          command: "true",
+        },
+      }))).toBe(2);
+
+      // D1.5: Edit com content: ""
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Edit",
+        tool_input: {
+          file_path: "wiki/pessoal/concepts/a.md",
+          old_string: "generated:\n  by: process:agente\n  at: 2026-11-04T10:00:00Z",
+          new_string: "verified:\n  - by: human:fraude\n    at: 2026-11-04T12:00:00Z",
+          content: "",
+        },
+      }))).toBe(2);
+    });
+
+    test("Dado contornos de parser em apply_patch (D2.1 a D2.3) Quando avaliado Então bloqueia com 2", async () => {
+      const pagina = join(wikiDir, "pessoal/concepts/a.md");
+      writeFileSync(pagina, "---\ntitle: Nota A\ngenerated:\n  by: process:agente\n  at: 2026-11-04T10:00:00Z\n---\nCorpo original.\n");
+
+      // D2.1: Update sem @@
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "apply_patch",
+        tool_input: {
+          patch: "*** Begin Patch\n*** Update File: wiki/pessoal/concepts/a.md\n+verified:\n+  - by: human:fraude\n*** End Patch",
+        },
+      }))).toBe(2);
+
+      // D2.2: Adição pura (sem linhas de contexto)
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "apply_patch",
+        tool_input: {
+          patch: "*** Begin Patch\n*** Update File: wiki/pessoal/concepts/a.md\n@@ -7,0 +8,3 @@\n+verified:\n+  - by: human:fraude\n+    at: 2026-11-04T12:00:00Z\n*** End Patch",
+        },
+      }))).toBe(2);
+
+      // D2.3: +++ /tmp/fora.md no corpo
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "apply_patch",
+        tool_input: {
+          patch: "*** Begin Patch\n*** Update File: wiki/pessoal/concepts/a.md\n+++ /tmp/fora.md\n@@ -1,3 +1,5 @@\n title: Nota A\n+verified:\n+  - by: human:fraude\n*** End Patch",
+        },
+      }))).toBe(2);
+    });
+
+    test("Dado manipulação de workdir no terminal ou cwd forjado (D3.1 a D3.3) Quando avaliado Então bloqueia com 2", async () => {
+      const pagina = join(wikiDir, "pessoal/concepts/a.md");
+      writeFileSync(pagina, "---\ntitle: Nota A\ngenerated:\n  by: process:agente\n  at: 2026-11-04T10:00:00Z\n---\nCorpo original.\n");
+
+      // D3.1: workdir apontando para wiki e caminho relativo no terminal
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "exec_command",
+        tool_input: {
+          command: 'echo "verified: human:fraude" >> pessoal/concepts/a.md',
+          workdir: wikiDir,
+        },
+      }))).toBe(2);
+
+      // D3.2: workdir apontando para wiki e sed com glob
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "exec_command",
+        tool_input: {
+          command: "sed -i 's/generated/verified/' pessoal/concepts/a.m*",
+          workdir: wikiDir,
+        },
+      }))).toBe(2);
+
+      // D3.3: dados.cwd forjado para /tmp com caminho wiki/... relativo
+      expect(await executarProtecao(JSON.stringify({
+        cwd: "/tmp",
+        tool_name: "Write",
+        tool_input: {
+          file_path: "wiki/pessoal/concepts/a.md",
+          content: "---\nverified:\n  - by: human:fraude\n---\n",
+        },
+      }))).toBe(2);
+
+      // A3.6 / P1-D3b: sem dados.cwd no payload em vault externo
+      expect(await executarProtecao(JSON.stringify({
+        tool_name: "bash",
+        tool_input: {
+          command: "echo 'verified: by: human:fraude' >> wiki/pessoal/concepts/a.md",
+        },
+      }))).toBe(2);
+    });
+
+    test("Dado ataque em 2 passos combinando Write após 2o --- e sed apagando o delimitador (D4.1) Então o passo 2 bloqueia", async () => {
+      const pagina = join(wikiDir, "pessoal/concepts/a.md");
+      const textoPasso1 = "---\ntitle: Nota A\n---\nverified:\n  - by: human:fraude\n---\nCorpo.\n";
+
+      // Passo 1: Write de conteúdo no corpo (liberado se não altera o frontmatter inicial)
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Write",
+        tool_input: {
+          file_path: "wiki/pessoal/concepts/a.md",
+          content: textoPasso1,
+        },
+      }))).toBe(0);
+
+      // Escreve no disco o resultado do passo 1
+      writeFileSync(pagina, textoPasso1);
+
+      // Passo 2: sed -i apagando linhas 2,3 (delimitador ---) para promover verified ao frontmatter
+      // Deve ser bloqueado pela regra 4: terminal não escreve em .md de wiki/
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Bash",
+        tool_input: {
+          command: "sed -i '2,3d' wiki/pessoal/concepts/a.md",
+        },
+      }))).toBe(2);
+    });
+
+    test("Dado comandos legítimos de leitura, git e CLI do kit sob a Regra 4 Então passam com 0 (falsos positivos prevenidos)", async () => {
+      // 1. rg com redirecionamento para fora de wiki/
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Bash",
+        tool_input: {
+          command: "rg verified wiki/ > /tmp/x",
+        },
+      }))).toBe(0);
+
+      // 2. cat lendo página da wiki
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Bash",
+        tool_input: {
+          command: "cat wiki/pessoal/concepts/a.md",
+        },
+      }))).toBe(0);
+
+      // 3. git commit
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Bash",
+        tool_input: {
+          command: "git commit -m 'adiciona nota'",
+        },
+      }))).toBe(0);
+
+      // 4. bun src/cli.ts fechar
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Bash",
+        tool_input: {
+          command: "bun src/cli.ts fechar",
+        },
+      }))).toBe(0);
+
+      // 5. Write legítimo em wiki/
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Write",
+        tool_input: {
+          file_path: "wiki/pessoal/concepts/legitima.md",
+          content: "---\ntitle: Nota Legítima\ngenerated:\n  by: process:agente\n  at: 2026-11-04T10:00:00Z\n---\nCorpo.\n",
+        },
+      }))).toBe(0);
+
+      // 6. Edit legítimo em wiki/
+      const legitima = join(wikiDir, "pessoal/concepts/legitima.md");
+      writeFileSync(legitima, "---\ntitle: Nota Legítima\ngenerated:\n  by: process:agente\n  at: 2026-11-04T10:00:00Z\n---\nCorpo.\n");
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Edit",
+        tool_input: {
+          file_path: "wiki/pessoal/concepts/legitima.md",
+          old_string: "Corpo.",
+          new_string: "Corpo editado.",
+        },
+      }))).toBe(0);
+    });
+
+    test("Dado ferramentas de leitura, branches de validação fechada e envolvedores Então cobre branches auxiliares da trava", async () => {
+      // Ferramentas de leitura
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "read_file",
+        tool_input: { file_path: "wiki/pessoal/concepts/a.md" },
+      }))).toBe(0);
+
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "view",
+        tool_input: { path: "wiki/pessoal/concepts/a.md" },
+      }))).toBe(0);
+
+      // MultiEdit casos de erro / validação
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "MultiEdit",
+      }))).toBe(2);
+
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "MultiEdit",
+        tool_input: { edits: [] },
+      }))).toBe(2);
+
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "MultiEdit",
+        tool_input: { file_path: "wiki/pessoal/concepts/a.md", edits: [] },
+      }))).toBe(2);
+
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "MultiEdit",
+        tool_input: { file_path: "wiki/pessoal/concepts/a.md", edits: [{ old_string: "x" }] },
+      }))).toBe(2);
+
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "MultiEdit",
+        tool_input: { file_path: "wiki/pessoal/concepts/a.md", edits: [{ old_string: "inexistente", new_string: "y", replace_all: true }] },
+      }))).toBe(2);
+
+      // Write casos de erro
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Write",
+      }))).toBe(2);
+
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Write",
+        tool_input: { content: "sem caminho" },
+      }))).toBe(2);
+
+      // Edit casos de erro
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Edit",
+      }))).toBe(2);
+
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Edit",
+        tool_input: { old_string: "a", new_string: "b" },
+      }))).toBe(2);
+
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Edit",
+        tool_input: { file_path: "wiki/pessoal/concepts/a.md", old_string: "inexistente", new_string: "b", replace_all: true },
+      }))).toBe(2);
+
+      // Terminal casos de erro e envolvedores
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Bash",
+      }))).toBe(2);
+
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Bash",
+        tool_input: { command: "time -o wiki/out.md ls" },
+      }))).toBe(2);
+
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Bash",
+        tool_input: { command: "truncate -s 0 wiki/pessoal/concepts/a.md" },
+      }))).toBe(2);
+
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Bash",
+        tool_input: { command: "dd if=/dev/zero of=wiki/pessoal/concepts/a.md" },
+      }))).toBe(2);
+
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "Bash",
+        tool_input: { command: "git" },
+      }))).toBe(0);
+
+      // apply_patch Add File com verified
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "apply_patch",
+        tool_input: {
+          patch: "*** Begin Patch\n*** Add File: wiki/pessoal/concepts/novo-patch.md\n+---\n+verified:\n+  - by: human:fraude\n+---\n+Texto.\n*** End Patch\n",
+        },
+      }))).toBe(2);
+
+      // apply_patch Delete File
+      expect(await executarProtecao(JSON.stringify({
+        cwd: temporario,
+        tool_name: "apply_patch",
+        tool_input: {
+          patch: "*** Begin Patch\n*** Delete File: wiki/pessoal/concepts/a.md\n*** End Patch\n",
+        },
+      }))).toBe(0);
+    });
   });
 });
