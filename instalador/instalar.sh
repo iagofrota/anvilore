@@ -104,6 +104,8 @@ iniciar_registro() {
   registrar "início: instalar.sh (uid $(id -u), $(uname -s) $(uname -m))"
 }
 
+PASTA_NEUTRA_CRIADA=""
+
 # Obtém diretório neutro para invocar o Bun com cwd controlado (isolado de bunfig.toml do cwd do usuário).
 pasta_neutra_obter() {
   if [ -n "${TMP_DIR:-}" ] && [ -d "$TMP_DIR" ]; then
@@ -112,14 +114,39 @@ pasta_neutra_obter() {
   fi
   local base="${TMPDIR:-/tmp}"
   case "$base" in /*) ;; *) base="$PWD/$base" ;; esac
-  mktemp -d "$base/anvilore-instalar.XXXXXX"
+  if [ ! -d "$base" ]; then
+    echo "Erro: pasta temporária base não existe: $base." >&2
+    return 1
+  fi
+  local criada
+  criada=$(mktemp -d "$base/anvilore-instalar.XXXXXX" 2>/dev/null) || {
+    echo "Erro: não consegui criar pasta temporária neutra sob $base." >&2
+    return 1
+  }
+  printf '%s' "$criada"
 }
 
 pasta_neutra_limpar() {
   local pasta="$1"
-  if [ -n "$pasta" ] && [ "$pasta" != "${TMP_DIR:-}" ] && [ -d "$pasta" ]; then
+  [ -z "$pasta" ] && return 0
+  # Nunca remover TMP_DIR, TMPDIR, /tmp, raiz ou diretório atual
+  [ -n "${TMP_DIR:-}" ] && [ "$pasta" = "$TMP_DIR" ] && return 0
+  [ -n "${TMPDIR:-}" ] && [ "$pasta" = "$TMPDIR" ] && return 0
+  case "$pasta" in
+    /|/tmp|/tmp/|"$PWD") return 0 ;;
+  esac
+  if [ -n "${PASTA_NEUTRA_CRIADA:-}" ] && [ "$pasta" != "$PASTA_NEUTRA_CRIADA" ]; then
+    return 0
+  fi
+  local nome="${pasta##*/}"
+  case "$nome" in
+    anvilore-instalar.??????) ;;
+    *) return 0 ;;
+  esac
+  if [ -d "$pasta" ]; then
     rm -rf "$pasta"
   fi
+  PASTA_NEUTRA_CRIADA=""
 }
 
 # Quando a pasta da instalação existe, o registro passa a morar em .anvilore/instalacao.log (PLANO §2 passo 12).
@@ -328,7 +355,8 @@ baixar_dependencia() {
 
 versao_do_bun() {
   local neutro
-  neutro=$(pasta_neutra_obter 2>/dev/null) || neutro="${TMP_DIR:-${TMPDIR:-/tmp}}"
+  neutro=$(pasta_neutra_obter) || return 1
+  PASTA_NEUTRA_CRIADA="$neutro"
   ( cd "$neutro" 2>/dev/null || exit 1; bun --version 2>/dev/null | head -n1 )
   pasta_neutra_limpar "$neutro"
 }
@@ -483,6 +511,7 @@ acrescentar_bloco_path() {
     PATH_ATOMICO_TMP=""
     return 1
   }
+  PASTA_NEUTRA_CRIADA="$neutro"
   if ! mkdir -p "$neutro"; then
     echo "Erro: não consegui acessar a pasta temporária $neutro para atualizar o PATH." >&2
     pasta_neutra_limpar "$neutro"
@@ -920,6 +949,7 @@ passo_estado() {
   local pasta_abs="$PASTA" neutro
   case "$pasta_abs" in /*) ;; *) pasta_abs="$PWD/$pasta_abs" ;; esac
   neutro=$(pasta_neutra_obter) || falhar "não consegui criar uma pasta temporária para gravar o estado."
+  PASTA_NEUTRA_CRIADA="$neutro"
   if ! mkdir -p "$neutro"; then
     pasta_neutra_limpar "$neutro"
     falhar "não consegui acessar a pasta temporária $neutro para gravar o estado."
@@ -1059,7 +1089,8 @@ semver_maior_ou_igual() {
 versao_da_pasta() {
   local pasta="$1" saida neutro
   case "$pasta" in /*) ;; *) pasta="$PWD/$pasta" ;; esac
-  neutro=$(pasta_neutra_obter 2>/dev/null) || neutro="${TMP_DIR:-${TMPDIR:-/tmp}}"
+  neutro=$(pasta_neutra_obter) || return 1
+  PASTA_NEUTRA_CRIADA="$neutro"
   saida=$(cd "$neutro" 2>/dev/null && ANV_PACOTE="$pasta/package.json" bun --no-install -e '
     try {
       const texto = new TextDecoder("utf-8", { fatal: true }).decode(require("node:fs").readFileSync(process.env.ANV_PACOTE));
@@ -1111,7 +1142,8 @@ passo_atualizar_existente() {
     grep -Eq '"bunGerenciado": *true' "$PASTA/.anvilore/atualizacao.json" && BUN_GERENCIADO=1
     local neutro estado_json="$PASTA/.anvilore/atualizacao.json"
     case "$estado_json" in /*) ;; *) estado_json="$PWD/$estado_json" ;; esac
-    neutro=$(pasta_neutra_obter 2>/dev/null) || neutro="${TMP_DIR:-${TMPDIR:-/tmp}}"
+    neutro=$(pasta_neutra_obter) || falhar "não consegui criar uma pasta temporária neutra para ler o estado da atualização."
+    PASTA_NEUTRA_CRIADA="$neutro"
     # Escolha da pessoa (ou do atualizador): só mantém commit automático se o JSON válido contém autoCommit booleano true.
     if ! ( cd "$neutro" 2>/dev/null && ANVILORE_ESTADO_JSON="$estado_json" bun --no-install -e 'import { readFileSync } from "node:fs"; let estado; try { estado = JSON.parse(readFileSync(process.env.ANVILORE_ESTADO_JSON, "utf8")); } catch {} process.exit(estado?.autoCommit === true ? 0 : 1);' ); then AUTO_COMMIT=0; fi
     pasta_neutra_limpar "$neutro"

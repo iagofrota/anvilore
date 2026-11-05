@@ -208,3 +208,260 @@ test.skipIf(!linux)("S3 P3-1: Dado TMPDIR relativo no ambiente do chamador, Quan
   expect(r.codigo, r.tudo).toBe(0);
   expect(await existe(join(c.pasta, "src/cli.ts"))).toBe(true);
 });
+
+async function plantarArmadilha(pasta: string, pastaCanario: string = pasta) {
+  const canario = join(pastaCanario, `canario-${Math.random().toString(36).slice(2)}.txt`);
+  const vitima = join(pasta, "vitima.txt");
+  const bunfig = join(pasta, "bunfig.toml");
+  const scriptPwn = join(pasta, "pwn-preload.ts");
+  await writeFile(bunfig, 'preload = ["./pwn-preload.ts"]\n');
+  await writeFile(
+    scriptPwn,
+    'import { appendFileSync } from "node:fs";\n' +
+    'const arq = process.env.MARCADOR_CANARIO;\n' +
+    'if (arq) appendFileSync(arq, `preload em ${process.cwd()}\\n`);\n'
+  );
+  await writeFile(vitima, "conteudo da vitima intacto\n");
+  return { canario, vitima, bunfig, scriptPwn };
+}
+
+test.skipIf(!linux)("S3 P2-2: Dado modo biblioteca sem TMP_DIR e TMPDIR sem escrita (555), Quando chamo versao_da_pasta, Então o canário não é criado, a vítima continua lá e devolve erro com mensagem", async () => {
+  const c = await novo();
+  const tmpdir555 = join(c.pai, "tmp-555-pasta");
+  await mkdir(tmpdir555, { recursive: true });
+  const { canario, vitima } = await plantarArmadilha(tmpdir555, c.pai);
+
+  await mkdir(c.pasta, { recursive: true });
+  await writeFile(join(c.pasta, "package.json"), JSON.stringify({ name: "anvilore", version: "0.3.1" }) + "\n");
+
+  const bashScript = `
+    source "${c.script}"
+    unset TMP_DIR
+    versao_da_pasta "${c.pasta}"
+  `;
+  let p!: ReturnType<typeof Bun.spawnSync>;
+  try {
+    await chmod(tmpdir555, 0o555);
+    p = Bun.spawnSync(["bash", "-c", bashScript], {
+      cwd: c.pai,
+      env: {
+        ...c.env({ ANVILORE_INSTALAR_CARREGAR: "1", MARCADOR_CANARIO: canario }),
+        TMPDIR: tmpdir555,
+        TMP_DIR: "",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  } finally {
+    await chmod(tmpdir555, 0o755);
+  }
+
+  expect(await existe(canario)).toBe(false);
+  expect(await existe(vitima)).toBe(true);
+  expect(p.exitCode).not.toBe(0);
+  expect(p.stderr?.toString()).toContain("Erro:");
+});
+
+test.skipIf(!linux)("S3 P2-2: Dado modo biblioteca sem TMP_DIR e mktemp -d falhando (shim), Quando chamo versao_da_pasta, Então o canário não é criado, a vítima continua lá e devolve erro com mensagem", async () => {
+  const c = await novo();
+  const realMktemp = Bun.which("mktemp");
+  await c.comando("mktemp", `#!/bin/sh\nfor a in "$@"; do [ "$a" = "-d" ] && exit 1; done\nexec ${realMktemp} "$@"\n`);
+
+  const tmpdirCompartilhado = join(c.pai, "tmp-shim-pasta");
+  await mkdir(tmpdirCompartilhado, { recursive: true });
+  const { canario, vitima } = await plantarArmadilha(tmpdirCompartilhado, c.pai);
+
+  await mkdir(c.pasta, { recursive: true });
+  await writeFile(join(c.pasta, "package.json"), JSON.stringify({ name: "anvilore", version: "0.3.1" }) + "\n");
+
+  const bashScript = `
+    source "${c.script}"
+    unset TMP_DIR
+    versao_da_pasta "${c.pasta}"
+  `;
+  const p = Bun.spawnSync(["bash", "-c", bashScript], {
+    cwd: c.pai,
+    env: {
+      ...c.env({ ANVILORE_INSTALAR_CARREGAR: "1", MARCADOR_CANARIO: canario }),
+      TMPDIR: tmpdirCompartilhado,
+      TMP_DIR: "",
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  expect(await existe(canario)).toBe(false);
+  expect(await existe(vitima)).toBe(true);
+  expect(p.exitCode).not.toBe(0);
+  expect(p.stderr.toString()).toContain("Erro:");
+});
+
+test.skipIf(!linux)("S3 P2-2: Dado modo biblioteca sem TMP_DIR e TMPDIR sem escrita (555), Quando chamo versao_do_bun, Então o canário não é criado, a vítima continua lá e devolve erro com mensagem", async () => {
+  const c = await novo();
+  const tmpdir555 = join(c.pai, "tmp-555-bun");
+  await mkdir(tmpdir555, { recursive: true });
+  const { canario, vitima } = await plantarArmadilha(tmpdir555, c.pai);
+
+  const bashScript = `
+    source "${c.script}"
+    unset TMP_DIR
+    versao_do_bun
+  `;
+  let p!: ReturnType<typeof Bun.spawnSync>;
+  try {
+    await chmod(tmpdir555, 0o555);
+    p = Bun.spawnSync(["bash", "-c", bashScript], {
+      cwd: c.pai,
+      env: {
+        ...c.env({ ANVILORE_INSTALAR_CARREGAR: "1", MARCADOR_CANARIO: canario }),
+        TMPDIR: tmpdir555,
+        TMP_DIR: "",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  } finally {
+    await chmod(tmpdir555, 0o755);
+  }
+
+  expect(await existe(canario)).toBe(false);
+  expect(await existe(vitima)).toBe(true);
+  expect(p.exitCode).not.toBe(0);
+  expect(p.stderr?.toString()).toContain("Erro:");
+});
+
+test.skipIf(!linux)("S3 P2-2: Dado modo biblioteca sem TMP_DIR e mktemp -d falhando (shim), Quando chamo versao_do_bun, Então o canário não é criado, a vítima continua lá e devolve erro com mensagem", async () => {
+  const c = await novo();
+  const realMktemp = Bun.which("mktemp");
+  await c.comando("mktemp", `#!/bin/sh\nfor a in "$@"; do [ "$a" = "-d" ] && exit 1; done\nexec ${realMktemp} "$@"\n`);
+
+  const tmpdirCompartilhado = join(c.pai, "tmp-shim-bun");
+  await mkdir(tmpdirCompartilhado, { recursive: true });
+  const { canario, vitima } = await plantarArmadilha(tmpdirCompartilhado, c.pai);
+
+  const bashScript = `
+    source "${c.script}"
+    unset TMP_DIR
+    versao_do_bun
+  `;
+  const p = Bun.spawnSync(["bash", "-c", bashScript], {
+    cwd: c.pai,
+    env: {
+      ...c.env({ ANVILORE_INSTALAR_CARREGAR: "1", MARCADOR_CANARIO: canario }),
+      TMPDIR: tmpdirCompartilhado,
+      TMP_DIR: "",
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  expect(await existe(canario)).toBe(false);
+  expect(await existe(vitima)).toBe(true);
+  expect(p.exitCode).not.toBe(0);
+  expect(p.stderr.toString()).toContain("Erro:");
+});
+
+test.skipIf(!linux)("S3 P2-2: Dado modo biblioteca sem TMP_DIR e TMPDIR sem escrita (555), Quando chamo passo_atualizar_existente, Então o canário não é criado, a vítima continua lá e devolve erro com mensagem", async () => {
+  const c = await novo();
+  const tmpdir555 = join(c.pai, "tmp-555-atualizar");
+  await mkdir(tmpdir555, { recursive: true });
+  const { canario, vitima } = await plantarArmadilha(tmpdir555, c.pai);
+
+  await mkdir(join(c.pasta, ".anvilore"), { recursive: true });
+  await writeFile(join(c.pasta, "package.json"), JSON.stringify({ name: "anvilore", version: "0.3.1" }) + "\n");
+  await writeFile(join(c.pasta, ".anvilore/atualizacao.json"), JSON.stringify({ versao: 1, autoCommit: true }) + "\n");
+
+  const bashScript = `
+    source "${c.script}"
+    unset TMP_DIR
+    conferir_estado_das_chaves() { return 0; }
+    versao_da_pasta() { echo "0.3.1"; }
+    PASTA="${c.pasta}"
+    passo_atualizar_existente
+  `;
+  let p!: ReturnType<typeof Bun.spawnSync>;
+  try {
+    await chmod(tmpdir555, 0o555);
+    p = Bun.spawnSync(["bash", "-c", bashScript], {
+      cwd: c.pai,
+      env: {
+        ...c.env({ ANVILORE_INSTALAR_CARREGAR: "1", MARCADOR_CANARIO: canario }),
+        TMPDIR: tmpdir555,
+        TMP_DIR: "",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  } finally {
+    await chmod(tmpdir555, 0o755);
+  }
+
+  expect(await existe(canario)).toBe(false);
+  expect(await existe(vitima)).toBe(true);
+  expect(p.exitCode).not.toBe(0);
+});
+
+test.skipIf(!linux)("S3 P2-2: Dado modo biblioteca sem TMP_DIR e mktemp -d falhando (shim), Quando chamo passo_atualizar_existente, Então o canário não é criado, a vítima continua lá e devolve erro com mensagem", async () => {
+  const c = await novo();
+  const realMktemp = Bun.which("mktemp");
+  await c.comando("mktemp", `#!/bin/sh\nfor a in "$@"; do [ "$a" = "-d" ] && exit 1; done\nexec ${realMktemp} "$@"\n`);
+
+  const tmpdirCompartilhado = join(c.pai, "tmp-shim-atualizar");
+  await mkdir(tmpdirCompartilhado, { recursive: true });
+  const { canario, vitima } = await plantarArmadilha(tmpdirCompartilhado, c.pai);
+
+  await mkdir(join(c.pasta, ".anvilore"), { recursive: true });
+  await writeFile(join(c.pasta, "package.json"), JSON.stringify({ name: "anvilore", version: "0.3.1" }) + "\n");
+  await writeFile(join(c.pasta, ".anvilore/atualizacao.json"), JSON.stringify({ versao: 1, autoCommit: true }) + "\n");
+
+  const bashScript = `
+    source "${c.script}"
+    unset TMP_DIR
+    conferir_estado_das_chaves() { return 0; }
+    versao_da_pasta() { echo "0.3.1"; }
+    PASTA="${c.pasta}"
+    passo_atualizar_existente
+  `;
+  const p = Bun.spawnSync(["bash", "-c", bashScript], {
+    cwd: c.pai,
+    env: {
+      ...c.env({ ANVILORE_INSTALAR_CARREGAR: "1", MARCADOR_CANARIO: canario }),
+      TMPDIR: tmpdirCompartilhado,
+      TMP_DIR: "",
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  expect(await existe(canario)).toBe(false);
+  expect(await existe(vitima)).toBe(true);
+  expect(p.exitCode).not.toBe(0);
+});
+
+test.skipIf(!linux)("S3 P3-2: Dado modo biblioteca sem TMP_DIR e TMPDIR inexistente, Quando chamo versao_da_pasta, Então devolve erro e avisa no stderr", async () => {
+  const c = await novo();
+  await mkdir(c.pasta, { recursive: true });
+  await writeFile(join(c.pasta, "package.json"), JSON.stringify({ name: "anvilore", version: "0.3.1" }) + "\n");
+  const tmpdirInexistente = join(c.pai, "pasta-que-nao-existe-12345");
+  const canario = join(c.pai, "canario-p3-2.txt");
+
+  const bashScript = `
+    source "${c.script}"
+    unset TMP_DIR
+    versao_da_pasta "${c.pasta}"
+  `;
+  const p = Bun.spawnSync(["bash", "-c", bashScript], {
+    cwd: c.pai,
+    env: {
+      ...c.env({ ANVILORE_INSTALAR_CARREGAR: "1", MARCADOR_CANARIO: canario }),
+      TMPDIR: tmpdirInexistente,
+      TMP_DIR: "",
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  expect(p.exitCode).not.toBe(0);
+  expect(p.stderr.toString().trim().split("\n").length).toBe(1);
+  expect(p.stderr.toString()).toContain("Erro:");
+});
