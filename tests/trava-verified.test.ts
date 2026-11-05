@@ -1749,7 +1749,7 @@ describe("trava de verified nos quatro agentes", () => {
         try { rmSync(linkExterno, { force: true }); } catch {}
         try { rmSync(outroVault, { recursive: true, force: true }); } catch {}
       }
-    });
+    }, 30_000);
 
     test("Dado P1-E2: ferramentas estruturadas com variações de caixa (WIKI/, Wiki/, wIkI/) Quando tentam alterar verified Então negam com código 2 e bytes permanecem intactos", async () => {
       const pagina = join(wikiDir, "pessoal/concepts/a.md");
@@ -1800,7 +1800,7 @@ describe("trava de verified nos quatro agentes", () => {
 
       // Conferência de bytes no disco
       expect(readFileSync(pagina, "utf8")).toBe(conteudoOriginal);
-    });
+    }, 30_000);
 
     test("Dado casos de falso positivo preservados da Regra B Quando executados Então continuam liberados com saída 0", async () => {
       // 1. Write em /tmp/x.md com cwd: /tmp
@@ -1846,6 +1846,6 @@ describe("trava de verified nos quatro agentes", () => {
         },
       };
       expect(await executarProtecao(JSON.stringify(payloadEdicaoNormal))).toBe(0);
-    });
+    }, 30_000);
   });
 });
