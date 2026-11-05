@@ -283,6 +283,16 @@ function tokenizar(comando: string, windows = false): Token[] {
     const caractere = comando[i]!;
     const seguinte = comando[i + 1] ?? "";
     const depoisDeSeguinte = comando[i + 2] ?? "";
+    if (!windows && caractere === "\\" && aspas !== "'") {
+      if (seguinte === "\n") {
+        i++;
+        continue;
+      }
+      if (seguinte === "\r" && depoisDeSeguinte === "\n") {
+        i += 2;
+        continue;
+      }
+    }
     if (aspas) {
       if (caractere === aspas) aspas = "";
       else if (!windows && aspas === '"' && caractere === "\\" && /["\\$`]/.test(seguinte) && seguinte) palavra += comando[++i];
@@ -290,7 +300,7 @@ function tokenizar(comando: string, windows = false): Token[] {
     } else if (caractere === "'" || caractere === '"') {
       aspas = caractere;
       citada = true;
-    } else if (!windows && caractere === "\\" && seguinte && /[\s'";|&<>\\]/.test(seguinte)) {
+    } else if (!windows && caractere === "\\" && seguinte && /[^\S\r\n'";|&<>\\]/.test(seguinte)) {
       palavra += comando[++i];
       citada = true;
     } else if (caractere === "`" || caractere === "(" || caractere === ")" || (caractere === "$" && /[({]/.test(seguinte) && seguinte)) {

@@ -1311,4 +1311,129 @@ describe("Auditoria run-1 (S1) — tabela completa do parecer de QA (QA-S1.md)",
   });
 });
 
+describe("Auditoria run-1 (S1) — Delta 5b21337 (QA 2)", () => {
+  const vetoresComandoQA2 = [
+    // ASPAS-01..08 (ASPAS-09..11 são P1-7)
+    { id: "ASPAS-01", acao: "bloquear", comando: 'cp wiki/x a"#"b raw/x' },
+    { id: "ASPAS-02", acao: "bloquear", comando: 'cp wiki/x "a"#b raw/x' },
+    { id: "ASPAS-03", acao: "bloquear", comando: "cp wiki/x \\# raw/x" },
+    { id: "ASPAS-04", acao: "bloquear", comando: "cp wiki/x \\#nota raw/x" },
+    { id: "ASPAS-05", acao: "bloquear", comando: "cp wiki/x $'#' raw/x" },
+    { id: "ASPAS-06", acao: "bloquear", comando: 'cp wiki/x $"x" raw/x' },
+    { id: "ASPAS-07", acao: "bloquear", comando: 'cp wiki/x $(echo "raw/x")' },
+    { id: "ASPAS-08", acao: "bloquear", comando: 'cp wiki/x `echo "raw/x"`' },
+
+    // REDIR-01..07
+    { id: "REDIR-01", acao: "bloquear", comando: 'cp wiki/x ">"raw/x raw/x' },
+    { id: "REDIR-02", acao: "bloquear", comando: 'cp wiki/x 2">"x raw/x' },
+    { id: "REDIR-03", acao: "bloquear", comando: 'echo x >"raw/x"' },
+    { id: "REDIR-04", acao: "bloquear", comando: 'cp wiki/x /tmp/x 2>"raw/err.log"' },
+    { id: "REDIR-05", acao: "bloquear", comando: 'echo x >>"raw/x"' },
+    { id: "REDIR-06", acao: "bloquear", comando: 'echo x &>"raw/x"' },
+    { id: "REDIR-07", acao: "bloquear", comando: 'cat wiki/x <>"raw/x"' },
+
+    // COM-M-01..04
+    { id: "COM-M-01", acao: "bloquear", comando: "echo ok; # comentario\ncp wiki/x raw/x" },
+    { id: "COM-M-02", acao: "bloquear", comando: "echo ok && # comentario\ncp wiki/x raw/x" },
+    { id: "COM-M-03", acao: "bloquear", comando: "cp wiki/x \\\nraw/x" },
+    { id: "COM-M-04", acao: "liberar", comando: "echo ok; # cp wiki/x raw/x" },
+
+    // HD-INT-01..10
+    { id: "HD-INT-01", acao: "bloquear", comando: "bash -c <<EOF\nrm raw/a.md\nEOF" },
+    { id: "HD-INT-02", acao: "bloquear", comando: "env bash <<EOF\nrm raw/a.md\nEOF" },
+    { id: "HD-INT-03", acao: "bloquear", comando: "/bin/sh <<EOF\nrm raw/a.md\nEOF" },
+    { id: "HD-INT-04", acao: "bloquear", comando: "sudo sh <<EOF\nrm raw/a.md\nEOF" },
+    { id: "HD-INT-05", acao: "bloquear", comando: "busybox sh <<EOF\nrm raw/a.md\nEOF" },
+    { id: "HD-INT-06", acao: "bloquear", comando: "python3 - <<EOF\nimport os; os.remove('raw/a.md')\nEOF" },
+    { id: "HD-INT-07", acao: "bloquear", comando: "perl <<EOF\nunlink 'raw/a.md'\nEOF" },
+    { id: "HD-INT-08", acao: "bloquear", comando: "ruby <<EOF\nFile.delete('raw/a.md')\nEOF" },
+    { id: "HD-INT-09", acao: "bloquear", comando: "tee raw/x <<EOF\nconteudo\nEOF" },
+    { id: "HD-INT-10", acao: "bloquear", comando: "echo $(cat <<EOF\nrm raw/a.md\nEOF\n)" },
+
+    // HD-MUL-01..03
+    { id: "HD-MUL-01", acao: "bloquear", comando: "bash <<EOF1 <<EOF2\nno-exec\nEOF1\nrm raw/a.md\nEOF2" },
+    { id: "HD-MUL-02", acao: "bloquear", comando: "cat <<EOF1 <<EOF2 | bash\nrm raw/a.md\nEOF1\nEOF2" },
+    { id: "HD-MUL-03", acao: "bloquear", comando: "cat <<EOF1 > raw/a.md <<EOF2\ntexto\nEOF1\nEOF2" },
+
+    // Variantes do P1-6 (continuação de linha)
+    { id: "P1-6-VAR-01", acao: "bloquear", comando: "rm -f \\\nraw/x" },
+    { id: "P1-6-VAR-02", acao: "bloquear", comando: "cat wiki/x > \\\nraw/x" },
+    { id: "P1-6-VAR-03", acao: "bloquear", comando: "cp wiki/x \\\r\nraw/x" },
+    { id: "P1-6-VAR-04", acao: "bloquear", comando: "cp wiki/x ra\\\nw/x" },
+    { id: "P1-6-VAR-05", acao: "bloquear", comando: 'cp wiki/x "ra\\\nw/x"' },
+    { id: "P1-6-VAR-06", acao: "liberar", comando: "cp wiki/x 'ra\\\nw/x'" },
+
+    // Falsos positivos verificados (FP-NOVO-01..11)
+    { id: "FP-NOVO-01", acao: "liberar", comando: 'git commit -m "fix #12"' },
+    { id: "FP-NOVO-02", acao: "liberar", comando: 'echo "# título" > /tmp/x' },
+    { id: "FP-NOVO-03", acao: "liberar", comando: 'rg "#tag" wiki/' },
+    { id: "FP-NOVO-04", acao: "liberar", comando: "git commit -m 'fix #12'" },
+    { id: "FP-NOVO-05", acao: "liberar", comando: 'git checkout -b "fix/#12"' },
+    { id: "FP-NOVO-06", acao: "liberar", comando: 'echo "nota #1" | cat' },
+    { id: "FP-NOVO-07", acao: "liberar", comando: 'git log --grep="#12"' },
+    { id: "FP-NOVO-08", acao: "liberar", comando: 'echo $(echo "wiki/x")' },
+    { id: "FP-NOVO-09", acao: "liberar", comando: "cat > wiki/x <<EOF1\nt1\nEOF1\ncat > wiki/y <<EOF2\nt2\nEOF2" },
+    { id: "FP-NOVO-10", acao: "liberar", comando: 'git commit -m "fix $(date)"' },
+    { id: "FP-NOVO-11", acao: "liberar", comando: 'echo "$HOME"' },
+  ] as const;
+
+  test.each(vetoresComandoQA2)("Vetor QA2 $id: $comando -> $acao", ({ comando, acao }) => {
+    for (const forma of formasCaptura) {
+      expect(decidir(forma(comando)).acao).toBe(acao);
+    }
+  });
+
+  const vetoresContextuaisQA2: Array<{ id: string; acao: "bloquear" | "liberar"; executar: (base: string) => ReturnType<typeof decidir> }> = [
+    {
+      id: "PAT-N-01",
+      acao: "bloquear",
+      executar: (base: string) => {
+        return decidir(JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: "*** Delete File: raw/antigo.md" } }));
+      },
+    },
+    {
+      id: "PAT-N-02",
+      acao: "bloquear",
+      executar: (base: string) => {
+        return decidir(JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: "*** Update File: wiki/a.md\n*** Move to: raw/dest.md" } }));
+      },
+    },
+    {
+      id: "PAT-N-03",
+      acao: "bloquear",
+      executar: (base: string) => {
+        const pastaExt = join(temporario, "pasta-ext-patn03");
+        mkdirSync(pastaExt, { recursive: true });
+        rmSync(join(base, "raw"), { recursive: true });
+        symlinkSync(pastaExt, join(base, "raw"), linkDeDiretorio);
+        const patch = `*** Add File: ${join(pastaExt, "novo.md")}\n+conteudo`;
+        return decidir(JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: patch } }));
+      },
+    },
+    {
+      id: "PAT-N-04",
+      acao: "bloquear",
+      executar: (base: string) => {
+        return decidir(JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: "patch malformado sem cabeçalhos válidos" } }));
+      },
+    },
+  ];
+
+  test.each(vetoresContextuaisQA2)("Vetor contextual QA2 $id -> $acao", ({ acao, executar }) => {
+    const base = projeto();
+    expect(executar(base).acao).toBe(acao);
+  });
+
+  test("Dado CLI real invocado com vetores novos do Delta 5b21337 Então valida saídas esperadas", () => {
+    // P1-6: continuação de linha
+    expect(cli(terminal("cp wiki/x \\\nraw/x")).exitCode).toBe(2);
+    expect(cli(terminal("rm -f \\\nraw/x")).exitCode).toBe(2);
+    expect(cli(terminal("cat wiki/x > \\\nraw/x")).exitCode).toBe(2);
+
+    // Falsos positivos novos
+    expect(cli(terminal('git commit -m "fix $(date)"')).exitCode).toBe(0);
+    expect(cli(terminal('echo "$HOME"')).exitCode).toBe(0);
+  });
+});
+
 
