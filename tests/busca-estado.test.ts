@@ -21,6 +21,21 @@ test("Dado generated sem verified, Quando classifica estado, Então é rascunho"
   expect(estadoDaPagina("---\ngenerated:\n  by: agent/model\n  at: '2026-01-01T00:00:00Z'\n---\ntexto", arquivo, raiz).estado).toBe("rascunho");
 });
 
+test("Dado generated sem at e verified sem at, Quando classifica estado, Então é rascunho", () => {
+  const texto = "---\ngenerated:\n  by: agent/model\nverified:\n  by: human:iago\n---\ntexto";
+  expect(estadoDaPagina(texto, arquivo, raiz).estado).toBe("rascunho");
+});
+
+test("Dado generated com at inválido e verified com at inválido, Quando classifica estado, Então é rascunho", () => {
+  const texto = "---\ngenerated:\n  by: agent/model\n  at: invalido\nverified:\n  by: human:iago\n  at: invalido\n---\ntexto";
+  expect(estadoDaPagina(texto, arquivo, raiz).estado).toBe("rascunho");
+});
+
+test("Dado página manual com verified, Quando classifica estado, Então permanece manual", () => {
+  const texto = "---\ntitle: Manual\nverified:\n  by: human:iago\n  at: '2026-01-02T00:00:00Z'\n---\ntexto";
+  expect(estadoDaPagina(texto, arquivo, raiz).estado).toBe("manual");
+});
+
 test("Dado verified anterior a generated, Quando classifica estado, Então é rascunho", () => {
   const texto = "---\ngenerated:\n  by: agent/model\n  at: '2026-01-02T00:00:00Z'\nverified:\n  by: human:iago\n  at: '2026-01-01T00:00:00Z'\n---\ntexto";
   expect(estadoDaPagina(texto, arquivo, raiz).estado).toBe("rascunho");

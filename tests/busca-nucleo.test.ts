@@ -226,3 +226,14 @@ test("Dado páginas rascunho, meta e verificadas com títulos maliciosos, Quando
   expect(resumo.titulos.some(t => t.includes("Hostil") || t.includes("IBS"))).toBe(false);
   expect(resumo.titulos).toEqual(["Revisada com quebra e controle", "X".repeat(80)]);
 });
+
+test("Dado páginas manual e verificada, Quando resume wiki, Então ambas entram nos títulos do MCP", async () => {
+  const raiz = raizTemporaria();
+  escrever(raiz, "manual.md", `---\ntitle: Guia Manual\nslug: manual\ntype: concept\n---\n## M\ntexto`);
+  escrever(raiz, "verificada.md", `${frontmatter({ generated: true, verified: true })}\n## V\ntexto`);
+  escrever(raiz, "rascunho.md", `${frontmatter({ generated: true, verified: false })}\n## R\ntexto`);
+  const resumo = await nucleo(raiz).resumoDaWiki();
+  expect(resumo.titulos).toContain("Guia Manual");
+  expect(resumo.titulos).toContain("IBS");
+  expect(resumo.titulos.length).toBe(2);
+});

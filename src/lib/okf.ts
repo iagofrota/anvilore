@@ -23,7 +23,7 @@ const DATA_LEGADA = /^\d{4}-\d{2}-\d{2}$/;
 const ESQUEMA_DE_URI = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 const EXTENSAO_DE_ARQUIVO = /\.[A-Za-z][A-Za-z0-9]{0,7}$/;
 
-function ehMapa(valor: unknown): valor is Mapa {
+export function ehMapa(valor: unknown): valor is Mapa {
   return typeof valor === "object" && valor !== null && !Array.isArray(valor);
 }
 
