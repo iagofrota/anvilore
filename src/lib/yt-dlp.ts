@@ -7,7 +7,7 @@ export function avisoYtDlp(path: string | undefined): string | undefined {
 export const executarYtDlp: ExecutarYtDlp = async args => {
  const bin=Bun.which('yt-dlp');if(!bin)return {codigo:127,saida:avisoYtDlp('')!};
  try {
-  const p=Bun.spawn([bin,...args],{stdout:'pipe',stderr:'pipe'});
+  const p=Bun.spawn([bin,'--ignore-config',...args],{stdout:'pipe',stderr:'pipe'});
   const [saida,erro,codigo]=await Promise.all([new Response(p.stdout).text(),new Response(p.stderr).text(),p.exited]);
   return {codigo,saida:codigo===0 ? saida : erro};
  } catch {return {codigo:1,saida:'não foi possível executar o yt-dlp'};}

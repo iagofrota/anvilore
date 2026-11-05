@@ -1,5 +1,6 @@
 import { afterEach,expect,spyOn,test } from 'bun:test';
-import { readFile,writeFile,stat } from 'node:fs/promises';
+import { readFile,writeFile,stat,mkdtemp,rm,chmod } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname,join } from 'node:path';
 import { ehYoutube,escolherLegenda,textoDoJson3 } from '../src/lib/youtube';
 import { avisoYtDlp,executarYtDlp } from '../src/lib/yt-dlp';
@@ -45,6 +46,51 @@ test('Dado executor com programa local, Quando executar, Então drena stdout e s
   expect(await executarYtDlp(['-e',"process.stdout.write('legenda teste')"])).toEqual({codigo:0,saida:'legenda teste'});
   expect(await executarYtDlp(['-e',"process.stderr.write('falha teste');process.exit(7)"])).toEqual({codigo:7,saida:'falha teste'});
  } finally {spy.mockRestore();}
+});
+
+test('Dado yt-dlp.conf com --exec no cwd, Quando executarYtDlp roda, Então ignora a configuração externa e não executa o comando', async () => {
+ const pasta = await mkdtemp(join(tmpdir(), 'anvilore-ytdlp-'));
+ const canario = join(pasta, 'CANARIO_EXEC');
+ const conf = join(pasta, 'yt-dlp.conf');
+ await writeFile(conf, `--exec "pre_process:touch ${canario}"\n`);
+
+ const fakeScript = join(pasta, 'fake-ytdlp.ts');
+ await writeFile(fakeScript, `
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+const args = process.argv.slice(2);
+if (!args.includes('--ignore-config') && !args.includes('--no-config')) {
+ const c = join(process.cwd(), 'yt-dlp.conf');
+ if (existsSync(c)) {
+  const conteudo = readFileSync(c, 'utf8');
+  const m = /--exec\\s+["']?pre_process:touch\\s+([^"'\n]+)["']?/.exec(conteudo);
+  if (m && m[1]) {
+   writeFileSync(m[1].trim(), 'canario');
+  }
+ }
+}
+process.exit(0);
+`);
+ const fakeBin = join(pasta, process.platform === 'win32' ? 'fake-ytdlp.cmd' : 'fake-ytdlp.sh');
+ if (process.platform === 'win32') {
+  await writeFile(fakeBin, `@echo off\r\nbun run "${fakeScript}" %*\r\n`);
+ } else {
+  await writeFile(fakeBin, `#!/bin/sh\nexec bun run "${fakeScript}" "$@"\n`);
+  await chmod(fakeBin, 0o755);
+ }
+ const spy = spyOn(Bun, 'which').mockReturnValue(fakeBin);
+
+ const cwdAnterior = process.cwd();
+ process.chdir(pasta);
+ try {
+  await executarYtDlp(['-s', '--', 'https://www.youtube.com/watch?v=exemplo']);
+  const executouCanario = await stat(canario).then(() => true, () => false);
+  expect(executouCanario).toBe(false);
+ } finally {
+  process.chdir(cwdAnterior);
+  spy.mockRestore();
+  await rm(pasta, { recursive: true, force: true });
+ }
 });
 
 test('Dado aviso de dependência, Quando compor relatório, Então o texto não duplica o prefixo AVISO',()=>{
