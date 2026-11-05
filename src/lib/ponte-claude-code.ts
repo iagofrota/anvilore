@@ -103,7 +103,11 @@ export const MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE =
   "Não dá para pedir ajuste nesta página porque o nome dela ou da pasta do vault tem um caractere especial (* ? [ ] { } ! \\). Renomeie para usar o ajuste.";
 
 export function caminhoTemCaractereEspecialDeAjuste(caminhoAbsoluto: string): boolean {
-  return CARACTERES_ESPECIAIS_DE_AJUSTE.test(caminhoAbsoluto);
+  if (caminhoAbsoluto.includes(":\\") || caminhoAbsoluto.includes(":/") || (process.platform === "win32" && !caminhoAbsoluto.startsWith("/"))) {
+    const segmentos = caminhoAbsoluto.split(/[/\\]/);
+    return segmentos.some(seg => /[*?[\]{}!]/.test(seg));
+  }
+  return /[*?[\]{}!\\]/.test(caminhoAbsoluto);
 }
 
 export function regraDeEdicaoDeAjuste(caminhoAbsoluto: string): string {

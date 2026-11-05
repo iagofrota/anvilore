@@ -42,6 +42,16 @@ describe("Ponte Claude Code — Ajuste restrito a uma página", () => {
     const caminhoBackslash = "/v/wiki/pessoal/concepts/nota\\invalida.md";
     expect(caminhoTemCaractereEspecialDeAjuste(caminhoBackslash)).toBe(true);
     expect(() => regraDeEdicaoDeAjuste(caminhoBackslash)).toThrow(MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE);
+
+    // Caminho Windows válido não lança erro
+    const windowsValido = "C:\\vault\\wiki\\pessoal\\concepts\\seguro.md";
+    expect(caminhoTemCaractereEspecialDeAjuste(windowsValido)).toBe(false);
+    expect(regraDeEdicaoDeAjuste(windowsValido)).toBe("Edit(//C:/vault/wiki/pessoal/concepts/seguro.md)");
+
+    // Caminho Windows com caractere especial lança erro
+    const windowsEspecial = "C:\\vault\\Notas[2026]!\\wiki\\pessoal\\concepts\\seguro.md";
+    expect(caminhoTemCaractereEspecialDeAjuste(windowsEspecial)).toBe(true);
+    expect(() => regraDeEdicaoDeAjuste(windowsEspecial)).toThrow(MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE);
   });
 
   test("Dado o escritor de ajuste Quando a raiz do vault tem caractere especial Então argumentosDoPapel lança erro de ajuste", () => {
