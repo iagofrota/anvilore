@@ -31,6 +31,17 @@ function textoDa(resposta: unknown): string {
   return bloco?.text ?? "";
 }
 
+test("Dado títulos com ANSI, controles Unicode, zero-width e RTL, Quando sanearTitulo, Então remove escapes e controles e limita a 80", () => {
+  expect(sanearTitulo("\x1b[31mTitulo Vermelho\x1b[0m")).toBe("Titulo Vermelho");
+  expect(sanearTitulo("\x1b]0;Hostil\x07Titulo")).toBe("Titulo");
+  expect(sanearTitulo("Titulo\u2028com line sep\u2029e para sep")).toBe("Titulo com line sep e para sep");
+  expect(sanearTitulo("Titulo\u0085com NEL e C1\u009f")).toBe("Titulo com NEL e C1");
+  expect(sanearTitulo("Titulo\u200bcom zero width\ufeff")).toBe("Titulo com zero width");
+  expect(sanearTitulo("Titulo\u202ecom RTL override")).toBe("Titulo com RTL override");
+  expect(sanearTitulo("A".repeat(100))).toBe("A".repeat(80));
+  expect(sanearTitulo("Titulo \n\t  com   espacos   multiplos\r\n")).toBe("Titulo com espacos multiplos");
+});
+
 test("Dado servidor MCP e wiki, Quando inicializa, Então instructions citam assunto e cabem em 1536 bytes", async () => {
   const raiz = mkdtempSync(join(tmpdir(), "anvilore-mcp-")); const wikiPath = wiki(raiz); const { client, transport } = conectar(raiz, wikiPath);
   try {

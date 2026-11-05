@@ -1,7 +1,13 @@
 import type { ResumoDaWiki } from "../busca/tipos";
 
 export function sanearTitulo(titulo: string): string {
-  return (titulo ?? "").replace(/[\x00-\x1f\x7f]+/g, " ").trim().slice(0, 80).normalize("NFC");
+  return (titulo ?? "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80)
+    .normalize("NFC");
 }
 
 function limitarUtf8(texto: string, teto: number): string {
