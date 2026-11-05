@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
-import { dirname, join, posix, resolve } from "node:path";
+import { dirname, isAbsolute, join, posix, resolve } from "node:path";
 import { caminhoReal, dentroDe, estaEmRaw } from "../lib/caminhos";
 import { decidirVerified, encontrarRaizVault } from "../lib/trava-verified";
 
@@ -644,8 +644,12 @@ export async function executarProtecao(payload: string): Promise<number> {
       dados = JSON.parse(payload);
     } catch {}
 
+    const caminhos = mapa(dados) ? caminhosDe(dados) : [];
+    const alvo = caminhos.find(c => isAbsolute(c)) ?? caminhos[0];
+    const cwdInformado = mapa(dados) && typeof dados.cwd === "string" ? dados.cwd : undefined;
+    const alvoResolvido = alvo ? (isAbsolute(alvo) ? alvo : cwdInformado ? resolve(cwdInformado, alvo) : alvo) : undefined;
     const raiz = encontrarRaizVault(
-      mapa(dados) && typeof dados.cwd === "string" ? dados.cwd : undefined,
+      alvoResolvido ?? cwdInformado,
       process.env
     );
 

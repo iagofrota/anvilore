@@ -1624,5 +1624,228 @@ describe("trava de verified nos quatro agentes", () => {
         rmSync(pastaVazia, { recursive: true, force: true });
       }
     });
+
+    // --- Rodada 5 / QA4 (Delta bd1be06): P1-E1 e P1-E2 ---
+    test("Dado P1-E1: cwd fora do vault com caminho absoluto ou symlink para a wiki (sem envs) Quando Write, Edit, MultiEdit ou apply_patch tenta alterar verified Então nega com código 2 e bytes permanecem intactos", async () => {
+      const outroVault = mkdtempSync(join(tmpdir(), "anvilore-outro-vault-"));
+      const linkExterno = join(tmpdir(), `link-ext-wiki-${Math.random().toString(36).slice(2)}`);
+      try {
+        writeFileSync(join(outroVault, "SCHEMA.md"), "# Schema\n");
+        const wikiAlvo = join(outroVault, "wiki/pessoal/concepts");
+        mkdirSync(wikiAlvo, { recursive: true });
+        const paginaAlvo = join(wikiAlvo, "a.md");
+        const conteudoOriginal = "---\ntitle: Nota Original\ngenerated:\n  by: test\n---\nCorpo intocado.\n";
+        writeFileSync(paginaAlvo, conteudoOriginal);
+
+        symlinkSync(join(outroVault, "wiki"), linkExterno);
+
+        // Garante que ANVILORE_WIKI e ANVILORE_DESTINO não apontam para outroVault
+        delete process.env.ANVILORE_WIKI;
+        delete process.env.ANVILORE_DESTINO;
+
+        // 1. Write com cwd = /tmp e caminho absoluto
+        const payloadWrite = {
+          cwd: "/tmp",
+          tool_name: "Write",
+          tool_input: {
+            file_path: paginaAlvo,
+            content: "---\ntitle: Nota Fraudada\nverified:\n  - by: human:fraude\n    at: 2026-11-05T12:00:00Z\n---\nCorpo.\n",
+          },
+        };
+        expect(await executarProtecao(JSON.stringify(payloadWrite))).toBe(2);
+
+        // Processo CLI real com Write
+        const procWrite = Bun.spawnSync([process.execPath, "src/cli.ts", "hook", "proteger-raw"], {
+          stdin: Buffer.from(JSON.stringify(payloadWrite)),
+          env: { PATH: process.env.PATH },
+        });
+        expect(procWrite.exitCode).toBe(2);
+
+        // 2. Write via symlink externo
+        const payloadSymlink = {
+          cwd: "/tmp",
+          tool_name: "Write",
+          tool_input: {
+            file_path: join(linkExterno, "pessoal/concepts/a.md"),
+            content: "---\ntitle: Fraude Link\nverified:\n  - by: human:fraude\n    at: 2026-11-05T12:00:00Z\n---\n",
+          },
+        };
+        expect(await executarProtecao(JSON.stringify(payloadSymlink))).toBe(2);
+
+        const procSymlink = Bun.spawnSync([process.execPath, "src/cli.ts", "hook", "proteger-raw"], {
+          stdin: Buffer.from(JSON.stringify(payloadSymlink)),
+          env: { PATH: process.env.PATH },
+        });
+        expect(procSymlink.exitCode).toBe(2);
+
+        // 3. Edit com cwd = /tmp e caminho absoluto
+        const payloadEdit = {
+          cwd: "/tmp",
+          tool_name: "Edit",
+          tool_input: {
+            file_path: paginaAlvo,
+            old_string: "---\ntitle: Nota Original\ngenerated:\n  by: test\n---\n",
+            new_string: "---\ntitle: Nota Original\ngenerated:\n  by: test\nverified:\n  - by: human:fraude\n    at: 2026-11-05T12:00:00Z\n---\n",
+          },
+        };
+        expect(await executarProtecao(JSON.stringify(payloadEdit))).toBe(2);
+
+        const procEdit = Bun.spawnSync([process.execPath, "src/cli.ts", "hook", "proteger-raw"], {
+          stdin: Buffer.from(JSON.stringify(payloadEdit)),
+          env: { PATH: process.env.PATH },
+        });
+        expect(procEdit.exitCode).toBe(2);
+
+        // 4. MultiEdit com cwd = /tmp e caminho absoluto
+        const payloadMulti = {
+          cwd: "/tmp",
+          tool_name: "MultiEdit",
+          tool_input: {
+            file_path: paginaAlvo,
+            edits: [{
+              old_string: "---\ntitle: Nota Original\ngenerated:\n  by: test\n---\n",
+              new_string: "---\ntitle: Nota Original\ngenerated:\n  by: test\nverified:\n  - by: human:fraude\n    at: 2026-11-05T12:00:00Z\n---\n",
+            }],
+          },
+        };
+        expect(await executarProtecao(JSON.stringify(payloadMulti))).toBe(2);
+
+        const procMulti = Bun.spawnSync([process.execPath, "src/cli.ts", "hook", "proteger-raw"], {
+          stdin: Buffer.from(JSON.stringify(payloadMulti)),
+          env: { PATH: process.env.PATH },
+        });
+        expect(procMulti.exitCode).toBe(2);
+
+        // 5. apply_patch com cwd = /tmp e Update File com caminho absoluto
+        const patchTexto = `*** Update File: ${paginaAlvo}
+--- a
++++ b
+@@ -1,4 +1,7 @@
+ ---
+ title: Nota Original
+ generated:
+   by: test
++verified:
++  - by: human:fraude
++    at: 2026-11-05T12:00:00Z
+ ---
+`;
+        const payloadPatch = {
+          cwd: "/tmp",
+          tool_name: "apply_patch",
+          tool_input: { patch: patchTexto },
+        };
+        expect(await executarProtecao(JSON.stringify(payloadPatch))).toBe(2);
+
+        const procPatch = Bun.spawnSync([process.execPath, "src/cli.ts", "hook", "proteger-raw"], {
+          stdin: Buffer.from(JSON.stringify(payloadPatch)),
+          env: { PATH: process.env.PATH },
+        });
+        expect(procPatch.exitCode).toBe(2);
+
+        // Conferência dos bytes no disco: arquivo não pode ter verified gravado
+        expect(readFileSync(paginaAlvo, "utf8")).toBe(conteudoOriginal);
+      } finally {
+        try { rmSync(linkExterno, { force: true }); } catch {}
+        try { rmSync(outroVault, { recursive: true, force: true }); } catch {}
+      }
+    });
+
+    test("Dado P1-E2: ferramentas estruturadas com variações de caixa (WIKI/, Wiki/, wIkI/) Quando tentam alterar verified Então negam com código 2 e bytes permanecem intactos", async () => {
+      const pagina = join(wikiDir, "pessoal/concepts/a.md");
+      const conteudoOriginal = "---\ntitle: Nota Original\ngenerated:\n  by: test\n---\nCorpo intocado.\n";
+      writeFileSync(pagina, conteudoOriginal);
+
+      for (const caminhoVariante of [
+        "WIKI/pessoal/concepts/a.md",
+        "Wiki/pessoal/concepts/a.md",
+        "wIkI/pessoal/concepts/a.md",
+      ]) {
+        // Write com casing alternativo
+        const payloadWrite = {
+          cwd: temporario,
+          tool_name: "Write",
+          tool_input: {
+            file_path: caminhoVariante,
+            content: "---\ntitle: Fraude Casing\nverified:\n  - by: human:fraude\n    at: 2026-11-05T12:00:00Z\n---\n",
+          },
+        };
+        expect(await executarProtecao(JSON.stringify(payloadWrite))).toBe(2);
+
+        // Processo CLI real
+        const procWrite = Bun.spawnSync([process.execPath, "src/cli.ts", "hook", "proteger-raw"], {
+          stdin: Buffer.from(JSON.stringify(payloadWrite)),
+          env: { PATH: process.env.PATH },
+        });
+        expect(procWrite.exitCode).toBe(2);
+
+        // Edit com casing alternativo
+        const payloadEdit = {
+          cwd: temporario,
+          tool_name: "Edit",
+          tool_input: {
+            file_path: caminhoVariante,
+            old_string: "---\ntitle: Nota Original\ngenerated:\n  by: test\n---\n",
+            new_string: "---\ntitle: Nota Original\ngenerated:\n  by: test\nverified:\n  - by: human:fraude\n    at: 2026-11-05T12:00:00Z\n---\n",
+          },
+        };
+        expect(await executarProtecao(JSON.stringify(payloadEdit))).toBe(2);
+
+        const procEdit = Bun.spawnSync([process.execPath, "src/cli.ts", "hook", "proteger-raw"], {
+          stdin: Buffer.from(JSON.stringify(payloadEdit)),
+          env: { PATH: process.env.PATH },
+        });
+        expect(procEdit.exitCode).toBe(2);
+      }
+
+      // Conferência de bytes no disco
+      expect(readFileSync(pagina, "utf8")).toBe(conteudoOriginal);
+    });
+
+    test("Dado casos de falso positivo preservados da Regra B Quando executados Então continuam liberados com saída 0", async () => {
+      // 1. Write em /tmp/x.md com cwd: /tmp
+      const payloadTmp = {
+        cwd: "/tmp",
+        tool_name: "Write",
+        tool_input: {
+          file_path: "/tmp/x.md",
+          content: "qualquer conteudo fora de vault",
+        },
+      };
+      expect(await executarProtecao(JSON.stringify(payloadTmp))).toBe(0);
+
+      // 2. Write num projeto sem SCHEMA.md
+      const projetoSemSchema = mkdtempSync(join(tmpdir(), "sem-schema-"));
+      try {
+        mkdirSync(join(projetoSemSchema, "wiki"), { recursive: true });
+        const payloadSemSchema = {
+          cwd: projetoSemSchema,
+          tool_name: "Write",
+          tool_input: {
+            file_path: "wiki/nota.md",
+            content: "---\ntitle: Nota em projeto sem SCHEMA\n---\n",
+          },
+        };
+        expect(await executarProtecao(JSON.stringify(payloadSemSchema))).toBe(0);
+      } finally {
+        rmSync(projetoSemSchema, { recursive: true, force: true });
+      }
+
+      // 3. Edições normais de página da wiki pelo cwd do vault (sem alterar verified)
+      const paginaNormal = join(wikiDir, "pessoal/concepts/a.md");
+      const conteudoComVerified = "---\ntitle: Nota Normal\ngenerated:\n  by: test\nverified:\n  - by: human:iago\n    at: 2026-11-01T10:00:00Z\n---\nTexto antes.\n";
+      writeFileSync(paginaNormal, conteudoComVerified);
+
+      const payloadEdicaoNormal = {
+        cwd: temporario,
+        tool_name: "Edit",
+        tool_input: {
+          file_path: "wiki/pessoal/concepts/a.md",
+          old_string: "Texto antes.",
+          new_string: "Texto depois.",
+        },
+      };
+      expect(await executarProtecao(JSON.stringify(payloadEdicaoNormal))).toBe(0);
+    });
   });
 });

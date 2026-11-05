@@ -1,6 +1,6 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { caminhoReal, dentroDe } from "./caminhos";
 import { lerFrontmatter } from "./frontmatter";
 import { caminhoWiki } from "./wiki-repo";
@@ -157,31 +157,138 @@ export function mudouBloco(anterior: string, novo: string): boolean {
   }
 }
 
-export function estaSobWiki(
-  caminhoAbsoluto: string,
-  raiz: string,
+export function temSchemaEWiki(dir: string): boolean {
+  try {
+    return existsSync(join(dir, "SCHEMA.md")) &&
+      (existsSync(join(dir, "wiki")) || existsSync(join(dir, "WIKI")) || existsSync(join(dir, "Wiki")) || existsSync(join(dir, "wIkI")));
+  } catch {
+    return false;
+  }
+}
+
+export function buscarAncestralVault(inicio: string): string | undefined {
+  let atual = resolve(inicio);
+  while (true) {
+    if (temSchemaEWiki(atual)) {
+      return atual;
+    }
+    const pai = dirname(atual);
+    if (pai === atual) break;
+    atual = pai;
+  }
+  return undefined;
+}
+
+export function resolverAncestralRealComResto(caminhoAbsoluto: string): string {
+  let atual = caminhoAbsoluto;
+  const cauda: string[] = [];
+  while (true) {
+    try {
+      const real = realpathSync.native(atual);
+      return cauda.length ? join(real, ...cauda.reverse()) : real;
+    } catch {
+      const pai = dirname(atual);
+      if (pai === atual) {
+        return caminhoAbsoluto;
+      }
+      cauda.push(basename(atual));
+      atual = pai;
+    }
+  }
+}
+
+export function encontrarRaizVault(
+  cwdOuAlvo?: string,
+  ambiente: Record<string, string | undefined> = process.env
+): string {
+  if (typeof cwdOuAlvo === "string" && cwdOuAlvo.trim()) {
+    const achado = buscarAncestralVault(cwdOuAlvo.trim());
+    if (achado) return achado;
+  }
+  if (ambiente.ANVILORE_DESTINO && ambiente.ANVILORE_DESTINO.trim()) {
+    return resolve(ambiente.ANVILORE_DESTINO.trim());
+  }
+  return resolve(import.meta.dir, "../..");
+}
+
+function caminhoEstaSobWikiDaRaiz(
+  caminho: string,
+  raizCandidata: string,
   ambiente: Record<string, string | undefined> = process.env
 ): boolean {
-  const wiki = caminhoWiki(raiz, ambiente);
-  const wikiExiste = Boolean(ambiente.ANVILORE_WIKI || existsSync(wiki));
-  if (!wikiExiste) return false;
+  if (ambiente.ANVILORE_WIKI) {
+    const wikiEnv = resolve(ambiente.ANVILORE_WIKI);
+    const rel1 = relative(wikiEnv, caminho);
+    if (rel1 === "" || (rel1 !== ".." && !rel1.startsWith(`..${sep}`) && !rel1.startsWith("../") && !isAbsolute(rel1))) {
+      return true;
+    }
+    let wikiEnvReal = wikiEnv;
+    try { wikiEnvReal = realpathSync.native(wikiEnv); } catch {}
+    const rel2 = relative(wikiEnvReal, caminho);
+    if (rel2 === "" || (rel2 !== ".." && !rel2.startsWith(`..${sep}`) && !rel2.startsWith("../") && !isAbsolute(rel2))) {
+      return true;
+    }
+  }
 
-  let wikiReal = wiki;
-  try { wikiReal = caminhoReal(wiki, raiz); } catch {}
+  // Raiz candidata deve ser um vault com SCHEMA.md e wiki/ (a menos que ANVILORE_WIKI defina o caminho direto)
+  if (!temSchemaEWiki(raizCandidata)) {
+    return false;
+  }
 
-  let absReal = caminhoAbsoluto;
-  try { absReal = caminhoReal(caminhoAbsoluto, raiz); } catch {}
+  const rel = relative(raizCandidata, caminho);
+  if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || rel.startsWith("../") || isAbsolute(rel)) {
+    return false;
+  }
+  const primeiro = rel.split(/[\\/]/)[0];
+  if (!primeiro) return false;
+  return primeiro.replace(/[. ]+$/, "").toLowerCase() === "wiki";
+}
 
-  return dentroDe(caminhoAbsoluto, wiki) || dentroDe(absReal, wikiReal) || caminhoAbsoluto === wiki || absReal === wikiReal;
+export function estaSobWiki(
+  caminhoAlvo: string,
+  raizPadrao: string,
+  ambiente: Record<string, string | undefined> = process.env,
+  cwd?: string
+): boolean {
+  const cwdEfetivo = cwd ?? (typeof process !== "undefined" ? process.cwd() : raizPadrao);
+  const abs = isAbsolute(caminhoAlvo) ? resolve(caminhoAlvo) : resolve(cwdEfetivo, caminhoAlvo);
+  const real = resolverAncestralRealComResto(abs);
+
+  const candidatas = new Set<string>();
+
+  const candAbs = buscarAncestralVault(dirname(abs));
+  if (candAbs) candidatas.add(candAbs);
+
+  const candReal = buscarAncestralVault(dirname(real));
+  if (candReal) candidatas.add(candReal);
+
+  const raizA1 = encontrarRaizVault(cwd ?? raizPadrao, ambiente);
+  if (raizA1 && temSchemaEWiki(raizA1)) candidatas.add(raizA1);
+
+  if (raizPadrao && temSchemaEWiki(raizPadrao)) candidatas.add(resolve(raizPadrao));
+  if (ambiente.ANVILORE_DESTINO && temSchemaEWiki(resolve(ambiente.ANVILORE_DESTINO))) candidatas.add(resolve(ambiente.ANVILORE_DESTINO));
+  if (ambiente.ANVILORE_WIKI) {
+    if (raizPadrao) candidatas.add(resolve(raizPadrao));
+    candidatas.add(dirname(resolve(ambiente.ANVILORE_WIKI)));
+  }
+
+  for (const cand of candidatas) {
+    if (caminhoEstaSobWikiDaRaiz(abs, cand, ambiente) || caminhoEstaSobWikiDaRaiz(real, cand, ambiente)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export async function verificarMudancaVerified(
   caminhoAbsoluto: string,
   novoTexto: string,
   raiz: string,
-  ambiente: Record<string, string | undefined>
+  ambiente: Record<string, string | undefined> = process.env,
+  cwd?: string
 ): Promise<Decisao> {
-  if (!estaSobWiki(caminhoAbsoluto, raiz, ambiente)) {
+  if (!estaSobWiki(caminhoAbsoluto, raiz, ambiente, cwd)) {
     return { acao: "liberar", motivo: "caminho fora de wiki/" };
   }
 
@@ -441,15 +548,7 @@ async function decidirPatch(
     if (!caminhoRef) continue;
 
     const abs = isAbsolute(caminhoRef) ? resolve(caminhoRef) : resolve(cwd, caminhoRef);
-    let absReal = abs;
-    try { absReal = caminhoReal(abs, cwd); } catch {}
-
-    const wiki = caminhoWiki(raiz, ambiente);
-    let wikiReal = wiki;
-    try { wikiReal = caminhoReal(wiki, raiz); } catch {}
-
-    const tocaWiki = dentroDe(abs, wiki) || dentroDe(absReal, wikiReal);
-    if (!tocaWiki) continue;
+    if (!estaSobWiki(abs, raiz, ambiente, cwd)) continue;
 
     if (arq.acao === "update") {
       if (arq.hunks.length === 0) {
@@ -488,16 +587,14 @@ async function decidirPatch(
       }
       if (arq.destino && arq.origem && arq.destino !== arq.origem) {
         const absOrigem = isAbsolute(arq.origem) ? resolve(arq.origem) : resolve(cwd, arq.origem);
-        let absOrigemReal = absOrigem;
-        try { absOrigemReal = caminhoReal(absOrigem, cwd); } catch {}
-        if (dentroDe(absOrigem, wiki) || dentroDe(absOrigemReal, wikiReal)) {
-          const decisaoOrigem = await verificarMudancaVerified(absOrigem, "", raiz, ambiente);
+        if (estaSobWiki(absOrigem, raiz, ambiente, cwd)) {
+          const decisaoOrigem = await verificarMudancaVerified(absOrigem, "", raiz, ambiente, cwd);
           if (decisaoOrigem.acao === "bloquear") return decisaoOrigem;
         }
       }
     }
 
-    const decisao = await verificarMudancaVerified(abs, novoConteudo, raiz, ambiente);
+    const decisao = await verificarMudancaVerified(abs, novoConteudo, raiz, ambiente, cwd);
     if (decisao.acao === "bloquear") return decisao;
   }
 
@@ -562,27 +659,6 @@ function analisarGit(args: string[]): { subcomando?: string; globais: string[] }
   return { globais };
 }
 
-export function encontrarRaizVault(
-  cwdCandidato?: string,
-  ambiente: Record<string, string | undefined> = process.env
-): string {
-  if (typeof cwdCandidato === "string" && cwdCandidato.trim()) {
-    let atual = resolve(cwdCandidato.trim());
-    while (true) {
-      if (existsSync(join(atual, "SCHEMA.md")) && existsSync(join(atual, "wiki"))) {
-        return atual;
-      }
-      const pai = dirname(atual);
-      if (pai === atual) break;
-      atual = pai;
-    }
-  }
-  if (ambiente.ANVILORE_DESTINO && ambiente.ANVILORE_DESTINO.trim()) {
-    return resolve(ambiente.ANVILORE_DESTINO.trim());
-  }
-  return resolve(import.meta.dir, "../..");
-}
-
 export function caminhoTocaWiki(
   caminhoStr: string,
   base: string,
@@ -593,35 +669,12 @@ export function caminhoTocaWiki(
   if (!limpo) return false;
   if (limpo === "/dev/null" || limpo.toLowerCase() === "nul" || limpo === "&1" || limpo === "&2") return false;
 
-  const wiki = caminhoWiki(raiz, ambiente);
-  const wikiExiste = Boolean(ambiente.ANVILORE_WIKI || existsSync(wiki));
-  if (!wikiExiste) return false;
-
-  let wikiReal = wiki;
-  try { wikiReal = caminhoReal(wiki, raiz); } catch {}
-
   const semGlob = limpo.includes("*") || limpo.includes("?")
     ? limpo.replace(/[*?].*$/, "")
     : limpo;
   const caminhoParaResolver = semGlob || ".";
 
-  const absBase = isAbsolute(caminhoParaResolver) ? resolve(caminhoParaResolver) : resolve(base, caminhoParaResolver);
-  let absBaseReal = absBase;
-  try { absBaseReal = caminhoReal(absBase, base); } catch {}
-
-  if (dentroDe(absBase, wiki) || dentroDe(absBaseReal, wikiReal) || absBase === wiki || absBaseReal === wikiReal) {
-    return true;
-  }
-
-  const absRaiz = isAbsolute(caminhoParaResolver) ? resolve(caminhoParaResolver) : resolve(raiz, caminhoParaResolver);
-  let absRaizReal = absRaiz;
-  try { absRaizReal = caminhoReal(absRaiz, raiz); } catch {}
-
-  if (dentroDe(absRaiz, wiki) || dentroDe(absRaizReal, wikiReal) || absRaiz === wiki || absRaizReal === wikiReal) {
-    return true;
-  }
-
-  return false;
+  return estaSobWiki(caminhoParaResolver, raiz, ambiente, base) || estaSobWiki(caminhoParaResolver, raiz, ambiente, raiz);
 }
 
 const MSG_TERMINAL_WIKI = "Edite páginas da wiki pelas ferramentas de edição (Write/Edit/apply_patch); o terminal não escreve em wiki/.";
@@ -658,13 +711,7 @@ function ehEscritaArquivoSegura(cmdTexto: string, raiz: string, ambiente: Record
   if (destino.startsWith("/tmp/") || destino.startsWith("/tmp\\") || destino === "/tmp") return true;
 
   if (isAbsolute(destino)) {
-    const wiki = caminhoWiki(raiz, ambiente);
-    let absReal = destino;
-    try { absReal = caminhoReal(destino, raiz); } catch {}
-    let wikiReal = wiki;
-    try { wikiReal = caminhoReal(wiki, raiz); } catch {}
-    const tocaWiki = dentroDe(destino, wiki) || dentroDe(absReal, wikiReal) || destino === wiki || absReal === wikiReal;
-    return !tocaWiki;
+    return !estaSobWiki(destino, raiz, ambiente);
   }
 
   return false;
@@ -690,10 +737,7 @@ function temIndicadorDeEscrita(
       if (limpo === "/dev/null" || limpo.toLowerCase() === "nul" || limpo === "&1" || limpo === "&2") return true;
       if (limpo.startsWith("/tmp/") || limpo.startsWith("/tmp\\") || limpo === "/tmp") return true;
       if (isAbsolute(limpo)) {
-        let absReal = limpo;
-        try { absReal = caminhoReal(limpo, raiz); } catch {}
-        const tocaWiki = dentroDe(limpo, wiki) || dentroDe(absReal, wikiReal) || limpo === wiki || absReal === wikiReal;
-        return !tocaWiki;
+        return !estaSobWiki(limpo, raiz, ambiente, base);
       }
       return false;
     });
@@ -749,12 +793,7 @@ function alvoPodeSerWiki(
   if (/wiki/i.test(cmdTexto)) return true;
 
   // 2. A base (cwd + workdir/dir_path) está dentro de <raiz>/wiki/
-  const wiki = caminhoWiki(raiz, ambiente);
-  let wikiReal = wiki;
-  try { wikiReal = caminhoReal(wiki, raiz); } catch {}
-  let baseReal = base;
-  try { baseReal = caminhoReal(base, base); } catch {}
-  if (dentroDe(base, wiki) || base === wiki || dentroDe(baseReal, wikiReal) || baseReal === wikiReal) {
+  if (estaSobWiki(base, raiz, ambiente, base)) {
     return true;
   }
 
@@ -1018,13 +1057,13 @@ export async function decidirVerified(
       return { acao: "bloquear", motivo: "ferramenta de escrita sem caminho de arquivo (falha fechada)" };
     }
     const abs = isAbsolute(caminho) ? resolve(caminho) : resolve(cwd, caminho);
-    if (!estaSobWiki(abs, raizVault, ambiente)) {
+    if (!estaSobWiki(abs, raizVault, ambiente, cwd)) {
       return { acao: "liberar", motivo: "caminho fora de wiki/" };
     }
     if (typeof entradaMapa.content !== "string") {
       return { acao: "bloquear", motivo: "ferramenta de escrita sem content string (falha fechada)" };
     }
-    return verificarMudancaVerified(abs, entradaMapa.content, raizVault, ambiente);
+    return verificarMudancaVerified(abs, entradaMapa.content, raizVault, ambiente, cwd);
   }
 
   // 4. Edit / replace
@@ -1037,7 +1076,7 @@ export async function decidirVerified(
       return { acao: "bloquear", motivo: "ferramenta de edição sem caminho de arquivo (falha fechada)" };
     }
     const abs = isAbsolute(caminho) ? resolve(caminho) : resolve(cwd, caminho);
-    if (!estaSobWiki(abs, raizVault, ambiente)) {
+    if (!estaSobWiki(abs, raizVault, ambiente, cwd)) {
       return { acao: "liberar", motivo: "caminho fora de wiki/" };
     }
     const oldStr = entradaMapa.old_string ?? entradaMapa.oldText;
@@ -1067,7 +1106,7 @@ export async function decidirVerified(
       }
       novoTexto = textoAtual.slice(0, idx) + newStr + textoAtual.slice(idx + oldStr.length);
     }
-    return verificarMudancaVerified(abs, novoTexto, raizVault, ambiente);
+    return verificarMudancaVerified(abs, novoTexto, raizVault, ambiente, cwd);
   }
 
   // 5. MultiEdit
@@ -1080,7 +1119,7 @@ export async function decidirVerified(
       return { acao: "bloquear", motivo: "ferramenta de multiedit sem caminho de arquivo (falha fechada)" };
     }
     const abs = isAbsolute(caminho) ? resolve(caminho) : resolve(cwd, caminho);
-    if (!estaSobWiki(abs, raizVault, ambiente)) {
+    if (!estaSobWiki(abs, raizVault, ambiente, cwd)) {
       return { acao: "liberar", motivo: "caminho fora de wiki/" };
     }
     if (!Array.isArray(entradaMapa.edits) || entradaMapa.edits.length === 0) {
@@ -1113,7 +1152,7 @@ export async function decidirVerified(
         simulado = simulado.slice(0, idx) + nov + simulado.slice(idx + ant.length);
       }
     }
-    return verificarMudancaVerified(abs, simulado, raizVault, ambiente);
+    return verificarMudancaVerified(abs, simulado, raizVault, ambiente, cwd);
   }
 
   // 6. Ferramentas de Leitura
@@ -1122,7 +1161,7 @@ export async function decidirVerified(
   }
 
   // 7. Ferramenta desconhecida mexendo em wiki/
-  if (estaSobWiki(resolve(cwd, "wiki"), raizVault, ambiente) || estaSobWiki(cwd, raizVault, ambiente) || Boolean(ambiente.ANVILORE_WIKI || existsSync(caminhoWiki(raizVault, ambiente)))) {
+  if (estaSobWiki(resolve(cwd, "wiki"), raizVault, ambiente, cwd) || estaSobWiki(cwd, raizVault, ambiente, cwd) || Boolean(ambiente.ANVILORE_WIKI || existsSync(caminhoWiki(raizVault, ambiente)))) {
     if (payload.includes("wiki/") || payload.includes("wiki\\") || payload.includes(".md") || /wiki/i.test(payload)) {
       return { acao: "bloquear", motivo: `ferramenta desconhecida (${nome || "vazia"}) referenciando wiki/ ou .md (falha fechada)` };
     }

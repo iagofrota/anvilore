@@ -246,6 +246,42 @@ describe("hooks da wiki", () => {
     } finally { c.restaurar(); }
   });
 
+  test("Dado P1-E1 e P1-E2: proteger-verified com cwd fora do vault ou variação de caixa Então nega", async () => {
+    const pagina = join(raiz, "wiki/a.md");
+    mkdirSync(join(raiz, "wiki"), { recursive: true });
+    writeFileSync(pagina, "---\ntitle: A\n---\n");
+
+    // P1-E1: cwd fora do vault com caminho absoluto para a página
+    const c1 = capturarConsole();
+    try {
+      await comandoHooksWiki(["proteger-verified", "/tmp"], async () => JSON.stringify({
+        cwd: "/tmp",
+        tool_name: "Write",
+        tool_input: {
+          file_path: pagina,
+          content: "---\ntitle: A\nverified:\n  - by: human:fraude\n---\n",
+        },
+      }));
+      expect(JSON.parse(c1.saida.join("\n"))).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+    } finally { c1.restaurar(); }
+
+    // P1-E2: variação de caixa WIKI/, Wiki/, wIkI/
+    for (const prefixo of ["WIKI", "Wiki", "wIkI"]) {
+      const c2 = capturarConsole();
+      try {
+        await comandoHooksWiki(["proteger-verified", raiz], async () => JSON.stringify({
+          cwd: raiz,
+          tool_name: "Write",
+          tool_input: {
+            file_path: `${prefixo}/a.md`,
+            content: "---\ntitle: A\nverified:\n  - by: human:fraude\n---\n",
+          },
+        }));
+        expect(JSON.parse(c2.saida.join("\n"))).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+      } finally { c2.restaurar(); }
+    }
+  });
+
   test("Dado anvilore.toml malformado Quando eventos Git rodam Então falham em modo desligado", async () => {
     writeFileSync(join(raiz, "anvilore.toml"), "[hooks\n");
     expect(await comandoHooksWiki(["autocommit", raiz], async () => JSON.stringify({ tool_input: { file_path: "wiki/a.md" } }))).toBe(0);
