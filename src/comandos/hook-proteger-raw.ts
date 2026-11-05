@@ -296,6 +296,9 @@ function tokenizar(comando: string, windows = false): Token[] {
     if (aspas) {
       if (caractere === aspas) aspas = "";
       else if (!windows && aspas === '"' && caractere === "\\" && /["\\$`]/.test(seguinte) && seguinte) palavra += comando[++i];
+      else if (aspas === '"' && (caractere === "`" || (caractere === "$" && /[({]/.test(seguinte) && seguinte))) {
+        throw new Error("subshell ou expansão não interpretável");
+      }
       else palavra += caractere;
     } else if (caractere === "'" || caractere === '"') {
       aspas = caractere;

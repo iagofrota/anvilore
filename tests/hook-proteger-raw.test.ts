@@ -1313,7 +1313,7 @@ describe("Auditoria run-1 (S1) — tabela completa do parecer de QA (QA-S1.md)",
 
 describe("Auditoria run-1 (S1) — Delta 5b21337 (QA 2)", () => {
   const vetoresComandoQA2 = [
-    // ASPAS-01..08 (ASPAS-09..11 são P1-7)
+    // ASPAS-01..11
     { id: "ASPAS-01", acao: "bloquear", comando: 'cp wiki/x a"#"b raw/x' },
     { id: "ASPAS-02", acao: "bloquear", comando: 'cp wiki/x "a"#b raw/x' },
     { id: "ASPAS-03", acao: "bloquear", comando: "cp wiki/x \\# raw/x" },
@@ -1322,6 +1322,9 @@ describe("Auditoria run-1 (S1) — Delta 5b21337 (QA 2)", () => {
     { id: "ASPAS-06", acao: "bloquear", comando: 'cp wiki/x $"x" raw/x' },
     { id: "ASPAS-07", acao: "bloquear", comando: 'cp wiki/x $(echo "raw/x")' },
     { id: "ASPAS-08", acao: "bloquear", comando: 'cp wiki/x `echo "raw/x"`' },
+    { id: "ASPAS-09", acao: "bloquear", comando: 'cp wiki/x "$(/bin/echo raw/x)"' },
+    { id: "ASPAS-10", acao: "bloquear", comando: 'echo ok > "$(/bin/echo raw/x)"' },
+    { id: "ASPAS-11", acao: "bloquear", comando: 'cp wiki/x "`echo raw/x`"' },
 
     // REDIR-01..07
     { id: "REDIR-01", acao: "bloquear", comando: 'cp wiki/x ">"raw/x raw/x' },
@@ -1362,6 +1365,11 @@ describe("Auditoria run-1 (S1) — Delta 5b21337 (QA 2)", () => {
     { id: "P1-6-VAR-04", acao: "bloquear", comando: "cp wiki/x ra\\\nw/x" },
     { id: "P1-6-VAR-05", acao: "bloquear", comando: 'cp wiki/x "ra\\\nw/x"' },
     { id: "P1-6-VAR-06", acao: "liberar", comando: "cp wiki/x 'ra\\\nw/x'" },
+
+    // Variantes do P1-7 (expansão em aspas duplas)
+    { id: "P1-7-VAR-01", acao: "bloquear", comando: 'echo ok > "`echo raw/x`"' },
+    { id: "P1-7-VAR-02", acao: "bloquear", comando: 'cp wiki/x "${DIR}/raw/x"' },
+    { id: "P1-7-VAR-03", acao: "bloquear", comando: 'echo ok > "${DIR}/raw/x"' },
 
     // Falsos positivos verificados (FP-NOVO-01..11)
     { id: "FP-NOVO-01", acao: "liberar", comando: 'git commit -m "fix #12"' },
@@ -1429,6 +1437,11 @@ describe("Auditoria run-1 (S1) — Delta 5b21337 (QA 2)", () => {
     expect(cli(terminal("cp wiki/x \\\nraw/x")).exitCode).toBe(2);
     expect(cli(terminal("rm -f \\\nraw/x")).exitCode).toBe(2);
     expect(cli(terminal("cat wiki/x > \\\nraw/x")).exitCode).toBe(2);
+
+    // P1-7: expansão dentro de aspas duplas
+    expect(cli(terminal('cp wiki/x "$(/bin/echo raw/x)"')).exitCode).toBe(2);
+    expect(cli(terminal('echo ok > "$(/bin/echo raw/x)"')).exitCode).toBe(2);
+    expect(cli(terminal('cp wiki/x "`echo raw/x`"')).exitCode).toBe(2);
 
     // Falsos positivos novos
     expect(cli(terminal('git commit -m "fix $(date)"')).exitCode).toBe(0);
