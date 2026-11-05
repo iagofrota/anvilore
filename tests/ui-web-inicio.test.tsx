@@ -181,6 +181,19 @@ test("Dado fonte em raw/ sendo ingerida no momento Quando o botão Ingerir monta
   expect(btn?.props.disabled).toBe(true);
 });
 
+test("Dado fonte em raw/ com metacaractere (* ? [ ] { } ! \\) Quando a tela monta Então botão Ingerir fica desabilitado com explicação", () => {
+  const caracteres = ["*", "?", "[", "]", "{", "}", "!", "\\"];
+  for (const char of caracteres) {
+    const d = dados({ fontes: [{ caminho: `raw/pessoal/arquivo${char}.md`, area: "pessoal", bytes: 1024 }] });
+    const { arvore, html } = montar(d, saudeOk);
+    const btn = botao(arvore, "Ingerir");
+    expect(btn).toBeDefined();
+    expect(btn?.props.disabled).toBe(true);
+    expect(btn?.props.title).toBe("renomeie o arquivo em raw/ para ingerir pelo botão");
+    expect(html).toContain("renomeie o arquivo em raw/ para ingerir pelo botão");
+  }
+});
+
 test("Dado fonte em raw/ com conversa aberta Quando a tela monta Então exibe Continuar em vez do botão Ingerir", () => {
   const d = dados({ fontes: [{ caminho: "raw/pessoal/em-curso.md", area: "pessoal", bytes: 512, conversa: "c-123" }] });
   const { arvore } = montar(d, saudeOk);

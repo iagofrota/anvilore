@@ -133,21 +133,28 @@ function CartaoDeFontes({ fontes, aoIngerir, ingerindo }: { fontes: ResumoDoInic
   return <section className="home-card" aria-label="Em raw/, sem ingestão">
     <header className="home-card-head"><h3>Em raw/, sem ingestão</h3><span className="count">{fontes.length}</span></header>
     {fontes.length === 0 ? <p className="home-card-empty">Tudo em raw/ já foi ingerido.</p> : <ul className="plain-list">
-      {fontes.map(fonte => <li key={fonte.caminho}>
-        <code className="grow">{fonte.caminho}</code><span className="item-meta">{tamanhoLegivel(fonte.bytes)}</span>
-        {fonte.conversa ? (
-          <a href={`#/chat/${fonte.conversa}`}>Continuar</a>
-        ) : (
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => aoIngerir?.(fonte.caminho)}
-            disabled={ingerindo === fonte.caminho}
-          >
-            {ingerindo === fonte.caminho ? "Abrindo…" : "Ingerir"}
-          </button>
-        )}
-      </li>)}
+      {fontes.map(fonte => {
+        const comMetacaracteres = /[*?[\]{}!\\]/.test(fonte.caminho);
+        const explicacao = "renomeie o arquivo em raw/ para ingerir pelo botão";
+        return <li key={fonte.caminho}>
+          <code className="grow">{fonte.caminho}</code>
+          <span className="item-meta">{tamanhoLegivel(fonte.bytes)}</span>
+          {comMetacaracteres && <span className="item-meta">{explicacao}</span>}
+          {fonte.conversa ? (
+            <a href={`#/chat/${fonte.conversa}`}>Continuar</a>
+          ) : (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => aoIngerir?.(fonte.caminho)}
+              disabled={comMetacaracteres || ingerindo === fonte.caminho}
+              title={comMetacaracteres ? explicacao : undefined}
+            >
+              {ingerindo === fonte.caminho ? "Abrindo…" : "Ingerir"}
+            </button>
+          )}
+        </li>;
+      })}
     </ul>}
   </section>;
 }
@@ -192,6 +199,10 @@ export async function executarIngerirFonte(
   iniciar: (caminho: string) => Promise<Leitura<{ id: string }>> = iniciarIngestaoDeRaw,
   mudarHash: (h: string) => void = h => { window.location.hash = h; },
 ) {
+  if (/[*?[\]{}!\\]/.test(caminho)) {
+    setErro("renomeie o arquivo em raw/ para ingerir pelo botão");
+    return;
+  }
   setIngerindo(caminho);
   const leitura = await iniciar(caminho);
   if (leitura.erro !== undefined) {

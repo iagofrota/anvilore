@@ -757,6 +757,48 @@ test("Dado caminho em raw/ contendo metacaracteres de padrão (* ? [ ] { } !) ou
   }
 });
 
+test("Dado vault com raiz contendo colchetes e exclamação Quando crio conversa de-raw Então o fluxo normal de ingestão funciona sem recusa", async () => {
+  const raizEspecial = mkdtempSync(join(tmpdir(), "vault-[!]!especial-"));
+  try {
+    mkdirSync(join(raizEspecial, "wiki/pessoal/concepts"), { recursive: true });
+    mkdirSync(join(raizEspecial, "wiki/pessoal/sources"), { recursive: true });
+    mkdirSync(join(raizEspecial, "raw/pessoal"), { recursive: true });
+    writeFileSync(join(raizEspecial, "raw/pessoal/normal.md"), FONTE);
+    writeFileSync(join(raizEspecial, "wiki/pessoal/concepts/segundo-cerebro.md"), PAGINA_EXISTENTE);
+
+    const ponte = new PonteFalsa({
+      leitor: async (_pedido, aoEvento) => {
+        aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-opus-5-5/2.1.311" });
+        aoEvento({ tipo: "ferramenta", id: "r1", nome: "Read", caminho: join(raizEspecial, "raw/pessoal/normal.md") });
+        aoEvento({ tipo: "resultado-ferramenta", id: "r1", erro: false, texto: "" });
+        return {
+          situacao: "concluida",
+          sessao: SESSAO,
+          saidaEstruturada: relatorioValido({ fonte: "raw/pessoal/normal.md" }),
+          texto: "",
+          recusas: [],
+        };
+      },
+    });
+    const ingestao = new IngestaoNaInterface(raizEspecial, { ponte, agora: () => agora, fechar: fechamentoSoRascunhos });
+    const conversa = await ingestao.criarDeRaw("raw/pessoal/normal.md");
+
+    expect(conversa.id).toBeDefined();
+    expect(conversa.area).toBe("pessoal");
+    expect(conversa.fonte).toBe("raw/pessoal/normal.md");
+    expect(conversa.passo).toBe("fonte");
+
+    const lida = await ingestao.ler(conversa.id);
+    expect(lida.passo).toBe("leitura");
+    await ingestao.esperar(conversa.id);
+    const parada = (await ingestao.obter(conversa.id))!;
+    expect(parada.passo).toBe("parada");
+    expect(parada.situacao).toBe("esperando");
+  } finally {
+    rmSync(raizEspecial, { recursive: true, force: true });
+  }
+});
+
 test("Dado symlink apontando para fora de raw/ Quando crio conversa de-raw Então recusa com 400", async () => {
   const ingestao = servico(new PonteFalsa());
   mkdirSync(join(raiz, "raw/pessoal"), { recursive: true });
