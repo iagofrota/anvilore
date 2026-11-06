@@ -225,7 +225,7 @@ async function plantarArmadilha(pasta: string, pastaCanario: string = pasta) {
   return { canario, vitima, bunfig, scriptPwn };
 }
 
-test.skipIf(!linux)("S3 P2-2: Dado modo biblioteca sem TMP_DIR e TMPDIR sem escrita (555), Quando chamo versao_da_pasta, Então o canário não é criado, a vítima continua lá e devolve erro com mensagem", async () => {
+test.skipIf(!linux || process.getuid?.() === 0)("S3 P2-2: Dado modo biblioteca sem TMP_DIR e TMPDIR sem escrita (555), Quando chamo versao_da_pasta, Então o canário não é criado, a vítima continua lá e devolve erro com mensagem", async () => {
   const c = await novo();
   const tmpdir555 = join(c.pai, "tmp-555-pasta");
   await mkdir(tmpdir555, { recursive: true });
@@ -296,7 +296,7 @@ test.skipIf(!linux)("S3 P2-2: Dado modo biblioteca sem TMP_DIR e mktemp -d falha
   expect(p.stderr.toString()).toContain("Erro:");
 });
 
-test.skipIf(!linux)("S3 P2-2: Dado modo biblioteca sem TMP_DIR e TMPDIR sem escrita (555), Quando chamo versao_do_bun, Então o canário não é criado, a vítima continua lá e devolve erro com mensagem", async () => {
+test.skipIf(!linux || process.getuid?.() === 0)("S3 P2-2: Dado modo biblioteca sem TMP_DIR e TMPDIR sem escrita (555), Quando chamo versao_do_bun, Então o canário não é criado, a vítima continua lá e devolve erro com mensagem", async () => {
   const c = await novo();
   const tmpdir555 = join(c.pai, "tmp-555-bun");
   await mkdir(tmpdir555, { recursive: true });
@@ -361,7 +361,7 @@ test.skipIf(!linux)("S3 P2-2: Dado modo biblioteca sem TMP_DIR e mktemp -d falha
   expect(p.stderr.toString()).toContain("Erro:");
 });
 
-test.skipIf(!linux)("S3 P2-2: Dado modo biblioteca sem TMP_DIR e TMPDIR sem escrita (555), Quando chamo passo_atualizar_existente, Então o canário não é criado, a vítima continua lá e devolve erro com mensagem", async () => {
+test.skipIf(!linux || process.getuid?.() === 0)("S3 P2-2: Dado modo biblioteca sem TMP_DIR e TMPDIR sem escrita (555), Quando chamo passo_atualizar_existente, Então o canário não é criado, a vítima continua lá e devolve erro com mensagem", async () => {
   const c = await novo();
   const tmpdir555 = join(c.pai, "tmp-555-atualizar");
   await mkdir(tmpdir555, { recursive: true });
