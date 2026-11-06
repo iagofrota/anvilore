@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { caminhoReal, dentroDe } from "./caminhos";
 import { lerFrontmatter } from "./frontmatter";
@@ -690,7 +691,58 @@ function extrairAlvosRedirecionamento(cmdTexto: string): string[] {
   return alvos;
 }
 
-function ehEscritaArquivoSegura(cmdTexto: string, raiz: string, ambiente: Record<string, string | undefined>): boolean {
+function estaSobTmp(abs: string, real: string): boolean {
+  const normAbs = abs.replace(/\\/g, "/");
+  const normReal = real.replace(/\\/g, "/");
+  if (normAbs === "/tmp" || normAbs.startsWith("/tmp/") || normReal === "/tmp" || normReal.startsWith("/tmp/")) {
+    return true;
+  }
+  if (normAbs === "/private/tmp" || normAbs.startsWith("/private/tmp/") || normReal === "/private/tmp" || normReal.startsWith("/private/tmp/")) {
+    return true;
+  }
+  const tDir = tmpdir().replace(/\\/g, "/");
+  const tDirComBarra = tDir.endsWith("/") ? tDir : `${tDir}/`;
+  if (normAbs === tDir || normAbs.startsWith(tDirComBarra) || normReal === tDir || normReal.startsWith(tDirComBarra)) {
+    return true;
+  }
+  return false;
+}
+
+function destinoEhSeguro(
+  alvo: string,
+  base: string,
+  raiz: string,
+  ambiente: Record<string, string | undefined>
+): boolean {
+  const limpo = alvo.replace(/^["']|["']$/g, "").trim();
+  if (!limpo) return false;
+  if (limpo === "/dev/null" || limpo.toLowerCase() === "nul" || limpo === "&1" || limpo === "&2") return true;
+
+  // 1. Resolve o destino (normaliza .., realpath do pai existente) e classifica com estaSobWiki ANTES de qualquer isenção
+  if (estaSobWiki(limpo, raiz, ambiente, base)) {
+    return false;
+  }
+
+  // 2. A isenção de /tmp só vale para destino resolvido que NÃO está sob a wiki
+  const abs = isAbsolute(limpo) ? resolve(limpo) : resolve(base, limpo);
+  const real = resolverAncestralRealComResto(abs);
+  if (estaSobTmp(abs, real)) {
+    return true;
+  }
+
+  if (isAbsolute(limpo)) {
+    return true;
+  }
+
+  return false;
+}
+
+function ehEscritaArquivoSegura(
+  cmdTexto: string,
+  base: string,
+  raiz: string,
+  ambiente: Record<string, string | undefined>
+): boolean {
   const match = cmdTexto.match(/\b(?:cp|mv|ln|install|rsync)\b/i);
   if (!match) return false;
 
@@ -704,17 +756,8 @@ function ehEscritaArquivoSegura(cmdTexto: string, raiz: string, ambiente: Record
     .filter(p => !p.startsWith("-"));
 
   if (palavras.length < 2) return false;
-  const destino = palavras[palavras.length - 1]!.replace(/^["']|["']$/g, "").trim();
-  if (!destino) return false;
-
-  if (destino === "/dev/null" || destino.toLowerCase() === "nul") return true;
-  if (destino.startsWith("/tmp/") || destino.startsWith("/tmp\\") || destino === "/tmp") return true;
-
-  if (isAbsolute(destino)) {
-    return !estaSobWiki(destino, raiz, ambiente);
-  }
-
-  return false;
+  const destino = palavras[palavras.length - 1]!;
+  return destinoEhSeguro(destino, base, raiz, ambiente);
 }
 
 function temIndicadorDeEscrita(
@@ -731,16 +774,7 @@ function temIndicadorDeEscrita(
     const wiki = caminhoWiki(raiz, ambiente);
     let wikiReal = wiki;
     try { wikiReal = caminhoReal(wiki, raiz); } catch {}
-    const todosSeguros = alvosRedir.every(alvo => {
-      const limpo = alvo.replace(/^["']|["']$/g, "").trim();
-      if (!limpo) return false;
-      if (limpo === "/dev/null" || limpo.toLowerCase() === "nul" || limpo === "&1" || limpo === "&2") return true;
-      if (limpo.startsWith("/tmp/") || limpo.startsWith("/tmp\\") || limpo === "/tmp") return true;
-      if (isAbsolute(limpo)) {
-        return !estaSobWiki(limpo, raiz, ambiente, base);
-      }
-      return false;
-    });
+    const todosSeguros = alvosRedir.every(alvo => destinoEhSeguro(alvo, base, raiz, ambiente));
     if (!todosSeguros) return true;
   }
 
@@ -756,7 +790,7 @@ function temIndicadorDeEscrita(
     return true;
   }
   if (/(?:\b|[\\/])(?:cp|mv|ln|install|rsync)(?:\.exe)?\b/i.test(cmdTexto)) {
-    if (!ehEscritaArquivoSegura(cmdTexto, raiz, ambiente)) {
+    if (!ehEscritaArquivoSegura(cmdTexto, base, raiz, ambiente)) {
       return true;
     }
   }

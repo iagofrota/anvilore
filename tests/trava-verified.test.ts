@@ -1847,5 +1847,55 @@ describe("trava de verified nos quatro agentes", () => {
       };
       expect(await executarProtecao(JSON.stringify(payloadEdicaoNormal))).toBe(0);
     }, 30_000);
+
+    test("Achado A: bloqueia redirecionamento para wiki debaixo de /tmp e via /tmp/../<abs>/wiki/a.md (exit 2), mantendo gravação fora de wiki em /tmp e leitura com saída 0", async () => {
+      const cofreTmp = mkdtempSync(join(tmpdir(), "vault-sob-tmp-"));
+      try {
+        mkdirSync(join(cofreTmp, "wiki"), { recursive: true });
+        writeFileSync(join(cofreTmp, "SCHEMA.md"), "# Schema\n");
+        const pagina = join(cofreTmp, "wiki/a.md");
+        writeFileSync(pagina, "---\ntitle: A\n---\n");
+
+        // 1. Redirecionamento direto em wiki debaixo de /tmp
+        const cmdTmpWiki = `printf "verified: - by: human:fraude\\n" > "${pagina}"`;
+        const resTmpWiki = await executarProtecao(JSON.stringify({
+          cwd: cofreTmp,
+          tool_name: "Bash",
+          tool_input: { command: cmdTmpWiki },
+        }));
+        expect(resTmpWiki).toBe(2);
+
+        // 2. Redirecionamento com traversal via /tmp/../<abs>/wiki/a.md
+        const caminhoTraversal = "/tmp/.." + pagina;
+        const cmdTraversal = `printf "verified: - by: human:fraude\\n" > "${caminhoTraversal}"`;
+        const resTraversal = await executarProtecao(JSON.stringify({
+          cwd: cofreTmp,
+          tool_name: "Bash",
+          tool_input: { command: cmdTraversal },
+        }));
+        expect(resTraversal).toBe(2);
+
+        // Regressão 1: gravação comum em /tmp fora da wiki continua exit 0
+        const arqFora = join(tmpdir(), "fora-da-wiki.txt");
+        const cmdFora = `printf "verified: - by: human:fraude\\n" > "${arqFora}"`;
+        const resFora = await executarProtecao(JSON.stringify({
+          cwd: cofreTmp,
+          tool_name: "Bash",
+          tool_input: { command: cmdFora },
+        }));
+        expect(resFora).toBe(0);
+
+        // Regressão 2: leitura da wiki continua exit 0
+        const cmdLeitura = `cat "${pagina}"`;
+        const resLeitura = await executarProtecao(JSON.stringify({
+          cwd: cofreTmp,
+          tool_name: "Bash",
+          tool_input: { command: cmdLeitura },
+        }));
+        expect(resLeitura).toBe(0);
+      } finally {
+        rmSync(cofreTmp, { recursive: true, force: true });
+      }
+    }, 30_000);
   });
 });
