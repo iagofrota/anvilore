@@ -1943,5 +1943,44 @@ describe("trava de verified nos quatro agentes", () => {
         rmSync(pastaFora, { recursive: true, force: true });
       }
     }, 30_000);
+
+    test("Achado P2 do bot (rodada 2): destinos classificados separadamente por comando simples no guarda do terminal", async () => {
+      // 1. Falham em b5bc8d9 (exit 0) e passam depois (exit 2)
+      const ataques = [
+        "cp /tmp/page.md wiki/a.md && echo done >/tmp/done",
+        "cp /tmp/p.md wiki/a.md; true",
+        "cp /tmp/p.md wiki/a.md || true",
+        "cp /tmp/p.md wiki/a.md | cat",
+        "mv /tmp/page.md wiki/a.md && echo done >/tmp/done",
+        "mv /tmp/p.md wiki/a.md; true",
+        "mv /tmp/p.md wiki/a.md || true",
+        "mv /tmp/p.md wiki/a.md | cat",
+      ];
+
+      for (const cmd of ataques) {
+        const codigo = await executarProtecao(JSON.stringify({
+          cwd: temporario,
+          tool_name: "Bash",
+          tool_input: { command: cmd },
+        }));
+        expect(codigo).toBe(2);
+      }
+
+      // 2. Regressões exit 0
+      const regressoes = [
+        "cp wiki/a.md /tmp/x.md && echo ok",
+        "echo ok && cat wiki/a.md",
+        `cp ${join(tmpdir(), "a.md")} ${join(tmpdir(), "b.md")}`,
+      ];
+
+      for (const cmd of regressoes) {
+        const codigo = await executarProtecao(JSON.stringify({
+          cwd: temporario,
+          tool_name: "Bash",
+          tool_input: { command: cmd },
+        }));
+        expect(codigo).toBe(0);
+      }
+    });
   });
 });

@@ -643,6 +643,8 @@ function tokenizar(comando: string, windows = false): Token[] {
       palavra += comando[++i];
     } else if (caractere === "`" || caractere === "(" || caractere === ")" || (caractere === "$" && /[({]/.test(seguinte) && seguinte)) {
       throw new Error("subshell ou expansão não interpretável");
+    } else if (caractere === "<" && seguinte === "<") {
+      throw new Error("heredoc não interpretável");
     } else if (/[;|&<>\n]/.test(caractere)) {
       guardar();
       const operador = caractere === "\n" ? ";" : caractere + (seguinte === caractere ? comando[++i] : "");
@@ -752,156 +754,280 @@ function destinoEhSeguro(
   return false;
 }
 
-function ehEscritaArquivoSegura(
-  cmdTexto: string,
+function argumentoTocaWiki(
+  arg: string,
   base: string,
   raiz: string,
   ambiente: Record<string, string | undefined>
 ): boolean {
-  const match = cmdTexto.match(/\b(?:cp|mv|ln|install|rsync)\b/i);
-  if (!match) return false;
-
-  if (/\b(?:cd|pushd)\b/i.test(cmdTexto)) return false;
-
-  const posVerbo = match.index!;
-  const pedaco = cmdTexto.slice(posVerbo);
-  const palavras = pedaco
-    .split(/[\s;|&<>()]+/)
-    .filter(Boolean)
-    .filter(p => !p.startsWith("-"));
-
-  if (palavras.length < 2) return false;
-  const destino = palavras[palavras.length - 1]!;
-  return destinoEhSeguro(destino, base, raiz, ambiente);
-}
-
-function temIndicadorDeEscrita(
-  cmdTexto: string,
-  base: string,
-  raiz: string,
-  ambiente: Record<string, string | undefined>
-): boolean {
-  // 1. Redireção >, >>, >|, &>
-  const temOpRedir = /(?:>>|>\||&>|(?:\d+)?>(?!&[012]))/.test(cmdTexto);
-  if (temOpRedir) {
-    const alvosRedir = extrairAlvosRedirecionamento(cmdTexto);
-    if (alvosRedir.length === 0) return true;
-    const wiki = caminhoWiki(raiz, ambiente);
-    let wikiReal = wiki;
-    try { wikiReal = caminhoReal(wiki, raiz); } catch {}
-    const todosSeguros = alvosRedir.every(alvo => destinoEhSeguro(alvo, base, raiz, ambiente));
-    if (!todosSeguros) return true;
+  const limpo = arg.replace(/^["']|["']$/g, "").trim();
+  if (!limpo) return false;
+  const candidatas = [limpo];
+  if (limpo.includes("=")) {
+    const pos = limpo.indexOf("=");
+    candidatas.push(limpo.slice(pos + 1).replace(/^["']|["']$/g, "").trim());
   }
-
-  // 2. sed, perl, ruby com cluster de flags curtas contendo 'i' (-i, -Ei, -pie, -i.bak) ou --in-place
-  if (/\b(?:sed|perl|ruby)\b/i.test(cmdTexto)) {
-    if (/(?:^|\s)(?:--(?:in-place)(?:=|\s|$)|-(?:[a-zA-Z0-9_]*i[a-zA-Z0-9_.]*))/i.test(cmdTexto)) {
-      return true;
-    }
+  for (const cand of candidatas) {
+    if (!cand || cand.startsWith("-")) continue;
+    if (cand === "/dev/null" || cand === "&1" || cand === "&2" || cand.toLowerCase() === "nul") continue;
+    if (caminhoTocaWiki(cand, base, raiz, ambiente)) return true;
   }
-
-  // 3. tee, cp, mv, ln, install, dd, truncate, rsync e cmdlets ps de escrita
-  if (/(?:\b|[\\/])(?:tee|dd|truncate|set-content|sc|add-content|ac|out-file)(?:\.exe)?\b/i.test(cmdTexto)) {
-    return true;
-  }
-  if (/(?:\b|[\\/])(?:cp|mv|ln|install|rsync)(?:\.exe)?\b/i.test(cmdTexto)) {
-    if (!ehEscritaArquivoSegura(cmdTexto, base, raiz, ambiente)) {
-      return true;
-    }
-  }
-
-  // time/stdbuf com opção de saída
-  if (/\b(?:time|stdbuf)\b.*?(?:-o|--output)/i.test(cmdTexto)) {
-    return true;
-  }
-
-  // 4. git apply|am|checkout|restore ou opções de saída em arquivo
-  if (/\bgit\s+(?:-[^\s]+\s+)*(?:apply|am|checkout|restore)\b/i.test(cmdTexto) ||
-      /\bgit\s+.*?(?:--output(?:-directory)?=|-o\s|--output\s)/i.test(cmdTexto)) {
-    return true;
-  }
-
-  // 5. Interpretadores com código inline: python*, node, bun, deno, ruby, perl, php
-  // com -c, -e, -p, -r, --eval, --print ou heredoc <<
-  if (/\b(?:python(?:\d+(?:\.\d+)?)?|node|bun|deno|ruby|perl|php)\b/i.test(cmdTexto)) {
-    if (/(?:^|\s)(?:-(?:[a-zA-Z0-9_]*[cepr][a-zA-Z0-9_]*)|--(?:eval|print)(?:=|\s|$)|<<)/.test(cmdTexto)) {
-      return true;
-    }
-  }
-
   return false;
 }
 
-function alvoPodeSerWiki(
-  cmdTexto: string,
+function dividirEmComandosSimples(tokens: Token[]): Token[][] {
+  const comandos: Token[][] = [];
+  let atual: Token[] = [];
+  for (const token of tokens) {
+    if (token.operador && /^[;&|]+$/.test(token.texto)) {
+      if (atual.length > 0) {
+        comandos.push(atual);
+        atual = [];
+      }
+    } else {
+      atual.push(token);
+    }
+  }
+  if (atual.length > 0) {
+    comandos.push(atual);
+  }
+  return comandos;
+}
+
+function analisarComandoSimples(
+  cmdTokens: Token[],
   base: string,
   raiz: string,
-  ambiente: Record<string, string | undefined>
-): boolean {
-  // 1. A base (cwd + workdir/dir_path) está dentro da wiki configurada ou padrão
-  if (estaSobWiki(base, raiz, ambiente, base)) {
-    return true;
+  ambiente: Record<string, string | undefined>,
+  temMudancaDir: boolean
+): Decisao {
+  // 1. Extrai redirecionamentos e tokens sem operadores de redireção
+  const alvosRedir: string[] = [];
+  const tokensSemRedir: Token[] = [];
+  for (let i = 0; i < cmdTokens.length; i++) {
+    const token = cmdTokens[i]!;
+    if (token.operador && (token.texto === ">" || token.texto === ">>" || token.texto === ">|" || token.texto === "&>")) {
+      const proximo = cmdTokens[i + 1];
+      if (!proximo || proximo.operador) {
+        return { acao: "bloquear", motivo: "redirecionamento sem destino (falha fechada)" };
+      }
+      alvosRedir.push(proximo.texto);
+      i++;
+    } else if (!token.operador && /^\d+$/.test(token.texto) && cmdTokens[i + 1]?.operador && (cmdTokens[i + 1]!.texto === ">" || cmdTokens[i + 1]!.texto === ">>")) {
+      const proximo = cmdTokens[i + 2];
+      if (!proximo || proximo.operador) {
+        return { acao: "bloquear", motivo: "redirecionamento sem destino (falha fechada)" };
+      }
+      alvosRedir.push(proximo.texto);
+      i += 2;
+    } else if (token.operador && token.texto === "<") {
+      const proximo = cmdTokens[i + 1];
+      if (proximo && !proximo.operador) {
+        i++;
+      }
+    } else {
+      tokensSemRedir.push(token);
+    }
   }
 
-  // 2. O comando contém cd/pushd (a base deixa de ser conhecida)
-  if (/\b(?:cd|pushd)\b/i.test(cmdTexto)) return true;
-
-  // 3. O comando contém $(, crase, ( de subshell, eval, source/., ou variável $VAR/${…} em posição de caminho
-  if (cmdTexto.includes("$(") || cmdTexto.includes("`") || cmdTexto.includes("(")) return true;
-  if (/\beval\b/i.test(cmdTexto)) return true;
-  if (/\bsource\b/i.test(cmdTexto)) return true;
-  if (/(?:^|\s)\.(?:\s|$)/.test(cmdTexto)) return true;
-  if (/\$[A-Za-z_]|\$\{[A-Za-z_]/.test(cmdTexto)) return true;
-
-  // 4. Redirecionamentos: decide por destino RESOLVIDO contra a raiz da wiki configurada (nunca por substring 'wiki')
-  const alvosRedir = extrairAlvosRedirecionamento(cmdTexto);
+  // Se algum redirecionamento toca a wiki ou não é seguro, bloqueia
   for (const alvo of alvosRedir) {
-    if (caminhoTocaWiki(alvo, base, raiz, ambiente)) {
-      return true;
+    if (alvo === "/dev/null" || alvo === "&1" || alvo === "&2" || alvo.toLowerCase() === "nul") continue;
+    if (caminhoTocaWiki(alvo, base, raiz, ambiente) || !destinoEhSeguro(alvo, base, raiz, ambiente) || temMudancaDir) {
+      return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
     }
   }
 
-  // 5. Argumentos/palavras do comando: decide por destino RESOLVIDO contra a raiz da wiki configurada
-  try {
-    const tokens = tokenizar(cmdTexto);
-    for (const token of tokens) {
-      if (token.operador) continue;
-      const limpo = token.texto.replace(/^["']|["']$/g, "").trim();
-      if (!limpo) continue;
-      const candidatas = [limpo];
-      if (limpo.includes("=")) {
-        const posIgual = limpo.indexOf("=");
-        candidatas.push(limpo.slice(posIgual + 1).replace(/^["']|["']$/g, "").trim());
+  // 2. Extrai palavras do comando (ignora atribuições VAR=val e palavras de controle de bloco)
+  let palavras = tokensSemRedir.map(t => t.texto);
+  while (palavras.length > 0 && (/^[A-Za-z_]\w*=/.test(palavras[0]!) || /^(?:do|then|else|elif|\{|\}|!|while|until|if)$/.test(palavras[0]!))) {
+    palavras = palavras.slice(1);
+  }
+  if (!palavras.length) {
+    return { acao: "liberar", motivo: "comando simples vazio ou sem verbo" };
+  }
+
+  // 3. Normaliza verbo e desembrulha wrappers (sudo, env, time, etc.)
+  let verbo = verboNormalizado(palavras[0]!);
+  while (ENVOLVEDORES.has(verbo) && palavras.length > 1) {
+    const { resto, descartados } = desembrulhar(verbo, palavras.slice(1));
+    if ((verbo === "time" || verbo === "stdbuf") && descartados.some(arg => arg === "-o" || arg.startsWith("-o") || /^--(?:output)(?:=|$)/.test(arg))) {
+      const optArg = descartados.find(arg => arg === "-o" || arg.startsWith("-o") || /^--(?:output)(?:=|$)/.test(arg))!;
+      let outTarget: string | undefined;
+      if (optArg.startsWith("--output=")) outTarget = optArg.slice("--output=".length);
+      else if (optArg === "-o" || optArg === "--output") {
+        const idx = descartados.indexOf(optArg);
+        outTarget = descartados[idx + 1];
+      } else if (optArg.startsWith("-o") && optArg.length > 2) {
+        outTarget = optArg.slice(2);
       }
-      for (const cand of candidatas) {
-        if (!cand || cand.startsWith("-")) continue;
-        if (cand === "/dev/null" || cand === "&1" || cand === "&2" || cand.toLowerCase() === "nul") continue;
-        if (caminhoTocaWiki(cand, base, raiz, ambiente)) {
-          return true;
-        }
+      if (outTarget && (caminhoTocaWiki(outTarget, base, raiz, ambiente) || !destinoEhSeguro(outTarget, base, raiz, ambiente) || temMudancaDir)) {
+        return { acao: "bloquear", motivo: `${verbo} com opção de saída em arquivo citando wiki` };
       }
     }
-  } catch {
-    const palavras = cmdTexto.split(/[\s;|&<>()]+/).filter(Boolean);
-    for (const p of palavras) {
-      const limpo = p.replace(/^["']|["']$/g, "").trim();
-      if (!limpo) continue;
-      const candidatas = [limpo];
-      if (limpo.includes("=")) {
-        const posIgual = limpo.indexOf("=");
-        candidatas.push(limpo.slice(posIgual + 1).replace(/^["']|["']$/g, "").trim());
+    palavras = resto;
+    if (!palavras.length) break;
+    verbo = verboNormalizado(palavras[0]!);
+  }
+
+  if (!verbo) {
+    return { acao: "bloquear", motivo: "comando com verbo vazio ou inválido (falha fechada)" };
+  }
+
+  const cmdArgs = palavras.slice(1);
+  const cmdTextoSimples = cmdTokens.map(t => t.texto).join(" ");
+
+  // 4. Se cita verified ou aprovação no comando simples
+  const citaVerified = /verified/i.test(cmdTextoSimples) || /\bby\s*:\s*human:/i.test(cmdTextoSimples);
+  if (citaVerified) {
+    if (verbo === "git") {
+      const { subcomando, globais } = analisarGit(cmdArgs);
+      if (globais.some(opt => opt === "-c" || /^--(?:config-env|exec-path)(?:=|$)/.test(opt))) {
+        return { acao: "bloquear", motivo: "git com opções de execução que citam verified" };
       }
-      for (const cand of candidatas) {
-        if (!cand || cand.startsWith("-")) continue;
-        if (cand === "/dev/null" || cand === "&1" || cand === "&2" || cand.toLowerCase() === "nul") continue;
-        if (caminhoTocaWiki(cand, base, raiz, ambiente)) {
-          return true;
+      for (let i = 0; i < cmdArgs.length; i++) {
+        const arg = cmdArgs[i]!;
+        let alvo: string | undefined;
+        if (arg.startsWith("--output=")) alvo = arg.slice("--output=".length);
+        else if (arg === "--output" || arg === "-o") alvo = cmdArgs[i + 1];
+        else if (arg.startsWith("-o") && !arg.startsWith("--")) alvo = arg.slice(2);
+        else if (arg.startsWith("--output-directory=")) alvo = arg.slice("--output-directory=".length);
+        else if (arg === "--output-directory") alvo = cmdArgs[i + 1];
+
+        if (alvo && (caminhoTocaWiki(alvo, base, raiz, ambiente) || !destinoEhSeguro(alvo, base, raiz, ambiente))) {
+          return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
         }
+      }
+      if (!subcomando || !GIT_LEITURA.has(subcomando)) {
+        return { acao: "bloquear", motivo: `git com subcomando de escrita (${subcomando ?? "nenhum"}) citando verified` };
+      }
+    } else if (LEITURAS_TERMINAL.has(verbo)) {
+      if (verbo === "rg" && cmdArgs.some(arg => arg === "--pre" || arg.startsWith("--pre="))) {
+        return { acao: "bloquear", motivo: "rg com pré-processador citando verified" };
+      }
+    } else {
+      return { acao: "bloquear", motivo: `comando não leitor (${verbo}) citando verified` };
+    }
+  }
+
+  // 5. Destinos e indicadores de escrita em wiki/ (MSG_TERMINAL_WIKI)
+  // 5.1 Cópia / Movimentação: cp, mv, ln, install, rsync
+  if (["cp", "mv", "ln", "install", "rsync"].includes(verbo)) {
+    const destinos: string[] = [];
+    for (let i = 0; i < cmdArgs.length; i++) {
+      const arg = cmdArgs[i]!;
+      if (arg === "-t" || arg === "--target-directory") {
+        if (cmdArgs[i + 1]) destinos.push(cmdArgs[++i]!);
+      } else if (arg.startsWith("-t") && arg.length > 2 && !arg.startsWith("--")) {
+        destinos.push(arg.slice(2));
+      } else if (arg.startsWith("--target-directory=")) {
+        destinos.push(arg.slice("--target-directory=".length));
+      }
+    }
+    const operandos = cmdArgs.filter(arg => !arg.startsWith("-"));
+    if (destinos.length === 0) {
+      if (verbo === "ln" && operandos.length === 1) {
+        destinos.push(".");
+      } else if (operandos.length >= 2) {
+        destinos.push(operandos[operandos.length - 1]!);
+      } else {
+        return { acao: "bloquear", motivo: `${verbo} sem destino reconhecível (falha fechada)` };
+      }
+    }
+    for (const dest of destinos) {
+      if (caminhoTocaWiki(dest, base, raiz, ambiente) || !destinoEhSeguro(dest, base, raiz, ambiente) || temMudancaDir) {
+        return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
       }
     }
   }
 
-  return false;
+  // 5.2 tee: cada operando não-flag é um arquivo de destino
+  if (verbo === "tee") {
+    const destinosTee = cmdArgs.filter(arg => !arg.startsWith("-"));
+    for (const dest of destinosTee) {
+      if (caminhoTocaWiki(dest, base, raiz, ambiente) || !destinoEhSeguro(dest, base, raiz, ambiente) || temMudancaDir) {
+        return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+      }
+    }
+  }
+
+  // 5.3 dd: of=...
+  if (verbo === "dd") {
+    const ofArg = cmdArgs.find(arg => /^of=/i.test(arg));
+    if (ofArg) {
+      const destDd = ofArg.slice(3).replace(/^["']|["']$/g, "").trim();
+      if (caminhoTocaWiki(destDd, base, raiz, ambiente) || !destinoEhSeguro(destDd, base, raiz, ambiente) || temMudancaDir) {
+        return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+      }
+    }
+  }
+
+  // 5.4 Editores com in-place: sed, perl, ruby
+  if (["sed", "perl", "ruby"].includes(verbo)) {
+    const temInPlace = cmdArgs.some(arg => /^--(?:in-place)(?:=|$)/i.test(arg) || /^-[a-zA-Z0-9_]*i/i.test(arg));
+    if (temInPlace) {
+      const operandos = cmdArgs.filter(arg => !arg.startsWith("-"));
+      if (temMudancaDir || operandos.some(arg => argumentoTocaWiki(arg, base, raiz, ambiente))) {
+        return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+      }
+    }
+  }
+
+  // 5.5 Interpretadores com código inline
+  if (/^(?:python(?:\d+(?:\.\d+)?)?|node|bun|deno|ruby|perl|php)$/i.test(verbo)) {
+    const temInline = cmdArgs.some(arg => /^--(?:eval|print)(?:=|$)/.test(arg) || /^-[a-zA-Z0-9_]*[cepr]/.test(arg));
+    if (temInline) {
+      if (temMudancaDir || cmdArgs.some(arg => argumentoTocaWiki(arg, base, raiz, ambiente) || arg.includes("wiki/"))) {
+        return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+      }
+    }
+  }
+
+  // 5.6 Cmdlets de escrita PS e truncate
+  if (CMDLETS_ESCRITA_PS.has(verbo) || verbo === "truncate") {
+    if (temMudancaDir || cmdArgs.some(arg => argumentoTocaWiki(arg, base, raiz, ambiente))) {
+      return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+    }
+  }
+
+  // 5.7 git
+  if (verbo === "git") {
+    const { subcomando } = analisarGit(cmdArgs);
+    if (subcomando && !GIT_LEITURA.has(subcomando)) {
+      if (temMudancaDir || cmdArgs.some(arg => argumentoTocaWiki(arg, base, raiz, ambiente))) {
+        return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+      }
+    }
+    for (let i = 0; i < cmdArgs.length; i++) {
+      const arg = cmdArgs[i]!;
+      let alvo: string | undefined;
+      if (arg.startsWith("--output=")) alvo = arg.slice("--output=".length);
+      else if (arg === "--output" || arg === "-o") alvo = cmdArgs[i + 1];
+      else if (arg.startsWith("-o") && !arg.startsWith("--")) alvo = arg.slice(2);
+      else if (arg.startsWith("--output-directory=")) alvo = arg.slice("--output-directory=".length);
+      else if (arg === "--output-directory") alvo = cmdArgs[i + 1];
+
+      if (alvo && (caminhoTocaWiki(alvo, base, raiz, ambiente) || !destinoEhSeguro(alvo, base, raiz, ambiente) || temMudancaDir)) {
+        return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+      }
+    }
+  }
+
+  // 5.8 eval, source, .
+  if (verbo === "eval" || verbo === "source" || verbo === ".") {
+    if (temMudancaDir || cmdArgs.some(arg => argumentoTocaWiki(arg, base, raiz, ambiente) || arg.includes("wiki/"))) {
+      return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+    }
+  }
+
+  // 5.9 Se o próprio cwd de execução (base) está sob a wiki
+  if (estaSobWiki(base, raiz, ambiente, base)) {
+    if (!LEITURAS_TERMINAL.has(verbo) && (verbo !== "git" || !GIT_LEITURA.has(analisarGit(cmdArgs).subcomando ?? ""))) {
+      return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+    }
+  }
+
+  return { acao: "liberar", motivo: "comando simples permitido" };
 }
 
 function ehComandoSimplesCli(
@@ -991,85 +1117,29 @@ function decidirTerminalVerified(
     return { acao: "liberar", motivo: "comando permitido da CLI do kit" };
   }
 
-  // 2. Indicador de escrita E alvo pode ser a wiki: regra 3
-  if (temIndicadorDeEscrita(cmdTexto, base, raiz, ambiente) && alvoPodeSerWiki(cmdTexto, base, raiz, ambiente)) {
-    return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+  // 2. Tokenização e divisão em comandos simples
+  let tokens: Token[];
+  try {
+    tokens = tokenizar(cmdTexto, isWindows);
+  } catch (erro) {
+    const citaVerified = /verified/i.test(cmdTexto) || /\bby\s*:\s*human:/i.test(cmdTexto);
+    const motivo = citaVerified
+      ? `comando com sintaxe não interpretável citando verified ou aprovação: ${(erro as Error).message}`
+      : `comando com sintaxe não interpretável: ${(erro as Error).message}`;
+    return { acao: "bloquear", motivo };
   }
 
-  // 4. Se cita verified ou aprovação em comando não leitor
-  const citaVerified = /verified/i.test(cmdTexto) || /\bby\s*:\s*human:/i.test(cmdTexto);
-  if (citaVerified) {
-    let tokens: Token[];
-    try {
-      tokens = tokenizar(cmdTexto, isWindows);
-    } catch (erro) {
-      return { acao: "bloquear", motivo: `comando com sintaxe não interpretável citando verified ou aprovação: ${(erro as Error).message}` };
-    }
+  const comandosSimples = dividirEmComandosSimples(tokens);
+  if (comandosSimples.length === 0) {
+    return { acao: "bloquear", motivo: "comando de terminal vazio ou inválido (falha fechada)" };
+  }
 
-    const segmentos: string[][] = [[]];
-    for (const token of tokens) {
-      if (token.operador && /^[;|&]+$/.test(token.texto)) {
-        segmentos.push([]);
-      } else if (!token.operador) {
-        segmentos.at(-1)!.push(token.texto);
-      }
-    }
+  const temCdOuPushd = tokens.some(t => !t.operador && /^(?:cd|pushd)$/i.test(t.texto)) || /\b(?:cd|pushd)\b/i.test(cmdTexto);
 
-    for (const segmento of segmentos) {
-      if (!segmento.length) continue;
-      let comando = segmento;
-      while (comando.length > 0 && (/^[A-Za-z_]\w*=/.test(comando[0]!) || /^(?:do|then|else|elif|\{|\}|!|while|until|if)$/.test(comando[0]!))) {
-        comando = comando.slice(1);
-      }
-      if (!comando.length) continue;
-      let verbo = verboNormalizado(comando[0]!);
-
-      while (ENVOLVEDORES.has(verbo) && comando.length > 1) {
-        const { resto, descartados } = desembrulhar(verbo, comando.slice(1));
-        if ((verbo === "time" || verbo === "stdbuf") && descartados.some(arg => arg === "-o" || arg.startsWith("-o") || /^--(?:output)(?:=|$)/.test(arg))) {
-          return { acao: "bloquear", motivo: `${verbo} com opção de saída em arquivo citando verified` };
-        }
-        comando = resto;
-        if (!comando.length) break;
-        verbo = verboNormalizado(comando[0]!);
-      }
-
-      if (!verbo) {
-        return { acao: "bloquear", motivo: "comando com verbo vazio ou inválido citando verified (falha fechada)" };
-      }
-
-      if (verbo === "git") {
-        const { subcomando, globais } = analisarGit(comando.slice(1));
-        if (globais.some(opt => opt === "-c" || /^--(?:config-env|exec-path)(?:=|$)/.test(opt))) {
-          return { acao: "bloquear", motivo: "git com opções de execução que citam verified" };
-        }
-        for (let i = 0; i < comando.slice(1).length; i++) {
-          const arg = comando.slice(1)[i]!;
-          let alvo: string | undefined;
-          if (arg.startsWith("--output=")) alvo = arg.slice("--output=".length);
-          else if (arg === "--output" || arg === "-o") alvo = comando.slice(1)[i + 1];
-          else if (arg.startsWith("-o") && !arg.startsWith("--")) alvo = arg.slice(2);
-          else if (arg.startsWith("--output-directory=")) alvo = arg.slice("--output-directory=".length);
-          else if (arg === "--output-directory") alvo = comando.slice(1)[i + 1];
-
-          if (alvo && caminhoTocaWiki(alvo, base, raiz, ambiente)) {
-            return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
-          }
-        }
-        if (!subcomando || !GIT_LEITURA.has(subcomando)) {
-          return { acao: "bloquear", motivo: `git com subcomando de escrita (${subcomando ?? "nenhum"}) citando verified` };
-        }
-        continue;
-      }
-
-      if (LEITURAS_TERMINAL.has(verbo)) {
-        if (verbo === "rg" && comando.some(arg => arg === "--pre" || arg.startsWith("--pre="))) {
-          return { acao: "bloquear", motivo: "rg com pré-processador citando verified" };
-        }
-        continue;
-      }
-
-      return { acao: "bloquear", motivo: `comando não leitor (${verbo}) citando verified` };
+  for (const cmdTokens of comandosSimples) {
+    const decisao = analisarComandoSimples(cmdTokens, base, raiz, ambiente, temCdOuPushd);
+    if (decisao.acao === "bloquear") {
+      return decisao;
     }
   }
 
