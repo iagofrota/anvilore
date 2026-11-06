@@ -180,3 +180,39 @@ test("[I7-04] Dado onboarding no tema claro e escuro Quando alterno o tema Entã
   await page.getByRole("button", { name: "Alternar tema claro ou escuro" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "escuro");
 });
+
+test("[I7-05] Dado Onboarding no fluxo O3→O4 Quando crio áreas e escolho envio manual Então o Chat recebe as áreas e permite envio da fonte", async ({ page, app, vault }) => {
+  // Prepara estado para estar no Onboarding 3
+  await mkdir(join(vault.raiz, ".anvilore"), { recursive: true });
+  await writeFile(join(vault.raiz, ".anvilore", "onboarding.json"), JSON.stringify({ etapa: 3, concluido: false }));
+
+  await page.goto(`${app.url}#/onboarding/3`);
+  await expect(page).toHaveURL(/#\/onboarding\/3$/);
+
+  // Submete criação de áreas em O3 e avança para O4
+  await page.getByRole("button", { name: "Criar áreas →" }).click();
+  await expect(page).toHaveURL(/#\/onboarding\/4$/);
+
+  // Clica no botão de envio manual ("Escolher um arquivo .md, .txt ou .pdf")
+  const botaoEscolher = page.getByRole("button", { name: /Escolher um arquivo/ });
+  await expect(botaoEscolher).toBeVisible();
+  await botaoEscolher.click();
+
+  // Aterrissa em #/chat
+  await expect(page).toHaveURL(/#\/chat$/);
+
+  // Verifica que o Chat recebeu a lista de áreas e selecionou uma área válida (não vazia)
+  const selectArea = page.getByLabel("Área");
+  await expect(selectArea).toBeVisible();
+  await expect(selectArea).not.toHaveValue("");
+  await expect(selectArea).toHaveValue("pessoal");
+
+  // Envia texto na nova ingestão
+  const textarea = page.getByLabel("Texto da fonte");
+  await textarea.fill("# Minha primeira anotação\nConteúdo enviado pelo chat após onboarding.\n");
+  await page.getByRole("button", { name: "Ingerir" }).click();
+
+  // Verifica que a conversa foi iniciada e está associada à área pessoal
+  await expect(page).toHaveURL(/#\/chat\/[a-z0-9-]+$/);
+  await expect(page.getByText("Área: pessoal")).toBeVisible();
+});
