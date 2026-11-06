@@ -57,7 +57,7 @@ function diasDoMes(ano: number, mes: number): number {
   return [4, 6, 9, 11].includes(mes) ? 30 : 31;
 }
 
-type DataPrecisa = { segundos: number; fracao: string };
+export type DataPrecisa = { segundos: number; fracao: string };
 type Instante = { erro: string } | { data: DataPrecisa };
 
 function compararInstantes(a: DataPrecisa, b: DataPrecisa): number {
@@ -122,9 +122,9 @@ function validarFontes(fontes: unknown, arquivo: string, raiz: string): string[]
   return erros;
 }
 
-type Verificacoes = { erros: string[]; humanas: (DataPrecisa | null)[]; ultima: DataPrecisa | null };
+export type Verificacoes = { erros: string[]; humanas: (DataPrecisa | null)[]; ultima: DataPrecisa | null };
 
-function lerVerificacoes(verified: unknown, arquivo: string): Verificacoes {
+export function lerVerificacoes(verified: unknown, arquivo = "pagina"): Verificacoes {
   const resultado: Verificacoes = { erros: [], humanas: [], ultima: null };
   const lista = ehMapa(verified) ? [verified] : verified;
   if (!Array.isArray(lista)) {

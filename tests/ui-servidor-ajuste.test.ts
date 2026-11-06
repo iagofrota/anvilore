@@ -8,6 +8,9 @@ import { PonteFalsa } from "./apoio/ponte-falsa";
 import { SESSAO } from "./apoio/eventos-claude";
 import { argumentosDoPapel } from "../src/lib/ponte-claude-code";
 import type { Conversa } from "../src/lib/ui-ingestao";
+import { invalidarAprovacaoVigente } from "../src/lib/ui-ingestao";
+import { lerFrontmatter } from "../src/lib/frontmatter";
+import { estadoAprovacaoHumana } from "../src/lib/okf";
 
 let raiz: string;
 let servidores: Array<{ stop: (forcibly?: boolean) => void }> = [];
@@ -631,7 +634,7 @@ describe("Servidor UI — Pedir ajuste na Revisão", () => {
     expect(itemApos?.versao).not.toBe(versao);
   });
 
-  test("Dado uma página que sofre ajuste com alteração de conteúdo e escritor preserva verified com timestamp igual ou posterior Quando o ajuste termina Então a aprovação antiga não vale para o novo conteúdo e a página continua na fila", async () => {
+  test("Dado uma página que sofre ajuste com alteração de conteúdo e escritor preserva verified na FORMA DE MAPA com at futuro Quando o ajuste termina Então a aprovação antiga não vale e estadoAprovacaoHumana não é vigente", async () => {
     const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
     const conteudoInicial = [
       "---",
@@ -649,12 +652,12 @@ describe("Servidor UI — Pedir ajuste na Revisão", () => {
     writeFileSync(join(raiz, "wiki", caminhoRelativo), conteudoInicial);
     const versao = createHash("sha256").update(conteudoInicial).digest("hex");
 
-    const timestampAjuste = "2026-11-06T19:00:00-03:00";
+    const timestampFuturo = "2030-01-01T12:00:00-03:00";
     const ponte = new PonteFalsa({
       escritor: async (_pedido, aoEvento) => {
         aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-haiku/2.1.311" });
         aoEvento({ tipo: "ferramenta", id: "w1", nome: "Edit", caminho: join(raiz, "wiki", caminhoRelativo) });
-        // Simula escritor que alterou o corpo mas incluiu verified com timestamp igual/posterior a generated.at
+        // Simula escritor que alterou o corpo mas incluiu verified na forma de mapa com timestamp futuro
         const conteudoNovo = [
           "---",
           "type: concept",
@@ -663,10 +666,10 @@ describe("Servidor UI — Pedir ajuste na Revisão", () => {
           "tags: [produtividade]",
           "generated:",
           "  by: claude-haiku/2.1.311",
-          `  at: ${timestampAjuste}`,
+          `  at: ${timestampFuturo}`,
           "verified:",
-          "  - by: human:iago",
-          `    at: ${timestampAjuste}`,
+          "  by: human:iago",
+          `  at: ${timestampFuturo}`,
           "---",
           "",
           "Texto modificado pelo ajuste.",
@@ -695,13 +698,247 @@ describe("Servidor UI — Pedir ajuste na Revisão", () => {
     }
     expect(conversa?.situacao).toBe("concluida");
 
-    // A página teve conteúdo alterado: a aprovação antiga NÃO pode valer para o novo conteúdo.
-    // Ela deve continuar na fila de revisão (não pode ter sumido como 'vigente').
+    // Prova final: depois do ajuste com conteúdo alterado, estadoAprovacaoHumana NÃO é vigente
+    const conteudoDisco = readFileSync(join(raiz, "wiki", caminhoRelativo), "utf8");
+    const fm = lerFrontmatter(conteudoDisco);
+    expect(fm).toBeDefined();
+    expect(estadoAprovacaoHumana(fm!)).not.toBe("vigente");
+    expect(estadoAprovacaoHumana(fm!)).toBe("antiga");
+
     const filaRes = await chamar("/api/rascunhos");
     const fila = (await filaRes.json()) as Array<{ caminho: string; status: string; aprovacaoAnterior?: string }>;
     const item = fila.find(r => r.caminho === caminhoRelativo);
     expect(item).toBeDefined();
     expect(item?.status).toBe("atualizada");
     expect(item?.aprovacaoAnterior).toBe("deixa de valer");
+  });
+
+  test("Dado uma página que sofre ajuste com alteração de conteúdo e escritor preserva verified na FORMA DE LISTA com at futuro Quando o ajuste termina Então a aprovação antiga não vale e estadoAprovacaoHumana não é vigente", async () => {
+    const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
+    const conteudoInicial = [
+      "---",
+      "type: concept",
+      "slug: segundo-cerebro",
+      "title: Segundo cérebro",
+      "tags: [produtividade]",
+      "generated:",
+      "  by: claude-opus/2026-10",
+      "  at: 2026-10-26T14:35:00-03:00",
+      "---",
+      "",
+      "Texto original.",
+    ].join("\n");
+    writeFileSync(join(raiz, "wiki", caminhoRelativo), conteudoInicial);
+    const versao = createHash("sha256").update(conteudoInicial).digest("hex");
+
+    const timestampFuturo = "2030-01-01T12:00:00-03:00";
+    const ponte = new PonteFalsa({
+      escritor: async (_pedido, aoEvento) => {
+        aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-haiku/2.1.311" });
+        aoEvento({ tipo: "ferramenta", id: "w1", nome: "Edit", caminho: join(raiz, "wiki", caminhoRelativo) });
+        // Simula escritor que alterou o corpo mas incluiu verified na forma de lista com timestamp futuro
+        const conteudoNovo = [
+          "---",
+          "type: concept",
+          "slug: segundo-cerebro",
+          "title: Segundo cérebro",
+          "tags: [produtividade]",
+          "generated:",
+          "  by: claude-haiku/2.1.311",
+          `  at: ${timestampFuturo}`,
+          "verified:",
+          "  - by: human:iago",
+          `    at: ${timestampFuturo}`,
+          "---",
+          "",
+          "Texto modificado pelo ajuste.",
+        ].join("\n");
+        writeFileSync(join(raiz, "wiki", caminhoRelativo), conteudoNovo);
+        aoEvento({ tipo: "resultado-ferramenta", id: "w1", erro: false, texto: "Editado" });
+        return { situacao: "concluida", sessao: SESSAO, texto: "Ajuste concluído.", recusas: [] };
+      },
+    });
+
+    const { postar, chamar } = await subirServidor(ponte);
+
+    const resAjuste = await postar("/api/ajuste", {
+      caminho: caminhoRelativo,
+      versao,
+      pedido: "Mudar o texto",
+    });
+    expect(resAjuste.status).toBe(201);
+    const { id } = (await resAjuste.json()) as { id: string };
+
+    let conversa: Conversa | undefined;
+    for (let i = 0; i < 20; i++) {
+      conversa = (await (await chamar(`/api/conversas/${id}`)).json()) as Conversa;
+      if (conversa.situacao === "concluida") break;
+      await new Promise(r => setTimeout(r, 50));
+    }
+    expect(conversa?.situacao).toBe("concluida");
+
+    // Prova final: depois do ajuste com conteúdo alterado, estadoAprovacaoHumana NÃO é vigente
+    const conteudoDisco = readFileSync(join(raiz, "wiki", caminhoRelativo), "utf8");
+    const fm = lerFrontmatter(conteudoDisco);
+    expect(fm).toBeDefined();
+    expect(estadoAprovacaoHumana(fm!)).not.toBe("vigente");
+    expect(estadoAprovacaoHumana(fm!)).toBe("antiga");
+
+    const filaRes = await chamar("/api/rascunhos");
+    const fila = (await filaRes.json()) as Array<{ caminho: string; status: string; aprovacaoAnterior?: string }>;
+    const item = fila.find(r => r.caminho === caminhoRelativo);
+    expect(item).toBeDefined();
+    expect(item?.status).toBe("atualizada");
+    expect(item?.aprovacaoAnterior).toBe("deixa de valer");
+  });
+
+  test("Dado uma página que sofre ajuste com alteração de conteúdo e escritor preserva verified na FORMA DE MAPA com at passado Quando o ajuste termina Então a aprovação antiga não vale e estadoAprovacaoHumana não é vigente", async () => {
+    const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
+    const timestampPassado = "2026-10-01T12:00:00-03:00";
+    const conteudoInicial = [
+      "---",
+      "type: concept",
+      "slug: segundo-cerebro",
+      "title: Segundo cérebro",
+      "tags: [produtividade]",
+      "generated:",
+      "  by: claude-opus/2026-10",
+      `  at: ${timestampPassado}`,
+      "verified:",
+      "  by: human:iago",
+      `  at: ${timestampPassado}`,
+      "---",
+      "",
+      "Texto original.",
+    ].join("\n");
+    writeFileSync(join(raiz, "wiki", caminhoRelativo), conteudoInicial);
+    const versao = createHash("sha256").update(conteudoInicial).digest("hex");
+
+    const ponte = new PonteFalsa({
+      escritor: async (_pedido, aoEvento) => {
+        aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-haiku/2.1.311" });
+        aoEvento({ tipo: "ferramenta", id: "w1", nome: "Edit", caminho: join(raiz, "wiki", caminhoRelativo) });
+        // Simula escritor que alterou o corpo mas preservou verified na forma de mapa com timestamp passado
+        const conteudoNovo = [
+          "---",
+          "type: concept",
+          "slug: segundo-cerebro",
+          "title: Segundo cérebro",
+          "tags: [produtividade]",
+          "generated:",
+          "  by: claude-haiku/2.1.311",
+          `  at: ${timestampPassado}`,
+          "verified:",
+          "  by: human:iago",
+          `  at: ${timestampPassado}`,
+          "---",
+          "",
+          "Texto modificado pelo ajuste.",
+        ].join("\n");
+        writeFileSync(join(raiz, "wiki", caminhoRelativo), conteudoNovo);
+        aoEvento({ tipo: "resultado-ferramenta", id: "w1", erro: false, texto: "Editado" });
+        return { situacao: "concluida", sessao: SESSAO, texto: "Ajuste concluído.", recusas: [] };
+      },
+    });
+
+    const { postar, chamar } = await subirServidor(ponte);
+
+    const resAjuste = await postar("/api/ajuste", {
+      caminho: caminhoRelativo,
+      versao,
+      pedido: "Mudar o texto",
+    });
+    expect(resAjuste.status).toBe(201);
+    const { id } = (await resAjuste.json()) as { id: string };
+
+    let conversa: Conversa | undefined;
+    for (let i = 0; i < 20; i++) {
+      conversa = (await (await chamar(`/api/conversas/${id}`)).json()) as Conversa;
+      if (conversa.situacao === "concluida") break;
+      await new Promise(r => setTimeout(r, 50));
+    }
+    expect(conversa?.situacao).toBe("concluida");
+
+    // Prova final: depois do ajuste com conteúdo alterado, estadoAprovacaoHumana NÃO é vigente
+    const conteudoDisco = readFileSync(join(raiz, "wiki", caminhoRelativo), "utf8");
+    const fm = lerFrontmatter(conteudoDisco);
+    expect(fm).toBeDefined();
+    expect(estadoAprovacaoHumana(fm!)).not.toBe("vigente");
+    expect(estadoAprovacaoHumana(fm!)).toBe("antiga");
+
+    const filaRes = await chamar("/api/rascunhos");
+    const fila = (await filaRes.json()) as Array<{ caminho: string; status: string; aprovacaoAnterior?: string }>;
+    const item = fila.find(r => r.caminho === caminhoRelativo);
+    expect(item).toBeDefined();
+    expect(item?.status).toBe("atualizada");
+    expect(item?.aprovacaoAnterior).toBe("deixa de valer");
+  });
+});
+
+describe("invalidarAprovacaoVigente", () => {
+  test("Dado verified na forma de mapa com at futuro Quando invalido aprovação Então generated.at é estritamente maior que verified.at e estadoAprovacaoHumana é antiga", () => {
+    const conteudo = [
+      "---",
+      "type: concept",
+      "slug: segundo-cerebro",
+      "title: Segundo cérebro",
+      "generated:",
+      "  by: claude-haiku/2.1.311",
+      "  at: 2026-11-06T19:00:00-03:00",
+      "verified:",
+      "  by: human:iago",
+      "  at: 2030-01-01T12:00:00-03:00",
+      "---",
+      "",
+      "Texto.",
+    ].join("\n");
+    const novo = invalidarAprovacaoVigente(conteudo, "escritor", new Date("2026-11-06T19:00:00-03:00"));
+    const fm = lerFrontmatter(novo);
+    expect(fm).toBeDefined();
+    expect(estadoAprovacaoHumana(fm!)).toBe("antiga");
+  });
+
+  test("Dado verified na forma de lista com at futuro Quando invalido aprovação Então generated.at é estritamente maior que o maior verified.at e estadoAprovacaoHumana é antiga", () => {
+    const conteudo = [
+      "---",
+      "type: concept",
+      "slug: segundo-cerebro",
+      "title: Segundo cérebro",
+      "generated:",
+      "  by: claude-haiku/2.1.311",
+      "  at: 2026-11-06T19:00:00-03:00",
+      "verified:",
+      "  - by: human:iago",
+      "    at: 2030-01-01T12:00:00-03:00",
+      "---",
+      "",
+      "Texto.",
+    ].join("\n");
+    const novo = invalidarAprovacaoVigente(conteudo, "escritor", new Date("2026-11-06T19:00:00-03:00"));
+    const fm = lerFrontmatter(novo);
+    expect(fm).toBeDefined();
+    expect(estadoAprovacaoHumana(fm!)).toBe("antiga");
+  });
+
+  test("Dado verified na forma de mapa com at passado Quando invalido aprovação Então generated.at usa agora e estadoAprovacaoHumana é antiga", () => {
+    const conteudo = [
+      "---",
+      "type: concept",
+      "slug: segundo-cerebro",
+      "title: Segundo cérebro",
+      "generated:",
+      "  by: claude-haiku/2.1.311",
+      "  at: 2026-10-01T12:00:00-03:00",
+      "verified:",
+      "  by: human:iago",
+      "  at: 2026-10-01T12:00:00-03:00",
+      "---",
+      "",
+      "Texto.",
+    ].join("\n");
+    const novo = invalidarAprovacaoVigente(conteudo, "escritor", new Date("2026-11-06T19:00:00-03:00"));
+    const fm = lerFrontmatter(novo);
+    expect(fm).toBeDefined();
+    expect(estadoAprovacaoHumana(fm!)).toBe("antiga");
   });
 });

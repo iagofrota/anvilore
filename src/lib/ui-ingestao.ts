@@ -16,7 +16,7 @@ import { fontesCitadas } from "./ui-inicio";
 import { caminhoDaCopia } from "./ui-fila";
 import { caminhoWiki } from "./wiki-repo";
 import { lerFrontmatter } from "./frontmatter";
-import { estadoAprovacaoHumana } from "./okf";
+import { estadoAprovacaoHumana, lerVerificacoes } from "./okf";
 
 // A ingestão pela interface, sem HTTP: o servidor orquestra o que a skill faz numa conversa.
 // Fonte em raw/ (ação da pessoa) → leitor → parada única (takeaways e páginas) → escritor →
@@ -154,11 +154,12 @@ export function invalidarAprovacaoVigente(conteudo: string, autor: string, agora
 
   let maiorData = agora.getTime();
   const fm = lerFrontmatter(conteudo);
-  if (fm && Array.isArray(fm.verified)) {
-    for (const v of fm.verified) {
-      if (typeof v === "object" && v !== null && "at" in v) {
-        const t = new Date(String(v.at)).getTime();
-        if (!Number.isNaN(t) && t >= maiorData) maiorData = t + 1000;
+  if (fm && fm.verified != null) {
+    const verificacoes = lerVerificacoes(fm.verified, "pagina");
+    for (const humana of verificacoes.humanas) {
+      if (humana !== null) {
+        const proximoSegundo = (humana.segundos + 1) * 1000;
+        if (proximoSegundo > maiorData) maiorData = proximoSegundo;
       }
     }
   }
