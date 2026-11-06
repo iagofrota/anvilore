@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { iniciarServidorUi } from "../src/ui/servidor/servidor";
@@ -112,6 +112,25 @@ test("Dado pasta de vault válida no O1 Quando envio POST /api/onboarding/pasta 
   const dados = await resp.json() as Record<string, unknown>;
   expect(dados.ok).toBe(true);
   expect(dados.inspecao).toBeDefined();
+});
+
+test("Dado onboarding.json ligado a raw Quando confirmo a pasta no O1 Então recusa e preserva os bytes brutos", async () => {
+  mkdirSync(join(raiz, ".anvilore"), { recursive: true });
+  const fonte = join(raiz, "raw/x.json");
+  const bytes = Buffer.from("{\r\n  \"concluido\": false\n}\n");
+  writeFileSync(fonte, bytes);
+  symlinkSync(fonte, join(raiz, ".anvilore/onboarding.json"));
+
+  const { chamar } = await servidor();
+  const resp = await chamar("/api/onboarding/pasta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pasta: raiz }),
+  });
+  expect(resp.status).toBe(400);
+  const dados = await resp.json() as { erro: string };
+  expect(dados.erro).toMatch(/onboarding|raw/i);
+  expect(readFileSync(fonte)).toEqual(bytes);
 });
 
 test("Dado pasta existente com conteúdo arbitrário Quando envio POST /api/onboarding/pasta Então recusa com erro", async () => {
@@ -413,6 +432,25 @@ test("Dado escolha de áreas no O3 Quando envio POST /api/onboarding/areas Entã
   const dados = await resp.json() as Record<string, unknown>;
   expect(dados.ok).toBe(true);
   expect(dados.criadas).toBeDefined();
+});
+
+test("Dado onboarding.json ligado a raw Quando escolho áreas no O3 Então recusa e preserva os bytes brutos", async () => {
+  mkdirSync(join(raiz, ".anvilore"), { recursive: true });
+  const fonte = join(raiz, "raw/x.json");
+  const bytes = Buffer.from("{\r\n  \"concluido\": false\n}\n");
+  writeFileSync(fonte, bytes);
+  symlinkSync(fonte, join(raiz, ".anvilore/onboarding.json"));
+
+  const { chamar } = await servidor();
+  const resp = await chamar("/api/onboarding/areas", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ areas: ["pessoal"] }),
+  });
+  expect(resp.status).toBe(400);
+  const dados = await resp.json() as { erro: string };
+  expect(dados.erro).toMatch(/onboarding|raw/i);
+  expect(readFileSync(fonte)).toEqual(bytes);
 });
 
 test("Dado agente indisponível Quando envio POST /api/onboarding/testar-agente Então devolve ok false com o motivo", async () => {

@@ -10,7 +10,7 @@ import { caminhoReal, dentroDe, estaEmRaw } from "./caminhos";
 import { areasDaWiki } from "./ui-fonte";
 import { caminhoWiki } from "./wiki-repo";
 
-function validarDestinoAnvilore(raiz: string, destino: string): void {
+export function validarDestinoAnvilore(raiz: string, destino: string): void {
   const raizAbs = resolve(raiz);
   const raizReal = realpathSync(raizAbs);
   const destinoAbs = resolve(destino);
@@ -24,18 +24,6 @@ function validarDestinoAnvilore(raiz: string, destino: string): void {
   if (!dentroDe(pastaReal, raizReal) || estaEmRaw(pastaReal)) {
     throw new Error("A pasta .anvilore precisa ficar dentro do cofre e fora de raw/.");
   }
-  try {
-    lstatSync(pastaAnvilore);
-  } catch (erro) {
-    if ((erro as NodeJS.ErrnoException).code !== "ENOENT") throw erro;
-  }
-
-  try {
-    lstatSync(destinoAbs);
-  } catch (erro) {
-    if ((erro as NodeJS.ErrnoException).code !== "ENOENT") throw erro;
-  }
-
   const destinoReal = caminhoReal(destinoAbs);
   if (!dentroDe(destinoReal, raizReal) || estaEmRaw(destinoReal)) {
     throw new Error("O arquivo de estado do onboarding precisa ficar dentro do cofre e fora de raw/.");
@@ -255,6 +243,7 @@ export async function inicializarIdentidade(
   const identidade = slug ? `human:${slug}` : "human:local";
 
   await mkdir(join(raiz, ".anvilore"), { recursive: true });
+  validarDestinoAnvilore(raiz, caminhoIdentidade);
   await writeFile(caminhoIdentidade, `${identidade}\n`, "utf8");
   return identidade;
 }
@@ -419,6 +408,7 @@ export async function concluirOnboarding(raiz: string): Promise<void> {
   const caminhoOnboarding = join(pastaAnvilore, "onboarding.json");
   validarDestinoAnvilore(raiz, caminhoOnboarding);
   await mkdir(pastaAnvilore, { recursive: true });
+  validarDestinoAnvilore(raiz, caminhoOnboarding);
   await writeFile(
     caminhoOnboarding,
     JSON.stringify({ concluido: true, concluidoEm: isoComOffset(new Date()), etapa: 4 }, null, 2),

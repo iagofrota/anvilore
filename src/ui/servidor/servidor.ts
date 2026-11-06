@@ -21,6 +21,7 @@ import {
   estadoOnboarding,
   inicializarAreasOnboarding,
   inspecionarPasta,
+  validarDestinoAnvilore,
   validarPastaVault,
 } from "../../lib/ui-onboarding";
 
@@ -264,8 +265,10 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
               }
               const inspecao = await inspecionarPasta(raiz, ambiente);
               const caminhoOnboarding = join(raiz, ".anvilore", "onboarding.json");
+              validarDestinoAnvilore(raiz, caminhoOnboarding);
               if (!inspecao.wikiPronta && !existsSync(caminhoOnboarding)) {
                 await mkdir(join(raiz, ".anvilore"), { recursive: true });
+                validarDestinoAnvilore(raiz, caminhoOnboarding);
                 await writeFile(caminhoOnboarding, JSON.stringify({ concluido: false }, null, 2), "utf8");
               }
               const estado = await estadoOnboarding(raiz, ambiente);
@@ -341,18 +344,16 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
               return json({ erro: "Lista de áreas inválida." }, 400);
             }
             try {
+              const caminhoOnboardingJson = join(raiz, ".anvilore", "onboarding.json");
+              validarDestinoAnvilore(raiz, caminhoOnboardingJson);
               const resultado = await inicializarAreasOnboarding(raiz, corpo.areas as string[], { removerExemplo: Boolean(corpo.removerExemplo) }, ambiente);
-              try {
-                const caminhoOnboardingJson = join(raiz, ".anvilore", "onboarding.json");
-                if (existsSync(caminhoOnboardingJson)) {
-                  const conteudo = JSON.parse(await readFile(caminhoOnboardingJson, "utf8")) as Record<string, unknown>;
-                  if (conteudo.concluido !== true) {
-                    conteudo.etapa = 4;
-                    await writeFile(caminhoOnboardingJson, JSON.stringify(conteudo, null, 2), "utf8");
-                  }
+              if (existsSync(caminhoOnboardingJson)) {
+                const conteudo = JSON.parse(await readFile(caminhoOnboardingJson, "utf8")) as Record<string, unknown>;
+                if (conteudo.concluido !== true) {
+                  conteudo.etapa = 4;
+                  validarDestinoAnvilore(raiz, caminhoOnboardingJson);
+                  await writeFile(caminhoOnboardingJson, JSON.stringify(conteudo, null, 2), "utf8");
                 }
-              } catch {
-                /* não bloqueia a criação de áreas se falhar gravação */
               }
               return json({ ok: true, ...resultado });
             } catch (erro) {
