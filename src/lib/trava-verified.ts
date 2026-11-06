@@ -209,6 +209,12 @@ export function encontrarRaizVault(
   if (ambiente.ANVILORE_DESTINO && ambiente.ANVILORE_DESTINO.trim()) {
     return resolve(ambiente.ANVILORE_DESTINO.trim());
   }
+  if (ambiente.ANVILORE_WIKI && ambiente.ANVILORE_WIKI.trim()) {
+    const paiWiki = dirname(resolve(ambiente.ANVILORE_WIKI.trim()));
+    if (temSchemaEWiki(paiWiki)) {
+      return paiWiki;
+    }
+  }
   return resolve(import.meta.dir, "../..");
 }
 
@@ -254,6 +260,15 @@ export function estaSobWiki(
   const cwdEfetivo = cwd ?? (typeof process !== "undefined" ? process.cwd() : raizPadrao);
   const abs = isAbsolute(caminhoAlvo) ? resolve(caminhoAlvo) : resolve(cwdEfetivo, caminhoAlvo);
   const real = resolverAncestralRealComResto(abs);
+
+  if (ambiente.ANVILORE_WIKI) {
+    const wikiEnv = resolve(ambiente.ANVILORE_WIKI);
+    let wikiEnvReal = wikiEnv;
+    try { wikiEnvReal = realpathSync.native(wikiEnv); } catch {}
+    if (dentroDe(abs, wikiEnv) || dentroDe(real, wikiEnv) || dentroDe(abs, wikiEnvReal) || dentroDe(real, wikiEnvReal)) {
+      return true;
+    }
+  }
 
   const candidatas = new Set<string>();
 
@@ -823,23 +838,68 @@ function alvoPodeSerWiki(
   raiz: string,
   ambiente: Record<string, string | undefined>
 ): boolean {
-  // 1. O texto cita wiki em qualquer lugar
-  if (/wiki/i.test(cmdTexto)) return true;
-
-  // 2. A base (cwd + workdir/dir_path) está dentro de <raiz>/wiki/
+  // 1. A base (cwd + workdir/dir_path) está dentro da wiki configurada ou padrão
   if (estaSobWiki(base, raiz, ambiente, base)) {
     return true;
   }
 
-  // 3. O comando contém cd/pushd (a base deixa de ser conhecida)
+  // 2. O comando contém cd/pushd (a base deixa de ser conhecida)
   if (/\b(?:cd|pushd)\b/i.test(cmdTexto)) return true;
 
-  // 4. O comando contém $(, crase, ( de subshell, eval, source/., ou variável $VAR/${…} em posição de caminho
+  // 3. O comando contém $(, crase, ( de subshell, eval, source/., ou variável $VAR/${…} em posição de caminho
   if (cmdTexto.includes("$(") || cmdTexto.includes("`") || cmdTexto.includes("(")) return true;
   if (/\beval\b/i.test(cmdTexto)) return true;
   if (/\bsource\b/i.test(cmdTexto)) return true;
   if (/(?:^|\s)\.(?:\s|$)/.test(cmdTexto)) return true;
   if (/\$[A-Za-z_]|\$\{[A-Za-z_]/.test(cmdTexto)) return true;
+
+  // 4. Redirecionamentos: decide por destino RESOLVIDO contra a raiz da wiki configurada (nunca por substring 'wiki')
+  const alvosRedir = extrairAlvosRedirecionamento(cmdTexto);
+  for (const alvo of alvosRedir) {
+    if (caminhoTocaWiki(alvo, base, raiz, ambiente)) {
+      return true;
+    }
+  }
+
+  // 5. Argumentos/palavras do comando: decide por destino RESOLVIDO contra a raiz da wiki configurada
+  try {
+    const tokens = tokenizar(cmdTexto);
+    for (const token of tokens) {
+      if (token.operador) continue;
+      const limpo = token.texto.replace(/^["']|["']$/g, "").trim();
+      if (!limpo) continue;
+      const candidatas = [limpo];
+      if (limpo.includes("=")) {
+        const posIgual = limpo.indexOf("=");
+        candidatas.push(limpo.slice(posIgual + 1).replace(/^["']|["']$/g, "").trim());
+      }
+      for (const cand of candidatas) {
+        if (!cand || cand.startsWith("-")) continue;
+        if (cand === "/dev/null" || cand === "&1" || cand === "&2" || cand.toLowerCase() === "nul") continue;
+        if (caminhoTocaWiki(cand, base, raiz, ambiente)) {
+          return true;
+        }
+      }
+    }
+  } catch {
+    const palavras = cmdTexto.split(/[\s;|&<>()]+/).filter(Boolean);
+    for (const p of palavras) {
+      const limpo = p.replace(/^["']|["']$/g, "").trim();
+      if (!limpo) continue;
+      const candidatas = [limpo];
+      if (limpo.includes("=")) {
+        const posIgual = limpo.indexOf("=");
+        candidatas.push(limpo.slice(posIgual + 1).replace(/^["']|["']$/g, "").trim());
+      }
+      for (const cand of candidatas) {
+        if (!cand || cand.startsWith("-")) continue;
+        if (cand === "/dev/null" || cand === "&1" || cand === "&2" || cand.toLowerCase() === "nul") continue;
+        if (caminhoTocaWiki(cand, base, raiz, ambiente)) {
+          return true;
+        }
+      }
+    }
+  }
 
   return false;
 }

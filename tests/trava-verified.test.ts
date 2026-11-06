@@ -1897,5 +1897,51 @@ describe("trava de verified nos quatro agentes", () => {
         rmSync(cofreTmp, { recursive: true, force: true });
       }
     }, 30_000);
+
+    test("Achado B: bloqueia redirecionamento para wiki configurada sem 'wiki' no caminho com cwd fora (exit 2), mantendo leitura com saída 0", async () => {
+      const pastaNotes = mkdtempSync(join(tmpdir(), "notes-custom-"));
+      const pastaFora = mkdtempSync(join(tmpdir(), "fora-"));
+      const originalEnv = process.env.ANVILORE_WIKI;
+      try {
+        writeFileSync(join(pastaNotes, "a.md"), "---\ntitle: A\n---\n");
+        process.env.ANVILORE_WIKI = pastaNotes;
+
+        // 1. Comando escreve em /notes/a.md com cwd fora e caminho sem 'wiki'
+        const cmdNotes = `printf "verified: - by: human:fraude\\n" > "${join(pastaNotes, "a.md")}"`;
+        const resNotes = await executarProtecao(JSON.stringify({
+          cwd: pastaFora,
+          tool_name: "Bash",
+          tool_input: { command: cmdNotes },
+        }));
+        expect(resNotes).toBe(2);
+
+        // Regressão 1: gravação fora da wiki configurada continua exit 0
+        const arqFora = join(pastaFora, "teste.txt");
+        const cmdFora = `printf "verified: - by: human:fraude\\n" > "${arqFora}"`;
+        const resFora = await executarProtecao(JSON.stringify({
+          cwd: pastaFora,
+          tool_name: "Bash",
+          tool_input: { command: cmdFora },
+        }));
+        expect(resFora).toBe(0);
+
+        // Regressão 2: leitura da wiki configurada sem 'wiki' no caminho continua exit 0
+        const cmdLeitura = `cat "${join(pastaNotes, "a.md")}"`;
+        const resLeitura = await executarProtecao(JSON.stringify({
+          cwd: pastaFora,
+          tool_name: "Bash",
+          tool_input: { command: cmdLeitura },
+        }));
+        expect(resLeitura).toBe(0);
+      } finally {
+        if (originalEnv === undefined) {
+          delete process.env.ANVILORE_WIKI;
+        } else {
+          process.env.ANVILORE_WIKI = originalEnv;
+        }
+        rmSync(pastaNotes, { recursive: true, force: true });
+        rmSync(pastaFora, { recursive: true, force: true });
+      }
+    }, 30_000);
   });
 });
