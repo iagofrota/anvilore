@@ -1,5 +1,6 @@
-import { lstatSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { gravarArquivoWikiSync } from "../lib/escrita-segura";
 import { diretorioDeTipo, nomeReservado } from "../lib/reservados";
 import { ErroDeEncoding, lerUtf8EstritoSync } from "../lib/utf8";
 
@@ -117,7 +118,7 @@ export async function sincronizarIndice(wiki: string, opcoes: { checar?: boolean
       defasadas.push(entrada.name);
     } else {
       try {
-        writeFileSync(indice, texto.slice(0, inicio) + novo + texto.slice(fim));
+        gravarArquivoWikiSync(wiki, indice, texto.slice(0, inicio) + novo + texto.slice(fim));
       } catch (erro) {
         // O `path` do erro varia por sistema (no Windows pode ser a pasta): a mensagem nomeia o alvo.
         throw new Error(`${indice}: ${(erro as Error).message}`);

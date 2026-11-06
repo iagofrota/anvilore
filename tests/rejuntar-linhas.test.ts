@@ -212,6 +212,29 @@ describe("rejuntar-linhas: execução real", () => {
     expect(hashDe(caminho)).toBe(antes);
     expect(r.erro).toContain("0/1 arquivos mudaram.");
   });
+
+  test.skipIf(process.platform === "win32")(
+    "Dado arquivo com permissões 0600 e 0640, Quando rejunto linhas com regravação, Então preserva o modo exato do arquivo",
+    async () => {
+      const umaskOriginal = process.umask(0o022);
+      try {
+        for (const modoEsperado of [0o600, 0o640]) {
+          const caminho = join(pasta, `rejuntar-modo-${modoEsperado.toString(8)}.md`);
+          writeFileSync(caminho, "Linha uma que continua\nna linha dois.\n");
+          chmodSync(caminho, modoEsperado);
+
+          const r = await rejuntarLinhas(caminho);
+          expect(r.mudariam).toEqual([caminho]);
+
+          const stat = statSync(caminho);
+          expect(stat.mode & 0o777).toBe(modoEsperado);
+          expect(readFileSync(caminho, "utf8")).toBe("Linha uma que continua na linha dois.\n");
+        }
+      } finally {
+        process.umask(umaskOriginal);
+      }
+    },
+  );
 });
 
 describe("rejuntar-linhas: diretório como alvo", () => {
@@ -250,15 +273,50 @@ describe("rejuntar-linhas: diretório como alvo", () => {
   });
 
   test.skipIf(process.platform === "win32")(
-    "Dado um symlink para .md, Quando varro, Então o alvo do link é lido e reescrito (stat segue o link)",
+    "Dado um symlink para .md, Quando varro, Então o link é lido mas pulado com aviso na gravação e o alvo permanece inalterado",
     async () => {
       const real = join(pasta, "real.md");
       writeFileSync(real, "a\nb\n");
       mkdirSync(join(pasta, "dir"));
       symlinkSync(real, join(pasta, "dir", "link.md"));
-      const r = await rejuntarLinhas(join(pasta, "dir"));
-      expect(r.mudariam).toEqual([join(pasta, "dir", "link.md")]);
-      expect(readFileSync(real, "utf8")).toBe("a b\n");
+      const r = await capturar(() => comandoRejuntarLinhas([join(pasta, "dir")]));
+      expect(r.codigo).toBe(0);
+      expect(r.erro).toContain("AVISO:");
+      expect(readFileSync(real, "utf8")).toBe("a\nb\n");
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "Dado symlink para fora da pasta alvo, Quando rejunto linhas, Então o alvo do link permanece inalterado",
+    async () => {
+      const fora = join(tmpdir(), `anvilore-fora-${Date.now()}.md`);
+      try {
+        writeFileSync(fora, "x\ny\n");
+        mkdirSync(join(pasta, "wiki"));
+        symlinkSync(fora, join(pasta, "wiki", "link.md"));
+        const r = await capturar(() => comandoRejuntarLinhas([join(pasta, "wiki")]));
+        expect(r.codigo).toBe(0);
+        expect(r.erro).toContain("AVISO:");
+        expect(readFileSync(fora, "utf8")).toBe("x\ny\n");
+      } finally {
+        rmSync(fora, { force: true });
+      }
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "Dado symlink para raw/fonte.md, Quando rejunto linhas, Então raw/ permanece inalterado",
+    async () => {
+      const raw = join(pasta, "raw");
+      mkdirSync(raw, { recursive: true });
+      const fonte = join(raw, "fonte.md");
+      writeFileSync(fonte, "x\ny\n");
+      mkdirSync(join(pasta, "wiki"));
+      symlinkSync(fonte, join(pasta, "wiki", "link.md"));
+      const r = await capturar(() => comandoRejuntarLinhas([join(pasta, "wiki")]));
+      expect(r.codigo).toBe(0);
+      expect(r.erro).toContain("AVISO:");
+      expect(readFileSync(fonte, "utf8")).toBe("x\ny\n");
     },
   );
 

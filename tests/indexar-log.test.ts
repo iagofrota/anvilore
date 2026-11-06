@@ -296,6 +296,34 @@ test.skipIf(semLink)(
   },
 );
 
+test.skipIf(semLink)(
+  "Dado wiki/log.md como symlink para fora da wiki, Quando indexo, Então recusa a escrita e preserva o arquivo externo",
+  async () => {
+    montarDias();
+    const fora = join(temporario, "fora.md");
+    writeFileSync(fora, "CONTEUDO_FORA\n");
+    symlinkSync(fora, join(wiki, "log.md"));
+    const r = await capturar(() => comandoIndexarLog([wiki]));
+    expect(r.codigo).not.toBe(0);
+    expect(readFileSync(fora, "utf8")).toBe("CONTEUDO_FORA\n");
+  },
+);
+
+test.skipIf(semLink)(
+  "Dado wiki/log.md como symlink para raw/fonte.md, Quando indexo, Então recusa a escrita e preserva raw/",
+  async () => {
+    montarDias();
+    const raw = join(temporario, "raw");
+    mkdirSync(raw, { recursive: true });
+    const fonte = join(raw, "fonte.md");
+    writeFileSync(fonte, "CONTEUDO_RAW\n");
+    symlinkSync(fonte, join(wiki, "log.md"));
+    const r = await capturar(() => comandoIndexarLog([wiki]));
+    expect(r.codigo).not.toBe(0);
+    expect(readFileSync(fonte, "utf8")).toBe("CONTEUDO_RAW\n");
+  },
+);
+
 test("Dado módulo portado, Quando confiro o rodapé, Então preservo os quatro elementos da atribuição B8", () => {
   const codigo = readFileSync(join(import.meta.dir, "..", "src", "comandos", "indexar-log.ts"), "utf8");
   const rodape = codigo.split("\n").slice(-5).join("\n");

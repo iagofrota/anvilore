@@ -289,3 +289,33 @@ test("Dado um erro de escrita cujo path aponta para a pasta (como no Windows), Q
     escrita.mockRestore();
   }
 });
+
+const semLink = process.platform === "win32";
+
+test.skipIf(semLink)(
+  "Dado índice da área como symlink para fora da wiki, Quando sincronizo índice, Então recusa a escrita e preserva o arquivo externo",
+  async () => {
+    const fora = join(raiz, "fora.md");
+    writeFileSync(fora, "# Indice\n\n_1 página, 1 fonte, 1 entidade, 1 conceito — Última atualização: 2020-01-01_\n");
+    rmSync(indice);
+    symlinkSync(fora, indice);
+    const r = await capturar(() => comandoSincronizarIndice([wiki]));
+    expect(r.valor).toBe(1);
+    expect(readFileSync(fora, "utf8")).toContain("2020-01-01");
+  },
+);
+
+test.skipIf(semLink)(
+  "Dado índice da área como symlink para raw/fonte.md, Quando sincronizo índice, Então recusa a escrita e preserva raw/",
+  async () => {
+    const raw = join(raiz, "raw");
+    mkdirSync(raw, { recursive: true });
+    const fonte = join(raw, "fonte.md");
+    writeFileSync(fonte, "# Indice\n\n_1 página, 1 fonte, 1 entidade, 1 conceito — Última atualização: 2020-01-01_\n");
+    rmSync(indice);
+    symlinkSync(fonte, indice);
+    const r = await capturar(() => comandoSincronizarIndice([wiki]));
+    expect(r.valor).toBe(1);
+    expect(readFileSync(fonte, "utf8")).toContain("2020-01-01");
+  },
+);

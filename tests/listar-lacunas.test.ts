@@ -308,3 +308,48 @@ test("Dado um erro de escrita cujo path aponta para a pasta (como no Windows), Q
     escrita.mockRestore();
   }
 });
+
+const semLink = process.platform === "win32";
+
+test.skipIf(semLink)(
+  "Dado wiki/_meta/lacunas.md como symlink para fora da wiki, Quando listo lacunas, Então recusa a escrita e preserva o arquivo externo",
+  async () => {
+    gravar("alfa/p.md", "> [!gap] Dúvida.\n");
+    const fora = join(raiz, "fora.md");
+    writeFileSync(fora, "CONTEUDO_FORA\n");
+    mkdirSync(join(wiki, "_meta"), { recursive: true });
+    symlinkSync(fora, join(wiki, "_meta", "lacunas.md"));
+    const r = await capturar(() => comandoListarLacunas([wiki]));
+    expect(r.codigo).toBe(2);
+    expect(readFileSync(fora, "utf8")).toBe("CONTEUDO_FORA\n");
+  },
+);
+
+test.skipIf(semLink)(
+  "Dado wiki/_meta/lacunas.md como symlink para raw/fonte.md, Quando listo lacunas, Então recusa a escrita e preserva raw/",
+  async () => {
+    gravar("alfa/p.md", "> [!gap] Dúvida.\n");
+    const raw = join(raiz, "raw");
+    mkdirSync(raw, { recursive: true });
+    const fonte = join(raw, "fonte.md");
+    writeFileSync(fonte, "CONTEUDO_RAW\n");
+    mkdirSync(join(wiki, "_meta"), { recursive: true });
+    symlinkSync(fonte, join(wiki, "_meta", "lacunas.md"));
+    const r = await capturar(() => comandoListarLacunas([wiki]));
+    expect(r.codigo).toBe(2);
+    expect(readFileSync(fonte, "utf8")).toBe("CONTEUDO_RAW\n");
+  },
+);
+
+test.skipIf(semLink)(
+  "Dado wiki/_meta como symlink de diretório para raw, Quando listo lacunas, Então recusa a escrita e nada é gravado em raw",
+  async () => {
+    gravar("alfa/p.md", "> [!gap] Dúvida.\n");
+    const raw = join(raiz, "raw");
+    mkdirSync(raw, { recursive: true });
+    symlinkSync(raw, join(wiki, "_meta"));
+    const r = await capturar(() => comandoListarLacunas([wiki]));
+    expect(r.codigo).toBe(2);
+    expect(existsSync(join(raw, "lacunas.md"))).toBe(false);
+  },
+);
