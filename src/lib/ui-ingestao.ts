@@ -18,6 +18,11 @@ import { caminhoWiki } from "./wiki-repo";
 import { lerFrontmatter } from "./frontmatter";
 import { estadoAprovacaoHumana, lerVerificacoes } from "./okf";
 
+function carimboLocalComMilissegundos(data: Date): string {
+  const local = isoComOffset(data).slice(0, 19);
+  return `${local}${String(data.getMilliseconds()).padStart(3, "0")}`.replace(/[-:]/g, "").replace("T", "-");
+}
+
 // A ingestão pela interface, sem HTTP: o servidor orquestra o que a skill faz numa conversa.
 // Fonte em raw/ (ação da pessoa) → leitor → parada única (takeaways e páginas) → escritor →
 // `fechar` rodado aqui, com a saída real → Revisão. Cada fase é uma execução da ponte; o estado
@@ -297,7 +302,7 @@ export class IngestaoNaInterface {
 
   private async iniciarConversa(fonte: string, area: string, bytes: number): Promise<Conversa> {
     const agora = this.agora();
-    const carimbo = isoComOffset(agora).slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
+    const carimbo = carimboLocalComMilissegundos(agora);
     const conversa: Conversa = {
       versao: 1, id: `${carimbo}-${randomBytes(3).toString("hex")}`, criadaEm: agora.toISOString(), atualizadaEm: agora.toISOString(),
       area, fonte, nome: basename(fonte), bytes,
@@ -581,12 +586,15 @@ export class IngestaoNaInterface {
       if (this.encerrando) throw new ErroDeIngestao("A interface está encerrando.", 409);
 
       const agora = this.agora();
-      const carimbo = agora.toISOString().slice(0, 23).replace(/[-:.]/g, "").replace("T", "-");
+      const carimbo = carimboLocalComMilissegundos(agora);
       const id = `${carimbo}-${randomBytes(3).toString("hex")}`;
 
       // A linha de base da aba Mudanças: preserva a cópia original da página fora do git antes da primeira escrita
       const copiaExistente = await caminhoDaCopia(this.raiz, dados.caminho);
-      const aprovacaoVigente = estadoAprovacaoHumana(lerFrontmatter(conteudo) ?? {}) === "vigente";
+      let aprovacaoVigente = false;
+      try {
+        aprovacaoVigente = estadoAprovacaoHumana(lerFrontmatter(conteudo) ?? {}) === "vigente";
+      } catch { /* frontmatter malformado é revisão pendente, não impede abrir o ajuste */ }
       if (!copiaExistente || aprovacaoVigente) {
         const copia = join(this.raiz, ".anvilore/ui/copias", id, dados.caminho);
         await mkdir(dirname(copia), { recursive: true });

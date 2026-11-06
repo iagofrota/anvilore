@@ -4,6 +4,7 @@ import * as arquivos from "node:fs/promises";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { caminhoDaCopia } from "../src/lib/ui-fila";
 import type { FimDaFase, PonteDeAgente } from "../src/lib/ponte-agente";
 import { FONTE, relatorioValido, SESSAO } from "./apoio/ingestao-exemplo";
 import { PonteFalsa, type Roteiro } from "./apoio/ponte-falsa";
@@ -47,6 +48,37 @@ const leitorValido = (relatorio: unknown = relatorioValido()): Roteiro => async 
   aoEvento({ tipo: "texto", texto: "Li a fonte inteira." });
   return { situacao: "concluida", sessao: SESSAO, saidaEstruturada: relatorio, texto: "", recusas: [] };
 };
+
+test("Dado uma ingestão depois de um ajuste em São Paulo Quando indexo cópias Então a ingestão mais recente vence apesar da hora UTC menor no nome antigo", async () => {
+  const tzAnterior = process.env.TZ;
+  process.env.TZ = "America/Sao_Paulo";
+  try {
+    const conteudoAprovado = "---\ntype: concept\nslug: segundo-cerebro\ntitle: Segundo cérebro\ngenerated:\n  by: agente/teste\n  at: 2026-11-06T16:00:00-03:00\nverified:\n  by: human:iago\n  at: 2026-11-06T17:00:00-03:00\n---\nTexto aprovado.";
+    writeFileSync(join(wiki, "pessoal/concepts/segundo-cerebro.md"), conteudoAprovado);
+    agora = new Date("2026-11-06T22:30:00.123Z");
+    const ponte = new PonteFalsa({ leitor: leitorValido() });
+    const ingestao = servico(ponte);
+    const ajuste = await ingestao.ajustar({
+      caminho: "pessoal/concepts/segundo-cerebro.md",
+      versao: createHash("sha256").update(conteudoAprovado).digest("hex"),
+      pedido: "Ajustar a página",
+    });
+    await ingestao.esperar(ajuste.id);
+
+    agora = new Date("2026-11-06T23:00:00.456Z");
+    const conversa = await comFonte(ingestao);
+    await ingestao.ler(conversa.id);
+    await ingestao.esperar(conversa.id);
+    await ingestao.seguir(conversa.id, { takeaways: [0, 1, 2, 3], paginas: [0, 2], comentario: "" });
+    await ingestao.esperar(conversa.id);
+
+    expect(await caminhoDaCopia(raiz, "pessoal/concepts/segundo-cerebro.md"))
+      .toBe(join(raiz, ".anvilore/ui/copias", conversa.id, "pessoal/concepts/segundo-cerebro.md"));
+  } finally {
+    if (tzAnterior === undefined) delete process.env.TZ;
+    else process.env.TZ = tzAnterior;
+  }
+});
 
 async function naParada(ponte: PonteFalsa, ingestao = servico(ponte)) {
   const conversa = await comFonte(ingestao);

@@ -52,6 +52,21 @@ async function subirServidor(ponte = new PonteFalsa(), fecharRetorno = { codigo:
 }
 
 describe("Servidor UI — Pedir ajuste na Revisão", () => {
+  test("Dado frontmatter malformado Quando peço ajuste Então a cópia-base é preservada e o ajuste começa", async () => {
+    const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
+    const conteudo = "---\ntype: [malformado\n---\nTexto que ainda pode receber ajuste.";
+    writeFileSync(join(raiz, "wiki", caminhoRelativo), conteudo);
+    const { postar } = await subirServidor();
+    const resposta = await postar("/api/ajuste", {
+      caminho: caminhoRelativo,
+      versao: createHash("sha256").update(conteudo).digest("hex"),
+      pedido: "Ajustar mesmo com frontmatter inválido",
+    });
+    expect(resposta.status).toBe(201);
+    const { id } = await resposta.json() as { id: string };
+    expect(readFileSync(join(raiz, ".anvilore/ui/copias", id, caminhoRelativo), "utf8")).toBe(conteudo);
+  });
+
   test("Dado ajuste aprovado Quando peço outro ajuste Então Mudanças usa a página aprovada como nova base", async () => {
     const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
     const inicial = [
