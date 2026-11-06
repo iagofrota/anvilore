@@ -5,23 +5,85 @@ export const TEMPO_MS = 30_000;
 export const MAX_REDIRECIONAMENTOS = 5;
 export type Pagina = { urlFinal: string; status: number; tipo: string; charset?: string; bytes: Uint8Array };
 export type FalhaCaptura = { motivo: string };
-function normalizarIp(ip: string): string {
- try { return new URL(`http://[${ip.replace(/^\[|\]$/g, "")}]`).hostname.slice(1,-1); } catch { return ip; }
+function parseIpv6(ip: string): number[] | null {
+ try {
+  const n = new URL(`http://[${ip.replace(/^\[|\]$/g, "")}]`).hostname.slice(1, -1);
+  const partes = n.split("::");
+  if (partes.length > 2) return null;
+  const antes = partes[0] ? partes[0].split(":").map(h => parseInt(h, 16)) : [];
+  const depois = partes.length === 2 && partes[1] ? partes[1].split(":").map(h => parseInt(h, 16)) : [];
+  const faltam = 8 - (antes.length + depois.length);
+  if (faltam < 0) return null;
+  return [...antes, ...Array(faltam).fill(0), ...depois];
+ } catch { return null; }
 }
-function ipv4(ip: string): string {
- const n=normalizarIp(ip);
- const m=/^::ffff:([a-f\d]+):([a-f\d]+)$/i.exec(n);
- if(!m) return n;
- const a=parseInt(m[1]!,16),b=parseInt(m[2]!,16); return `${a>>8}.${a&255}.${b>>8}.${b&255}`;
+function ipv4Proibido(ip: string): boolean {
+ if (isIP(ip) !== 4) return true;
+ const [a, b, c, d] = ip.split('.').map(Number);
+ if (a === undefined || b === undefined || c === undefined || d === undefined) return true;
+ if (a === 0 || a === 10 || a === 127) return true;
+ if (a === 100 && b >= 64 && b <= 127) return true;
+ if (a === 169 && b === 254) return true;
+ if (a === 172 && b >= 16 && b <= 31) return true;
+ if (a === 192 && b === 0 && (c === 0 || c === 2)) return true;
+ if (a === 192 && b === 88 && c === 99) return true;
+ if (a === 192 && b === 168) return true;
+ if (a === 198 && (b === 18 || b === 19)) return true;
+ if (a === 198 && b === 51 && c === 100) return true;
+ if (a === 203 && b === 0 && c === 113) return true;
+ if (a >= 224) return true;
+ return false;
+}
+function extrairIpv4(ip: string, h: number[] | null): string | null {
+ if (isIP(ip) === 4) return ip;
+ if (!h) return null;
+ if (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0xffff) {
+  return `${h[6]! >> 8}.${h[6]! & 255}.${h[7]! >> 8}.${h[7]! & 255}`;
+ }
+ if (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0xffff && h[5] === 0) {
+  return `${h[6]! >> 8}.${h[6]! & 255}.${h[7]! >> 8}.${h[7]! & 255}`;
+ }
+ if (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0) {
+  if (h[6] === 0 && (h[7] === 0 || h[7] === 1)) return null;
+  return `${h[6]! >> 8}.${h[6]! & 255}.${h[7]! >> 8}.${h[7]! & 255}`;
+ }
+ if (h[0] === 0x64 && h[1] === 0xff9b && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0) {
+  return `${h[6]! >> 8}.${h[6]! & 255}.${h[7]! >> 8}.${h[7]! & 255}`;
+ }
+ if (h[0] === 0x64 && h[1] === 0xff9b && h[2] === 1 && h[3] === 0 && h[4] === 0 && h[5] === 0) {
+  return `${h[6]! >> 8}.${h[6]! & 255}.${h[7]! >> 8}.${h[7]! & 255}`;
+ }
+ if (h[0] === 0x2002) {
+  return `${h[1]! >> 8}.${h[1]! & 255}.${h[2]! >> 8}.${h[2]! & 255}`;
+ }
+ if (h[0] === 0x2001 && h[1] === 0) {
+  const s = `${h[2]! >> 8}.${h[2]! & 255}.${h[3]! >> 8}.${h[3]! & 255}`;
+  const c = `${(h[6]! ^ 0xffff) >> 8}.${(h[6]! ^ 0xffff) & 255}.${(h[7]! ^ 0xffff) >> 8}.${(h[7]! ^ 0xffff) & 255}`;
+  if (ipv4Proibido(s)) return s;
+  return c;
+ }
+ return null;
 }
 export function enderecoProibido(ip: string): boolean {
- const n=ipv4(ip);
- if(isIP(n)===4) {const [a,b]=n.split('.').map(Number);return a===0 || a===127 || a===10 || (a===172 && b!>=16 && b!<=31) || (a===192 && b===168) || (a===169 && b===254);}
- if(isIP(n)!==6) return true;
- const inicio=parseInt(n.split(':')[0]||'0',16);
- return n==='::' || n==='::1' || (inicio&0xfe00)===0xfc00 || (inicio&0xffc0)===0xfe80;
+ const h = parseIpv6(ip);
+ const v4 = extrairIpv4(ip, h);
+ if (v4) return ipv4Proibido(v4);
+ if (!h) return true;
+ if (h.every(x => x === 0)) return true;
+ if (h.slice(0, 7).every(x => x === 0) && h[7] === 1) return true;
+ if (h[0]! < 0x2000 || h[0]! > 0x3fff) return true;
+ if (h[0] === 0x2001 && (h[1]! & 0xfe00) === 0) return true;
+ if (h[0] === 0x2001 && h[1] === 0x0db8) return true;
+ if (h[0] === 0x3fff && (h[1]! & 0xf000) === 0) return true;
+ return false;
 }
-function loopback(ip: string): boolean {const n=ipv4(ip);return n==='::1' || (isIP(n)===4 && n.startsWith('127.'));}
+function loopback(ip: string): boolean {
+ const h = parseIpv6(ip);
+ const v4 = extrairIpv4(ip, h);
+ if (v4) return v4.startsWith("127.");
+ if (!h) return false;
+ return h.slice(0, 7).every(x => x === 0) && h[7] === 1;
+}
 type Opcoes = { teste?: boolean; resolver?: (host:string)=>Promise<string[]>; tempoMs?: number };
 export async function baixarPagina(url: string, opcoes: Opcoes): Promise<Pagina | FalhaCaptura> {
  const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),opcoes.tempoMs ?? TEMPO_MS);

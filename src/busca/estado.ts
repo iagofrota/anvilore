@@ -1,5 +1,5 @@
 import { lerFrontmatter } from "../lib/frontmatter";
-import { validarProveniencia } from "../lib/okf";
+import { ehMapa, estadoAprovacaoHumana, validarProveniencia } from "../lib/okf";
 
 export type Estado = "manual" | "verificada" | "rascunho";
 
@@ -15,11 +15,15 @@ export function estadoDaPagina(
   } catch {
     return { estado: "rascunho", vencida: false, frontmatter: null };
   }
-  const proveniencia = validarProveniencia(frontmatter ?? {}, arquivo, raiz, agora);
-  const estado = proveniencia.aprovadaPorHumano === null
-    ? "manual"
-    : proveniencia.aprovadaPorHumano
-      ? "verificada"
-      : "rascunho";
+  const fm = frontmatter ?? {};
+  const proveniencia = validarProveniencia(fm, arquivo, raiz, agora);
+  let estado: Estado;
+  if (fm.generated === undefined) {
+    estado = "manual";
+  } else if (!ehMapa(fm.generated)) {
+    estado = "rascunho";
+  } else {
+    estado = estadoAprovacaoHumana(fm) === "vigente" ? "verificada" : "rascunho";
+  }
   return { estado, vencida: proveniencia.vencida, frontmatter };
 }

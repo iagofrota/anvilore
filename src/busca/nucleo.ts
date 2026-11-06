@@ -9,6 +9,7 @@ import { estaEmRaw } from "../lib/caminhos";
 import { paginasMarkdown } from "../lib/paginas";
 import { ErroDeEncoding, lerUtf8Estrito } from "../lib/utf8";
 import { abrirMetricas, type Chamada, type RelatorioMetricas, type RegistroDeMetricas } from "./metricas";
+import { sanearTitulo } from "../mcp/instrucoes";
 import type { Aviso, CodigoErro, Endereco, ErroDeBusca, NucleoDeBusca, OpcoesBusca, RespostaBusca, ResumoDaWiki, Resultado, ResultadoOuErro, Trecho } from "./tipos";
 
 type ContextoMetricas = { cliente?: { nome: string; versao: string }; conexao?: string; posicaoLida?: number | null; buscaId?: string };
@@ -302,7 +303,9 @@ export function criarNucleo(cfg: Config): NucleoDeBusca {
         const porEstado = { manual: 0, verificada: 0, rascunho: 0 };
         for (const linha of db.query("SELECT estado, count(*) AS paginas FROM paginas GROUP BY estado").all() as { estado: string; paginas: number }[]) porEstado[estado(linha.estado)] = linha.paginas;
         const areas = db.query("SELECT area, count(*) AS paginas FROM paginas WHERE area IS NOT NULL GROUP BY area ORDER BY area").all() as { area: string; paginas: number }[];
-        const titulos = (db.query("SELECT titulo FROM paginas ORDER BY titulo LIMIT 12").all() as { titulo: string }[]).map((linha) => linha.titulo.normalize("NFC"));
+        const titulos = (db.query("SELECT titulo FROM paginas WHERE estado = 'verificada' AND categoria = 'conteudo' ORDER BY titulo LIMIT 12").all() as { titulo: string }[])
+          .map((linha) => sanearTitulo(linha.titulo))
+          .filter(Boolean);
         return { paginas: contagem.paginas, secoes: secoes.secoes, porEstado, areas, titulos };
       });
     } catch { return resumoVazio(); }

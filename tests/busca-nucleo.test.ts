@@ -211,3 +211,51 @@ test("Dado páginas com estados e áreas, Quando resume wiki, Então agrega cont
   expect(resumo).toMatchObject({ paginas: 2, secoes: 2, porEstado: { manual: 2, verificada: 0, rascunho: 0 } });
   expect(resumo.areas).toEqual([{ area: "saude", paginas: 1 }, { area: "tributos", paginas: 1 }]);
 });
+
+test("Dado páginas rascunho, meta e verificadas com títulos maliciosos, Quando resume wiki, Então filtra rascunho e meta e saneia títulos revisados", async () => {
+  const raiz = raizTemporaria();
+  escrever(raiz, "hostil.md", `${frontmatter({ generated: true, verified: false })}\n## H\ntexto`);
+  escrever(raiz, "index.md", `---\ntitle: Índice Geral\nslug: index\ntype: index\n---\n## I\ntexto`);
+  escrever(raiz, "log.md", `---\ntitle: Log da Wiki\nslug: log\ntype: index\n---\n## L\ntexto`);
+  escrever(raiz, "revisada.md", `---\ntitle: "Revisada\\ncom quebra\\x00e controle"\nslug: revisada\ntype: concept\ngenerated:\n  by: agent\n  at: '2026-01-01T00:00:00Z'\nverified:\n  by: human:iago\n  at: '2026-01-02T00:00:00Z'\n---\n## R\ntexto`);
+  escrever(raiz, "longa.md", `---\ntitle: "${"X".repeat(120)}"\nslug: longa\ntype: concept\ngenerated:\n  by: agent\n  at: '2026-01-01T00:00:00Z'\nverified:\n  by: human:iago\n  at: '2026-01-02T00:00:00Z'\n---\n## Longa\ntexto`);
+
+  const resumo = await nucleo(raiz).resumoDaWiki();
+  expect(resumo.titulos).not.toContain("Índice Geral");
+  expect(resumo.titulos).not.toContain("Log da Wiki");
+  expect(resumo.titulos.some(t => t.includes("Hostil") || t.includes("IBS"))).toBe(false);
+  expect(resumo.titulos).toEqual(["Revisada com quebra e controle", "X".repeat(80)]);
+});
+
+test("Dado páginas manual e verificada, Quando resume wiki, Então só verificada entra nos títulos do MCP", async () => {
+  const raiz = raizTemporaria();
+  escrever(raiz, "manual.md", `---\ntitle: Guia Manual\nslug: manual\ntype: concept\n---\n## M\ntexto`);
+  escrever(raiz, "verificada.md", `${frontmatter({ generated: true, verified: true })}\n## V\ntexto`);
+  escrever(raiz, "rascunho.md", `${frontmatter({ generated: true, verified: false })}\n## R\ntexto`);
+  const resumo = await nucleo(raiz).resumoDaWiki();
+  expect(resumo.titulos).not.toContain("Guia Manual");
+  expect(resumo.titulos).toContain("IBS");
+  expect(resumo.titulos.length).toBe(1);
+});
+
+test("Dado páginas MCP-06 (generated não-mapa) e MCP-07 (sem generated), Quando resume wiki, Então MCP-06 conta como rascunho em porEstado e ambas ficam fora dos títulos do MCP", async () => {
+  const raiz = raizTemporaria();
+  escrever(raiz, "mcp06-str.md", `---\ntitle: "Hostil String"\nslug: mcp06-str\ntype: concept\ngenerated: "agent"\n---\n## S\ntexto`);
+  escrever(raiz, "mcp06-arr.md", `---\ntitle: "Hostil Array"\nslug: mcp06-arr\ntype: concept\ngenerated: []\n---\n## A\ntexto`);
+  escrever(raiz, "mcp06-null.md", `---\ntitle: "Hostil Null"\nslug: mcp06-null\ntype: concept\ngenerated: null\n---\n## N\ntexto`);
+  escrever(raiz, "mcp06-num.md", `---\ntitle: "Hostil Num"\nslug: mcp06-num\ntype: concept\ngenerated: 42\n---\n## U\ntexto`);
+  escrever(raiz, "mcp07-sem-gen.md", `---\ntitle: "Manual Sem Generated"\nslug: mcp07-sem-gen\ntype: concept\n---\n## M\ntexto`);
+  escrever(raiz, "verificada.md", `${frontmatter({ generated: true, verified: true })}\n## V\ntexto`);
+
+  const resumo = await nucleo(raiz).resumoDaWiki();
+  expect(resumo.porEstado.rascunho).toBe(4);
+  expect(resumo.porEstado.manual).toBe(1);
+  expect(resumo.porEstado.verificada).toBe(1);
+
+  expect(resumo.titulos).toEqual(["IBS"]);
+  expect(resumo.titulos).not.toContain("Hostil String");
+  expect(resumo.titulos).not.toContain("Hostil Array");
+  expect(resumo.titulos).not.toContain("Hostil Null");
+  expect(resumo.titulos).not.toContain("Hostil Num");
+  expect(resumo.titulos).not.toContain("Manual Sem Generated");
+});

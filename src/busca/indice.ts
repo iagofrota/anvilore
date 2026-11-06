@@ -7,7 +7,7 @@ import { lerUtf8Estrito, lerUtf8EstritoSync } from "../lib/utf8";
 import { paginasMarkdown } from "../lib/paginas";
 import { comRetentativaSqlite } from "./sqlite-retry";
 
-export const VERSAO_ESQUEMA = 2;
+export const VERSAO_ESQUEMA = 3;
 export type RelatorioIndexacao = { paginas: number; secoes: number; reindexadas: number; removidas: number; puladas: number; ms: number };
 
 function criarEsquema(db: Database): void {

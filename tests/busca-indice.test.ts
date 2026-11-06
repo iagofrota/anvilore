@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync, renameSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync, renameSync, symlinkSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { abrirIndice, sincronizar } from "../src/busca/indice";
@@ -134,8 +134,38 @@ test("Dado nome de arquivo NFD, Quando indexa, Então armazena o caminho em NFC"
 test("Dado versão de esquema diferente, Quando abre o índice, Então reconstrói o esquema", () => {
   const f = fixture(); mkdirSync(join(f.raiz, ".anvilore")); const db = new Database(f.db); db.exec("PRAGMA user_version = 999"); db.close();
   const reconstruido = abrirIndice(f.db);
-  try { expect(reconstruido.query("PRAGMA user_version").get()).toEqual({ user_version: 2 }); expect(reconstruido.query("SELECT count(*) AS n FROM paginas").get()).toEqual({ n: 0 }); }
+  try { expect(reconstruido.query("PRAGMA user_version").get()).toEqual({ user_version: 3 }); expect(reconstruido.query("SELECT count(*) AS n FROM paginas").get()).toEqual({ n: 0 }); }
   finally { reconstruido.close(); }
+});
+
+test("Dado índice na versão 2 com página anteriormente verificada que a regra nova classifica como rascunho, Quando indexa incrementalmente, Então reconstrói o índice e reclassifica como rascunho", async () => {
+  const f = fixture();
+  const textoPagina = "---\ntitle: Antiga\ngenerated:\n  by: claude/3.5\nverified:\n  by: human:iago\n---\n## Conteúdo\ntexto da página";
+  const caminhoArquivo = join(f.wiki, "antiga.md");
+  writeFileSync(caminhoArquivo, textoPagina);
+  const st = statSync(caminhoArquivo);
+
+  mkdirSync(join(f.raiz, ".anvilore"), { recursive: true });
+  const dbV2 = new Database(f.db);
+  dbV2.exec("PRAGMA foreign_keys = ON");
+  dbV2.exec("CREATE TABLE paginas (caminho TEXT PRIMARY KEY, mtime REAL NOT NULL, tamanho INTEGER NOT NULL, slug TEXT, titulo TEXT, tipo TEXT, area TEXT, estado TEXT NOT NULL, vencida INTEGER NOT NULL, stale_after TEXT, categoria TEXT NOT NULL)");
+  dbV2.exec("CREATE TABLE secoes (id INTEGER PRIMARY KEY, caminho TEXT NOT NULL REFERENCES paginas(caminho) ON DELETE CASCADE, secao TEXT NOT NULL, linha_inicio INTEGER NOT NULL, linha_fim INTEGER NOT NULL, avisos TEXT NOT NULL, titulo TEXT NOT NULL, corpo TEXT NOT NULL, caminho_fts TEXT NOT NULL)");
+  dbV2.exec('CREATE VIRTUAL TABLE secoes_fts USING fts5(titulo, corpo, caminho, content="secoes", content_rowid="id", tokenize="unicode61 remove_diacritics 2")');
+  dbV2.run("INSERT INTO paginas (caminho, mtime, tamanho, slug, titulo, tipo, area, estado, vencida, stale_after, categoria) VALUES ('antiga.md', ?, ?, 'antiga', 'Antiga', 'concept', 'tributos', 'verificada', 0, NULL, 'conteudo')", [
+    st.mtimeMs,
+    st.size,
+  ]);
+  dbV2.exec("PRAGMA user_version = 2");
+  dbV2.close();
+
+  const db = abrirIndice(f.db);
+  try {
+    await sincronizar(db, f.wiki, f.raiz);
+    const registro = db.query("SELECT estado FROM paginas WHERE caminho = 'antiga.md'").get() as { estado: string } | null;
+    expect(registro?.estado).toBe("rascunho");
+  } finally {
+    db.close();
+  }
 });
 
 test("Dado versão antiga com objeto incompatível, Quando recria o esquema, Então desfaz a transação e falha", () => {

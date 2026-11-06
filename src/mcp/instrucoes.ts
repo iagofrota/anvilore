@@ -1,5 +1,15 @@
 import type { ResumoDaWiki } from "../busca/tipos";
 
+export function sanearTitulo(titulo: string): string {
+  return (titulo ?? "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80)
+    .normalize("NFC");
+}
+
 function limitarUtf8(texto: string, teto: number): string {
   let saida = "";
   for (const caractere of Array.from(texto)) {
@@ -12,7 +22,7 @@ function limitarUtf8(texto: string, teto: number): string {
 function resumoTexto(resumo: ResumoDaWiki): string {
   const base = `${resumo.paginas} páginas, ${resumo.secoes} seções; estados manual/verificada/rascunho ${resumo.porEstado.manual}/${resumo.porEstado.verificada}/${resumo.porEstado.rascunho}`;
   const areas = resumo.areas.map((item) => `${item.area}(${item.paginas})`).join(", ");
-  const titulos = resumo.titulos.join(", ");
+  const titulos = resumo.titulos.map(sanearTitulo).filter(Boolean).join(", ");
   const detalhado = `${base}. Áreas: ${areas || "nenhuma"}. Títulos: ${titulos || "nenhum"}.`;
   if (Buffer.byteLength(detalhado) <= 700) return detalhado;
   return limitarUtf8(`${base}. Áreas: ${areas || "nenhuma"}.`, 700);

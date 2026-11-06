@@ -1,5 +1,6 @@
 import { afterEach,expect,spyOn,test } from 'bun:test';
-import { readFile,writeFile,stat } from 'node:fs/promises';
+import { readFile,writeFile,stat,mkdtemp,rm,chmod,mkdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname,join } from 'node:path';
 import { ehYoutube,escolherLegenda,textoDoJson3 } from '../src/lib/youtube';
 import { avisoYtDlp,executarYtDlp } from '../src/lib/yt-dlp';
@@ -45,7 +46,121 @@ test('Dado executor com programa local, Quando executar, Então drena stdout e s
   expect(await executarYtDlp(['-e',"process.stdout.write('legenda teste')"])).toEqual({codigo:0,saida:'legenda teste'});
   expect(await executarYtDlp(['-e',"process.stderr.write('falha teste');process.exit(7)"])).toEqual({codigo:7,saida:'falha teste'});
  } finally {spy.mockRestore();}
-});
+}, { timeout: 30_000 });
+
+test('Dado yt-dlp.conf com --exec no cwd, Quando executarYtDlp roda, Então ignora a configuração externa e não executa o comando', async () => {
+ const pasta = await mkdtemp(join(tmpdir(), 'anvilore-ytdlp-'));
+ const canario = join(pasta, 'CANARIO_EXEC');
+ const conf = join(pasta, 'yt-dlp.conf');
+ await writeFile(conf, `--exec "pre_process:touch ${canario}"\n`);
+
+ const fakeScript = join(pasta, 'fake-ytdlp.ts');
+ await writeFile(fakeScript, `
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+const args = process.argv.slice(2);
+if (!args.includes('--ignore-config') && !args.includes('--no-config')) {
+ const c = join(process.cwd(), 'yt-dlp.conf');
+ if (existsSync(c)) {
+  const conteudo = readFileSync(c, 'utf8');
+  const m = /--exec\\s+["']?pre_process:touch\\s+([^"'\\r\\n]+)["']?/.exec(conteudo);
+  if (m && m[1]) {
+   writeFileSync(m[1].trim(), 'canario');
+  }
+ }
+}
+process.exit(0);
+`);
+ const fakeBin = join(pasta, process.platform === 'win32' ? 'fake-ytdlp.cmd' : 'fake-ytdlp.sh');
+ if (process.platform === 'win32') {
+  await writeFile(fakeBin, `@echo off\r\nbun run "${fakeScript}" %*\r\n`);
+ } else {
+  await writeFile(fakeBin, `#!/bin/sh\nexec bun run "${fakeScript}" "$@"\n`);
+  await chmod(fakeBin, 0o755);
+ }
+ const spy = spyOn(Bun, 'which').mockReturnValue(fakeBin);
+
+ const cwdAnterior = process.cwd();
+ process.chdir(pasta);
+ try {
+  const res = await executarYtDlp(['-s', '--', 'https://www.youtube.com/watch?v=exemplo']);
+  expect(res.codigo).toBe(0);
+  const executouCanario = await stat(canario).then(() => true, () => false);
+  expect(executouCanario).toBe(false);
+ } finally {
+  process.chdir(cwdAnterior);
+  spy.mockRestore();
+  await rm(pasta, { recursive: true, force: true });
+ }
+}, { timeout: 30_000 });
+
+const binReal = Bun.which('yt-dlp');
+const temYtDlp = Boolean(binReal);
+
+test.skipIf(!temYtDlp)('Dado yt-dlp real no PATH, Quando executar com configs em cwd, HOME ou --config-locations, Então ignora e não executa comandos', async () => {
+ const pasta = await mkdtemp(join(tmpdir(), 'anvilore-ytdlp-real-'));
+ const canCwd = join(pasta, 'CANARIO_CWD');
+ const canLoc = join(pasta, 'CANARIO_LOC');
+ const canHome = join(pasta, 'CANARIO_HOME');
+
+ // HOME isolado para o teste do yt-dlp (nunca escreve no HOME real)
+ const pastaHomeYtDlp = await mkdtemp(join(tmpdir(), 'anvilore-ytdlp-home-'));
+ const configDir = join(pastaHomeYtDlp, '.config', 'yt-dlp');
+ const configFile = join(configDir, 'config');
+ await mkdir(configDir, { recursive: true });
+ await writeFile(configFile, `--exec "pre_process:touch ${canHome}"\n`);
+
+ const winConfigDir = join(pastaHomeYtDlp, 'AppData', 'Roaming', 'yt-dlp');
+ const winConfigFile = join(winConfigDir, 'config');
+ await mkdir(winConfigDir, { recursive: true });
+ await writeFile(winConfigFile, `--exec "pre_process:touch ${canHome}"\n`);
+
+ const extraConf = join(pasta, 'extra.conf');
+ await writeFile(extraConf, `--exec "pre_process:touch ${canLoc}"\n`);
+ await writeFile(join(pasta, 'yt-dlp.conf'), `--exec "pre_process:touch ${canCwd}"\n--config-locations "${extraConf}"\n`);
+
+ // HOME falso do processo para provar que a suíte não cria nem altera nada sob ele
+ const homeProcessoFalso = await mkdtemp(join(tmpdir(), 'anvilore-processo-home-'));
+ const configHomeProcesso = join(homeProcessoFalso, '.config', 'yt-dlp', 'config');
+ await mkdir(dirname(configHomeProcesso), { recursive: true });
+ await writeFile(configHomeProcesso, '# config legitima do processo de teste\n');
+ const conteudoOriginalProcesso = await readFile(configHomeProcesso, 'utf8');
+
+ const srv = Bun.serve({
+  port: 0,
+  fetch() {
+   return new Response('<html><body><video src="test.mp4"></video></body></html>', {
+    headers: { 'content-type': 'text/html' },
+   });
+  },
+ });
+
+ const envSubprocesso = {
+  HOME: pastaHomeYtDlp,
+  XDG_CONFIG_HOME: join(pastaHomeYtDlp, '.config'),
+  APPDATA: join(pastaHomeYtDlp, 'AppData', 'Roaming'),
+  USERPROFILE: pastaHomeYtDlp,
+ };
+
+ const cwdAnterior = process.cwd();
+ process.chdir(pasta);
+ try {
+  const res = await executarYtDlp(['-s', '--', `http://127.0.0.1:${srv.port}/index.html`], { env: envSubprocesso });
+  expect(res.codigo).toBe(0);
+  expect(await stat(canCwd).then(() => true, () => false)).toBe(false);
+  expect(await stat(canLoc).then(() => true, () => false)).toBe(false);
+  expect(await stat(canHome).then(() => true, () => false)).toBe(false);
+  // Prova: arquivo sob o HOME do processo de teste não foi criado nem alterado
+  expect(await stat(configHomeProcesso).then(() => true, () => false)).toBe(true);
+  expect(await readFile(configHomeProcesso, 'utf8')).toBe(conteudoOriginalProcesso);
+ } finally {
+  process.chdir(cwdAnterior);
+  srv.stop(true);
+  await rm(pasta, { recursive: true, force: true });
+  await rm(pastaHomeYtDlp, { recursive: true, force: true });
+  await rm(homeProcessoFalso, { recursive: true, force: true });
+ }
+}, { timeout: 30_000 });
 
 test('Dado aviso de dependência, Quando compor relatório, Então o texto não duplica o prefixo AVISO',()=>{
  const spy=spyOn(Bun,'which').mockReturnValue(null);
