@@ -187,6 +187,56 @@ test("Dado a opção de remover o exemplo marcada Quando crio as áreas Então r
   expect(indice).not.toContain("exemplo");
 });
 
+test("Dado wiki/index.md apontando para raw Quando removo o exemplo Então recusa e preserva os bytes da fonte", async () => {
+  const fonte = join(raiz, "raw/original.md");
+  mkdirSync(join(raiz, "raw"), { recursive: true });
+  const bytes = Buffer.from("# Fonte original\r\nconteúdo preservado\n");
+  writeFileSync(fonte, bytes);
+  mkdirSync(join(raiz, "wiki/exemplo"), { recursive: true });
+  symlinkSync(fonte, join(raiz, "wiki/index.md"));
+  writeFileSync(join(raiz, "SCHEMA.md"), "# Schema\n");
+  writeFileSync(join(raiz, "AGENTS.md"), "# Agents\n");
+
+  await expect(inicializarAreasOnboarding(raiz, ["pessoal"], { removerExemplo: true })).rejects.toThrow();
+  expect(readFileSync(fonte)).toEqual(bytes);
+});
+
+test("Dado wiki/exemplo apontando para raw Quando removo o exemplo Então recusa e preserva a pasta bruta", async () => {
+  const bruto = join(raiz, "raw/pasta");
+  mkdirSync(bruto, { recursive: true });
+  const fonte = join(bruto, "original.md");
+  const bytes = Buffer.from("conteúdo bruto\r\n");
+  writeFileSync(fonte, bytes);
+  mkdirSync(join(raiz, "wiki"), { recursive: true });
+  symlinkSync(bruto, join(raiz, "wiki/exemplo"), "dir");
+  writeFileSync(join(raiz, "wiki/index.md"), "# Índice\n");
+  writeFileSync(join(raiz, "SCHEMA.md"), "# Schema\n");
+  writeFileSync(join(raiz, "AGENTS.md"), "# Agents\n");
+
+  await expect(inicializarAreasOnboarding(raiz, ["pessoal"], { removerExemplo: true })).rejects.toThrow();
+  expect(readFileSync(fonte)).toEqual(bytes);
+  expect(existsSync(join(raiz, "wiki/exemplo"))).toBe(true);
+});
+
+test("Dado um índice com exemplo-cliente e exemplo Quando removo o exemplo Então apaga apenas a área exata", () => {
+  const indice = `# Índice
+
+## Área: exemplo-cliente
+
+- [[exemplo-cliente/pagina]] — área cliente
+
+## Área: exemplo
+
+- [[exemplo/pagina]] — área de demonstração
+`;
+
+  const atualizado = removerSecaoExemploDoIndice(indice);
+  expect(atualizado).toContain("## Área: exemplo-cliente");
+  expect(atualizado).toContain("[[exemplo-cliente/pagina]]");
+  expect(atualizado).not.toContain("## Área: exemplo\n");
+  expect(atualizado).not.toContain("[[exemplo/pagina]]");
+});
+
 test("Dado índice com instruções e outras áreas Quando remove a seção de exemplo Então preserva prosa explicativa e remove apenas a seção de exemplo com subcabeçalhos", () => {
   const indiceOriginal = `# Índice
 
@@ -264,4 +314,16 @@ test("Dado a conclusão do onboarding Quando gravo o término Então salva em .a
   const conteudo = JSON.parse(readFileSync(join(raiz, ".anvilore/onboarding.json"), "utf8")) as Record<string, unknown>;
   expect(conteudo.concluido).toBe(true);
   expect(typeof conteudo.concluidoEm).toBe("string");
+});
+
+test("Dado onboarding.json apontando para raw Quando concluo o onboarding Então recusa e preserva os bytes brutos", async () => {
+  mkdirSync(join(raiz, ".anvilore"), { recursive: true });
+  mkdirSync(join(raiz, "raw"), { recursive: true });
+  const fonte = join(raiz, "raw/original.json");
+  const bytes = Buffer.from("{\r\n  \"fonte\": \"intacta\"\n}\n");
+  writeFileSync(fonte, bytes);
+  symlinkSync(fonte, join(raiz, ".anvilore/onboarding.json"));
+
+  await expect(concluirOnboarding(raiz)).rejects.toThrow();
+  expect(readFileSync(fonte)).toEqual(bytes);
 });

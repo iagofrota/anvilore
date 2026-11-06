@@ -1,12 +1,46 @@
 import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { diagnosticar } from "../comandos/doctor";
 import { inicializar, type ResultadoInit } from "../comandos/init";
 import { isoComOffset } from "./hora";
+import { gravarArquivoWiki, validarDiretorioWiki, validarEscritaNaWiki } from "./escrita-segura";
+import { caminhoReal, dentroDe, estaEmRaw } from "./caminhos";
 import { areasDaWiki } from "./ui-fonte";
 import { caminhoWiki } from "./wiki-repo";
+
+function validarDestinoAnvilore(raiz: string, destino: string): void {
+  const raizAbs = resolve(raiz);
+  const raizReal = realpathSync(raizAbs);
+  const destinoAbs = resolve(destino);
+  const rel = relative(raizAbs, destinoAbs);
+  if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    throw new Error("O caminho de estado do onboarding está fora do cofre.");
+  }
+
+  const pastaAnvilore = join(raizAbs, ".anvilore");
+  const pastaReal = caminhoReal(pastaAnvilore);
+  if (!dentroDe(pastaReal, raizReal) || estaEmRaw(pastaReal)) {
+    throw new Error("A pasta .anvilore precisa ficar dentro do cofre e fora de raw/.");
+  }
+  try {
+    lstatSync(pastaAnvilore);
+  } catch (erro) {
+    if ((erro as NodeJS.ErrnoException).code !== "ENOENT") throw erro;
+  }
+
+  try {
+    lstatSync(destinoAbs);
+  } catch (erro) {
+    if ((erro as NodeJS.ErrnoException).code !== "ENOENT") throw erro;
+  }
+
+  const destinoReal = caminhoReal(destinoAbs);
+  if (!dentroDe(destinoReal, raizReal) || estaEmRaw(destinoReal)) {
+    throw new Error("O arquivo de estado do onboarding precisa ficar dentro do cofre e fora de raw/.");
+  }
+}
 
 export type InspecaoItem = { existe: boolean; detalhe: string };
 export type InspecaoPasta = {
@@ -197,6 +231,7 @@ export async function inicializarIdentidade(
   ambiente: Record<string, string | undefined> = process.env,
 ): Promise<string> {
   const caminhoIdentidade = join(raiz, ".anvilore", "identidade");
+  validarDestinoAnvilore(raiz, caminhoIdentidade);
   try {
     const existente = (await readFile(caminhoIdentidade, "utf8")).trim();
     if (existente && /^human:[a-z0-9_-]+$/i.test(existente)) return existente;
@@ -322,7 +357,7 @@ export function removerSecaoExemploDoIndice(conteudo: string): string {
   let dentroDaSecaoExemplo = false;
 
   for (const linha of linhas) {
-    if (/^##\s+[AÁaá]rea:\s*exemplo\b/i.test(linha.trim())) {
+    if (/^##\s+[AÁaá]rea:\s*exemplo\s*(?:#+\s*)?$/i.test(linha.trim())) {
       dentroDaSecaoExemplo = true;
       continue;
     }
@@ -335,7 +370,7 @@ export function removerSecaoExemploDoIndice(conteudo: string): string {
       }
     }
 
-    if (/^\s*-\s*\[\[exemplo[\/|\]]/i.test(linha.trim())) {
+    if (/^\s*-\s*\[\[exemplo(?:\/|\||\]\])/i.test(linha.trim())) {
       continue;
     }
 
@@ -352,24 +387,27 @@ export async function inicializarAreasOnboarding(
   opcoes: { removerExemplo?: boolean } = {},
   ambiente: Record<string, string | undefined> = process.env,
 ): Promise<ResultadoInit> {
+  const wiki = caminhoWiki(raiz, ambiente);
+  const pastaExemplo = join(wiki, "exemplo");
+  const caminhoIndice = join(wiki, "index.md");
+  if (opcoes.removerExemplo) {
+    validarDiretorioWiki(wiki, pastaExemplo);
+    validarEscritaNaWiki(wiki, caminhoIndice);
+  }
+
   const resultado = await inicializar({ raiz, areas });
   await inicializarIdentidade(raiz, ambiente);
 
   if (opcoes.removerExemplo) {
-    const wiki = caminhoWiki(raiz, ambiente);
-    const pastaExemplo = join(wiki, "exemplo");
+    validarDiretorioWiki(wiki, pastaExemplo);
     if (existsSync(pastaExemplo)) {
       await rm(pastaExemplo, { recursive: true, force: true });
     }
-    const caminhoIndice = join(wiki, "index.md");
+    validarEscritaNaWiki(wiki, caminhoIndice);
     if (existsSync(caminhoIndice)) {
-      try {
-        const conteudo = await readFile(caminhoIndice, "utf8");
-        const indiceAtualizado = removerSecaoExemploDoIndice(conteudo);
-        await writeFile(caminhoIndice, indiceAtualizado, "utf8");
-      } catch {
-        /* se falhar leitura do índice, prossegue */
-      }
+      const conteudo = await readFile(caminhoIndice, "utf8");
+      const indiceAtualizado = removerSecaoExemploDoIndice(conteudo);
+      await gravarArquivoWiki(wiki, caminhoIndice, indiceAtualizado, { encoding: "utf8" });
     }
   }
 
@@ -378,9 +416,11 @@ export async function inicializarAreasOnboarding(
 
 export async function concluirOnboarding(raiz: string): Promise<void> {
   const pastaAnvilore = join(raiz, ".anvilore");
+  const caminhoOnboarding = join(pastaAnvilore, "onboarding.json");
+  validarDestinoAnvilore(raiz, caminhoOnboarding);
   await mkdir(pastaAnvilore, { recursive: true });
   await writeFile(
-    join(pastaAnvilore, "onboarding.json"),
+    caminhoOnboarding,
     JSON.stringify({ concluido: true, concluidoEm: isoComOffset(new Date()), etapa: 4 }, null, 2),
     "utf8",
   );

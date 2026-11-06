@@ -1,5 +1,5 @@
 ---
-generated: 2026-11-04
+generated: 2026-11-06
 ---
 
 # Interface local (`anvilore ui`)
@@ -77,8 +77,8 @@ A tela de Nota (`GET /api/nota?caminho=...`, `obterNota` em `src/lib/ui-nota.ts`
 O Onboarding conduz o primeiro uso em 4 etapas lineares (`GET /api/onboarding`, `src/lib/ui-onboarding.ts`):
 - **O1 · Vault:** confirmação do diretório do vault com contenção de caminho, sem sobrescrever pastas existentes que não pertençam ao Anvilore, inspecionando `wiki/`, `raw/`, `SCHEMA.md`, `AGENTS.md` e a presença do Bun no PATH (`POST /api/onboarding/pasta`).
 - **O2 · Agente:** verificação da conectividade com o Claude Code via `doctor` real (`POST /api/onboarding/testar-agente`). O Anvilore nunca pede nem guarda chaves de API, operando com a conta já configurada na máquina.
-- **O3 · Áreas:** escolha das áreas iniciais da wiki executando o `anvilore init` real de forma idempotente (`POST /api/onboarding/areas`). Não há campo de id: a identidade do revisor humano é derivada automaticamente do git (`git config user.name` normalizado ou `human:local`) e persistida em .anvilore/identidade. Há opção para remover a área de exemplo e limpar seus links do índice.
-- **O4 · Ingestão:** convite para a primeira ingestão com arquivo de exemplo (`POST /api/onboarding/ingerir-exemplo`) ou upload, levando ao Chat, com opção de pular direto para o Início. A conclusão é registrada em .anvilore/onboarding.json (`POST /api/onboarding/concluir`).
+- **O3 · Áreas:** escolha das áreas iniciais da wiki executando o `anvilore init` real de forma idempotente (`POST /api/onboarding/areas`). Não há campo de id: a identidade do revisor humano é derivada automaticamente do git (`git config user.name` normalizado ou `human:local`) e persistida em .anvilore/identidade. Há opção para remover a área de exemplo e limpar seus links do índice. A remoção recusa destinos simbólicos que saiam da wiki ou caiam em `raw/`, e só remove a seção cujo nome completo seja `exemplo`.
+- **O4 · Ingestão:** convite para a primeira ingestão com arquivo de exemplo (`POST /api/onboarding/ingerir-exemplo`) ou upload, levando ao Chat, com opção de pular direto para o Início. A conclusão é registrada em .anvilore/onboarding.json (`POST /api/onboarding/concluir`), com recusa de arquivos de estado ligados para fora do cofre ou para `raw/`.
 
 Se a wiki já estiver configurada ou o onboarding concluído, o acesso a `#/onboarding` redireciona automaticamente para o Início.
 
