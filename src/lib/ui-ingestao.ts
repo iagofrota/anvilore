@@ -744,8 +744,12 @@ export class IngestaoNaInterface {
         delete conversa.agora;
         await terminar(fim);
       })
-      .catch((erro: unknown) => {
-        Object.assign(conversa, { situacao: "erro", erro: `Falha inesperada: ${(erro as Error).message}` });
+      .catch(async (erro: unknown) => {
+        const mensagemOriginal = `Falha inesperada: ${(erro as Error).message}`;
+        if (conversa.tipo === "ajuste" && conversa.pagina) {
+          await this.tentarInvalidarAprovacaoSemMascarar(conversa);
+        }
+        Object.assign(conversa, { situacao: "erro", erro: mensagemOriginal });
       })
       .finally(async () => {
         this.ativa = undefined;
@@ -863,12 +867,22 @@ export class IngestaoNaInterface {
     }
   }
 
+  private async tentarInvalidarAprovacaoSemMascarar(conversa: Conversa): Promise<void> {
+    try {
+      await this.assegurarAprovacaoInvalidaSeMudou(conversa);
+    } catch (erro) {
+      const detalhe = erro instanceof Error ? erro.message : String(erro);
+      conversa.mensagens ??= [];
+      conversa.mensagens.push(`Não foi possível invalidar a aprovação após a escrita: ${detalhe}`);
+    }
+  }
+
   private async terminarEscrita(conversa: Conversa, fim: FimDaFase): Promise<void> {
+    if (conversa.tipo === "ajuste" && conversa.pagina) {
+      await this.tentarInvalidarAprovacaoSemMascarar(conversa);
+    }
     if (fim.situacao === "cancelada") { conversa.situacao = "cancelada"; return; }
     if (fim.situacao === "falhou") { Object.assign(conversa, { situacao: "erro", erro: fim.erro }); return; }
-    if (conversa.tipo === "ajuste" && conversa.pagina) {
-      await this.assegurarAprovacaoInvalidaSeMudou(conversa);
-    }
     // O servidor roda o fechamento e mostra a saída real: o "rodou" do agente não vale.
     Object.assign(conversa, { passo: "fechamento", agora: "Rodando anvilore fechar" });
     await this.salvar(conversa);

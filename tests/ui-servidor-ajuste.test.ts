@@ -52,6 +52,113 @@ async function subirServidor(ponte = new PonteFalsa(), fecharRetorno = { codigo:
 }
 
 describe("Servidor UI — Pedir ajuste na Revisão", () => {
+  async function criarAjusteComPaginaAprovada(escritor: (aoEvento: (evento: import("../src/lib/ponte-agente").EventoDoAgente) => void) => Promise<import("../src/lib/ponte-agente").FimDaFase>) {
+    const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
+    const conteudoInicial = [
+      "---",
+      "type: concept",
+      "slug: segundo-cerebro",
+      "title: Segundo cérebro",
+      "generated:",
+      "  by: claude-opus/2026-10",
+      "  at: 2026-10-26T14:35:00-03:00",
+      "verified:",
+      "  by: human:iago",
+      "  at: 2026-10-26T14:36:00-03:00",
+      "---",
+      "",
+      "Texto original aprovado.",
+    ].join("\n");
+    writeFileSync(join(raiz, "wiki", caminhoRelativo), conteudoInicial);
+    const versao = createHash("sha256").update(conteudoInicial).digest("hex");
+    const ponte = new PonteFalsa({ escritor: async (_pedido, aoEvento) => escritor(aoEvento) });
+    const { postar, chamar } = await subirServidor(ponte);
+    const resposta = await postar("/api/ajuste", { caminho: caminhoRelativo, versao, pedido: "Ajuste o texto" });
+    expect(resposta.status).toBe(201);
+    const { id } = (await resposta.json()) as { id: string };
+    let conversa: Conversa | undefined;
+    for (let i = 0; i < 30; i++) {
+      conversa = (await (await chamar(`/api/conversas/${id}`)).json()) as Conversa;
+      if (conversa.situacao !== "rodando") break;
+      await new Promise(r => setTimeout(r, 50));
+    }
+    return { chamar, conversa, caminhoRelativo, conteudoInicial };
+  }
+
+  function escreverCorpoAlterado(caminhoRelativo: string) {
+    return (aoEvento: (evento: import("../src/lib/ponte-agente").EventoDoAgente) => void) => {
+      aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-haiku/2.1.311" });
+      aoEvento({ tipo: "ferramenta", id: "w1", nome: "Edit", caminho: join(raiz, "wiki", caminhoRelativo) });
+      const alterado = [
+        "---",
+        "type: concept",
+        "slug: segundo-cerebro",
+        "title: Segundo cérebro",
+        "generated:",
+        "  by: claude-haiku/2.1.311",
+        "  at: 2026-10-26T14:35:00-03:00",
+        "verified:",
+        "  by: human:iago",
+        "  at: 2026-10-26T14:36:00-03:00",
+        "---",
+        "",
+        "Texto parcialmente alterado.",
+      ].join("\n");
+      writeFileSync(join(raiz, "wiki", caminhoRelativo), alterado);
+      aoEvento({ tipo: "resultado-ferramenta", id: "w1", erro: false, texto: "Editado" });
+    };
+  }
+
+  test("Dado que o escritor altera uma página aprovada e termina cancelado Então invalida a aprovação e a página entra na revisão", async () => {
+    const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
+    const fluxo = await criarAjusteComPaginaAprovada(async aoEvento => {
+      escreverCorpoAlterado(caminhoRelativo)(aoEvento);
+      return { situacao: "cancelada", recusas: [] };
+    });
+    const conteudo = readFileSync(join(raiz, "wiki", caminhoRelativo), "utf8");
+    expect(fluxo.conversa?.situacao).toBe("cancelada");
+    expect(conteudo).toContain("Texto parcialmente alterado.");
+    expect(estadoAprovacaoHumana(lerFrontmatter(conteudo)!)).not.toBe("vigente");
+    const fila = (await (await fluxo.chamar("/api/rascunhos")).json()) as Array<{ caminho: string }>;
+    expect(fila.some(item => item.caminho === caminhoRelativo)).toBe(true);
+  });
+
+  test("Dado que o escritor altera uma página aprovada e termina com falha Então invalida a aprovação e a página entra na revisão", async () => {
+    const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
+    const fluxo = await criarAjusteComPaginaAprovada(async aoEvento => {
+      escreverCorpoAlterado(caminhoRelativo)(aoEvento);
+      return { situacao: "falhou", erro: "falha original do escritor", recusas: [] };
+    });
+    const conteudo = readFileSync(join(raiz, "wiki", caminhoRelativo), "utf8");
+    expect(fluxo.conversa).toMatchObject({ situacao: "erro", erro: "falha original do escritor" });
+    expect(conteudo).toContain("Texto parcialmente alterado.");
+    expect(estadoAprovacaoHumana(lerFrontmatter(conteudo)!)).not.toBe("vigente");
+    const fila = (await (await fluxo.chamar("/api/rascunhos")).json()) as Array<{ caminho: string }>;
+    expect(fila.some(item => item.caminho === caminhoRelativo)).toBe(true);
+  });
+
+  test("Dado que o escritor altera uma página aprovada e a promessa rejeita Então invalida a aprovação e a página entra na revisão", async () => {
+    const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
+    const fluxo = await criarAjusteComPaginaAprovada(async aoEvento => {
+      escreverCorpoAlterado(caminhoRelativo)(aoEvento);
+      throw new Error("stream corrompido");
+    });
+    const conteudo = readFileSync(join(raiz, "wiki", caminhoRelativo), "utf8");
+    expect(fluxo.conversa).toMatchObject({ situacao: "erro", erro: "Falha inesperada: stream corrompido" });
+    expect(conteudo).toContain("Texto parcialmente alterado.");
+    expect(estadoAprovacaoHumana(lerFrontmatter(conteudo)!)).not.toBe("vigente");
+    const fila = (await (await fluxo.chamar("/api/rascunhos")).json()) as Array<{ caminho: string }>;
+    expect(fila.some(item => item.caminho === caminhoRelativo)).toBe(true);
+  });
+
+  test("Dado que o ajuste é cancelado sem alterar o arquivo Então preserva a aprovação e os bytes originais", async () => {
+    const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
+    const fluxo = await criarAjusteComPaginaAprovada(async () => ({ situacao: "cancelada", recusas: [] }));
+    const conteudoFinal = readFileSync(join(raiz, "wiki", caminhoRelativo), "utf8");
+    expect(conteudoFinal).toBe(fluxo.conteudoInicial);
+    expect(estadoAprovacaoHumana(lerFrontmatter(conteudoFinal)!)).toBe("vigente");
+  });
+
   test("Dado uma página na fila de revisão Quando peço ajuste com pedido válido Então cria conversa de ajuste com a versão (SHA) e página, e o escritor roda restrito àquela página", async () => {
     const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
     const conteudoInicial = [
