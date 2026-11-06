@@ -5,29 +5,64 @@ import { avisoDoFechamento, passosDoPainel, podeLerDeNovo, tamanhoLegivel, texto
 const CERTEZA: Record<string, string> = { provavel: "provável", inferencia: "inferência" };
 
 export type AcoesDaConversa = {
-  aoLer: () => void;
+  aoLer: (area?: string) => void;
   aoCancelar: () => void;
   aoSeguir: () => void;
   alternarTakeaway: (indice: number) => void;
   alternarPagina: (indice: number) => void;
   mudarComentario: (texto: string) => void;
+  aoMudarArea?: (area: string) => void;
 };
 
-type PropriedadesDaConversa = { conversa: Conversa; agente: string; ocupado: boolean; takeaways: boolean[]; paginas: boolean[]; comentario: string; acoes: AcoesDaConversa };
+type PropriedadesDaConversa = {
+  conversa: Conversa;
+  agente: string;
+  ocupado: boolean;
+  takeaways: boolean[];
+  paginas: boolean[];
+  comentario: string;
+  acoes: AcoesDaConversa;
+  areas?: string[];
+  areaEscolhida?: string;
+};
 
 // A conversa de uma ingestão, só a partir do estado: sem hooks nem chamadas à API, para ser testável sem navegador.
-export function ConversaDaIngestao({ conversa, agente, ocupado, takeaways, paginas, comentario, acoes }: PropriedadesDaConversa) {
+export function ConversaDaIngestao({
+  conversa,
+  agente,
+  ocupado,
+  takeaways,
+  paginas,
+  comentario,
+  acoes,
+  areas = [],
+  areaEscolhida = areas[0] ?? "",
+}: PropriedadesDaConversa) {
   const naParada = conversa.passo === "parada" && conversa.situacao === "esperando";
+  const precisaEscolherArea = conversa.passo === "fonte" && !conversa.area && areas.length > 0;
   return <>
     <Mensagem autor="Você">
       <p>Ingere esta fonte{conversa.area ? ` na área ${conversa.area}` : ""}.</p>
       <div className="file-card"><span className="file-icon">{conversa.nome.split(".").pop()?.slice(0, 4).toUpperCase() || "ARQ"}</span><span><strong>{conversa.nome}</strong><small>{tamanhoLegivel(conversa.bytes)}</small></span></div>
     </Mensagem>
     <div className="system-note"><span aria-hidden="true">🔒</span> Você salvou o arquivo em <code>{conversa.fonte}</code>. O agente lê <code>raw/</code>, nunca escreve.</div>
-    {conversa.passo === "fonte" && <div className="actions-row"><button className="approve-button" disabled={ocupado} onClick={acoes.aoLer}>Ingerir</button></div>}
+    {conversa.passo === "fonte" && <div className="actions-row">
+      {precisaEscolherArea && <label className="field">Área
+        <select value={areaEscolhida} onChange={e => acoes.aoMudarArea?.(e.target.value)}>
+          {areas.map(a => <option key={a}>{a}</option>)}
+        </select>
+      </label>}
+      <button
+        className="approve-button"
+        disabled={ocupado || (precisaEscolherArea && !areaEscolhida)}
+        onClick={() => acoes.aoLer(precisaEscolherArea ? areaEscolhida : undefined)}
+      >
+        Ingerir
+      </button>
+    </div>}
     {conversa.passo !== "fonte" && <Mensagem autor={agente} agente>
       <Leituras itens={conversa.atividade.filter(a => a.papel === "leitor")} />
-      {conversa.passo === "leitura" && <EstadoDaFase conversa={conversa} ocupado={ocupado} aoCancelar={acoes.aoCancelar} aoLerDeNovo={acoes.aoLer} />}
+      {conversa.passo === "leitura" && <EstadoDaFase conversa={conversa} ocupado={ocupado} aoCancelar={acoes.aoCancelar} aoLerDeNovo={() => acoes.aoLer()} />}
       {conversa.relatorio && <>
         <p>Li a fonte inteira. Estes são os pontos principais, cada um com o trecho que o sustenta. {naParada ? "Desmarque o que não deve entrar na wiki:" : ""}</p>
         {conversa.avisos.map(aviso => <div className="review-warning inline" role="note" key={aviso}>{aviso}</div>)}

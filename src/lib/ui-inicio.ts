@@ -62,7 +62,7 @@ function normalizarFonte(valor: string): string {
   return valor.trim().replaceAll("\\", "/").replace(/^(\.\/)+/, "");
 }
 
-async function fontesCitadas(wiki: string): Promise<Set<string>> {
+export async function fontesCitadas(wiki: string): Promise<Set<string>> {
   const citadas = new Set<string>();
   let paginas: string[];
   try { paginas = await paginasMarkdown(wiki); }

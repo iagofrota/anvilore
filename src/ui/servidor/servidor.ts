@@ -118,7 +118,16 @@ async function rotaDaConversa(request: Request, id: string, acao: string | undef
       return conversa ? json(conversa) : json({ mensagens: ["Ingestão não encontrada."] }, 404);
     }
     if (request.method !== "POST") return json({ mensagens: ["Não encontrado."] }, 404);
-    if (acao === "ler") return json(await ingestao.ler(id));
+    if (acao === "ler") {
+      let corpo: { area?: unknown } | undefined;
+      try {
+        if (request.headers.get("content-type")?.includes("application/json")) {
+          corpo = await request.json() as { area?: unknown };
+        }
+      } catch { /* corpo opcional */ }
+      const area = typeof corpo?.area === "string" ? corpo.area : undefined;
+      return json(await ingestao.ler(id, area));
+    }
     if (acao === "cancelar") return json(await ingestao.cancelar(id));
     let escolha: unknown;
     try { escolha = await request.json(); } catch { return json({ mensagens: ["Pedido inválido."] }, 400); }
@@ -229,6 +238,14 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
             } catch (erro) { return json({ mensagens: [(erro as Error).message], atualizador: await estadoAtualizador(raiz) }, 409); }
           }
           if (url.pathname === "/api/fontes" && request.method === "POST") return receberFonte(request, ingestao, new Date());
+          if (url.pathname === "/api/conversas/de-raw" && request.method === "POST") {
+            let corpo: { caminho?: unknown; area?: unknown };
+            try { corpo = await request.json() as { caminho?: unknown; area?: unknown }; } catch { return json({ mensagens: ["Pedido inválido."] }, 400); }
+            if (typeof corpo.caminho !== "string" || !corpo.caminho.trim()) return json({ mensagens: ["Caminho inválido."] }, 400);
+            const area = typeof corpo.area === "string" ? corpo.area : undefined;
+            try { return json(await ingestao.criarDeRaw(corpo.caminho, area), 201); }
+            catch (erro) { return erroDaIngestao(erro); }
+          }
           const daConversa = ROTA_DA_CONVERSA.exec(url.pathname);
           if (daConversa) return rotaDaConversa(request, daConversa[1]!, daConversa[2], ingestao);
           if (request.method === "GET" && (url.pathname === "/" || url.pathname.startsWith("/assets/"))) {

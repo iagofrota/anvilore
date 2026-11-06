@@ -166,3 +166,85 @@ test("[I5-11] Dado a pasta wiki ausente Quando abro o Início Então vejo o diag
   await expect(page.getByRole("link", { name: "Revisar rascunhos" })).toBeVisible();
   await expect(page.getByText("Lendo a wiki…")).toHaveCount(0);
 });
+
+test("[I5-12] Dado um arquivo em raw/ sem ingestão Quando clico em Ingerir no Início Então navega para o Chat da conversa criada e o arquivo em raw/ permanece intacto", async ({ page, app, vault }) => {
+  await vault.escrever("raw/pessoal/solta.md", "conteúdo original da fonte solta");
+  const rawAntes = await instantaneo(vault.raw);
+
+  await page.goto(app.url);
+  const cartao = page.getByRole("region", { name: "Em raw/, sem ingestão" });
+  await expect(cartao).toContainText("raw/pessoal/solta.md");
+
+  const deRaw = page.waitForResponse(resposta => resposta.url().includes("/api/conversas/de-raw") && resposta.request().method() === "POST");
+  await cartao.getByRole("button", { name: "Ingerir" }).click();
+  const respostaDeRaw = await deRaw;
+  expect(respostaDeRaw.status()).toBe(201);
+  const conversa = await respostaDeRaw.json() as { id: string; fonte: string; area: string };
+  expect(conversa.fonte).toBe("raw/pessoal/solta.md");
+  expect(conversa.area).toBe("pessoal");
+
+  await expect(page).toHaveURL(new RegExp(`#/chat/${conversa.id}$`));
+  await expect(page.getByRole("heading", { name: "Ingerir: solta.md", level: 1 })).toBeVisible();
+  await expect(page.getByText("Você salvou o arquivo em raw/pessoal/solta.md")).toBeVisible();
+
+  expect(mesmaArvore(rawAntes, await instantaneo(vault.raw))).toBe(true);
+});
+
+test("[I5-13] Dado um arquivo em subpasta de captura (como raw/notas/) Quando clico em Ingerir no Início Então navega para o Chat e exibe seleção de área da wiki", async ({ page, app, vault }) => {
+  await vault.escrever("raw/notas/captura.md", "conteúdo da captura rápida");
+
+  await page.goto(app.url);
+  const cartao = page.getByRole("region", { name: "Em raw/, sem ingestão" });
+  await expect(cartao).toContainText("raw/notas/captura.md");
+
+  const deRaw = page.waitForResponse(resposta => resposta.url().includes("/api/conversas/de-raw") && resposta.request().method() === "POST");
+  await cartao.getByRole("button", { name: "Ingerir" }).click();
+  const respostaDeRaw = await deRaw;
+  expect(respostaDeRaw.status()).toBe(201);
+  const conversa = await respostaDeRaw.json() as { id: string; fonte: string; area: string };
+  expect(conversa.fonte).toBe("raw/notas/captura.md");
+  expect(conversa.area).toBe("");
+
+  await expect(page).toHaveURL(new RegExp(`#/chat/${conversa.id}$`));
+  await expect(page.getByRole("heading", { name: "Ingerir: captura.md", level: 1 })).toBeVisible();
+  await expect(page.getByLabel("Área")).toBeVisible();
+  await expect(page.getByRole("combobox")).toHaveValue("pessoal");
+});
+
+test("[I5-14] Dado um arquivo em raw/ cujo caminho contém metacaracteres Quando abro o Início Então o botão Ingerir fica desabilitado e exibe a mensagem de renomear", async ({ page, app, vault }) => {
+  await vault.escrever("raw/pessoal/arquivo[1]!.md", "conteúdo com metacaractere no nome");
+
+  await page.goto(app.url);
+  const cartao = page.getByRole("region", { name: "Em raw/, sem ingestão" });
+  await expect(cartao).toContainText("raw/pessoal/arquivo[1]!.md");
+  await expect(cartao).toContainText("Renomeie o arquivo em raw/ para ingerir pelo botão");
+
+  const item = cartao.locator("li").filter({ hasText: "raw/pessoal/arquivo[1]!.md" });
+  const botaoIngerir = item.getByRole("button", { name: "Ingerir" });
+  await expect(botaoIngerir).toBeDisabled();
+  await expect(botaoIngerir).toHaveAttribute("title", "Renomeie o arquivo em raw/ para ingerir pelo botão");
+});
+
+test.describe("Vault com raiz contendo colchetes e exclamação (Notas[2026]!)", () => {
+  test.use({ prefixoDoVault: "anvilore-e2e-Notas[2026]!-" });
+
+  test("[I5-15] Dado um vault cuja raiz tem colchetes e exclamação no nome Quando clico em Ingerir no Início Então ingere pelo botão normalmente", async ({ page, app, vault }) => {
+    expect(vault.raiz).toContain("Notas[2026]!");
+    await vault.escrever("raw/pessoal/normal.md", "conteúdo normal em vault com raiz especial");
+
+    await page.goto(app.url);
+    const cartao = page.getByRole("region", { name: "Em raw/, sem ingestão" });
+    await expect(cartao).toContainText("raw/pessoal/normal.md");
+
+    const deRaw = page.waitForResponse(resposta => resposta.url().includes("/api/conversas/de-raw") && resposta.request().method() === "POST");
+    await cartao.getByRole("button", { name: "Ingerir" }).click();
+    const respostaDeRaw = await deRaw;
+    expect(respostaDeRaw.status()).toBe(201);
+    const conversa = await respostaDeRaw.json() as { id: string; fonte: string; area: string };
+    expect(conversa.fonte).toBe("raw/pessoal/normal.md");
+    expect(conversa.area).toBe("pessoal");
+
+    await expect(page).toHaveURL(new RegExp(`#/chat/${conversa.id}$`));
+    await expect(page.getByRole("heading", { name: "Ingerir: normal.md", level: 1 })).toBeVisible();
+  });
+});

@@ -15,9 +15,9 @@ export type Vault = {
   remover(): Promise<void>;
 };
 
-export async function criarVault(): Promise<Vault> {
+export async function criarVault(prefixo: string = "anvilore-e2e-"): Promise<Vault> {
   const tmp = await realpath(tmpdir());
-  const raiz = await mkdtemp(join(tmp, "anvilore-e2e-"));
+  const raiz = await mkdtemp(join(tmp, prefixo));
   const wiki = join(raiz, "wiki");
   const raw = join(raiz, "raw");
   const fora = join(tmp, `anvilore-e2e-fora-${randomBytes(5).toString("hex")}`);

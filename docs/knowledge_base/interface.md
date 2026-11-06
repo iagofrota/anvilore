@@ -42,7 +42,8 @@ garante que essa navegação já terminou (`e2e/specs/fluxo.e2e.ts`).
   que é o portão funcionando, não um erro. Os três só leem.
 - **Em raw/, sem ingestão:** arquivo de `raw/` que nenhuma página da wiki cita em `sources[].resource` nem em
   `original_file` (`fontesSemIngestao`). Link simbólico em `raw/` não é seguido. Se há uma conversa de ingestão aberta
-  para o arquivo, a linha oferece **Continuar**.
+  para o arquivo, a linha oferece **Continuar**; senão, oferece **Ingerir**, que abre o chat dessa conversa (`POST /api/conversas/de-raw`)
+  apontando para o arquivo já existente sem copiá-lo nem alterá-lo.
 
 A tela abre com um único `GET /api/inicio`, que traz tudo, inclusive a saúde (campo `saude`, com a mesma forma de
 `GET /api/saude`). O servidor valida a wiki uma vez por pedido e não guarda nada: `validarWiki` lê a wiki inteira de
@@ -85,7 +86,6 @@ A tela de Nota (`GET /api/nota?caminho=...`, `obterNota` em `src/lib/ui-nota.ts`
 ## O que não foi provado
 
 - O Início foi testado com o Claude Code falso e com Chromium. Não há prova em navegador no Windows nem no macOS.
-- **Ingerir** uma fonte que já está em `raw/` ainda não tem botão no Início: o Chat só cria a conversa a partir
-  de um arquivo ou texto enviado. Hoje a lista só informa e leva à conversa aberta.
+- **Ingerir** uma fonte que já está em `raw/`: o botão existe, e fica desativado quando o nome tem `* ? [ ] { } ! \`.
 - A validação varre a wiki inteira a cada carga do Início e a cada **Validar agora**, de forma síncrona no servidor; em
   wiki muito grande ela demora e bloqueia o servidor enquanto roda. A tela mostra "Lendo a wiki…" até chegar.
