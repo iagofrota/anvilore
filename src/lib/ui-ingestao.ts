@@ -15,6 +15,8 @@ import { areasDaWiki, ErroDeFonte, salvarFonte } from "./ui-fonte";
 import { fontesCitadas } from "./ui-inicio";
 import { caminhoDaCopia } from "./ui-fila";
 import { caminhoWiki } from "./wiki-repo";
+import { lerFrontmatter } from "./frontmatter";
+import { estadoAprovacaoHumana } from "./okf";
 
 // A ingestão pela interface, sem HTTP: o servidor orquestra o que a skill faz numa conversa.
 // Fonte em raw/ (ação da pessoa) → leitor → parada única (takeaways e páginas) → escritor →
@@ -144,6 +146,44 @@ export function mensagemDoAjuste(conversa: Pick<Conversa, "pagina" | "pedido" | 
   ].join("\n");
 }
 
+export function invalidarAprovacaoVigente(conteudo: string, autor: string, agora: Date = new Date()): string {
+  const quebra = conteudo.includes("\r\n") ? "\r\n" : "\n";
+  const linhas = conteudo.split(/\r?\n/);
+  const fim = linhas.indexOf("---", 1);
+  if (fim < 0) return conteudo;
+
+  let maiorData = agora.getTime();
+  const fm = lerFrontmatter(conteudo);
+  if (fm && Array.isArray(fm.verified)) {
+    for (const v of fm.verified) {
+      if (typeof v === "object" && v !== null && "at" in v) {
+        const t = new Date(String(v.at)).getTime();
+        if (!Number.isNaN(t) && t >= maiorData) maiorData = t + 1000;
+      }
+    }
+  }
+
+  const novaData = isoComOffset(new Date(maiorData));
+  const secaoGenerated = [
+    "generated:",
+    `  by: ${autor}`,
+    `  at: ${novaData}`,
+  ];
+
+  const indiceGenerated = linhas.findIndex((l, i) => i < fim && /^generated\s*:/.test(l));
+  if (indiceGenerated >= 0) {
+    let fimGenerated = fim;
+    for (let i = indiceGenerated + 1; i < fim; i++) {
+      if (/^[A-Za-z_][\w-]*\s*:/.test(linhas[i]!)) { fimGenerated = i; break; }
+    }
+    linhas.splice(indiceGenerated, fimGenerated - indiceGenerated, ...secaoGenerated);
+  } else {
+    linhas.splice(fim, 0, ...secaoGenerated);
+  }
+
+  return linhas.join(quebra);
+}
+
 // "N rascunhos esperam você" só quando o único erro do fechamento é a falta de aprovação humana,
 // que é o estado esperado logo depois da escrita. Qualquer outro erro aparece como erro.
 export function lerFechamento(codigo: number, saidaBruta: string): Fechamento {
@@ -212,6 +252,7 @@ export class IngestaoNaInterface {
   private readonly gravacoes = new Map<string, Promise<void>>();
   private readonly fases = new Map<string, Promise<void>>();
   private ativa: { id: string; execucao: ExecucaoDeFase } | undefined;
+  private ajusteEmPreparacao?: string;
   private reservada = false;
   private encerrando = false;
   private preparacao: Promise<void> | undefined;
@@ -233,6 +274,23 @@ export class IngestaoNaInterface {
   get nomeDoAgente(): string { return this.ponte.nome; }
 
   get ocupada(): boolean { return Boolean(this.ativa || this.reservada); }
+
+  ajusteAtivoPara(caminho: string): boolean {
+    if (this.ajusteEmPreparacao === caminho) return true;
+    for (const c of this.conversas.values()) {
+      if (c.tipo === "ajuste" && c.pagina === caminho && c.situacao === "rodando") return true;
+    }
+    return false;
+  }
+
+  paginasEmAjuste(): Set<string> {
+    const conjunto = new Set<string>();
+    if (this.ajusteEmPreparacao) conjunto.add(this.ajusteEmPreparacao);
+    for (const c of this.conversas.values()) {
+      if (c.tipo === "ajuste" && c.pagina && c.situacao === "rodando") conjunto.add(c.pagina);
+    }
+    return conjunto;
+  }
 
   private wiki(): string { return caminhoWiki(this.raiz, this.ambiente); }
 
@@ -515,6 +573,7 @@ export class IngestaoNaInterface {
     }
 
     this.reservar();
+    this.ajusteEmPreparacao = dados.caminho;
     try {
       if (this.encerrando) throw new ErroDeIngestao("A interface está encerrando.", 409);
       await this.exigirAgente();
@@ -581,6 +640,7 @@ export class IngestaoNaInterface {
       this.iniciar(conversa, pedidoDeFase, existentes, fim => this.terminarEscrita(conversa, fim));
       return (await this.obter(id))!;
     } finally {
+      this.ajusteEmPreparacao = undefined;
       this.liberarReserva();
     }
   }
@@ -786,9 +846,28 @@ export class IngestaoNaInterface {
     Object.assign(conversa, { relatorio, avisos: conferencia.mensagens.filter(m => m.startsWith("AVISO")), passo: "parada", situacao: "esperando" });
   }
 
+  private async assegurarAprovacaoInvalidaSeMudou(conversa: Conversa): Promise<void> {
+    if (!conversa.pagina || !conversa.versaoEsperada) return;
+    const arquivoPagina = resolve(this.wiki(), conversa.pagina);
+    let conteudoFinal: string;
+    try { conteudoFinal = await readFile(arquivoPagina, "utf8"); } catch { return; }
+    const versaoFinal = createHash("sha256").update(conteudoFinal).digest("hex");
+    if (versaoFinal === conversa.versaoEsperada) return;
+    let frontmatter: Record<string, unknown> | null;
+    try { frontmatter = lerFrontmatter(conteudoFinal); } catch { return; }
+    if (!frontmatter) return;
+    if (estadoAprovacaoHumana(frontmatter) === "vigente") {
+      const novoConteudo = invalidarAprovacaoVigente(conteudoFinal, conversa.geracao?.by ?? conversa.autor ?? "escritor", this.agora());
+      await writeFile(arquivoPagina, novoConteudo);
+    }
+  }
+
   private async terminarEscrita(conversa: Conversa, fim: FimDaFase): Promise<void> {
     if (fim.situacao === "cancelada") { conversa.situacao = "cancelada"; return; }
     if (fim.situacao === "falhou") { Object.assign(conversa, { situacao: "erro", erro: fim.erro }); return; }
+    if (conversa.tipo === "ajuste" && conversa.pagina) {
+      await this.assegurarAprovacaoInvalidaSeMudou(conversa);
+    }
     // O servidor roda o fechamento e mostra a saída real: o "rodou" do agente não vale.
     Object.assign(conversa, { passo: "fechamento", agora: "Rodando anvilore fechar" });
     await this.salvar(conversa);

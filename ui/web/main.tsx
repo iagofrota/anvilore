@@ -291,9 +291,10 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
             </div>
           </div>
           <footer className="review-actions">
-            <button className="approve-button" disabled={!item.aprovavel || salvando} onClick={() => void aprovar()}><span>✓</span>{salvando ? "Aprovando…" : "Aprovar"}<kbd>A</kbd></button>
+            <button className="approve-button" disabled={!item.aprovavel || salvando} title={item.motivoNaoAprovavel} onClick={() => void aprovar()}><span>✓</span>{salvando ? "Aprovando…" : "Aprovar"}<kbd>A</kbd></button>
             <button type="button" className="secondary-button" disabled={!item.ajustavel} title={item.motivoNaoAjustavel} onClick={() => setAjusteAberto(atual => !atual)}>Pedir ajuste<kbd>R</kbd></button>
             <span className="approval-note">A aprovação registra <code>verified: human:…</code></span>
+            {item.motivoNaoAprovavel && <span className="approval-disabled-note" role="note">{item.motivoNaoAprovavel}</span>}
             {item.motivoNaoAjustavel && <span className="adjustment-disabled-note" role="note">{item.motivoNaoAjustavel}</span>}
           </footer>
         </section>}

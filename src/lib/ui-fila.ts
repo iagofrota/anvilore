@@ -17,6 +17,7 @@ export type Rascunho = {
   fonte?: string;
   status: "nova" | "atualizada" | "erro";
   aprovavel: boolean;
+  motivoNaoAprovavel?: string;
   aprovacaoAnterior?: "deixa de valer";
   erros?: string[];
   avisos?: string[];

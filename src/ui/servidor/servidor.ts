@@ -195,7 +195,17 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
               const copia = copias.get(item.caminho);
               let anterior: string | undefined;
               if (copia) { try { anterior = await readFile(copia, "utf8"); } catch { /* cópia removida durante a leitura */ } }
-              return { ...item, anterior };
+              const emAjuste = ingestao.ajusteAtivoPara(item.caminho);
+              const aprovavel = item.aprovavel && !emAjuste;
+              const motivoNaoAprovavel = emAjuste
+                ? "Esta página está em ajuste; aprove depois que o ajuste terminar."
+                : item.motivoNaoAprovavel;
+              return {
+                ...item,
+                anterior,
+                aprovavel,
+                ...(motivoNaoAprovavel ? { motivoNaoAprovavel } : {}),
+              };
             })));
           }
           if (url.pathname === "/api/aprovar" && request.method === "POST") {
@@ -203,6 +213,9 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             try { corpo = await request.json() as { caminho?: unknown }; } catch { return json({ codigo: 2, mensagens: ["Pedido inválido."] }, 400); }
             if (typeof corpo.caminho !== "string") return json({ codigo: 2, mensagens: ["Página inválida."] }, 400);
             if (typeof corpo.versao !== "string" || !/^[a-f0-9]{64}$/.test(corpo.versao)) return json({ codigo: 2, mensagens: ["Versão inválida."] }, 400);
+            if (ingestao.ajusteAtivoPara(corpo.caminho)) {
+              return json({ codigo: 3, mensagens: ["Esta página está em ajuste; aprove depois que o ajuste terminar."] }, 409);
+            }
             const fila = await listarFilaRascunhos(raiz);
             const item = fila.find(rascunho => rascunho.caminho === corpo.caminho && rascunho.aprovavel);
             if (!item) return json({ codigo: 1, mensagens: ["Aprovação recusada: página ausente da fila ou inválida."] }, 409);
@@ -243,7 +256,12 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             try {
               const nota = await obterNota(raiz, caminho);
               if (!nota) return json({ mensagens: ["Página não encontrada."] }, 404);
-              return json(nota);
+              const emAjuste = ingestao.ajusteAtivoPara(caminho);
+              return json({
+                ...nota,
+                aprovavel: nota.aprovavel && !emAjuste,
+                ...(emAjuste ? { motivoNaoAprovavel: "Esta página está em ajuste; aprove depois que o ajuste terminar." } : {}),
+              });
             } catch (erro) {
               if (erro instanceof ErroDeCaminhoInvalido) return json({ mensagens: [erro.message] }, erro.status);
               throw erro;

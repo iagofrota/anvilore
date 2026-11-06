@@ -525,4 +525,183 @@ describe("Servidor UI — Pedir ajuste na Revisão", () => {
     const item = fila.find(r => r.caminho === caminhoRelativo);
     expect(item?.anterior).toBe(conteudoBaseOriginal);
   });
+
+  test("Dado uma página em ajuste ativo Quando tento aprovar Então a aprovação é recusada com 409 e código 3 e após o término a página alterada continua na fila", async () => {
+    const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
+    const conteudoInicial = [
+      "---",
+      "type: concept",
+      "slug: segundo-cerebro",
+      "title: Segundo cérebro",
+      "tags: [produtividade]",
+      "generated:",
+      "  by: claude-opus/2026-10",
+      "  at: 2026-10-26T14:35:00-03:00",
+      "---",
+      "",
+      "Texto original que precisa de ajuste.",
+    ].join("\n");
+    writeFileSync(join(raiz, "wiki", caminhoRelativo), conteudoInicial);
+    const versao = createHash("sha256").update(conteudoInicial).digest("hex");
+
+    let liberarAprovacao!: () => void;
+    const aprovacaoTentada = new Promise<void>(resolve => { liberarAprovacao = resolve; });
+    let avisarInicio!: () => void;
+    const inicioAjuste = new Promise<void>(resolve => { avisarInicio = resolve; });
+
+    const ponte = new PonteFalsa({
+      escritor: async (_pedido, aoEvento) => {
+        avisarInicio();
+        // Espera a tentativa de aprovação acontecer enquanto o ajuste está ativo
+        await aprovacaoTentada;
+        aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-haiku/2.1.311" });
+        aoEvento({ tipo: "ferramenta", id: "w1", nome: "Edit", caminho: join(raiz, "wiki", caminhoRelativo) });
+        const conteudoNovo = [
+          "---",
+          "type: concept",
+          "slug: segundo-cerebro",
+          "title: Segundo cérebro",
+          "tags: [produtividade]",
+          "generated:",
+          "  by: claude-haiku/2.1.311",
+          "  at: 2026-11-06T19:00:00-03:00",
+          "---",
+          "",
+          "Texto ajustado conforme o pedido.",
+        ].join("\n");
+        writeFileSync(join(raiz, "wiki", caminhoRelativo), conteudoNovo);
+        aoEvento({ tipo: "resultado-ferramenta", id: "w1", erro: false, texto: "Editado com sucesso" });
+        return { situacao: "concluida", sessao: SESSAO, texto: "Ajuste concluído.", recusas: [] };
+      },
+    });
+
+    const { postar, chamar } = await subirServidor(ponte);
+
+    // Inicia o ajuste
+    const respostaAjuste = await postar("/api/ajuste", {
+      caminho: caminhoRelativo,
+      versao,
+      pedido: "Ajuste o texto",
+    });
+    expect(respostaAjuste.status).toBe(201);
+    const { id } = (await respostaAjuste.json()) as { id: string };
+
+    // Aguarda o escritor do ajuste iniciar
+    await inicioAjuste;
+
+    // Enquanto o ajuste está ativo: na fila de rascunhos, a página mostra aprovavel: false e o motivo
+    const filaDuranteRes = await chamar("/api/rascunhos");
+    expect(filaDuranteRes.status).toBe(200);
+    const filaDurante = (await filaDuranteRes.json()) as Array<{ caminho: string; aprovavel: boolean; motivoNaoAprovavel?: string }>;
+    const itemDurante = filaDurante.find(r => r.caminho === caminhoRelativo);
+    expect(itemDurante).toBeDefined();
+    expect(itemDurante?.aprovavel).toBe(false);
+    expect(itemDurante?.motivoNaoAprovavel).toBe("Esta página está em ajuste; aprove depois que o ajuste terminar.");
+
+    // Tentar aprovar enquanto o ajuste está ativo é recusado com 409 e código 3
+    const respostaAprovar = await postar("/api/aprovar", {
+      caminho: caminhoRelativo,
+      versao,
+    });
+    expect(respostaAprovar.status).toBe(409);
+    const corpoAprovar = (await respostaAprovar.json()) as { codigo: number; mensagens: string[] };
+    expect(corpoAprovar.codigo).toBe(3);
+    expect(corpoAprovar.mensagens).toEqual(["Esta página está em ajuste; aprove depois que o ajuste terminar."]);
+
+    // Libera o escritor para terminar a escrita do ajuste
+    liberarAprovacao();
+
+    // Aguarda a conversa de ajuste concluir
+    let conversa: Conversa | undefined;
+    for (let i = 0; i < 20; i++) {
+      conversa = (await (await chamar(`/api/conversas/${id}`)).json()) as Conversa;
+      if (conversa.situacao === "concluida") break;
+      await new Promise(r => setTimeout(r, 50));
+    }
+    expect(conversa?.situacao).toBe("concluida");
+
+    // Após o ajuste terminar com o conteúdo alterado:
+    // A página continua na fila de revisão (não pode ficar 'vigente')
+    const filaAposRes = await chamar("/api/rascunhos");
+    expect(filaAposRes.status).toBe(200);
+    const filaApos = (await filaAposRes.json()) as Array<{ caminho: string; status: string; versao: string; aprovavel: boolean }>;
+    const itemApos = filaApos.find(r => r.caminho === caminhoRelativo);
+    expect(itemApos).toBeDefined();
+    expect(itemApos?.aprovavel).toBe(true);
+    expect(itemApos?.versao).not.toBe(versao);
+  });
+
+  test("Dado uma página que sofre ajuste com alteração de conteúdo e escritor preserva verified com timestamp igual ou posterior Quando o ajuste termina Então a aprovação antiga não vale para o novo conteúdo e a página continua na fila", async () => {
+    const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
+    const conteudoInicial = [
+      "---",
+      "type: concept",
+      "slug: segundo-cerebro",
+      "title: Segundo cérebro",
+      "tags: [produtividade]",
+      "generated:",
+      "  by: claude-opus/2026-10",
+      "  at: 2026-10-26T14:35:00-03:00",
+      "---",
+      "",
+      "Texto original.",
+    ].join("\n");
+    writeFileSync(join(raiz, "wiki", caminhoRelativo), conteudoInicial);
+    const versao = createHash("sha256").update(conteudoInicial).digest("hex");
+
+    const timestampAjuste = "2026-11-06T19:00:00-03:00";
+    const ponte = new PonteFalsa({
+      escritor: async (_pedido, aoEvento) => {
+        aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-haiku/2.1.311" });
+        aoEvento({ tipo: "ferramenta", id: "w1", nome: "Edit", caminho: join(raiz, "wiki", caminhoRelativo) });
+        // Simula escritor que alterou o corpo mas incluiu verified com timestamp igual/posterior a generated.at
+        const conteudoNovo = [
+          "---",
+          "type: concept",
+          "slug: segundo-cerebro",
+          "title: Segundo cérebro",
+          "tags: [produtividade]",
+          "generated:",
+          "  by: claude-haiku/2.1.311",
+          `  at: ${timestampAjuste}`,
+          "verified:",
+          "  - by: human:iago",
+          `    at: ${timestampAjuste}`,
+          "---",
+          "",
+          "Texto modificado pelo ajuste.",
+        ].join("\n");
+        writeFileSync(join(raiz, "wiki", caminhoRelativo), conteudoNovo);
+        aoEvento({ tipo: "resultado-ferramenta", id: "w1", erro: false, texto: "Editado" });
+        return { situacao: "concluida", sessao: SESSAO, texto: "Ajuste concluído.", recusas: [] };
+      },
+    });
+
+    const { postar, chamar } = await subirServidor(ponte);
+
+    const resAjuste = await postar("/api/ajuste", {
+      caminho: caminhoRelativo,
+      versao,
+      pedido: "Mudar o texto",
+    });
+    expect(resAjuste.status).toBe(201);
+    const { id } = (await resAjuste.json()) as { id: string };
+
+    let conversa: Conversa | undefined;
+    for (let i = 0; i < 20; i++) {
+      conversa = (await (await chamar(`/api/conversas/${id}`)).json()) as Conversa;
+      if (conversa.situacao === "concluida") break;
+      await new Promise(r => setTimeout(r, 50));
+    }
+    expect(conversa?.situacao).toBe("concluida");
+
+    // A página teve conteúdo alterado: a aprovação antiga NÃO pode valer para o novo conteúdo.
+    // Ela deve continuar na fila de revisão (não pode ter sumido como 'vigente').
+    const filaRes = await chamar("/api/rascunhos");
+    const fila = (await filaRes.json()) as Array<{ caminho: string; status: string; aprovacaoAnterior?: string }>;
+    const item = fila.find(r => r.caminho === caminhoRelativo);
+    expect(item).toBeDefined();
+    expect(item?.status).toBe("atualizada");
+    expect(item?.aprovacaoAnterior).toBe("deixa de valer");
+  });
 });
