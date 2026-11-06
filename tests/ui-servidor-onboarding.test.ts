@@ -127,7 +127,34 @@ test("Dado pasta existente com conteúdo arbitrário Quando envio POST /api/onbo
   });
   expect(resp.status).toBe(400);
   const dados = await resp.json() as Record<string, unknown>;
-  expect(dados.erro).toBeDefined();
+  expect(dados.erro).toBe("Esta pasta ainda não é um cofre do Anvilore.");
+});
+
+test("Dado pasta vazia ou inexistente no O1 Quando envio POST /api/onboarding/pasta Então recusa com 400 e nada é criado", async () => {
+  const pastaVazia = join(raiz, "pasta-vazia-teste");
+  mkdirSync(pastaVazia, { recursive: true });
+  const pastaInexistente = join(raiz, "pasta-inexistente-teste");
+
+  const { chamar } = await servidor();
+  const respVazia = await chamar("/api/onboarding/pasta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pasta: pastaVazia }),
+  });
+  expect(respVazia.status).toBe(400);
+  const dadosVazia = await respVazia.json() as { erro: string };
+  expect(dadosVazia.erro).toBe("Esta pasta ainda não é um cofre do Anvilore.");
+  expect(existsSync(join(pastaVazia, ".anvilore"))).toBe(false);
+
+  const respInexistente = await chamar("/api/onboarding/pasta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pasta: pastaInexistente }),
+  });
+  expect(respInexistente.status).toBe(400);
+  const dadosInexistente = await respInexistente.json() as { erro: string };
+  expect(dadosInexistente.erro).toBe("Esta pasta ainda não é um cofre do Anvilore.");
+  expect(existsSync(pastaInexistente)).toBe(false);
 });
 
 test("Dado pasta válida diferente da raiz inicial Quando envio POST /api/onboarding/pasta Então altera a raiz ativa e Início, Revisão e aprovação operam na nova pasta", async () => {
@@ -246,6 +273,7 @@ test("Dado ingestão ativa no coordenador Quando tento trocar de pasta via POST 
   const outraPasta = mkdtempSync(join(homedir(), "anvilore-bloqueada-"));
   mkdirSync(join(outraPasta, "wiki"), { recursive: true });
   writeFileSync(join(outraPasta, "SCHEMA.md"), "# Schema\n");
+  writeFileSync(join(outraPasta, "AGENTS.md"), "# Agents\n");
 
   try {
     const respTroca = await chamar("/api/onboarding/pasta", {

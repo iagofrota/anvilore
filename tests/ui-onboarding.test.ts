@@ -86,9 +86,18 @@ test("Dado uma pasta válida de vault Quando inspeciono a pasta Então relata o 
   expect(inspecao.bun.existe).toBe(true);
 });
 
-test("Dado uma pasta que não existe ainda no homedir Quando valido a pasta Então aceita pois será criada", () => {
+test("Dado uma pasta que não existe ainda no homedir Quando valido a pasta Então recusa pois não é cofre inicializado", () => {
   const pastaInexistente = join(raiz, "minha-nova-wiki");
-  expect(validarPastaVault(pastaInexistente)).toBe(pastaInexistente);
+  expect(() => validarPastaVault(pastaInexistente)).toThrow("Esta pasta ainda não é um cofre do Anvilore.");
+  expect(existsSync(pastaInexistente)).toBe(false);
+});
+
+test("Dado uma pasta existente vazia Quando valido a pasta Então recusa pois não é cofre inicializado", () => {
+  const pastaVazia = join(raiz, "pasta-vazia");
+  mkdirSync(pastaVazia, { recursive: true });
+
+  expect(() => validarPastaVault(pastaVazia)).toThrow("Esta pasta ainda não é um cofre do Anvilore.");
+  expect(existsSync(join(pastaVazia, ".anvilore"))).toBe(false);
 });
 
 test("Dado um projeto React alheio com package.json Quando valido a pasta Então recusa com mensagem simples e nada é gravado", () => {
@@ -98,24 +107,26 @@ test("Dado um projeto React alheio com package.json Quando valido a pasta Então
   writeFileSync(join(pastaReact, "index.tsx"), "export default () => <div>App</div>;");
 
   expect(() => validarPastaVault(pastaReact)).toThrow(
-    "Esta pasta já tem outros arquivos. Escolha uma pasta vazia ou uma wiki do Anvilore.",
+    "Esta pasta ainda não é um cofre do Anvilore.",
   );
   expect(existsSync(join(pastaReact, "SCHEMA.md"))).toBe(false);
   expect(existsSync(join(pastaReact, "wiki"))).toBe(false);
   expect(existsSync(join(pastaReact, ".anvilore"))).toBe(false);
 });
 
-test("Dado uma pasta existente vazia Quando valido a pasta Então aceita", () => {
-  const pastaVazia = join(raiz, "pasta-vazia");
-  mkdirSync(pastaVazia, { recursive: true });
+test("Dado pasta com SCHEMA.md e wiki/ mas sem AGENTS.md Quando valido a pasta Então recusa pois falta contrato do agente", () => {
+  const pastaSemAgents = join(raiz, "sem-agents");
+  mkdirSync(join(pastaSemAgents, "wiki"), { recursive: true });
+  writeFileSync(join(pastaSemAgents, "SCHEMA.md"), "# Schema\n");
 
-  expect(validarPastaVault(pastaVazia)).toBe(pastaVazia);
+  expect(() => validarPastaVault(pastaSemAgents)).toThrow("Esta pasta ainda não é um cofre do Anvilore.");
 });
 
-test("Dado um vault Anvilore existente com SCHEMA.md e wiki/ Quando valido a pasta Então aceita", () => {
+test("Dado um vault Anvilore existente com SCHEMA.md, AGENTS.md e wiki/ Quando valido a pasta Então aceita", () => {
   const pastaVault = join(raiz, "meu-vault");
   mkdirSync(join(pastaVault, "wiki"), { recursive: true });
   writeFileSync(join(pastaVault, "SCHEMA.md"), "# Schema\n");
+  writeFileSync(join(pastaVault, "AGENTS.md"), "# Agents\n");
 
   expect(validarPastaVault(pastaVault)).toBe(pastaVault);
 });

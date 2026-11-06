@@ -97,7 +97,7 @@ export function validarPastaVault(
       }
       atual = dirname(atual);
     }
-    return caminhoAbsoluto;
+    throw new Error("Esta pasta ainda não é um cofre do Anvilore.");
   }
 
   let info;
@@ -110,19 +110,15 @@ export function validarPastaVault(
     throw new Error(`O caminho não é um diretório: ${caminhoAbsoluto}`);
   }
 
-  const entradas = readdirSync(caminhoAbsoluto) as string[];
-  if (entradas.length === 0) {
-    return caminhoAbsoluto;
-  }
-
   const temSchema = existsSync(join(caminhoAbsoluto, "SCHEMA.md"));
+  const temAgents = existsSync(join(caminhoAbsoluto, "AGENTS.md"));
   const caminhoWikiDir = join(caminhoAbsoluto, "wiki");
   const temWiki = existsSync(caminhoWikiDir) && statSync(caminhoWikiDir).isDirectory();
-  if (temSchema && temWiki) {
+  if (temSchema && temAgents && temWiki) {
     return caminhoAbsoluto;
   }
 
-  throw new Error("Esta pasta já tem outros arquivos. Escolha uma pasta vazia ou uma wiki do Anvilore.");
+  throw new Error("Esta pasta ainda não é um cofre do Anvilore.");
 }
 
 export async function inspecionarPasta(
