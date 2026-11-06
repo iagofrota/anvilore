@@ -63,6 +63,33 @@ function opcaoLongaGnu(arg: string, nomeCompleto: string, prefixoMinimo: string)
   return nome.startsWith(prefixoMinimo) && nomeCompleto.startsWith(nome);
 }
 
+function extrairDestinoOpcaoLongaGnu(
+  arg: string,
+  proximo: string | undefined,
+  nomeCompleto: string
+): { bateu: boolean; valor?: string; consumiuProximo: boolean } {
+  if (!arg.startsWith("--") || arg.length < 3) {
+    return { bateu: false, consumiuProximo: false };
+  }
+  const prefixoMinimo = nomeCompleto.slice(0, 3);
+  if (!opcaoLongaGnu(arg, nomeCompleto, prefixoMinimo)) {
+    return { bateu: false, consumiuProximo: false };
+  }
+  if (arg.includes("=")) {
+    return { bateu: true, valor: arg.slice(arg.indexOf("=") + 1), consumiuProximo: false };
+  }
+  return { bateu: true, valor: proximo, consumiuProximo: proximo !== undefined };
+}
+
+function extrairDestinoGit(
+  arg: string,
+  proximo: string | undefined
+): { bateu: boolean; valor?: string; consumiuProximo: boolean } {
+  const gnuDir = extrairDestinoOpcaoLongaGnu(arg, proximo, "--output-directory");
+  if (gnuDir.bateu) return gnuDir;
+  return extrairDestinoOpcaoLongaGnu(arg, proximo, "--output");
+}
+
 function desembrulhar(verbo: string, args: string[]): { resto: string[]; descartados: string[] } {
   const { valor, longas = [], posicionais = 0 } = OPCOES_ENVOLVEDOR[verbo] ?? { valor: [] };
   const sai = (i: number, extra: string[] = []) => ({ resto: [...extra, ...args.slice(i)], descartados: args.slice(0, i) });
@@ -851,18 +878,23 @@ function analisarComandoSimples(
   let verbo = verboNormalizado(palavras[0]!);
   while (ENVOLVEDORES.has(verbo) && palavras.length > 1) {
     const { resto, descartados } = desembrulhar(verbo, palavras.slice(1));
-    if ((verbo === "time" || verbo === "stdbuf") && descartados.some(arg => arg === "-o" || arg.startsWith("-o") || /^--(?:output)(?:=|$)/.test(arg))) {
-      const optArg = descartados.find(arg => arg === "-o" || arg.startsWith("-o") || /^--(?:output)(?:=|$)/.test(arg))!;
-      let outTarget: string | undefined;
-      if (optArg.startsWith("--output=")) outTarget = optArg.slice("--output=".length);
-      else if (optArg === "-o" || optArg === "--output") {
-        const idx = descartados.indexOf(optArg);
-        outTarget = descartados[idx + 1];
-      } else if (optArg.startsWith("-o") && optArg.length > 2) {
-        outTarget = optArg.slice(2);
-      }
-      if (outTarget && (caminhoTocaWiki(outTarget, base, raiz, ambiente) || !destinoEhSeguro(outTarget, base, raiz, ambiente) || temMudancaDir)) {
-        return { acao: "bloquear", motivo: `${verbo} com opção de saída em arquivo citando wiki` };
+    if (verbo === "time" || verbo === "stdbuf") {
+      for (let i = 0; i < descartados.length; i++) {
+        const arg = descartados[i]!;
+        let outTarget: string | undefined;
+        const gnuOpt = extrairDestinoOpcaoLongaGnu(arg, descartados[i + 1], "--output");
+        if (gnuOpt.bateu) {
+          outTarget = gnuOpt.valor;
+          if (gnuOpt.consumiuProximo) i++;
+        } else if (arg === "-o") {
+          outTarget = descartados[i + 1];
+          if (outTarget !== undefined) i++;
+        } else if (arg.startsWith("-o") && arg.length > 2 && !arg.startsWith("--")) {
+          outTarget = arg.slice(2);
+        }
+        if (outTarget && (caminhoTocaWiki(outTarget, base, raiz, ambiente) || !destinoEhSeguro(outTarget, base, raiz, ambiente) || temMudancaDir)) {
+          return { acao: "bloquear", motivo: `${verbo} com opção de saída em arquivo citando wiki` };
+        }
       }
     }
     palavras = resto;
@@ -888,11 +920,16 @@ function analisarComandoSimples(
       for (let i = 0; i < cmdArgs.length; i++) {
         const arg = cmdArgs[i]!;
         let alvo: string | undefined;
-        if (arg.startsWith("--output=")) alvo = arg.slice("--output=".length);
-        else if (arg === "--output" || arg === "-o") alvo = cmdArgs[i + 1];
-        else if (arg.startsWith("-o") && !arg.startsWith("--")) alvo = arg.slice(2);
-        else if (arg.startsWith("--output-directory=")) alvo = arg.slice("--output-directory=".length);
-        else if (arg === "--output-directory") alvo = cmdArgs[i + 1];
+        const gnuOpt = extrairDestinoGit(arg, cmdArgs[i + 1]);
+        if (gnuOpt.bateu) {
+          alvo = gnuOpt.valor;
+          if (gnuOpt.consumiuProximo) i++;
+        } else if (arg === "-o") {
+          alvo = cmdArgs[i + 1];
+          if (alvo !== undefined) i++;
+        } else if (arg.startsWith("-o") && !arg.startsWith("--")) {
+          alvo = arg.slice(2);
+        }
 
         if (alvo && (caminhoTocaWiki(alvo, base, raiz, ambiente) || !destinoEhSeguro(alvo, base, raiz, ambiente))) {
           return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
@@ -916,12 +953,14 @@ function analisarComandoSimples(
     const destinos: string[] = [];
     for (let i = 0; i < cmdArgs.length; i++) {
       const arg = cmdArgs[i]!;
-      if (arg === "-t" || arg === "--target-directory") {
+      const gnuOpt = extrairDestinoOpcaoLongaGnu(arg, cmdArgs[i + 1], "--target-directory");
+      if (gnuOpt.bateu) {
+        if (gnuOpt.valor !== undefined) destinos.push(gnuOpt.valor);
+        if (gnuOpt.consumiuProximo) i++;
+      } else if (arg === "-t") {
         if (cmdArgs[i + 1]) destinos.push(cmdArgs[++i]!);
       } else if (arg.startsWith("-t") && arg.length > 2 && !arg.startsWith("--")) {
         destinos.push(arg.slice(2));
-      } else if (arg.startsWith("--target-directory=")) {
-        destinos.push(arg.slice("--target-directory=".length));
       }
     }
     const operandos = cmdArgs.filter(arg => !arg.startsWith("-"));
@@ -964,7 +1003,10 @@ function analisarComandoSimples(
 
   // 5.4 Editores com in-place: sed, perl, ruby
   if (["sed", "perl", "ruby"].includes(verbo)) {
-    const temInPlace = cmdArgs.some(arg => /^--(?:in-place)(?:=|$)/i.test(arg) || /^-[a-zA-Z0-9_]*i/i.test(arg));
+    const temInPlace = cmdArgs.some(arg =>
+      (arg.startsWith("--") && arg.length >= 3 && opcaoLongaGnu(arg, "--in-place", "--i")) ||
+      /^-[a-zA-Z0-9_]*i/i.test(arg)
+    );
     if (temInPlace) {
       const operandos = cmdArgs.filter(arg => !arg.startsWith("-"));
       if (temMudancaDir || operandos.some(arg => argumentoTocaWiki(arg, base, raiz, ambiente))) {
@@ -1001,11 +1043,16 @@ function analisarComandoSimples(
     for (let i = 0; i < cmdArgs.length; i++) {
       const arg = cmdArgs[i]!;
       let alvo: string | undefined;
-      if (arg.startsWith("--output=")) alvo = arg.slice("--output=".length);
-      else if (arg === "--output" || arg === "-o") alvo = cmdArgs[i + 1];
-      else if (arg.startsWith("-o") && !arg.startsWith("--")) alvo = arg.slice(2);
-      else if (arg.startsWith("--output-directory=")) alvo = arg.slice("--output-directory=".length);
-      else if (arg === "--output-directory") alvo = cmdArgs[i + 1];
+      const gnuOpt = extrairDestinoGit(arg, cmdArgs[i + 1]);
+      if (gnuOpt.bateu) {
+        alvo = gnuOpt.valor;
+        if (gnuOpt.consumiuProximo) i++;
+      } else if (arg === "-o") {
+        alvo = cmdArgs[i + 1];
+        if (alvo !== undefined) i++;
+      } else if (arg.startsWith("-o") && !arg.startsWith("--")) {
+        alvo = arg.slice(2);
+      }
 
       if (alvo && (caminhoTocaWiki(alvo, base, raiz, ambiente) || !destinoEhSeguro(alvo, base, raiz, ambiente) || temMudancaDir)) {
         return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };

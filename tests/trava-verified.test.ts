@@ -1982,5 +1982,63 @@ describe("trava de verified nos quatro agentes", () => {
         expect(codigo).toBe(0);
       }
     });
+
+    test("Achado P2 do bot (rodada 3): reconhecimento por prefixo de opções longas GNU de destino no terminal", async () => {
+      const wikiAbs = join(temporario, "wiki");
+
+      // 1. Falham na base 4b08759 (exit 0) e passam a dar exit 2
+      const ataques = [
+        `cp --target-dir=${wikiAbs} /tmp/a.md /tmp/b.md`,
+        `cp --target-d ${wikiAbs} /tmp/a.md /tmp/b.md`,
+        `cp --target-dir=wiki /tmp/a.md /tmp/b.md`,
+        `cp --target-d wiki /tmp/a.md /tmp/b.md`,
+        `mv --targ=${wikiAbs} /tmp/a.md /tmp/b.md`,
+        `mv --targ=wiki /tmp/a.md /tmp/b.md`,
+        `install --target-direc=${wikiAbs} /tmp/a.md /tmp/b.md`,
+        `install --target-direc=wiki /tmp/a.md /tmp/b.md`,
+        `ln --target-d=${wikiAbs} /tmp/a.md`,
+        `ln --target-d=wiki /tmp/a.md`,
+        `git show --outp=${wikiAbs}/a.md HEAD`,
+        `git show --outp=wiki/a.md HEAD`,
+        `git show --outp=wiki/a.md HEAD verified`,
+        `time --out=${wikiAbs}/log.txt echo ok`,
+        `time --out=wiki/log.txt echo ok`,
+        `time --out wiki/log.txt echo ok`,
+        `stdbuf --out=${wikiAbs}/log.txt echo ok`,
+        `stdbuf --out=wiki/log.txt echo ok`,
+        `sed --in-pla 's/a/b/' ${wikiAbs}/a.md`,
+        `sed --in-pla 's/a/b/' wiki/a.md`,
+        `sed --in 's/a/b/' wiki/a.md`,
+      ];
+
+      for (const cmd of ataques) {
+        const codigo = await executarProtecao(JSON.stringify({
+          cwd: temporario,
+          tool_name: "Bash",
+          tool_input: { command: cmd },
+        }));
+        expect(codigo).toBe(2);
+      }
+
+      // 2. Regressões com exit 0
+      const regressoes = [
+        `cp --target-dir=/tmp/x /tmp/a.md /tmp/b.md`,
+        `cp /tmp/a.md /tmp/b.md`,
+        `cat ${wikiAbs}/a.md`,
+        `cat wiki/a.md`,
+        `git show --output=/tmp/out.txt HEAD`,
+        `time --out=/tmp/out.txt echo ok`,
+        `sed --in-place 's/a/b/' /tmp/out.txt`,
+      ];
+
+      for (const cmd of regressoes) {
+        const codigo = await executarProtecao(JSON.stringify({
+          cwd: temporario,
+          tool_name: "Bash",
+          tool_input: { command: cmd },
+        }));
+        expect(codigo).toBe(0);
+      }
+    });
   });
 });
