@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -231,4 +231,48 @@ describe("gravarArquivoWiki e gravarArquivoWikiSync", () => {
     expect(gravarArquivoWiki(wiki, destino, "novo", { flag: "wx" })).rejects.toThrow(/EEXIST/);
     expect(() => gravarArquivoWikiSync(wiki, destino, "novo", { flag: "wx" })).toThrow(/EEXIST/);
   });
+
+  test.skipIf(semLink)(
+    "Dado arquivo existente com permissão restrita 0600 e 0640, Quando gravo assíncrono, Então preserva o modo exato do arquivo",
+    async () => {
+      const umaskOriginal = process.umask(0o022);
+      try {
+        for (const modoEsperado of [0o600, 0o640]) {
+          const destino = join(wiki, `modo-${modoEsperado.toString(8)}.md`);
+          writeFileSync(destino, "conteudo original\n");
+          chmodSync(destino, modoEsperado);
+
+          await gravarArquivoWiki(wiki, destino, "conteudo atualizado\n");
+
+          const stat = statSync(destino);
+          expect(stat.mode & 0o777).toBe(modoEsperado);
+          expect(readFileSync(destino, "utf8")).toBe("conteudo atualizado\n");
+        }
+      } finally {
+        process.umask(umaskOriginal);
+      }
+    },
+  );
+
+  test.skipIf(semLink)(
+    "Dado arquivo existente com permissão restrita 0600 e 0640, Quando gravo síncrono, Então preserva o modo exato do arquivo",
+    () => {
+      const umaskOriginal = process.umask(0o022);
+      try {
+        for (const modoEsperado of [0o600, 0o640]) {
+          const destino = join(wiki, `sync-modo-${modoEsperado.toString(8)}.md`);
+          writeFileSync(destino, "conteudo original\n");
+          chmodSync(destino, modoEsperado);
+
+          gravarArquivoWikiSync(wiki, destino, "conteudo atualizado\n");
+
+          const stat = statSync(destino);
+          expect(stat.mode & 0o777).toBe(modoEsperado);
+          expect(readFileSync(destino, "utf8")).toBe("conteudo atualizado\n");
+        }
+      } finally {
+        process.umask(umaskOriginal);
+      }
+    },
+  );
 });

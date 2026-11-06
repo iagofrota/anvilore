@@ -1,15 +1,18 @@
 import {
   accessSync,
+  closeSync,
   constants,
   existsSync,
+  fchmodSync,
   lstatSync,
   mkdirSync,
+  openSync,
   renameSync,
   rmSync,
   writeFileSync,
   type Stats,
 } from "node:fs";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { caminhoReal, dentroDe, estaEmRaw } from "./caminhos";
@@ -204,6 +207,18 @@ export function podeGravarNaWiki(raizWiki: string, caminhoAlvo: string): boolean
   }
 }
 
+function obterModoDestino(alvoAbs: string): number | undefined {
+  try {
+    const stats = lstatSync(alvoAbs);
+    if (!stats.isSymbolicLink()) {
+      return stats.mode & 0o777;
+    }
+  } catch (erro) {
+    if ((erro as NodeJS.ErrnoException).code !== "ENOENT") throw erro;
+  }
+  return undefined;
+}
+
 // Grava um arquivo na wiki de forma segura: confere confinamento, recusa symlinks e usa gravação atômica na mesma pasta.
 export async function gravarArquivoWiki(
   raizWiki: string,
@@ -225,6 +240,8 @@ export async function gravarArquivoWiki(
     return;
   }
 
+  const modoDestino = obterModoDestino(alvoAbs);
+
   try {
     accessSync(alvoAbs, constants.W_OK);
   } catch (erro) {
@@ -234,8 +251,20 @@ export async function gravarArquivoWiki(
   await mkdir(paiAbs, { recursive: true });
   validarDiretorioWiki(raizWiki, paiAbs);
   const temp = join(paiAbs, `.${basename(alvoAbs)}.${randomUUID()}.tmp`);
-  await writeFile(temp, conteudo, { encoding: opcoes?.encoding ?? "utf8" });
   try {
+    if (modoDestino !== undefined) {
+      const handle = await open(temp, "w", modoDestino);
+      try {
+        if (process.platform !== "win32") {
+          await handle.chmod(modoDestino);
+        }
+        await handle.writeFile(conteudo, { encoding: opcoes?.encoding ?? "utf8" });
+      } finally {
+        await handle.close();
+      }
+    } else {
+      await writeFile(temp, conteudo, { encoding: opcoes?.encoding ?? "utf8" });
+    }
     await rename(temp, alvoAbs);
   } catch (erro) {
     try { await rm(temp, { force: true }); } catch {}
@@ -264,6 +293,8 @@ export function gravarArquivoWikiSync(
     return;
   }
 
+  const modoDestino = obterModoDestino(alvoAbs);
+
   try {
     accessSync(alvoAbs, constants.W_OK);
   } catch (erro) {
@@ -273,8 +304,20 @@ export function gravarArquivoWikiSync(
   mkdirSync(paiAbs, { recursive: true });
   validarDiretorioWiki(raizWiki, paiAbs);
   const temp = join(paiAbs, `.${basename(alvoAbs)}.${randomUUID()}.tmp`);
-  writeFileSync(temp, conteudo, { encoding: opcoes?.encoding ?? "utf8" });
   try {
+    if (modoDestino !== undefined) {
+      const fd = openSync(temp, "w", modoDestino);
+      try {
+        if (process.platform !== "win32") {
+          fchmodSync(fd, modoDestino);
+        }
+        writeFileSync(fd, conteudo, { encoding: opcoes?.encoding ?? "utf8" });
+      } finally {
+        closeSync(fd);
+      }
+    } else {
+      writeFileSync(temp, conteudo, { encoding: opcoes?.encoding ?? "utf8" });
+    }
     renameSync(temp, alvoAbs);
   } catch (erro) {
     try { rmSync(temp, { force: true }); } catch {}

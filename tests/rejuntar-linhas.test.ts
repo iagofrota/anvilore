@@ -212,6 +212,29 @@ describe("rejuntar-linhas: execução real", () => {
     expect(hashDe(caminho)).toBe(antes);
     expect(r.erro).toContain("0/1 arquivos mudaram.");
   });
+
+  test.skipIf(process.platform === "win32")(
+    "Dado arquivo com permissões 0600 e 0640, Quando rejunto linhas com regravação, Então preserva o modo exato do arquivo",
+    async () => {
+      const umaskOriginal = process.umask(0o022);
+      try {
+        for (const modoEsperado of [0o600, 0o640]) {
+          const caminho = join(pasta, `rejuntar-modo-${modoEsperado.toString(8)}.md`);
+          writeFileSync(caminho, "Linha uma que continua\nna linha dois.\n");
+          chmodSync(caminho, modoEsperado);
+
+          const r = await rejuntarLinhas(caminho);
+          expect(r.mudariam).toEqual([caminho]);
+
+          const stat = statSync(caminho);
+          expect(stat.mode & 0o777).toBe(modoEsperado);
+          expect(readFileSync(caminho, "utf8")).toBe("Linha uma que continua na linha dois.\n");
+        }
+      } finally {
+        process.umask(umaskOriginal);
+      }
+    },
+  );
 });
 
 describe("rejuntar-linhas: diretório como alvo", () => {
