@@ -263,12 +263,20 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
                 ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
               }
               const inspecao = await inspecionarPasta(raiz, ambiente);
-              if (!inspecao.wikiPronta) {
+              const caminhoOnboarding = join(raiz, ".anvilore", "onboarding.json");
+              if (!inspecao.wikiPronta && !existsSync(caminhoOnboarding)) {
                 await mkdir(join(raiz, ".anvilore"), { recursive: true });
-                await writeFile(join(raiz, ".anvilore", "onboarding.json"), JSON.stringify({ concluido: false }, null, 2), "utf8");
+                await writeFile(caminhoOnboarding, JSON.stringify({ concluido: false }, null, 2), "utf8");
               }
               const estado = await estadoOnboarding(raiz, ambiente);
-              return json({ ok: true, pasta: raiz, inspecao, precisaOnboarding: estado.precisaOnboarding });
+              return json({
+                ok: true,
+                pasta: raiz,
+                inspecao,
+                precisaOnboarding: estado.precisaOnboarding,
+                concluido: estado.concluido,
+                etapa: estado.etapa,
+              });
             } catch (erro) {
               return json({ erro: (erro as Error).message }, 400);
             }
@@ -334,6 +342,18 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             }
             try {
               const resultado = await inicializarAreasOnboarding(raiz, corpo.areas as string[], { removerExemplo: Boolean(corpo.removerExemplo) }, ambiente);
+              try {
+                const caminhoOnboardingJson = join(raiz, ".anvilore", "onboarding.json");
+                if (existsSync(caminhoOnboardingJson)) {
+                  const conteudo = JSON.parse(await readFile(caminhoOnboardingJson, "utf8")) as Record<string, unknown>;
+                  if (conteudo.concluido !== true) {
+                    conteudo.etapa = 4;
+                    await writeFile(caminhoOnboardingJson, JSON.stringify(conteudo, null, 2), "utf8");
+                  }
+                }
+              } catch {
+                /* não bloqueia a criação de áreas se falhar gravação */
+              }
               return json({ ok: true, ...resultado });
             } catch (erro) {
               return json({ erro: (erro as Error).message }, 400);

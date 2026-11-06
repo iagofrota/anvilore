@@ -986,16 +986,24 @@ export function criarAcoesDoOnboarding(ctx: ContextoAcoesDoOnboarding): AcoesDoO
       ctx.setCarregandoPasta(true);
       ctx.setErroPasta(null);
       try {
-        const resp = await chamarApi<{ ok: boolean; pasta: string; inspecao?: { wikiPronta?: boolean }; precisaOnboarding?: boolean }>("/api/onboarding/pasta", "POST", { pasta: ctx.pasta });
+        const resp = await chamarApi<{
+          ok: boolean;
+          pasta: string;
+          inspecao?: { wikiPronta?: boolean };
+          precisaOnboarding?: boolean;
+          concluido?: boolean;
+          etapa?: number;
+        }>("/api/onboarding/pasta", "POST", { pasta: ctx.pasta });
         if (resp && typeof resp.pasta === "string") {
           ctx.setPasta(resp.pasta);
         }
         if (ctx.aoAtualizar) await ctx.aoAtualizar();
         if (ctx.aoAtualizarIngestao) await ctx.aoAtualizarIngestao();
-        if (resp && (resp.inspecao?.wikiPronta || resp.precisaOnboarding === false)) {
+        if (resp && (resp.concluido === true || resp.precisaOnboarding === false)) {
           navegar("#/inicio");
         } else {
-          navegar("#/onboarding/2");
+          const proximoPasso = resp?.etapa && resp.etapa > 1 ? resp.etapa : 2;
+          navegar(`#/onboarding/${proximoPasso}`);
         }
       } catch (erro) {
         ctx.setErroPasta(erro instanceof Error ? erro.message : "Erro ao validar a pasta.");

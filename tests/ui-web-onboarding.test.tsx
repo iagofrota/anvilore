@@ -1025,6 +1025,43 @@ test("Dado aoConfirmarPasta com wiki nova Quando confirmo Então navega para #/o
   expect(navegouPara).toBe("#/onboarding/2");
 });
 
+test("Dado aoConfirmarPasta com wiki em onboarding não concluído e áreas já criadas Quando confirmo Então navega para #/onboarding/4 em vez de #/inicio", async () => {
+  let navegouPara = "";
+
+  const ctx: ContextoAcoesDoOnboarding = {
+    pasta: "/vault/em-andamento",
+    setPasta: () => {},
+    setCarregandoPasta: () => {},
+    setErroPasta: () => {},
+    setTestandoAgente: () => {},
+    setResultadoTeste: () => {},
+    setSucessoTeste: () => {},
+    areasSelecionadas: [],
+    setAreasSelecionadas: () => {},
+    novaArea: "",
+    setNovaArea: () => {},
+    removerExemplo: false,
+    setRemoverExemplo: () => {},
+    setCriandoAreas: () => {},
+    setErroAreas: () => {},
+    setConcluindo: () => {},
+    navegar: destino => { navegouPara = destino; },
+    chamarApi: (async () => ({
+      ok: true,
+      pasta: "/vault/em-andamento",
+      inspecao: { wikiPronta: true },
+      precisaOnboarding: true,
+      concluido: false,
+      etapa: 4,
+    })) as never,
+  };
+
+  const acoes = criarAcoesDoOnboarding(ctx);
+  await acoes.aoConfirmarPasta();
+
+  expect(navegouPara).toBe("#/onboarding/4");
+});
+
 test("Dado PainelDoOnboarding nos passos 2, 3 e 4 Quando renderizo Então exibe detalhes das travas, contagem e microtextos", () => {
   const dadosBase = {
     precisaOnboarding: true,

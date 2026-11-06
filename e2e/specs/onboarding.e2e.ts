@@ -216,3 +216,52 @@ test("[I7-05] Dado Onboarding no fluxo O3→O4 Quando crio áreas e escolho envi
   await expect(page).toHaveURL(/#\/chat\/[a-z0-9-]+$/);
   await expect(page.getByText("Área: pessoal")).toBeVisible();
 });
+
+test("[I7-06] Dado Onboarding com áreas criadas em O3 Quando recarrego a interface e confirmo a pasta Então continua em O4 em vez de desviar ao Início", async ({ page, app, vault }) => {
+  // Limpar áreas pré-existentes da fixture para simular primeiro uso
+  await rm(join(vault.wiki, "pessoal"), { recursive: true, force: true });
+  await rm(join(vault.wiki, "trabalho"), { recursive: true, force: true });
+  await rm(join(vault.raw, "pessoal"), { recursive: true, force: true });
+  await rm(join(vault.raiz, ".anvilore", "identidade"), { force: true });
+  await rm(join(vault.raiz, ".anvilore", "onboarding.json"), { force: true });
+
+  await writeFile(join(vault.raiz, "SCHEMA.md"), "# Schema\n");
+  await writeFile(join(vault.raiz, "AGENTS.md"), "# Agents\n");
+
+  // Início no O1
+  await page.goto(`${app.url}#/onboarding/1`);
+  await expect(page.getByRole("heading", { name: "Abra a pasta da sua wiki", level: 1 })).toBeVisible();
+
+  // Avança O1 -> O2
+  await page.getByRole("button", { name: "Continuar →" }).click();
+  await expect(page).toHaveURL(/#\/onboarding\/2$/);
+
+  // Avança O2 -> O3
+  await page.getByRole("button", { name: "Continuar →" }).click();
+  await expect(page).toHaveURL(/#\/onboarding\/3$/);
+
+  // O3: Cria áreas e avança para O4
+  await page.getByRole("button", { name: "Criar áreas →" }).click();
+  await expect(page).toHaveURL(/#\/onboarding\/4$/);
+  await expect(page.getByRole("heading", { name: "Faça a primeira ingestão", level: 1 })).toBeVisible();
+
+  // Recarrega antes de terminar O4: a abertura inicial cai no O1 (com onboarding não concluído)
+  await page.goto(app.url);
+  await expect(page).toHaveURL(/#\/onboarding\/1$/);
+  await expect(page.getByRole("heading", { name: "Abra a pasta da sua wiki", level: 1 })).toBeVisible();
+
+  // Confirma a pasta no O1: deve continuar para O4, NÃO desviar para o Início
+  await page.getByRole("button", { name: "Continuar →" }).click();
+  await expect(page).toHaveURL(/#\/onboarding\/4$/);
+  await expect(page.getByRole("heading", { name: "Faça a primeira ingestão", level: 1 })).toBeVisible();
+
+  // Conclui o onboarding no O4
+  await page.getByRole("button", { name: "Pular por agora" }).click();
+  await expect(page).toHaveURL(/#\/inicio$/);
+  await expect(page.getByRole("heading", { name: "Início", level: 1 })).toBeVisible();
+
+  // Próxima abertura vai ao Início sem retornar ao onboarding
+  await page.reload();
+  await expect(page).toHaveURL(/#\/inicio$/);
+  await expect(page.getByRole("heading", { name: "Início", level: 1 })).toBeVisible();
+});

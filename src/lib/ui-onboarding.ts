@@ -230,13 +230,13 @@ export async function estadoOnboarding(
 ): Promise<EstadoOnboarding> {
   let temArquivoOnboarding = false;
   let concluido = false;
-  let etapa = 1;
+  let etapaSalva: number | undefined;
   const caminhoOnboardingJson = join(raiz, ".anvilore", "onboarding.json");
   try {
     const dados = JSON.parse(await readFile(caminhoOnboardingJson, "utf8")) as Record<string, unknown>;
     temArquivoOnboarding = true;
     if (dados.concluido === true) concluido = true;
-    if (typeof dados.etapa === "number") etapa = dados.etapa;
+    if (typeof dados.etapa === "number") etapaSalva = dados.etapa;
   } catch {
     /* onboarding.json não existe */
   }
@@ -256,7 +256,10 @@ export async function estadoOnboarding(
     // Sem o arquivo e com a wiki pronta (instalação antiga), o onboarding não aparece
     const wikiPronta = temIdentidade || areasExistentes.length > 0;
     precisaOnboarding = !wikiPronta;
+    if (!precisaOnboarding) concluido = true;
   }
+
+  const etapa = typeof etapaSalva === "number" ? etapaSalva : (areasExistentes.length > 0 ? 4 : 1);
 
   const inspecao = await inspecionarPasta(raiz, ambiente);
 

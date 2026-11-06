@@ -512,3 +512,52 @@ test("Dado conclusão no O4 Quando envio POST /api/onboarding/concluir Então pe
   const dados = await resp.json() as Record<string, unknown>;
   expect(dados.ok).toBe(true);
 });
+
+test("Dado O3 com áreas criadas e onboarding em andamento Quando confirmo a pasta Então servidor devolve etapa 4 e precisaOnboarding true até concluir", async () => {
+  const { chamar } = await servidor();
+  // 1. O1 confirma a pasta inicialmente
+  const respO1 = await chamar("/api/onboarding/pasta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pasta: raiz }),
+  });
+  expect(respO1.status).toBe(200);
+
+  // 2. O3 cria áreas
+  const respAreas = await chamar("/api/onboarding/areas", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ areas: ["pessoal", "projetos"] }),
+  });
+  expect(respAreas.status).toBe(200);
+
+  // 3. Confirma a pasta (como acontece ao recarregar e voltar ao O1)
+  const respPasta = await chamar("/api/onboarding/pasta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pasta: raiz }),
+  });
+  expect(respPasta.status).toBe(200);
+  const dadosPasta = await respPasta.json() as Record<string, unknown>;
+  expect(dadosPasta.precisaOnboarding).toBe(true);
+  expect(dadosPasta.concluido).toBe(false);
+  expect(dadosPasta.etapa).toBe(4);
+
+  // 4. Conclui no O4
+  const respConcluir = await chamar("/api/onboarding/concluir", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  expect(respConcluir.status).toBe(200);
+
+  // 5. Próxima leitura/confirmação relata concluído e sem onboarding pendente
+  const respFinal = await chamar("/api/onboarding/pasta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pasta: raiz }),
+  });
+  const dadosFinal = await respFinal.json() as Record<string, unknown>;
+  expect(dadosFinal.precisaOnboarding).toBe(false);
+  expect(dadosFinal.concluido).toBe(true);
+});
