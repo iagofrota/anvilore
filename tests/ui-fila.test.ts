@@ -88,6 +88,16 @@ test("Dado cópias da página em sessões diferentes Quando procuro a cópia Ent
   expect(await caminhoDaCopia(raiz, "pessoal/concepts/alvo.md")).toBe(recente);
 });
 
+test("Dado cópias com mtime igual Quando indexo Então desempato pelo nome da pasta da sessão", async () => {
+  const primeira = join(raiz, ".anvilore/ui/copias/20261106-230000001-a/pessoal/concepts/alvo.md");
+  const segunda = join(raiz, ".anvilore/ui/copias/20261106-230000002-b/pessoal/concepts/alvo.md");
+  mkdirSync(join(primeira, ".."), { recursive: true }); mkdirSync(join(segunda, ".."), { recursive: true });
+  writeFileSync(primeira, "base antiga\n"); writeFileSync(segunda, "base nova\n");
+  const instante = new Date("2026-11-06T23:00:00Z");
+  utimesSync(primeira, instante, instante); utimesSync(segunda, instante, instante);
+  expect(await caminhoDaCopia(raiz, "pessoal/concepts/alvo.md")).toBe(segunda);
+});
+
 test("Dado caminho de cópia com sufixo semelhante Quando procuro Então ignoro a pasta que não é a página", async () => {
   const falso = join(raiz, ".anvilore/ui/copias/seed/pessoal/concepts/alvo.md");
   mkdirSync(join(falso, ".."), { recursive: true });

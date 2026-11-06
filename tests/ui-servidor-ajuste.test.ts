@@ -52,6 +52,88 @@ async function subirServidor(ponte = new PonteFalsa(), fecharRetorno = { codigo:
 }
 
 describe("Servidor UI — Pedir ajuste na Revisão", () => {
+  test("Dado ajuste aprovado Quando peço outro ajuste Então Mudanças usa a página aprovada como nova base", async () => {
+    const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
+    const inicial = [
+      "---", "type: concept", "slug: segundo-cerebro", "title: Segundo cérebro",
+      "generated:", "  by: claude-opus/2026-10", "  at: 2026-10-26T14:35:00-03:00",
+      "verified:", "  by: human:iago", "  at: 2026-10-26T14:36:00-03:00", "---", "", "Texto original aprovado.",
+    ].join("\n");
+    writeFileSync(join(raiz, "wiki", caminhoRelativo), inicial);
+    let rodada = 0;
+    const ponte = new PonteFalsa({ escritor: async (_pedido, aoEvento) => {
+      rodada++;
+      aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-haiku/2.1.311" });
+      aoEvento({ tipo: "ferramenta", id: `w${rodada}`, nome: "Edit", caminho: join(raiz, "wiki", caminhoRelativo) });
+      const corpo = rodada === 1 ? "Primeiro ajuste aprovado." : "Segundo ajuste pendente.";
+      const conteudo = inicial.replace("Texto original aprovado.", corpo)
+        .replace("2026-10-26T14:35:00-03:00", `2026-10-26T14:3${rodada + 5}:00-03:00`);
+      writeFileSync(join(raiz, "wiki", caminhoRelativo), conteudo);
+      aoEvento({ tipo: "resultado-ferramenta", id: `w${rodada}`, erro: false, texto: "Editado" });
+      return { situacao: "concluida", sessao: SESSAO, texto: "Ajuste feito", recusas: [] };
+    }});
+    const { postar, chamar } = await subirServidor(ponte);
+    const fazerAjuste = async () => {
+      const pagina = readFileSync(join(raiz, "wiki", caminhoRelativo), "utf8");
+      const resposta = await postar("/api/ajuste", { caminho: caminhoRelativo, versao: createHash("sha256").update(pagina).digest("hex"), pedido: "Ajustar" });
+      expect(resposta.status).toBe(201);
+      const { id } = await resposta.json() as { id: string };
+      let conversa: Conversa | undefined;
+      for (let i = 0; i < 30; i++) {
+        const respostaConversa = await chamar(`/api/conversas/${id}`);
+        if (!respostaConversa.ok) throw new Error(`GET conversa ${id}: ${respostaConversa.status} ${await respostaConversa.text()}`);
+        conversa = await respostaConversa.json() as Conversa;
+        if (conversa.situacao !== "rodando") break;
+        await new Promise(r => setTimeout(r, 50));
+      }
+      expect(conversa?.situacao).toBe("concluida");
+    };
+
+    await fazerAjuste();
+    const filaUm = await (await chamar("/api/rascunhos")).json() as Array<{ caminho: string; versao: string; anterior?: string }>;
+    expect(filaUm.find(item => item.caminho === caminhoRelativo)?.anterior).toBe(inicial);
+    const aprovar = await postar("/api/aprovar", { caminho: caminhoRelativo, versao: filaUm[0]!.versao });
+    expect(aprovar.status).toBe(200);
+    const aprovada = readFileSync(join(raiz, "wiki", caminhoRelativo), "utf8");
+
+    await fazerAjuste();
+    const filaDois = await (await chamar("/api/rascunhos")).json() as Array<{ caminho: string; anterior?: string }>;
+    expect(filaDois.find(item => item.caminho === caminhoRelativo)?.anterior).toBe(aprovada);
+  });
+
+  test("Dado dois ajustes ainda pendentes Quando peço o segundo Então a base continua a original", async () => {
+    const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
+    const inicial = "---\ntype: concept\nslug: segundo-cerebro\ntitle: Segundo cérebro\ngenerated:\n  by: agente/teste\n  at: 2026-10-26T14:35:00-03:00\n---\nTexto original pendente.";
+    writeFileSync(join(raiz, "wiki", caminhoRelativo), inicial);
+    let rodada = 0;
+    const ponte = new PonteFalsa({ escritor: async (_pedido, aoEvento) => {
+      rodada++;
+      aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-haiku/2.1.311" });
+      aoEvento({ tipo: "ferramenta", id: `w${rodada}`, nome: "Edit", caminho: join(raiz, "wiki", caminhoRelativo) });
+      writeFileSync(join(raiz, "wiki", caminhoRelativo), `---\ntype: concept\nslug: segundo-cerebro\ntitle: Segundo cérebro\ngenerated:\n  by: claude-haiku/2.1.311\n  at: 2026-11-06T20:0${rodada}:00-03:00\n---\nAjuste pendente ${rodada}.`);
+      aoEvento({ tipo: "resultado-ferramenta", id: `w${rodada}`, erro: false, texto: "Editado" });
+      return { situacao: "concluida", sessao: SESSAO, texto: "Ajuste feito", recusas: [] };
+    }});
+    const { postar, chamar } = await subirServidor(ponte);
+    const fazerAjuste = async () => {
+      const pagina = readFileSync(join(raiz, "wiki", caminhoRelativo), "utf8");
+      const resposta = await postar("/api/ajuste", { caminho: caminhoRelativo, versao: createHash("sha256").update(pagina).digest("hex"), pedido: "Ajustar" });
+      expect(resposta.status).toBe(201);
+      const { id } = await resposta.json() as { id: string };
+      let conversa: Conversa | undefined;
+      for (let i = 0; i < 30; i++) {
+        conversa = await (await chamar(`/api/conversas/${id}`)).json() as Conversa;
+        if (conversa.situacao !== "rodando") break;
+        await new Promise(r => setTimeout(r, 50));
+      }
+      expect(conversa?.situacao).toBe("concluida");
+    };
+    await fazerAjuste();
+    await fazerAjuste();
+    const fila = await (await chamar("/api/rascunhos")).json() as Array<{ caminho: string; anterior?: string }>;
+    expect(fila.find(item => item.caminho === caminhoRelativo)?.anterior).toBe(inicial);
+  });
+
   async function criarAjusteComPaginaAprovada(escritor: (aoEvento: (evento: import("../src/lib/ponte-agente").EventoDoAgente) => void) => Promise<import("../src/lib/ponte-agente").FimDaFase>) {
     const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
     const conteudoInicial = [

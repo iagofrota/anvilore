@@ -144,7 +144,11 @@ export async function indexarCopias(raiz: string): Promise<Map<string, string>> 
     }));
   };
   await visitar(pasta);
-  const candidatos = new Map<string, { caminho: string; data: number }>();
+  const candidatos = new Map<string, { caminho: string; data: number; sessao: string }>();
+  const carimboDaSessao = (sessao: string): string | undefined => {
+    const partes = /^(\d{8})-(\d{6})(\d{3})?/.exec(sessao);
+    return partes ? `${partes[1]}${partes[2]}${partes[3] ?? "000"}` : undefined;
+  };
   await Promise.all(arquivos.map(async caminho => {
     const relativo = relative(pasta, caminho).split(sep).join("/");
     const separador = relativo.indexOf("/");
@@ -152,7 +156,14 @@ export async function indexarCopias(raiz: string): Promise<Map<string, string>> 
     const pagina = relativo.slice(separador + 1);
     try {
       const data = (await stat(caminho)).mtimeMs;
-      if (!candidatos.has(pagina) || candidatos.get(pagina)!.data < data) candidatos.set(pagina, { caminho, data });
+      const sessao = relativo.slice(0, separador);
+      const atual = candidatos.get(pagina);
+      const carimboAtual = atual ? carimboDaSessao(atual.sessao) : undefined;
+      const carimboNovo = carimboDaSessao(sessao);
+      const sessaoMaisNova = carimboAtual && carimboNovo && carimboAtual !== carimboNovo
+        ? carimboAtual < carimboNovo
+        : atual && (atual.data < data || (atual.data === data && atual.sessao < sessao));
+      if (!atual || sessaoMaisNova) candidatos.set(pagina, { caminho, data, sessao });
     } catch { /* cópia removida durante a indexação */ }
   }));
   return new Map([...candidatos].map(([pagina, item]) => [pagina, item.caminho]));

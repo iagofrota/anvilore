@@ -581,12 +581,13 @@ export class IngestaoNaInterface {
       if (this.encerrando) throw new ErroDeIngestao("A interface está encerrando.", 409);
 
       const agora = this.agora();
-      const carimbo = isoComOffset(agora).slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
+      const carimbo = agora.toISOString().slice(0, 23).replace(/[-:.]/g, "").replace("T", "-");
       const id = `${carimbo}-${randomBytes(3).toString("hex")}`;
 
       // A linha de base da aba Mudanças: preserva a cópia original da página fora do git antes da primeira escrita
       const copiaExistente = await caminhoDaCopia(this.raiz, dados.caminho);
-      if (!copiaExistente) {
+      const aprovacaoVigente = estadoAprovacaoHumana(lerFrontmatter(conteudo) ?? {}) === "vigente";
+      if (!copiaExistente || aprovacaoVigente) {
         const copia = join(this.raiz, ".anvilore/ui/copias", id, dados.caminho);
         await mkdir(dirname(copia), { recursive: true });
         await writeFile(copia, conteudo);
