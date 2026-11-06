@@ -836,7 +836,7 @@ test("Dado elementos interativos do PainelDoOnboarding Quando o usuário interag
   );
   clicar(botao(arvP4, "← Voltar"));
   clicar(botao(arvP4, "Ingerir em"));
-  clicar(botao(arvP4, "Solte um arquivo"));
+  clicar(botao(arvP4, "Escolher um arquivo"));
   clicar(botao(arvP4, "Pular por agora"));
 
   expect(disparos).toContain("pasta:/nova/pasta");

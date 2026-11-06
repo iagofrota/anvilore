@@ -852,7 +852,7 @@ export function PainelDoOnboarding({
                 cursor: "pointer",
               }}
             >
-              <span style={{ fontWeight: 500 }}>Solte um arquivo .md, .txt ou .pdf</span>
+              <span style={{ fontWeight: 500 }}>Escolher um arquivo .md, .txt ou .pdf</span>
               <span style={{ fontSize: "12px", color: "var(--fg-3)" }}>
                 Você o salva em <span className="mono">raw/&lt;área&gt;/</span>; o agente só lê.
               </span>
