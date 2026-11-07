@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -37,10 +37,11 @@ const ENVOLVEDORES = new Set([
   "busybox", "xargs", "parallel", "env", "nice", "nohup", "time", "sudo", "doas", "command", "builtin", "exec", "timeout", "stdbuf", "ionice", "setsid",
 ]);
 
-type RegraOpcaoCurta = { recebeValor?: boolean; destino?: boolean; valorOpcionalColado?: boolean };
+type RegraOpcaoCurta = { recebeValor?: boolean; destino?: boolean; diretorio?: boolean; valorOpcionalColado?: boolean };
 type ResultadoOpcoesCurtas = {
   operandos: string[];
   destinos: string[];
+  diretorios: string[];
   letras: Set<string>;
   consumiuProximo: boolean;
   malformado: boolean;
@@ -71,6 +72,7 @@ const OPCOES_CURTAS_POR_VERBO: Record<string, Record<string, RegraOpcaoCurta>> =
 function analisarOpcoesCurtas(args: string[], regras: Record<string, RegraOpcaoCurta>): ResultadoOpcoesCurtas {
   const operandos: string[] = [];
   const destinos: string[] = [];
+  const diretorios: string[] = [];
   const letras = new Set<string>();
   let consumiuProximo = false;
   let terminouOpcoes = false;
@@ -104,9 +106,10 @@ function analisarOpcoesCurtas(args: string[], regras: Record<string, RegraOpcaoC
       if (regra.recebeValor) {
         const valor = restante || args[i + 1];
         if (valor === undefined) {
-          return { operandos, destinos, letras, consumiuProximo, malformado: true };
+          return { operandos, destinos, diretorios, letras, consumiuProximo, malformado: true };
         }
         if (regra.destino) destinos.push(valor);
+        if (regra.diretorio) diretorios.push(valor);
         if (!restante) {
           i++;
           consumiuProximo = true;
@@ -116,7 +119,7 @@ function analisarOpcoesCurtas(args: string[], regras: Record<string, RegraOpcaoC
     }
   }
 
-  return { operandos, destinos, letras, consumiuProximo, malformado: false };
+  return { operandos, destinos, diretorios, letras, consumiuProximo, malformado: false };
 }
 
 const CMDLETS_ESCRITA_PS = new Set([
@@ -172,9 +175,17 @@ function extrairDestinoGit(
   return extrairDestinoOpcaoLongaGnu(arg, proximo, "--output");
 }
 
-function desembrulhar(verbo: string, args: string[]): { resto: string[]; descartados: string[]; malformado: boolean } {
+function desembrulhar(verbo: string, args: string[]): { resto: string[]; descartados: string[]; diretorios: string[]; malformado: boolean } {
   const { valor, longas = [], posicionais = 0 } = OPCOES_ENVOLVEDOR[verbo] ?? { valor: [] };
-  const sai = (i: number, extra: string[] = []) => ({ resto: [...extra, ...args.slice(i)], descartados: args.slice(0, i), malformado: false });
+  const diretorios: string[] = [];
+  const regrasDiretorio: Record<string, RegraOpcaoCurta> = verbo === "env" ? { C: { recebeValor: true, diretorio: true } }
+    : verbo === "sudo" ? { D: { recebeValor: true, diretorio: true } } : {};
+  const regrasCurtas = {
+    ...Object.fromEntries(valor.map(opcao => [opcao.slice(1), { recebeValor: true }])),
+    ...(OPCOES_CURTAS_POR_VERBO[verbo] ?? {}),
+    ...regrasDiretorio,
+  };
+  const sai = (i: number, extra: string[] = []) => ({ resto: [...extra, ...args.slice(i)], descartados: args.slice(0, i), diretorios, malformado: false });
   let pular = posicionais;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
@@ -184,24 +195,35 @@ function desembrulhar(verbo: string, args: string[]): { resto: string[]; descart
     if (ehS) {
       const colado = arg.startsWith("--") ? (arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : undefined) : arg.slice(2) || undefined;
       const texto = (colado ?? args[i + 1] ?? "").replaceAll("\\_", " ");
-      return { resto: [...texto.split(/\s+/).filter(Boolean), ...args.slice(colado !== undefined ? i + 1 : i + 2)], descartados: args.slice(0, i), malformado: false };
+      return { resto: [...texto.split(/\s+/).filter(Boolean), ...args.slice(colado !== undefined ? i + 1 : i + 2)], descartados: args.slice(0, i), diretorios, malformado: false };
     }
     if (arg.startsWith("-")) {
       const longa = longas.find(([nome, minimo]) => opcaoLongaGnu(arg, nome, minimo));
       const regraCurta = OPCOES_CURTAS_POR_VERBO[verbo];
-      if (regraCurta && /^-[^-]/.test(arg)) {
-        const curto = analisarOpcoesCurtas([arg, args[i + 1]].filter((v): v is string => v !== undefined), regraCurta);
-        if (curto.malformado) return { resto: [], descartados: args, malformado: true };
+      if ((regraCurta || valor.length > 0 || Object.keys(regrasDiretorio).length > 0) && /^-[^-]/.test(arg)) {
+        const curto = analisarOpcoesCurtas([arg, args[i + 1]].filter((v): v is string => v !== undefined), regrasCurtas);
+        if (curto.malformado) return { resto: [], descartados: args, diretorios, malformado: true };
+        diretorios.push(...curto.diretorios);
         if (curto.consumiuProximo) i++;
       } else if (valor.includes(arg) || (longa !== undefined && !longa[2] && !arg.includes("="))) {
+        if (longa && ((verbo === "env" && longa[0] === "--chdir") || (verbo === "sudo" && longa[0] === "--chdir"))) {
+          const dir = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[i + 1];
+          if (dir === undefined || dir === "") return { resto: [], descartados: args, diretorios, malformado: true };
+          diretorios.push(dir);
+        }
         i++;
+      } else if (longa && ((verbo === "env" && longa[0] === "--chdir") || (verbo === "sudo" && longa[0] === "--chdir"))) {
+        const dir = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[i + 1];
+        if (dir === undefined || dir === "") return { resto: [], descartados: args, diretorios, malformado: true };
+        diretorios.push(dir);
+        if (!arg.includes("=")) i++;
       }
       continue;
     }
     if (pular > 0) { pular--; continue; }
     return sai(i);
   }
-  return { resto: [], descartados: args, malformado: false };
+  return { resto: [], descartados: args, diretorios, malformado: false };
 }
 
 function mapa(valor: unknown): valor is Json {
@@ -771,14 +793,48 @@ function verboNormalizado(palavra: string): string {
   return partes.pop()?.toLowerCase().replace(/\.exe$/, "") ?? "";
 }
 
-function analisarGit(args: string[]): { subcomando?: string; globais: string[] } {
+function analisarGit(args: string[]): { subcomando?: string; globais: string[]; diretorios: string[]; malformado: boolean } {
   const globais: string[] = [];
+  const diretorios: string[] = [];
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "-C" || args[i] === "-c") globais.push(args[i]!, args[++i] ?? "");
+    if (args[i] === "-C" || args[i] === "-c") {
+      const valor = args[++i];
+      if (valor === undefined || valor === "") return { globais, diretorios, malformado: true };
+      globais.push(args[i - 1]!, valor);
+      if (args[i - 1] === "-C") diretorios.push(valor);
+    }
     else if (args[i]!.startsWith("-")) globais.push(args[i]!);
-    else return { subcomando: args[i]?.toLowerCase(), globais };
+    else return { subcomando: args[i]?.toLowerCase(), globais, diretorios, malformado: false };
   }
-  return { globais };
+  return { globais, diretorios, malformado: false };
+}
+
+function resolverDiretorioEfetivo(base: string, diretorio: string): string | undefined {
+  // These tokens require shell expansion or describe a set of paths, so their cwd cannot be proven.
+  if (!diretorio || /[$`~*?\[\]{}]/.test(diretorio)) return undefined;
+  try {
+    const abs = caminhoReal(resolve(base, diretorio), base);
+    return statSync(abs).isDirectory() ? abs : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function extrairDiretoriosC(args: string[]): { diretorios: string[]; malformado: boolean } {
+  const curto = analisarOpcoesCurtas(args, { C: { recebeValor: true, diretorio: true } });
+  if (curto.malformado) return { diretorios: [], malformado: true };
+  const diretorios = [...curto.diretorios];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--") break;
+    if (arg.startsWith("--") && opcaoLongaGnu(arg, "--directory", "--direc")) {
+      const valor = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[i + 1];
+      if (valor === undefined || valor === "") return { diretorios: [], malformado: true };
+      diretorios.push(valor);
+      if (!arg.includes("=")) i++;
+    }
+  }
+  return { diretorios, malformado: false };
 }
 
 export function caminhoTocaWiki(
@@ -954,9 +1010,14 @@ function analisarComandoSimples(
   // 3. Normaliza verbo e desembrulha wrappers (sudo, env, time, etc.)
   let verbo = verboNormalizado(palavras[0]!);
   while (ENVOLVEDORES.has(verbo) && palavras.length > 1) {
-    const { resto, descartados, malformado } = desembrulhar(verbo, palavras.slice(1));
+    const { resto, descartados, diretorios, malformado } = desembrulhar(verbo, palavras.slice(1));
     if (malformado) {
       return { acao: "bloquear", motivo: `${verbo} com grupo de opções sem valor (falha fechada)` };
+    }
+    for (const diretorio of diretorios) {
+      const efetivo = resolverDiretorioEfetivo(base, diretorio);
+      if (!efetivo) return { acao: "bloquear", motivo: `${verbo} com diretório não literal ou inválido (falha fechada)` };
+      base = efetivo;
     }
     if (verbo === "time" || verbo === "stdbuf") {
       const opcoesCurtas = analisarOpcoesCurtas(descartados, OPCOES_CURTAS_POR_VERBO[verbo] ?? {});
@@ -997,6 +1058,38 @@ function analisarComandoSimples(
 
   const cmdArgs = palavras.slice(1);
   const cmdTextoSimples = cmdTokens.map(t => t.texto).join(" ");
+
+  if (verbo === "git") {
+    const git = analisarGit(cmdArgs);
+    if (git.malformado) return { acao: "bloquear", motivo: "git -C sem diretório literal (falha fechada)" };
+    for (const diretorio of git.diretorios) {
+      const efetivo = resolverDiretorioEfetivo(base, diretorio);
+      if (!efetivo) return { acao: "bloquear", motivo: "git -C com diretório não literal ou inválido (falha fechada)" };
+      base = efetivo;
+    }
+  }
+
+  if (verbo === "make" || verbo === "tar") {
+    const dirs = extrairDiretoriosC(cmdArgs);
+    if (dirs.malformado) return { acao: "bloquear", motivo: `${verbo} -C sem diretório literal (falha fechada)` };
+    let tarDirTocaWiki = false;
+    for (const diretorio of dirs.diretorios) {
+      const efetivo = resolverDiretorioEfetivo(base, diretorio);
+      if (!efetivo) return { acao: "bloquear", motivo: `${verbo} -C com diretório não literal ou inválido (falha fechada)` };
+      if (verbo === "tar" && estaSobWiki(efetivo, raiz, ambiente, base)) tarDirTocaWiki = true;
+      base = efetivo;
+    }
+    if (verbo === "tar" && tarDirTocaWiki) {
+      const lista = cmdArgs.some(arg => arg === "--list" || (/^-[^-]/.test(arg) && arg.slice(1).includes("t")));
+      const grava = cmdArgs.some(arg => ["--extract", "--create", "--append", "--update"].includes(arg)
+        || (/^-[^-]/.test(arg) && /[xcru]/.test(arg.slice(1))));
+      if (grava || !lista) return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+    }
+  }
+
+  if (verbo === "find" && cmdArgs.some(arg => arg === "-execdir" || arg === "-okdir")) {
+    return { acao: "bloquear", motivo: "find com execução em diretório variável (falha fechada)" };
+  }
 
   // 4. Se cita verified ou aprovação no comando simples
   const citaVerified = /verified/i.test(cmdTextoSimples) || /\bby\s*:\s*human:/i.test(cmdTextoSimples);
@@ -1178,7 +1271,11 @@ function analisarComandoSimples(
 
   // 5.9 Se o próprio cwd de execução (base) está sob a wiki
   if (estaSobWiki(base, raiz, ambiente, base)) {
-    if (!LEITURAS_TERMINAL.has(verbo) && (verbo !== "git" || !GIT_LEITURA.has(analisarGit(cmdArgs).subcomando ?? ""))) {
+    const tarListOnly = verbo === "tar"
+      && cmdArgs.some(arg => arg === "--list" || (/^-[^-]/.test(arg) && arg.slice(1).includes("t")))
+      && !cmdArgs.some(arg => ["--extract", "--create", "--append", "--update"].includes(arg)
+        || (/^-[^-]/.test(arg) && /[xcru]/.test(arg.slice(1))));
+    if (!LEITURAS_TERMINAL.has(verbo) && !tarListOnly && (verbo !== "git" || !GIT_LEITURA.has(analisarGit(cmdArgs).subcomando ?? ""))) {
       return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
     }
   }

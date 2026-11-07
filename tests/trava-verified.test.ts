@@ -37,6 +37,58 @@ describe("trava de verified nos quatro agentes", () => {
     }
   });
 
+  test("Dado comando de escrita com diretório trocado Quando o terminal é julgado Então bloqueia se o diretório efetivo é a wiki", async () => {
+    const ataques = [
+      "env -C wiki sed -i s/a/b/ a.md",
+      "env -Cwiki sed -i s/a/b/ a.md",
+      "env --chdir=wiki sed -i s/a/b/ a.md",
+      "env --ch wiki sed -i s/a/b/ a.md",
+      "env -C $DIR sed -i s/a/b/ a.md",
+      "env -C ~/wiki sed -i s/a/b/ a.md",
+      "sudo -D wiki sed -i s/a/b/ a.md",
+      "sudo --chdir=wiki sed -i s/a/b/ a.md",
+      "git -C $DIR checkout -- a.md",
+      "git -C wiki checkout -- a.md",
+      "git -C wiki apply x.patch",
+      "make -C wiki",
+      "make --directory=wiki",
+      "make -C $DIR",
+      "tar -C wiki -xf /tmp/x.tar",
+      "tar -Cwiki -xf /tmp/x.tar",
+      "tar --directory=wiki -xf /tmp/x.tar",
+      "tar -C $DIR -xf /tmp/x.tar",
+      "find wiki -execdir sed -i s/a/b/ a.md \\;",
+      "find . -okdir sed -i s/a/b/ a.md \\;",
+      "cd wiki; sed -i s/a/b/ a.md",
+      "(cd wiki; sed -i s/a/b/ a.md)",
+      "pushd wiki; sed -i s/a/b/ a.md",
+    ];
+    const resultados = await Promise.all(ataques.map(command => executarProtecao(JSON.stringify({
+      cwd: temporario,
+      tool_name: "Bash",
+      tool_input: { command },
+    }))));
+    expect(Object.fromEntries(ataques.map((command, index) => [command, resultados[index]]))).toEqual(
+      Object.fromEntries(ataques.map(command => [command, 2]))
+    );
+  });
+
+  test("Dado troca de diretório literal para fora da wiki ou só leitura Quando o terminal é julgado Então libera", async () => {
+    const comandos = [
+      "env -C /tmp sed -i s/a/b/ x.md",
+      "env -C wiki cat a.md",
+      "git -C wiki log",
+    ];
+    const resultados = await Promise.all(comandos.map(command => executarProtecao(JSON.stringify({
+      cwd: temporario,
+      tool_name: "Bash",
+      tool_input: { command },
+    }))));
+    expect(Object.fromEntries(comandos.map((command, index) => [command, resultados[index]]))).toEqual(
+      Object.fromEntries(comandos.map(command => [command, 0]))
+    );
+  });
+
   test("Dado opções curtas agrupadas que escolhem destino Quando o terminal é julgado Então bloqueia cópia ou edição na wiki", async () => {
     const ataques = [
       "cp -ft wiki /tmp/page.md",
