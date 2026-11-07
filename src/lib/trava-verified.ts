@@ -33,10 +33,13 @@ const LEITURAS_TERMINAL = new Set([
 
 // Verbos com ramo próprio que já julga destinos (e deixa ler a wiki: `cp wiki/a.md /tmp/x`, `sed -n 1p wiki/a.md`): ficam fora da rede
 // de padrão negado, que vale para todo o resto. Também entram aqui os builtins que só carregam estado do shell ou texto de laço.
+// Só fica isento o verbo cujo ramo julga todo argumento que pode ser destino. Estes julgam os operandos, mas não as opções com valor
+// (`rsync --log-file=wiki/a.md`, `tar --index-file=…`): para eles a rede ainda vale sobre os argumentos que começam com `-`.
+const VERBOS_ISENTOS_SO_PARA_OPERANDOS = new Set(["cp", "mv", "ln", "install", "rsync", "tar", "bsdtar", "gtar", "7z", "7za", "7zr", "7zz"]);
 const VERBOS_COM_RAMO_PROPRIO = new Set([
   "cp", "mv", "ln", "install", "rsync", "tee", "dd", "sed", "gsed", "awk", "gawk", "mawk", "nawk",
   "ed", "red", "ex", "vi", "vim", "nvim", "view", "rvim", "rview", "vimdiff",
-  "tar", "bsdtar", "gtar", "make", "find", "unzip", "7z", "7za", "7zr", "7zz", "git", "eval", "source", ".",
+  "tar", "bsdtar", "gtar", "find", "unzip", "7z", "7za", "7zr", "7zz", "git", "eval", "source", ".",
   "cd", "pushd", "popd", "export", "declare", "typeset", "readonly", "local", "unset", "set", "alias",
   "for", "case", "select", "function", "fi", "done", "esac", "do", "then", "else", "elif", "in",
 ]);
@@ -1121,6 +1124,47 @@ function tarExtrai(args: string[]): boolean {
   return false;
 }
 
+// Modo que grava o arquivo tar: -c, -r, -u, -A (cada uma no grupo curto ou na forma antiga sem traço) e as longas equivalentes.
+function tarGravaArquivo(args: string[]): boolean {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--") break;
+    if (arg.startsWith("--")) {
+      if (["--create", "--append", "--update", "--concatenate", "--catenate", "--delete"].some(nome => opcaoLongaGnu(arg, nome, nome.slice(0, 4)))) return true;
+    } else if (/^-[^-]/.test(arg)) {
+      if (/[cruA]/.test(arg.slice(1))) return true;
+    } else if (i === 0 && /^[A-Za-z]+$/.test(arg) && /[cruA]/.test(arg)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Alvos de -f/--file e --index-file: grupo curto (-cf X, -cfX), forma antiga (cf X) e longas com = ou valor separado.
+function tarArquivosDeSaida(args: string[]): string[] {
+  const alvos: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--") break;
+    if (arg.startsWith("--")) {
+      if (opcaoLongaGnu(arg, "--file", "--fi") || opcaoLongaGnu(arg, "--index-file", "--in")) {
+        const valor = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[++i];
+        if (valor !== undefined) alvos.push(valor);
+      }
+    } else if (/^-[^-]/.test(arg)) {
+      const indice = arg.indexOf("f", 1);
+      if (indice > 0) {
+        const colado = arg.slice(indice + 1);
+        const valor = colado || args[++i];
+        if (valor !== undefined) alvos.push(valor);
+      }
+    } else if (i === 0 && /^[A-Za-z]+$/.test(arg) && arg.includes("f") && args[1] !== undefined) {
+      alvos.push(args[1]);
+    }
+  }
+  return alvos;
+}
+
 function tarCaminhosAbsolutos(args: string[]): boolean {
   return args.some((arg, indice) => (/^-[^-]/.test(arg) && arg.slice(1).includes("P"))
     || (indice === 0 && /^[A-Za-z]+$/.test(arg) && arg.includes("P"))
@@ -1144,7 +1188,15 @@ function extratorNoAncestral(
     if (opcoes.letras.has(":") || opcoes.letras.has("^")) return "unzip mantém caminhos do pacote (falha fechada)";
     diretorios = opcoes.destinos.length ? opcoes.destinos : ["."];
   } else if (/^7z[a-z]?$/.test(verbo)) {
-    const comando = args.find(arg => !arg.startsWith("-"))?.toLowerCase();
+    const operandos7z = args.filter(arg => !arg.startsWith("-"));
+    const comando = operandos7z[0]?.toLowerCase();
+    // a (adicionar), u (atualizar), d (apagar), rn (renomear): o 1º operando depois do comando é o arquivo que se grava.
+    if (comando === "a" || comando === "u" || comando === "d" || comando === "rn") {
+      const arquivo = operandos7z[1];
+      if (arquivo !== undefined && (caminhoTocaWiki(arquivo, base, raiz, ambiente) || ehDestinoPerigoso(arquivo, base, raiz, ambiente))) {
+        return `${verbo} grava um arquivo na wiki ou num ancestral dela (falha fechada)`;
+      }
+    }
     if (comando !== "x" && comando !== "e") return undefined;
     if (args.some(arg => /^-spf/i.test(arg))) return `${verbo} com caminhos absolutos do pacote (falha fechada)`;
     const saidas = args.filter(arg => /^-o./i.test(arg) && !arg.startsWith("--")).map(arg => arg.slice(2));
@@ -1275,8 +1327,8 @@ function lerScriptLegivel(arquivo: string, base: string, unicoComando: boolean):
 }
 
 // sed: acha w/W (inclusive s///w), e (e s///e). O parse não é completo: token que não se prova inofensivo e pode ser w/W/e bloqueia.
-function analisarScriptSed(script: string): EscritaDeScript & { dinamico: boolean } {
-  const r: EscritaDeScript & { dinamico: boolean } = { destinos: [], comandos: [], dinamico: false };
+function analisarScriptSed(script: string): EscritaDeScript & { dinamico: boolean; posicoes: number } {
+  const r: EscritaDeScript & { dinamico: boolean; posicoes: number } = { destinos: [], comandos: [], dinamico: false, posicoes: 0 };
   const n = script.length;
   const fimDeLinha = (de: number) => { const k = script.indexOf("\n", de); return k < 0 ? n : k; };
   const delimitado = (de: number, delimitador: string): number => {
@@ -1322,12 +1374,14 @@ function analisarScriptSed(script: string): EscritaDeScript & { dinamico: boolea
       continue;
     }
     if (c === "w" || c === "W") {
+      r.posicoes++;
       const arquivo = script.slice(i + 1, fimDeLinha(i + 1)).trim();
       if (arquivo) r.destinos.push(arquivo); else r.dinamico = true;
       i = fimDeLinha(i + 1);
       continue;
     }
     if (c === "e") {
+      r.posicoes++;
       const comando = script.slice(i + 1, fimDeLinha(i + 1)).trim();
       // `e` sozinho, ou seguido de `;`/`}` (`{p;e}`), executa o espaço de padrão: o que vai rodar não se prova.
       if (comando && !/^[;}]/.test(comando)) r.comandos.push(comando); else r.dinamico = true;
@@ -1363,10 +1417,13 @@ function analisarScriptSed(script: string): EscritaDeScript & { dinamico: boolea
   return r;
 }
 
-// Rede do sed, independente do parser: `w`/`W`/`e` na posição de comando (começo do script, depois de `;`, `{`, `}` ou nova linha,
-// com endereço opcional) que o parser não registrou. Cobre o texto que o parser pulou por ter lido a estrutura diferente do sed.
-function redeLexicaSed(script: string): boolean {
-  return /(?:^|[;{}\n])[ \t0-9,$~+!]*(?:\/(?:\\.|[^/\n])*\/[IM]*[ \t!]*)?[wWe](?=[ \t\n;}]|$)/.test(script);
+// Rede do sed, independente do parser: conta os `w`/`W`/`e` em posição de comando (começo do script, depois de `;`, `{`, `}` ou nova
+// linha, com um ou dois endereços opcionais: número, `$`, `/re/`, `\cREc`, `+N`, `~N`) e sem exigir separador depois da letra
+// (`wwiki/a.md` vale). Roda SEMPRE: se vê mais posições do que o parser registrou, algo foi pulado.
+function posicoesDaRedeSed(script: string): number {
+  const endereco = (n: number) => `(?:\\d+(?:~\\d+)?|\\$|[+~]\\d+|\\/(?:\\\\.|[^/\\n])*\\/[IM]*|\\\\([^\\n\\\\])(?:\\\\.|(?!\\${n})[^\\n])*\\${n}[IM]*)`;
+  const rede = new RegExp(`(?:^|[;{}\\n])[ \\t]*(?:${endereco(1)}[ \\t]*(?:,[ \\t]*${endereco(2)}[ \\t]*)?)?!*[ \\t]*[wWe]`, "g");
+  return [...script.matchAll(rede)].length;
 }
 
 // awk: print/printf com > >> | |&, system(), "cmd" | getline. Literal vira destino ou comando; o que não for literal bloqueia.
@@ -1621,15 +1678,6 @@ function redeLexicaAwk(script: string): EscritaDeScript {
   return r;
 }
 
-// Interpretador sem argumento de programa recebe o código pela entrada padrão (`print 1 | "sh"` executa o que o awk escrever).
-function leOCodigoDaEntrada(comando: string): boolean {
-  const palavras = comando.trim().split(/\s+/).filter(Boolean);
-  if (!palavras.length) return false;
-  const verbo = verboNormalizado(palavras[0]!);
-  const interpretador = ehShell(verbo) || /^(?:python[\d.]*|perl|ruby|node|bun|deno|php|ed|red|ex|vi|vim|nvim)$/.test(verbo);
-  return interpretador && palavras.slice(1).every(arg => arg.startsWith("-") && !/^-[a-zA-Z]*[ce]/.test(arg));
-}
-
 // Comandos ex/vim (de -c, +cmd, -S, --cmd): escrita (w, wq, x, saveas...), shell (!, r !) e comandos que podem tudo.
 function analisarComandosEx(texto: string): EscritaDeScript {
   const r: EscritaDeScript = { destinos: [], comandos: [] };
@@ -1692,6 +1740,20 @@ function analisarComandosEx(texto: string): EscritaDeScript {
   return r;
 }
 
+// Shell sem texto de comando e sem script (ou com `-s`, `-`, `/dev/stdin`) e interpretador sem programa lêem o código da entrada.
+function lePeloStdin(verbo: string, args: string[]): boolean {
+  const stdin = (operando: string | undefined) => operando === undefined || operando === "-" || operando === "/dev/stdin"
+    || /^\/(?:dev|proc\/self)\/fd\//.test(operando);
+  if (ehShell(verbo)) {
+    const { textos, operando } = textosDeShell(verbo, args);
+    return textos.length === 0 && (stdin(operando) || args.includes("-s"));
+  }
+  if (/^(?:python[\d.]*|perl|ruby|node|bun|deno|php)$/.test(verbo)) {
+    return args.includes("-") || args.every(arg => arg.startsWith("-") && !/^-[a-zA-Z]*[ce]/.test(arg));
+  }
+  return false;
+}
+
 const EDITORES = new Set(["ed", "red", "ex", "vi", "vim", "nvim", "view", "rvim", "rview", "vimdiff"]);
 
 // Aplica a regra de destino/execução aos achados de um script. Devolve a decisão de bloqueio, se houver.
@@ -1714,9 +1776,8 @@ function decidirEscritaDeScript(
     const interno = executar(comando);
     if (interno.acao === "bloquear") return interno;
   }
-  // Comando que recebe a saída do script por pipe: interpretador sem programa lê o código dela; os demais seguem o classificador.
+  // Comando que recebe a saída do script por pipe: o texto inteiro vai ao classificador, com "recebe pipe" (sem regra própria).
   for (const comando of achados.entradas ?? []) {
-    if (leOCodigoDaEntrada(comando)) return { acao: "bloquear", motivo: "script entrega o texto a um interpretador pela entrada padrão (falha fechada)" };
     const interno = executar(comando, true);
     if (interno.acao === "bloquear") return interno;
   }
@@ -1782,7 +1843,8 @@ function analisarFerramentaDeTexto(
       if (texto === undefined) return bloquear("script do sed ilegível ou não literal (falha fechada)");
       const achados = analisarScriptSed(texto);
       if (achados.dinamico) return bloquear("sed com e ou s///e executa o que não se prova (falha fechada)");
-      if (!achados.destinos.length && !achados.comandos.length && !achados.bloqueio && redeLexicaSed(texto)) {
+      // A rede e o parser valem juntos: mais posições na rede do que no parser quer dizer texto pulado por ler a estrutura diferente do sed.
+      if (posicoesDaRedeSed(texto) > achados.posicoes) {
         return bloquear("sed com w, W ou e que o parser não provou (falha fechada)");
       }
       const decisao = decidir(achados);
@@ -1971,7 +2033,7 @@ function ehShell(verbo: string): boolean {
 // Textos de comando de um shell. bash/sh/zsh: `-c <texto>` (inclusive em grupo curto: -ec, -lc), com o texto no primeiro
 // argumento que não é opção, depois de -o/-O valor e --rcfile arq. fish: `-c`, `--command`, `-C` e `--init-command` recebem o
 // texto como valor, em qualquer posição (o fish aceita opções depois do texto) e sem exigir -c. Todo texto colhido é analisado.
-function textosDeShell(verbo: string, args: string[]): { textos: string[]; semTexto: boolean } {
+function textosDeShell(verbo: string, args: string[]): { textos: string[]; semTexto: boolean; operando?: string } {
   const fish = verbo === "fish";
   const textos: string[] = [];
   let temC = false;
@@ -1999,6 +2061,7 @@ function textosDeShell(verbo: string, args: string[]): { textos: string[]; semTe
     }
     if (!/^[-+][^-+]/.test(arg)) {
       if (!fish) { positional ??= arg; break; }
+      positional ??= arg;
       continue;
     }
     const grupo = arg.slice(1);
@@ -2021,7 +2084,7 @@ function textosDeShell(verbo: string, args: string[]): { textos: string[]; semTe
   if (temC) {
     if (positional === undefined) semTexto = true; else textos.push(positional);
   }
-  return { textos, semTexto };
+  return { textos, semTexto, ...(!temC && positional !== undefined ? { operando: positional } : {}) };
 }
 
 // O comando de `find -exec|-ok` até o terminador `;` ou `+` (sem terminador, vai até o fim).
@@ -2045,23 +2108,28 @@ function cortarEntradasParallel(args: string[]): string[] {
 // Padrão negado: o fim da função liberava QUALQUER verbo não reconhecido (curl -o wiki/a.md, wget -O, scp, pandoc -o, touch, rm...).
 // Verbo fora da lista de leitura e sem ramo próprio, com argumento que toca a wiki (ou é ela ou um ancestral dela), bloqueia, mesmo
 // quando é só leitura (`pandoc wiki/a.md -o /tmp/a.html`): prefere-se bloquear a adivinhar qual argumento é a saída.
-function candidatosDeCaminho(arg: string): string[] {
+export function candidatosDeCaminho(arg: string): string[] {
   const limpo = arg.replace(/^["']|["']$/g, "").trim();
   if (!limpo) return [];
   const candidatos = new Set<string>([limpo]);
   // --opt=valor e opt=valor (dd-like): o valor depois do 1º `=`.
   const igual = limpo.indexOf("=");
   if (igual >= 0) candidatos.add(limpo.slice(igual + 1));
-  // Opção curta com valor colado, para qualquer letra: -oVALOR → VALOR.
-  if (/^-[A-Za-z][^-]/.test(limpo)) candidatos.add(limpo.slice(2));
+  // Grupo de opções curtas com valor colado, para qualquer letra e qualquer tamanho: -oVALOR, -vowiki/a.md → todos os sufixos.
+  if (/^-[A-Za-z]/.test(limpo)) for (let k = 2; k < limpo.length; k++) candidatos.add(limpo.slice(k));
   // Argumento com espaços (".output wiki/a.md" do sqlite3, comando entre aspas): cada palavra também.
   for (const palavra of limpo.split(/\s+/)) if (palavra) candidatos.add(palavra);
-  // file:///caminho: o caminho depois do esquema.
+  // file://QUALQUER-HOST/caminho → /caminho; file:///C:/x → C:/x (Windows). O curl -T em file: grava.
   for (const candidato of [...candidatos]) {
-    const arquivo = /^file:\/\/(\/.*)$/i.exec(candidato);
-    if (arquivo) candidatos.add(arquivo[1]!);
+    const arquivo = /^file:\/\/[^/]*(\/.*)$/i.exec(candidato);
+    if (arquivo) {
+      candidatos.add(arquivo[1]!);
+      const unidade = /^\/([A-Za-z]:\/.*)$/.exec(arquivo[1]!);
+      if (unidade) candidatos.add(unidade[1]!);
+    }
   }
-  return [...candidatos].filter(c => c && !c.startsWith("-") && !/^[a-z][a-z0-9+.-]*:\/\/(?!\/)/i.test(c));
+  // Só esquema de rede é ignorado; `file:` nunca.
+  return [...candidatos].filter(c => c && !c.startsWith("-") && !/^(?!file:)[a-z][a-z0-9+.-]*:\/\//i.test(c));
 }
 
 function verboDesconhecidoTocaWiki(
@@ -2233,6 +2301,14 @@ function analisarComandoSimples(
       base = efetivo;
       efetivos.push(efetivo);
     }
+    // Criar, acrescentar, atualizar ou apagar do arquivo grava o alvo de -f/--file (e o arquivo de índice): é destino.
+    if (ehTar && tarGravaArquivo(cmdArgs)) {
+      for (const alvo of tarArquivosDeSaida(cmdArgs)) {
+        if (caminhoTocaWiki(alvo, base, raiz, ambiente) || !destinoEhSeguro(alvo, base, raiz, ambiente) || temMudancaDir) {
+          return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+        }
+      }
+    }
     if (ehTar && tarExtrai(cmdArgs)) {
       // Extrair grava o que o pacote tem sob o diretório efetivo (-C ou cwd); -P deixa o pacote escolher o caminho.
       // Com vários -C a ordem de aplicação varia: cada diretório visto no comando é julgado.
@@ -2246,6 +2322,17 @@ function analisarComandoSimples(
       const grava = cmdArgs.some(arg => ["--extract", "--create", "--append", "--update"].includes(arg)
         || (/^-[^-]/.test(arg) && /[xcru]/.test(arg.slice(1))));
       if (grava || !lista) return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+    }
+  }
+
+  // find -delete apaga o que casa: o ponto de partida (primeiros operandos, ou `.`) não pode ser a wiki nem um ancestral dela.
+  if (verbo === "find" && cmdArgs.includes("-delete")) {
+    const fim = cmdArgs.findIndex(arg => arg.startsWith("-") || arg === "(" || arg === "!");
+    const inicios = (fim < 0 ? cmdArgs : cmdArgs.slice(0, fim));
+    for (const inicio of inicios.length ? inicios : ["."]) {
+      if (caminhoTocaWiki(inicio, base, raiz, ambiente) || ehDestinoPerigoso(inicio, base, raiz, ambiente) || temMudancaDir) {
+        return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+      }
     }
   }
 
@@ -2427,6 +2514,11 @@ function analisarComandoSimples(
     }
   }
 
+  // 5.4a Shell ou interpretador que recebe pipe e não tem programa próprio lê os comandos da entrada padrão (`echo cmd | sh`, `| env sh`).
+  if (doPipe && lePeloStdin(verbo, cmdArgs)) {
+    return { acao: "bloquear", motivo: "o comando que recebe o pipe lê o programa da entrada padrão (falha fechada)" };
+  }
+
   // 5.4b Linguagem de script que grava ou executa: sed (w/W/e), awk (>, |, system) e ed/ex/vim (w, !, saveas)
   const executarAninhado = (texto: string, dePipe = false): Decisao => aninhado.profundidade >= TETO_ANINHAMENTO
     ? { acao: "bloquear", motivo: "comandos aninhados demais (falha fechada)" }
@@ -2520,9 +2612,14 @@ function analisarComandoSimples(
   }
 
   // 5.10 Padrão negado para o verbo que nenhum ramo acima reconheceu
-  if (!LEITURAS_TERMINAL.has(verbo) && !VERBOS_COM_RAMO_PROPRIO.has(verbo) && !ehShell(verbo)
-    && verboDesconhecidoTocaWiki(cmdArgs, base, raiz, ambiente)) {
-    return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+  if (!LEITURAS_TERMINAL.has(verbo)) {
+    // Shell com -c segue o caminho recursivo; shell sem texto de comando (script em arquivo) recebe a rede como qualquer verbo.
+    const shellComTexto = ehShell(verbo) && textosDeShell(verbo, cmdArgs).textos.length > 0;
+    const argumentos = VERBOS_ISENTOS_SO_PARA_OPERANDOS.has(verbo) ? cmdArgs.filter(arg => arg.startsWith("-"))
+      : VERBOS_COM_RAMO_PROPRIO.has(verbo) || shellComTexto ? [] : cmdArgs;
+    if (argumentos.length && verboDesconhecidoTocaWiki(argumentos, base, raiz, ambiente)) {
+      return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+    }
   }
 
   return { acao: "liberar", motivo: "comando simples permitido" };

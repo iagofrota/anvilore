@@ -4,7 +4,7 @@ import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { executarProtecao } from "../src/comandos/hook-proteger-raw";
 import { comandoHooksWiki } from "../src/comandos/hooks-wiki";
-import { blocoVerified, decidirVerified, encontrarRaizVault, mudouBloco } from "../src/lib/trava-verified";
+import { blocoVerified, candidatosDeCaminho, decidirVerified, encontrarRaizVault, mudouBloco } from "../src/lib/trava-verified";
 import { capturarConsole } from "./apoio/console";
 
 // Julga cada comando pelo hook real e, quando o código difere, devolve na mensagem o comando, o código obtido e o motivo da
@@ -3199,6 +3199,160 @@ describe("trava de verified nos quatro agentes", () => {
 
         // Expansão que pode apontar para a wiki só bloqueia quando o cwd é o cofre ou a wiki
         await esperar([`ferramenta-inventada --dest=$DIR`, `ferramenta-inventada *`, `ferramenta-inventada ~/x`], 0, fora);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Rodada 15b (1, 2): shell sem -c recebe a rede e file://HOST/ e file:///C:/ são extraídos", async () => {
+      const { fora, cofre, esperar, wikiA } = prepararRodada11();
+      writeFileSync(join(fora, "s.sh"), "echo ok\n");
+      try {
+        const ataques = [
+          `bash ${fora}/s.sh wiki/a.md`,
+          `sh ${fora}/s.sh ${wikiA}`,
+          `bash -x ${fora}/s.sh --out=wiki/a.md`,
+          `zsh ${fora}/s.sh -owiki/a.md`,
+          `fish ${fora}/s.fish wiki/a.md`,
+          `bash wiki/s.sh`,
+          `curl -T ${fora}/p.md file://localhost${wikiA}`,
+          `curl -T ${fora}/p.md file://example.com${wikiA}`,
+          `curl -T ${fora}/p.md file://${wikiA}`,
+          `curl --upload-file ${fora}/p.md file://127.0.0.1${wikiA}`,
+        ];
+        await esperar(ataques, 2, cofre);
+        const regressoes = [
+          `bash ${fora}/s.sh`,
+          `bash ${fora}/s.sh ${fora}/x`,
+          `bash -c "cat wiki/a.md"`,
+          `sh -c 'echo hi'`,
+          `curl -T ${fora}/p.md file://localhost${fora}/x`,
+          `curl https://example.com`,
+        ];
+        await esperar(regressoes, 0, cofre);
+        // O formato do Windows não dá para exercitar no Linux pelo caminho; a extração é conferida direto.
+        expect(candidatosDeCaminho("file:///C:/Users/x/wiki/a.md")).toContain("C:/Users/x/wiki/a.md");
+        expect(candidatosDeCaminho("file://localhost/home/x/wiki/a.md")).toContain("/home/x/wiki/a.md");
+        expect(candidatosDeCaminho("https://example.com/a")).toEqual([]);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Rodada 15b (3): make sai da isenção e os verbos isentos julgam todo argumento que pode ser destino", async () => {
+      const { fora, cofre, esperar, wikiA } = prepararRodada11();
+      try {
+        const ataques = [
+          `make OUT=wiki/a.md`,
+          `make -f ${fora}/mk -C ${fora} all OUT=${wikiA}`,
+          `make wiki/a.md`,
+          `make -C ${fora} --file=${cofre}/wiki/Makefile`,
+          // tar: o alvo do -f na criação, no acréscimo e na atualização é destino
+          `tar -cf wiki/x.tar ${fora}/p.md`,
+          `tar --create --file=wiki/x.tar ${fora}/p.md`,
+          `tar cf wiki/x.tar ${fora}/p.md`,
+          `tar -rf wiki/x.tar ${fora}/p.md`,
+          `tar -c -f wiki/x.tar ${fora}/p.md`,
+          `tar -cfwiki/x.tar ${fora}/p.md`,
+          `tar -uf ${wikiA} ${fora}/p.md`,
+          `tar --index-file=wiki/i -cf ${fora}/b.tar ${fora}/p.md`,
+          // find: -delete apaga o que casa, a começar pela wiki
+          `find wiki -delete`,
+          `find ${cofre} -name x -delete`,
+          `find . -delete`,
+          // 7z: a/u/d/rn gravam o arquivo do 1º operando
+          `7z a wiki/x.7z ${fora}/p.md`,
+          `7z u ${wikiA} ${fora}/p.md`,
+          `7z d wiki/x.7z p.md`,
+          // opções com valor colado ou com = de cp/mv/ln/install/rsync
+          `rsync --log-file=wiki/a.md ${fora}/p.md ${fora}/y/`,
+          `rsync --write-batch=wiki/b ${fora}/p.md ${fora}/y/`,
+          `cp --backup-dir=wiki ${fora}/p.md ${fora}/x`,
+        ];
+        await esperar(ataques, 2, cofre);
+        const regressoes = [
+          `make`,
+          `make -C ${fora}`,
+          `make -C ${fora} all`,
+          `tar -cf ${fora}/b.tar wiki`,
+          `tar -cf ${fora}/b.tar -C ${cofre} .`,
+          `tar -tf wiki/x.tar`,
+          `tar -xf wiki/x.tar -C ${fora}/y`,
+          `find wiki -name '*.md'`,
+          `find ${fora} -name x -delete`,
+          `7z a ${fora}/x.7z wiki`,
+          `7z l wiki/x.7z`,
+          `rsync -a wiki/ ${fora}/y/`,
+          `cp wiki/a.md ${fora}/x`,
+          `cat wiki/a.md`,
+          `jq . wiki/a.md`,
+          `rg x wiki`,
+          `sed -n 1p wiki/a.md`,
+        ];
+        await esperar(regressoes, 0, cofre);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Rodada 15b (4): quem recebe pipe e lê o programa pela entrada padrão bloqueia, com ou sem wrapper", async () => {
+      const { fora, cofre, esperar } = prepararRodada11();
+      writeFileSync(join(fora, "s.sh"), "echo ok\n");
+      try {
+        const ataques = [
+          `awk 'BEGIN{print "cp -R x wiki/" | "env sh"}'`,
+          `awk 'BEGIN{print "cp -R x wiki/" | "sudo sh"}'`,
+          `awk 'BEGIN{print "cp -R x wiki/" | "nice -n 5 sh"}'`,
+          `awk 'BEGIN{print "cp -R x wiki/" | "timeout 5 bash"}'`,
+          `awk 'BEGIN{print "cp -R x wiki/" | "sh -s"}'`,
+          `awk 'BEGIN{print "cp -R x wiki/" | "sh /dev/stdin"}'`,
+          `awk 'BEGIN{print "cp -R x wiki/" | "sh -"}'`,
+          `awk 'BEGIN{print "x" | "env FOO=1 python3 -"}'`,
+          `echo 'cp -R x wiki/' | sh`,
+          `cat ${fora}/s.sh | bash`,
+          `printf x | env sh`,
+          `echo x | python3 -`,
+          `echo x | sh /dev/stdin`,
+        ];
+        await esperar(ataques, 2, cofre);
+        const regressoes = [
+          `awk 'BEGIN{print 1 | "cat"}'`,
+          `awk 'BEGIN{print 1 | "sort"}'`,
+          `echo x | cat`,
+          `echo x | sh -c 'cat'`,
+          `echo x | python3 ${fora}/s.py`,
+          `echo x | bash ${fora}/s.sh`,
+          `echo x | grep x`,
+        ];
+        await esperar(regressoes, 0, cofre);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Rodada 15b (5): a rede léxica do sed roda sempre e compara as posições de w/W/e com as que o parser registrou", async () => {
+      const { fora, cofre, esperar } = prepararRodada11();
+      try {
+        const ataques = [
+          `sed -n 'w /dev/stdout\ns/[/]/x/;w wiki/a.md' ${fora}/p.md`,
+          `sed -n 'w /dev/stdout\ns/[/]/x/;wwiki/a.md' ${fora}/p.md`,
+          `sed -n 'w /dev/stdout\ns/[/]/x/;1,/a/w wiki/a.md' ${fora}/p.md`,
+          `sed -n 'w /dev/stdout\ns/[/]/x/;/a/,/b/w wiki/a.md' ${fora}/p.md`,
+          `sed -n 'w /dev/stdout\ns/[/]/x/;\\,a,w wiki/a.md' ${fora}/p.md`,
+          `sed -n 'w ${fora}/x\ns/[/]/x/;e cp ${fora}/p.md wiki/a.md' ${fora}/p.md`,
+        ];
+        await esperar(ataques, 2, cofre);
+        const regressoes = [
+          `sed -n 'w /dev/stdout' ${fora}/p.md`,
+          `sed -n '/a/,/b/w /dev/stdout' ${fora}/p.md`,
+          `sed -e 's/a/b/w /dev/stdout' ${fora}/p.md`,
+          `sed -n 'p;w ${fora}/x' ${fora}/p.md`,
+          `sed -n '1,3p;w /dev/stdout' ${fora}/p.md`,
+          `sed -n '\\,a,w /dev/stdout' ${fora}/p.md`,
+          `sed -n '1~2w /dev/stdout' ${fora}/p.md`,
+          `sed -n '1p' wiki/a.md`,
+        ];
+        await esperar(regressoes, 0, cofre);
       } finally {
         rmSync(fora, { recursive: true, force: true });
       }
