@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fontesSemIngestao } from "../src/lib/ui-inicio";
 import { iniciarServidorUi } from "../src/ui/servidor/servidor";
 import { PonteFalsa } from "./apoio/ponte-falsa";
 
@@ -598,4 +599,65 @@ test("Dado O3 com áreas criadas e onboarding em andamento Quando confirmo a pas
   const dadosFinal = await respFinal.json() as Record<string, unknown>;
   expect(dadosFinal.precisaOnboarding).toBe(false);
   expect(dadosFinal.concluido).toBe(true);
+});
+
+function arquivosEm(base: string, prefixo = ""): string[] {
+  const achados: string[] = [];
+  for (const entrada of readdirSync(join(base, prefixo), { withFileTypes: true })) {
+    const relativo = prefixo ? `${prefixo}/${entrada.name}` : entrada.name;
+    if (entrada.isDirectory()) achados.push(...arquivosEm(base, relativo));
+    else achados.push(relativo);
+  }
+  return achados.sort();
+}
+
+async function iniciarExemplo(chamar: (rota: string, init?: RequestInit) => Promise<Response>) {
+  const resp = await chamar("/api/onboarding/ingerir-exemplo", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ area: "pessoal" }),
+  });
+  return { resp, dados: await resp.json() as { ok: boolean; id: string } };
+}
+
+test("Dado o exemplo em raw/ Quando inicio a ingestão no O4 Então a conversa cita o original raw/exemplo/llm-wiki.md, raw/ não ganha arquivo e o Início oferece a conversa em vez de duplicar", async () => {
+  writeFileSync(join(raiz, "raw/exemplo/llm-wiki.md"), "# LLM Wiki\nTexto de exemplo para ingestão.\n");
+  mkdirSync(join(raiz, "wiki/pessoal"), { recursive: true });
+  const antes = arquivosEm(join(raiz, "raw"));
+
+  const { chamar } = await servidor();
+  const { resp, dados } = await iniciarExemplo(chamar);
+  expect(resp.status).toBe(201);
+
+  const conversa = await (await chamar(`/api/conversas/${dados.id}`)).json() as { fonte: string; nome: string };
+  expect(conversa.fonte).toBe("raw/exemplo/llm-wiki.md");
+  expect(arquivosEm(join(raiz, "raw"))).toEqual(antes);
+
+  const wiki = join(raiz, "wiki");
+  const pendentes = await fontesSemIngestao(raiz, wiki, new Map([[conversa.fonte, dados.id]]));
+  expect(pendentes.filter(f => f.caminho === "raw/exemplo/llm-wiki.md")).toEqual([
+    { caminho: "raw/exemplo/llm-wiki.md", area: "exemplo", bytes: 44, conversa: dados.id },
+  ]);
+
+  // A ingestão concluída cita o original em sources[].resource: o exemplo sai da lista.
+  writeFileSync(
+    join(wiki, "pessoal/llm-wiki.md"),
+    "---\ntitle: LLM Wiki\nsources:\n  - resource: raw/exemplo/llm-wiki.md\n---\n# LLM Wiki\n",
+  );
+  expect((await fontesSemIngestao(raiz, wiki)).map(f => f.caminho)).not.toContain("raw/exemplo/llm-wiki.md");
+});
+
+test("Dado o exemplo em raw/ Quando repito a tentativa no O4 Então nenhuma cópia com sufixo aparece em raw/", async () => {
+  writeFileSync(join(raiz, "raw/exemplo/llm-wiki.md"), "# LLM Wiki\nTexto de exemplo para ingestão.\n");
+  mkdirSync(join(raiz, "wiki/pessoal"), { recursive: true });
+  const antes = arquivosEm(join(raiz, "raw"));
+
+  const { chamar } = await servidor();
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    const { resp, dados } = await iniciarExemplo(chamar);
+    expect(resp.status).toBe(201);
+    const conversa = await (await chamar(`/api/conversas/${dados.id}`)).json() as { fonte: string };
+    expect(conversa.fonte).toBe("raw/exemplo/llm-wiki.md");
+  }
+  expect(arquivosEm(join(raiz, "raw"))).toEqual(antes);
 });

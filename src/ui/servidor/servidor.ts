@@ -311,7 +311,6 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
               return json({ erro: "Arquivo de exemplo não encontrado." }, 404);
             }
             try {
-              const conteudo = await readFile(caminhoExemplo);
               const areasExistentes = await areasDaWiki(wiki);
               let area = typeof corpo.area === "string" ? corpo.area.trim() : "";
               if (areasExistentes.length > 0) {
@@ -321,11 +320,8 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
               } else {
                 area = "";
               }
-              const conversa = await ingestao.criar({
-                area,
-                nome: "llm-wiki.md",
-                conteudo: new Uint8Array(conteudo),
-              });
+              // Mesma operação do botão Ingerir do Início: a conversa cita o original em raw/ e nada novo é gravado lá.
+              const conversa = await ingestao.criarDeRaw("exemplo/llm-wiki.md", area);
               try {
                 await ingestao.ler(conversa.id);
               } catch (erro) {
