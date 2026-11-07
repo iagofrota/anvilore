@@ -52,7 +52,7 @@ for arquivo in /usr/share/applications/anvilore.desktop /usr/share/icons/hicolor
 done
 test "$(readlink /usr/bin/anvilore-abrir)" = /usr/lib/anvilore/anvilore-abrir
 desktop-file-validate /usr/share/applications/anvilore.desktop
-grep -qx 'Terminal=true' /usr/share/applications/anvilore.desktop
+grep -qx 'Terminal=false' /usr/share/applications/anvilore.desktop
 
 mkdir -p /opt/prova-bin
 cp /prova/bun-real /opt/prova-bin/bun-real

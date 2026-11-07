@@ -10,12 +10,97 @@ instalacao_valida() {
   [ -d "$1/.git" ] && [ -f "$1/AGENTS.md" ] && [ -f "$1/src/cli.ts" ] && [ -d "$1/skills" ]
 }
 
+gravar_log_erro() {
+  local log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/anvilore"
+  local log_file="$log_dir/abrir.log"
+  if [ -L "$log_dir" ] || [ -L "$log_file" ]; then return 0; fi
+  if [ -e "$log_dir" ] && [ ! -O "$log_dir" ]; then return 0; fi
+  if [ -e "$log_file" ] && [ ! -O "$log_file" ]; then return 0; fi
+  mkdir -p "$log_dir" 2>/dev/null || return 0
+  chmod 700 "$log_dir" 2>/dev/null || true
+  (
+    umask 077
+    local carimbo msg
+    carimbo="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%d %H:%M:%S")"
+    msg="$(printf '%s\n' "$*" | sed -E 's/token=[a-zA-Z0-9_-]+/token=[REDUZIDO]/g')"
+    printf '[%s] %s\n' "$carimbo" "$msg" >>"$log_file"
+  ) 2>/dev/null || true
+  chmod 600 "$log_file" 2>/dev/null || true
+}
+
 mostrar_erro_e_esperar() {
+  local msg="$*"
+  [ -n "$msg" ] && gravar_log_erro "$msg"
   printf '%s\n' "$@" >&2
+
   if [ -t 0 ]; then
     printf 'Pressione Enter para fechar esta janela. ' >&2
     IFS= read -r _ || true
+    return 0
   fi
+
+  local texto
+  texto="$(printf '%s\n' "$@")"
+  [ -n "$texto" ] || return 0
+
+  # Se estiver em ambiente automatizado de testes ou sem display, não bloqueia com diálogo modal
+  if [ -n "${AGENTISTICS_THROWAWAY:-}" ] || [ -n "${CI:-}" ] || [ -n "${ANVILORE_SEM_DIALOGO:-}" ]; then
+    [ -n "${ANVILORE_TEST_DIALOGO:-}" ] || return 0
+  fi
+
+  if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+    if command -v zenity >/dev/null 2>&1; then
+      zenity --error --title="Anvilore" --text="$texto" 2>/dev/null && return 0
+    fi
+    if command -v kdialog >/dev/null 2>&1; then
+      kdialog --error "$texto" --title "Anvilore" 2>/dev/null && return 0
+    fi
+    if command -v notify-send >/dev/null 2>&1; then
+      notify-send -u critical "Anvilore" "$texto" 2>/dev/null && return 0
+    fi
+  fi
+
+  local emuladores=("x-terminal-emulator" "gnome-terminal" "ptyxis" "kgx" "konsole" "xfce4-terminal" "xterm")
+  local emu bin
+  for emu in "${emuladores[@]}"; do
+    bin="$(command -v "$emu" 2>/dev/null || true)"
+    if [ -n "$bin" ] && [ -x "$bin" ]; then
+      case "$emu" in
+        gnome-terminal|ptyxis|kgx)
+          "$bin" -- bash -c 'printf "%s\n\nPressione Enter para fechar esta janela. " "$1"; read -r _' _ "$texto" 2>/dev/null && return 0
+          ;;
+        xfce4-terminal)
+          "$bin" -x bash -c 'printf "%s\n\nPressione Enter para fechar esta janela. " "$1"; read -r _' _ "$texto" 2>/dev/null && return 0
+          ;;
+        konsole|xterm|x-terminal-emulator|*)
+          "$bin" -e bash -c 'printf "%s\n\nPressione Enter para fechar esta janela. " "$1"; read -r _' _ "$texto" 2>/dev/null && return 0
+          ;;
+      esac
+    fi
+  done
+  return 0
+}
+
+abrir_no_terminal() {
+  local emuladores=("x-terminal-emulator" "gnome-terminal" "ptyxis" "kgx" "konsole" "xfce4-terminal" "xterm")
+  local emu bin
+  for emu in "${emuladores[@]}"; do
+    bin="$(command -v "$emu" 2>/dev/null || true)"
+    if [ -n "$bin" ] && [ -x "$bin" ]; then
+      case "$emu" in
+        gnome-terminal|ptyxis|kgx)
+          exec "$bin" -- env ANVILORE_EM_TERMINAL=1 ANVILORE_PASTA="$PASTA" bash "$ARQUIVO_LANCADOR" "$@"
+          ;;
+        xfce4-terminal)
+          exec "$bin" -x env ANVILORE_EM_TERMINAL=1 ANVILORE_PASTA="$PASTA" bash "$ARQUIVO_LANCADOR" "$@"
+          ;;
+        konsole|xterm|x-terminal-emulator|*)
+          exec "$bin" -e env ANVILORE_EM_TERMINAL=1 ANVILORE_PASTA="$PASTA" bash "$ARQUIVO_LANCADOR" "$@"
+          ;;
+      esac
+    fi
+  done
+  return 1
 }
 
 if ! instalacao_valida "$PASTA"; then
@@ -24,7 +109,13 @@ if ! instalacao_valida "$PASTA"; then
   elif [ -f "${ANVILORE_PACKAGE_DIR:-/usr/lib/anvilore}/instalar.sh" ]; then INSTALADOR="${ANVILORE_PACKAGE_DIR:-/usr/lib/anvilore}/instalar.sh"
   elif [ -f "$PASTA/instalador/instalar.sh" ]; then INSTALADOR="$PASTA/instalador/instalar.sh"
   fi
+
   if [ -n "$INSTALADOR" ]; then
+    if ! { [ -t 0 ] || [ -t 1 ]; } && [ -z "${ANVILORE_EM_TERMINAL:-}" ]; then
+      if [ -n "${ANVILORE_TEST_DIALOGO:-}" ] || { [ -z "${AGENTISTICS_THROWAWAY:-}" ] && [ -z "${CI:-}" ]; }; then
+        abrir_no_terminal "$@" || true
+      fi
+    fi
     ANVILORE_PASTA="$PASTA" bash "$INSTALADOR"
     CODIGO_INSTALADOR=$?
     if [ "$CODIGO_INSTALADOR" -ne 0 ]; then
@@ -268,6 +359,9 @@ atualizar_kit_do_pacote() {
     printf 'Não consegui atualizar o Anvilore de %s para %s: o instalador do pacote não está disponível. Vou abrir a versão existente.\n' "$versao_atual" "$versao_pacote" >&2
     return 0
   fi
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send "Anvilore" "Atualizando o Anvilore de $versao_atual para $versao_pacote…" 2>/dev/null || true
+  fi
   printf 'Atualizando o Anvilore de %s para %s…\n' "$versao_atual" "$versao_pacote"
   PATH="$(dirname "$BUN_BIN"):$PATH" ANVILORE_PASTA="$PASTA" ANVILORE_VERSAO="$versao_pacote" ANVILORE_SEM_PERGUNTAS=1 bash "$instalador"
   codigo=$?
@@ -284,10 +378,126 @@ atualizar_kit_do_pacote() {
 
 atualizar_kit_do_pacote
 
-cd -- "$PASTA" || { mostrar_erro_e_esperar "Não consegui abrir a pasta $PASTA."; exit 1; }
-ANVILORE_DESTINO="$PASTA" "$BUN_BIN" src/cli.ts ui
-CODIGO=$?
-if [ "$CODIGO" -ne 0 ]; then
-  mostrar_erro_e_esperar "" "A interface do Anvilore fechou com erro (código $CODIGO). Confira a mensagem acima."
+obter_caminho_estado() {
+  if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+    printf '%s/anvilore-ui.json' "$XDG_RUNTIME_DIR"
+  else
+    local state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+    printf '%s/anvilore/anvilore-ui.json' "$state_home"
+  fi
+}
+
+abrir_navegador() {
+  local url="$1"
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$url" >/dev/null 2>&1 &
+  elif command -v gio >/dev/null 2>&1; then
+    gio open "$url" >/dev/null 2>&1 &
+  fi
+}
+
+verificar_instancia_existente() {
+  local arquivo_estado
+  arquivo_estado="$(obter_caminho_estado)"
+  [ -e "$arquivo_estado" ] || return 1
+  [ ! -L "$arquivo_estado" ] || { rm -f -- "$arquivo_estado"; return 1; }
+  [ -O "$arquivo_estado" ] || return 1
+
+  local info
+  info="$("$BUN_BIN" -e '
+    try {
+      const fs = require("node:fs");
+      const est = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      if (typeof est.pid === "number" && typeof est.porta === "number" && typeof est.token === "string" && typeof est.pasta === "string") {
+        console.log(`${est.pid}:${est.porta}:${est.token}:${est.pasta}`);
+      }
+    } catch {}
+  ' "$arquivo_estado" 2>/dev/null || true)"
+
+  [ -n "$info" ] || { rm -f -- "$arquivo_estado"; return 1; }
+
+  local est_pid est_porta est_token est_pasta
+  IFS=: read -r est_pid est_porta est_token est_pasta <<<"$info"
+
+  if ! kill -0 "$est_pid" 2>/dev/null; then
+    rm -f -- "$arquivo_estado"
+    return 1
+  fi
+
+  local pasta_canonica pasta_est_canonica
+  pasta_canonica="$(cd -- "$PASTA" 2>/dev/null && pwd -P || printf '%s' "$PASTA")"
+  pasta_est_canonica="$(cd -- "$est_pasta" 2>/dev/null && pwd -P || printf '%s' "$est_pasta")"
+  if [ "$pasta_canonica" != "$pasta_est_canonica" ]; then
+    return 1
+  fi
+
+  local url="http://127.0.0.1:$est_porta/?token=$est_token"
+  local status_http
+  status_http="$("$BUN_BIN" -e '
+    fetch(process.argv[1], { signal: AbortSignal.timeout(2000) })
+      .then(r => console.log(r.status))
+      .catch(() => console.log(0));
+  ' "$url" 2>/dev/null || echo 0)"
+
+  if [ "$status_http" = "200" ]; then
+    URL_EXISTENTE="$url"
+    return 0
+  fi
+
+  rm -f -- "$arquivo_estado"
+  return 1
+}
+
+URL_EXISTENTE=""
+if verificar_instancia_existente; then
+  abrir_navegador "$URL_EXISTENTE"
+  exit 0
 fi
-exit "$CODIGO"
+
+cd -- "$PASTA" || { mostrar_erro_e_esperar "Não consegui abrir a pasta $PASTA."; exit 1; }
+
+# Se estiver em terminal interativo e não foi solicitado modo desacoplado, executa no terminal
+if { [ -t 0 ] || [ -t 1 ]; } && [ -z "${ANVILORE_DESACOPLADO:-}" ]; then
+  ANVILORE_DESTINO="$PASTA" "$BUN_BIN" src/cli.ts ui
+  CODIGO=$?
+  if [ "$CODIGO" -ne 0 ]; then
+    mostrar_erro_e_esperar "" "A interface do Anvilore fechou com erro (código $CODIGO). Confira a mensagem acima."
+  fi
+  exit "$CODIGO"
+fi
+
+# Modo sem terminal: executa desacoplado com nohup, gravando saída no log
+log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/anvilore"
+log_file="$log_dir/abrir.log"
+mkdir -p "$log_dir" 2>/dev/null || true
+touch "$log_file" 2>/dev/null || true
+chmod 600 "$log_file" 2>/dev/null || true
+
+(
+  set -o pipefail
+  ANVILORE_DESTINO="$PASTA" "$BUN_BIN" src/cli.ts ui --auto-encerrar 2>&1 | \
+    sed -E 's/token=[a-zA-Z0-9_-]+/token=[REDUZIDO]/g' >>"$log_file"
+) &
+server_pid=$!
+
+# Aguarda o processo confirmar prontidão ou falhar
+pronto=0
+for _ in $(seq 1 50); do
+  if ! kill -0 "$server_pid" 2>/dev/null; then
+    wait "$server_pid" 2>/dev/null
+    CODIGO=$?
+    if [ "$CODIGO" -ne 0 ]; then
+      [ -f "$log_file" ] && cat "$log_file" >&2
+      mostrar_erro_e_esperar "" "A interface do Anvilore fechou com erro (código $CODIGO). Confira a mensagem acima."
+      exit "$CODIGO"
+    fi
+    exit 0
+  fi
+  if [ -e "$(obter_caminho_estado)" ]; then
+    pronto=1
+    break
+  fi
+  sleep 0.1
+done
+
+exit 0
