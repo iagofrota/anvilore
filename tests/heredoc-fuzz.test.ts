@@ -2,44 +2,54 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test, expect, setDefaultTimeout } from "bun:test";
-import { executarProtecao } from "../src/comandos/hook-proteger-raw";
+import { decidir as decidirRaw, executarProtecao } from "../src/comandos/hook-proteger-raw";
 import { decidirVerified, extrairSubstituicoesComando } from "../src/lib/trava-verified";
 
 const bashDisponivel = process.platform !== "win32" && Bun.which("bash") !== null;
-const N_POR_SEMENTE = 180;
+const N_POR_SEMENTE = 60;
 const SEMENTES = [12345, 777, 4242, 99991];
-const CARGA = "touch raw/MARCA";
+const CARGA_RAW = "touch raw/MARCA";
+const CARGA_WIKI = "cp p wiki/MARCA.md";
 const MARCADOR = "__ANVILORE_HEREDOC_0__";
 
 const delims = ["'EOF'", "\"EOF\"", "\\EOF", "EOF", "E'O'F", "'E O'", "EOF''", "-'EOF'", "-EOF"];
 const ops = ["", " |", " | ", " |&", " &&", " ||", " ;", " # c", " | # c", " \\"];
-const consumidores = ["sh", "bash", "wc -l", "cat", "true", CARGA, `echo \"$(${CARGA})\"`, MARCADOR, `sh < ${MARCADOR}`, `bash ${MARCADOR}`, `cat ${MARCADOR} | sh`, "", "# c"];
+const consumidoresBase = ["sh", "bash", "wc -l", "cat", "true", MARCADOR, `sh < ${MARCADOR}`, `bash ${MARCADOR}`, `cat ${MARCADOR} | sh`, "", "# c"];
 const interpretadores = ["sh", "bash", "dash", "zsh", "fish", "python", "python2", "python3", "python3.11", "node", "bun", "perl", "ruby", "php", "osascript"];
 const palavrasReservadas = ["if", "then", "do", "while", "until", "case", "else", "elif", "in", "select", "{"];
-const prefixos = [
-  { antes: "", depois: "" },
-  { antes: "", depois: "" },
-  { antes: `${CARGA}; `, depois: "" },
-  { antes: "( ", depois: "\n)" },
-  { antes: "{ ", depois: "\n}" },
-  { antes: "echo \"$(", depois: "\n)\"" },
-  { antes: "if ", depois: "\nthen true; fi" },
-  { antes: "while ", depois: "\ndo break; done" },
-  { antes: "if true; then ", depois: "\nfi" },
-  { antes: "while true; do ", depois: "\nbreak; done" },
-];
-const comandos = ["cat", "true", "git commit -F -", "sh", "x=1 cat", "cat >/dev/null", ...interpretadores];
 setDefaultTimeout(60_000);
 
-function gerador(seedInicial: number): () => string {
+function gerador(seedInicial: number, carga: string): () => string {
   let seed = seedInicial;
-  const rnd = (n: number) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  const rnd = (n: number) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >>> 12) % n; };
   const pick = <T,>(opcoes: T[]) => opcoes[rnd(opcoes.length)]!;
   const corpo = () => pick([
-    CARGA, "ok", MARCADOR, `$(${CARGA})`, `\`${CARGA}\``, "EOF", "\tEOF", " EOF", "", "# x",
-    `'$(${CARGA})'`, `\${x:-$(${CARGA})}`,
+    carga, "ok", MARCADOR, `$(${carga})`, `\`${carga}\``, "EOF", "\tEOF", " EOF", "", "# x",
+    `'$(${carga})'`, `\${x:-$(${carga})}`,
   ]);
   const separador = () => pick(["\n", "\n\n", "\n# c\n", "\n  # c\n", "\n\t\n"]);
+  const prefixos = [
+    { antes: "", depois: "" },
+    { antes: "", depois: "" },
+    { antes: `${carga}; `, depois: "" },
+    { antes: "( ", depois: "\n)" },
+    { antes: "{ ", depois: "\n}" },
+    { antes: "echo \"$(", depois: "\n)\"" },
+    { antes: "if ", depois: "\nthen true; fi" },
+    { antes: "while ", depois: "\ndo break; done" },
+    { antes: "if true; then ", depois: "\nfi" },
+    { antes: "while true; do ", depois: "\nbreak; done" },
+  ];
+  const comandos = ["cat", "true", "git commit -F -", "sh", "x=1 cat", "cat >/dev/null", ...interpretadores];
+  const consumidores = [...consumidoresBase.slice(0, 5), carga, `echo \"$(${carga})\"`, ...consumidoresBase.slice(5)];
+  const blocos = [
+    { antes: "", depois: "" },
+    { antes: "if true; then\n", depois: "\nfi" },
+    { antes: "while true; do\n", depois: "\nbreak; done" },
+    { antes: "{\n", depois: "\n}" },
+    { antes: "for x in a; do\n", depois: "\nbreak; done" },
+    { antes: "until false; do\n", depois: "\nbreak; done" },
+  ];
   return () => {
     const d = pick(delims);
     const minus = d.startsWith("-");
@@ -49,16 +59,49 @@ function gerador(seedInicial: number): () => string {
     const prefixo = pick(prefixos);
     const comando = pick(comandos);
     const operador = pick(ops);
+    const bloco = pick(blocos);
     const argumentoReservado = rnd(4) === 0 ? `echo ${pick(palavrasReservadas)}\n` : "";
-    let script = `${argumentoReservado}${prefixo.antes}${comando} <<${minus ? "-" : ""}${dd}${operador}\n`;
+    let script = `${bloco.antes}${argumentoReservado}${prefixo.antes}${comando} <<${minus ? "-" : ""}${dd}${operador}\n`;
     const linhas = rnd(3) + 1;
     for (let i = 0; i < linhas; i++) script += tab + (rnd(5) === 0 ? `${corpo()}\\\n` : corpo()) + "\n";
     const dividirTerminador = !dd.includes("'") && !dd.includes('"') && !dd.includes("\\") && rnd(4) === 0;
     const terminador = dividirTerminador ? `${tab}${term.slice(0, -1)}\\\n${term.slice(-1)}` : `${tab}${term}`;
-    script += terminador + prefixo.depois + separador() + pick(consumidores);
+    script += terminador + prefixo.depois + separador() + pick(consumidores) + bloco.depois;
     return script;
   };
 }
+
+test("Dado comandos de escrita em linhas separadas dentro de blocos Quando classifico Então a quebra continua separando comandos", async () => {
+  const vault = mkdtempSync(join(tmpdir(), "anvilore-heredoc-blocos-"));
+  mkdirSync(join(vault, "raw"));
+  mkdirSync(join(vault, "wiki"));
+  writeFileSync(join(vault, "SCHEMA.md"), "# Schema\n");
+  writeFileSync(join(vault, "p"), "origem\n");
+  const rawAtaques = [
+    "if true; then echo if\ntouch raw/MARCA\nfi",
+    "while true; do ls select;\nprintf '%s' for\necho do # then\ntouch raw/MARCA\nbreak; done",
+  ];
+  const wikiAtaques = [
+    "if true; then echo if\ncp p wiki/MARCA.md\nfi",
+    "if true; then\necho x in\ncp p wiki/MARCA.md\nfi",
+    "{ echo {\ncp p wiki/MARCA.md\n}",
+  ];
+  const erroOriginal = console.error;
+  console.error = () => {};
+  try {
+    for (const command of rawAtaques) {
+      const payload = JSON.stringify({ cwd: vault, tool_name: "Bash", tool_input: { command } });
+      expect({ command, raw: decidirRaw(payload).acao }).toEqual({ command, raw: "bloquear" });
+    }
+    for (const command of wikiAtaques) {
+      const payload = JSON.stringify({ cwd: vault, tool_name: "Bash", tool_input: { command } });
+      expect({ command, verified: (await decidirVerified(payload, vault)).acao }).toEqual({ command, verified: "bloquear" });
+    }
+  } finally {
+    console.error = erroOriginal;
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
 
 test.skipIf(!bashDisponivel)("Dado fuzz fixo de heredocs Quando comparo a execução no Bash com a proteção Então nenhum interpretador contorna o guarda", async () => {
   const vault = mkdtempSync(join(tmpdir(), "anvilore-heredoc-fuzz-"));
@@ -111,21 +154,27 @@ test.skipIf(!bashDisponivel)("Dado fuzz fixo de heredocs Quando comparo a execu�
       expect({ command, codigo }).toEqual({ command, codigo: 0 });
     }
 
-    for (const seed of SEMENTES) {
-      const gerar = gerador(seed);
+    for (const mode of ["raw", "wiki"] as const) for (const seed of SEMENTES) {
+      const carga = mode === "raw" ? CARGA_RAW : CARGA_WIKI;
+      const gerar = gerador(seed, carga);
       for (let i = 0; i < N_POR_SEMENTE; i++) {
         const comando = gerar();
         const bashDir = mkdtempSync(join(tmpdir(), "anvilore-heredoc-fuzz-bash-"));
         mkdirSync(join(bashDir, "raw"));
+        mkdirSync(join(bashDir, "wiki"));
+        writeFileSync(join(bashDir, "p"), "origem\n");
         try {
           Bun.spawnSync(["bash", "-c", comando], {
             cwd: bashDir,
             stdin: "ignore",
             stdout: "ignore",
             stderr: "ignore",
-            timeout: 3000,
+            timeout: 500,
           });
-          if (!existsSync(join(bashDir, "raw/MARCA"))) continue;
+          const bashExecutou = mode === "raw"
+            ? existsSync(join(bashDir, "raw/MARCA"))
+            : existsSync(join(bashDir, "wiki/MARCA.md"));
+          if (!bashExecutou) continue;
         } finally {
           rmSync(bashDir, { recursive: true, force: true });
         }
@@ -133,9 +182,9 @@ test.skipIf(!bashDisponivel)("Dado fuzz fixo de heredocs Quando comparo a execu�
         const protegido = await executarProtecao(JSON.stringify({
           cwd: vault,
           tool_name: "Bash",
-          tool_input: { command: comando.replaceAll(CARGA, "rm raw/a.md") },
+          tool_input: { command: comando },
         }));
-        if (protegido !== 2) furos.push(`seed=${seed} caso=${i} guarda=${protegido} comando=${JSON.stringify(comando)}`);
+        if (protegido !== 2) furos.push(`mode=${mode} seed=${seed} caso=${i} guarda=${protegido} comando=${JSON.stringify(comando)}`);
       }
     }
   } finally {

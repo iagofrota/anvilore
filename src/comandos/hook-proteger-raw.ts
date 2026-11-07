@@ -597,37 +597,21 @@ function segmentosDoTexto(texto: string, windows = false): string[][] {
   try {
     const segmentos: string[][] = [[]];
     let continuaNaQuebra = false;
-    let profundidadeComposta = 0;
-    let emComandoComposto = false;
-    let posicaoDeComando = true;
     for (const token of tokenizar(texto, windows)) {
       if (token.operador && token.texto === "\n") {
-        if (continuaNaQuebra || profundidadeComposta > 0 || emComandoComposto) {
-          posicaoDeComando = true;
-          continue;
-        }
+        if (continuaNaQuebra) continue;
         segmentos.push([]);
-        posicaoDeComando = true;
         continue;
       }
       if (token.operador && /^(?:\d+)?(?:>{1,2}|>\||>&|<{1,3}|<&|<>|&>{1,2})$/.test(token.texto)) {
-        posicaoDeComando = false;
         continue;
       }
       if (token.operador && /^[;|&]+$/.test(token.texto)) {
         segmentos.push([]);
         continuaNaQuebra = ["|", "|&", "||", "&&"].includes(token.texto);
-        posicaoDeComando = true;
       } else if (!token.operador) {
         segmentos.at(-1)!.push(token.texto);
         continuaNaQuebra = false;
-        if (posicaoDeComando) {
-          if (token.texto === "{") { profundidadeComposta++; emComandoComposto = true; }
-          else if (token.texto === "}" && profundidadeComposta > 0) { profundidadeComposta--; emComandoComposto = false; }
-          if (/^(?:if|then|else|elif|while|until|for|select|do|case|in)$/.test(token.texto)) emComandoComposto = true;
-          else if (/^(?:fi|done|esac)$/.test(token.texto)) emComandoComposto = false;
-        }
-        posicaoDeComando = false;
       }
     }
     return segmentos;
@@ -712,8 +696,6 @@ function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cw
   let citouRawGlobal = false;
   let entradaDeRaw = false;
   let continuaNaQuebra = false;
-  let emComandoComposto = false;
-  let posicaoDeComando = true;
   const segmentos: string[][] = [];
   const chaves = (itens: string[]) => {
     if (windows) {
@@ -787,22 +769,13 @@ function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cw
     if (!token.operador) {
       palavras.push(token.texto);
       continuaNaQuebra = false;
-      if (posicaoDeComando) {
-        if (/^(?:if|then|else|elif|while|until|for|select|do|case|in)$/.test(token.texto)) emComandoComposto = true;
-        else if (/^(?:fi|done|esac)$/.test(token.texto)) emComandoComposto = false;
-      }
-      posicaoDeComando = false;
       continue;
     }
     if (token.texto === "\n") {
-      if (continuaNaQuebra || profundidade > 0 || chaves(palavras) > 0 || emComandoComposto) {
-        posicaoDeComando = true;
-        continue;
-      }
+      if (continuaNaQuebra) continue;
       if (fechar()) return true;
       doPipe = false;
       listagemAncestral = false;
-      posicaoDeComando = true;
       continue;
     }
     if (REGEX_REDIRECAO.test(token.texto)) {
@@ -819,7 +792,6 @@ function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cw
         if (tokens[i + 1]?.operador && /^[|&]$/.test(tokens[i + 1]!.texto)) i++;
         i++; // Consome o alvo para não entrar em palavras
       }
-      posicaoDeComando = false;
     } else if ([";", ";;", "|", "|&", "||", "&&", "&"].includes(token.texto)) {
       const citou = citaRawSegmento(palavras, cwd) || citouEmRedirecao;
       citouEmRedirecao = false;
@@ -828,7 +800,6 @@ function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cw
       doPipe = ["|", "|&"].includes(token.texto) && (doPipe || citou);
       listagemAncestral = ["|", "|&"].includes(token.texto) && (listagemAncestral || recursiva);
       continuaNaQuebra = ["|", "|&", "||", "&&"].includes(token.texto);
-      posicaoDeComando = true;
     }
   }
   if (fechar()) return true;

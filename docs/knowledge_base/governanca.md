@@ -45,11 +45,10 @@ guardas. Só se aceitam comandos simples de leitura da lista curta (`date`, `pwd
 `cd`, alias, função ou substituição aninhada. A única forma composta liberada é `$(cat <<'EOF'…EOF)`
 com todo o delimitador entre aspas. O analisador lexical compartilhado reconhece aspas, escape e comentários;
 acompanha a fila de heredocs e fecha cada corpo na primeira linha igual ao delimitador. Ao remover o corpo,
-preserva a quebra de linha do terminador e deixa os parsers decidir se ela separa comandos ou continua o comando
-por pipe, `&&`, `||`, escape ou bloco composto. Numa continuação, linhas vazias e linhas só de comentário são puladas,
+preserva a quebra de linha do terminador. Cada quebra separa comandos, inclusive dentro de blocos compostos; só pipe,
+`|&`, `&&`, `||` ou barra invertida no fim da linha continuam o comando. Numa continuação, linhas vazias e linhas só de comentário são puladas,
 e comentário no fim da linha do operador não cancela a continuação. Corpo sem delimitador citado não é analisado como comando; se contiver
-`$(`, crase ou `${`, bloqueia mesmo que esses caracteres estejam entre aspas simples. Palavra reservada só mantém uma
-lista composta quando aparece na posição de comando; como argumento, a quebra seguinte separa comandos. No delimitador
+`$(`, crase ou `${`, bloqueia mesmo que esses caracteres estejam entre aspas simples. No delimitador
 sem aspas, uma linha do corpo que termina em barra invertida falha fechado, pois o shell pode juntá-la à linha seguinte
 ao comparar o terminador. Quando o comando simples analisado,
 já sem palavras reservadas e wrappers, recebe o corpo em um interpretador — diretamente pelo heredoc ou pelo pipe —,

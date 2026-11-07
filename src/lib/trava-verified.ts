@@ -1122,8 +1122,6 @@ function dividirEmComandosSimples(tokens: Token[]): Array<{ tokens: Token[]; doP
   let atual: Token[] = [];
   let recebePipe = false;
   let continuaNaQuebra = false;
-  let profundidadeComposta = 0;
-  let emComandoComposto = false;
   let posicaoDeComando = true;
   for (const token of tokens) {
     if (token.comentario) {
@@ -1131,11 +1129,7 @@ function dividirEmComandosSimples(tokens: Token[]): Array<{ tokens: Token[]; doP
       continue;
     }
     if (token.operador && token.texto === "\n") {
-      const terminouHeredoc = atual.some(item => item.heredocBody !== undefined);
-      if (continuaNaQuebra || (profundidadeComposta > 0 || emComandoComposto) && !terminouHeredoc) {
-        posicaoDeComando = true;
-        continue;
-      }
+      if (continuaNaQuebra) continue;
       if (atual.some(token => !token.comentario)) {
         comandos.push({ tokens: atual, doPipe: recebePipe });
         atual = [];
@@ -1166,12 +1160,6 @@ function dividirEmComandosSimples(tokens: Token[]): Array<{ tokens: Token[]; doP
     } else {
       atual.push(token);
       continuaNaQuebra = false;
-      if (!token.operador && posicaoDeComando) {
-        if (token.texto === "{") { profundidadeComposta++; emComandoComposto = true; }
-        else if (token.texto === "}" && profundidadeComposta > 0) { profundidadeComposta--; emComandoComposto = false; }
-        if (/^(?:if|then|else|elif|while|until|for|select|do|case|in)$/.test(token.texto)) emComandoComposto = true;
-        else if (/^(?:fi|done|esac)$/.test(token.texto)) emComandoComposto = false;
-      }
       if (!token.operador) posicaoDeComando = false;
     }
   }
