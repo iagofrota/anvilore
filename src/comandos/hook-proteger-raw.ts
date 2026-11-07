@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix, resolve } from "node:path";
 import { caminhoReal, dentroDe, estaEmRaw } from "../lib/caminhos";
-import { decidirVerified, encontrarRaizVault } from "../lib/trava-verified";
+import { decidirVerified, encontrarRaizVault, extrairSubstituicoesComando } from "../lib/trava-verified";
 
 export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
 type Mapa = Record<string, unknown>;
@@ -204,7 +204,7 @@ function extrairTextoPatch(entrada: Mapa, dados: Mapa): string {
   return "";
 }
 
-function encontrarHeredoc(linha: string): { inicio: number; fim: number; delim: string; tab: boolean } | null {
+function encontrarHeredoc(linha: string): { inicio: number; fim: number; delim: string; tab: boolean; citado: boolean } | null {
   let aspas = "";
   for (let i = 0; i < linha.length; i++) {
     const c = linha[i]!;
@@ -229,13 +229,13 @@ function encontrarHeredoc(linha: string): { inicio: number; fim: number; delim: 
         const q = linha[i++]!;
         while (i < linha.length && linha[i] !== q) delim += linha[i++]!;
         if (i < linha.length) i++;
-        return { inicio, fim: i, delim, tab };
+        return { inicio, fim: i, delim, tab, citado: true };
       } else {
         while (i < linha.length && !/[\s;|<>()\r\n]/.test(linha[i]!)) {
           if (linha[i] === "\\" && i + 1 < linha.length) i++;
           delim += linha[i++]!;
         }
-        if (delim) return { inicio, fim: i, delim, tab };
+        if (delim) return { inicio, fim: i, delim, tab, citado: false };
       }
     }
   }
@@ -271,6 +271,7 @@ function descartarCorpoHeredoc(comando: string): string {
   let delimitador: string | undefined;
   let ignoraTabs = false;
   let corpoEhScript = false;
+  let corpoInerte = false;
 
   for (let idx = 0; idx < linhas.length; idx++) {
     const linha = linhas[idx]!;
@@ -279,7 +280,7 @@ function descartarCorpoHeredoc(comando: string): string {
       const comparada = ignoraTabs ? limpa.replace(/^\t+/, "").trimEnd() : limpa.trimEnd();
       if (comparada === delimitador) {
         delimitador = undefined;
-      } else if (corpoEhScript) {
+      } else if (!corpoInerte || corpoEhScript) {
         resultado.push(limpa);
       }
       continue;
@@ -290,6 +291,7 @@ function descartarCorpoHeredoc(comando: string): string {
       ignoraTabs = h.tab;
       const linhaLimpa = (linha.slice(0, h.inicio) + " " + linha.slice(h.fim)).replace(/\r$/, "").trimEnd();
       corpoEhScript = alimentaInterpretador(linhaLimpa);
+      corpoInerte = h.citado;
       if (linhaLimpa) resultado.push(linhaLimpa);
     } else {
       resultado.push(linha);
@@ -715,8 +717,9 @@ function citaRawSegmento(palavras: string[], cwd: string): boolean {
 const REGEX_REDIRECAO = /^(?:\d+)?(?:>{1,2}|>\||>&|<{1,3}|<&|<>)|&(?:>{1,2})$/;
 const REGEX_REDIRECAO_SAIDA = /^(?:\d+)?(?:>{1,2}|>\||<>)|&(?:>{1,2})$/;
 
-function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cwdInicial, windows = false): boolean {
+function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cwdInicial, windows = false, profundidadeSubstituicao = 0): boolean {
   windows ||= Array.isArray(comando) && /^(?:powershell|pwsh)(?:\.exe)?$/i.test(String(comando[0]));
+  let citaRawSubstituicao = false;
   let cwd = cwdInicial;
   let palavras: string[] = [];
   let doPipe = false;
@@ -731,7 +734,26 @@ function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cw
   const chaves = (itens: string[]) => { const texto = itens.join(" "); return (texto.match(/\{/g) ?? []).length - (texto.match(/\}/g) ?? []).length; };
   const dentroDeBlocoDeRaw = () => profundidade + chaves(palavras) > 0 && (blocoAlimentado || doPipe || listagemAncestral);
   let anterior: string | undefined;
-  const tokens = tokensDoComando(comando, windows);
+  let comandoParaTokenizar = comando;
+  if (typeof comando === "string" && /(?:\$\(|`|[<>]\()/.test(comando)) {
+    try {
+      const extraido = extrairSubstituicoesComando(comando);
+      if (extraido.substituicoes.length) {
+        if (profundidadeSubstituicao >= 5) return true;
+        for (const interno of extraido.substituicoes) {
+          citaRawSubstituicao ||= citaRaw(interno);
+          if (terminalEscreve(interno, cwdInicial, raiz, windows, profundidadeSubstituicao + 1)) return true;
+        }
+        comandoParaTokenizar = citaRawSubstituicao
+          ? extraido.texto.replaceAll("$ANVILORE_EXPANSAO", "raw/ANVILORE_EXPANSAO")
+          : extraido.texto;
+      }
+    } catch (erro) {
+      if (citaRaw(comando)) return true;
+      throw erro;
+    }
+  }
+  const tokens = tokensDoComando(comandoParaTokenizar, windows);
 
   function fechar(): boolean {
     const verbo = palavras[0]?.toLowerCase();

@@ -888,13 +888,48 @@ function encontrarFimSubstituicao(comando: string, inicio: number, crase: boolea
   return -1;
 }
 
-function extrairSubstituicoesComando(comando: string): { texto: string; substituicoes: string[] } {
+export function extrairSubstituicoesComando(comando: string): { texto: string; substituicoes: string[] } {
   let texto = "";
   const substituicoes: string[] = [];
   let aspas = "";
+  const heredocs: Array<{ delimitador: string; tabs: boolean; citado: boolean }> = [];
   for (let i = 0; i < comando.length; i++) {
     const c = comando[i]!;
     const prox = comando[i + 1] ?? "";
+    if (c === "\n" && heredocs.length) {
+      texto += c;
+      let cursor = i + 1;
+      for (const heredoc of heredocs.splice(0)) {
+        const inicioCorpo = cursor;
+        let fimCorpo = -1;
+        let fimLinhaMarcador = -1;
+        while (cursor <= comando.length) {
+          const fimLinha = comando.indexOf("\n", cursor);
+          const fim = fimLinha < 0 ? comando.length : fimLinha;
+          const linha = comando.slice(cursor, fim);
+          const comparada = heredoc.tabs ? linha.replace(/^\t+/, "") : linha;
+          if (comparada === heredoc.delimitador) {
+            fimCorpo = cursor;
+            fimLinhaMarcador = fim;
+            cursor = fimLinha < 0 ? comando.length : fimLinha + 1;
+            break;
+          }
+          if (fimLinha < 0) break;
+          cursor = fimLinha + 1;
+        }
+        if (fimCorpo < 0) throw new Error("heredoc sem delimitador de fechamento");
+        const corpo = comando.slice(inicioCorpo, fimCorpo);
+        if (heredoc.citado) texto += corpo;
+        else {
+          const extraido = extrairSubstituicoesComando(corpo);
+          texto += extraido.texto;
+          substituicoes.push(...extraido.substituicoes);
+        }
+        texto += comando.slice(fimCorpo, cursor);
+        i = cursor - 1;
+      }
+      continue;
+    }
     if (aspas === "'") {
       texto += c;
       if (c === "'") aspas = "";
@@ -907,12 +942,41 @@ function extrairSubstituicoesComando(comando: string): { texto: string; substitu
       texto += c;
       continue;
     }
+    if (c === "<" && prox === "<" && comando[i + 2] !== "<") {
+      let j = i + 2;
+      let tabs = false;
+      if (comando[j] === "-") { tabs = true; j++; }
+      while (/[ \t]/.test(comando[j] ?? "")) j++;
+      let delimitador = "";
+      let quote = "";
+      let citado = false;
+      while (j < comando.length && comando[j] !== "\n" && !/[ \t;]/.test(comando[j]!)) {
+        const parte = comando[j]!;
+        if (quote) { if (parte === quote) quote = ""; else delimitador += parte; }
+        else if (parte === "'" || parte === '"') { quote = parte; citado = true; }
+        else if (parte === "\\" && j + 1 < comando.length) { delimitador += comando[++j]!; citado = true; }
+        else delimitador += parte;
+        j++;
+      }
+      if (delimitador) heredocs.push({ delimitador, tabs, citado });
+      texto += comando.slice(i, j);
+      i = j - 1;
+      continue;
+    }
     if ((c === "$" && prox === "(" && comando[i + 2] !== "(") || (c === "`" && aspas !== "'")) {
       const crase = c === "`";
       const inicio = i + (crase ? 1 : 2);
       const fim = encontrarFimSubstituicao(comando, inicio, crase);
       if (fim < 0) throw new Error("substituição de comando sem fechamento");
       substituicoes.push(comando.slice(inicio, fim));
+      texto += "$ANVILORE_EXPANSAO";
+      i = fim;
+      continue;
+    }
+    if (c === "(" && (comando[i - 1] === "<" || comando[i - 1] === ">")) {
+      const fim = encontrarFimSubstituicao(comando, i + 1, false);
+      if (fim < 0) throw new Error("substituição de processo sem fechamento");
+      substituicoes.push(comando.slice(i + 1, fim));
       texto += "$ANVILORE_EXPANSAO";
       i = fim;
       continue;
@@ -3155,11 +3219,6 @@ function decidirTerminalVerified(
     return { acao: "bloquear", motivo: "comando de terminal vazio citando verified ou aprovação (falha fechada)" };
   }
 
-  // 0. Bloqueio de chamada a rotinas internas de aprovação
-  if (/(?:aprovarPaginas|aprovarPelaInterface|comandos[\\/]aprovar)/i.test(cmdTexto)) {
-    return { acao: "bloquear", motivo: "chamada direta a rotinas internas de aprovação" };
-  }
-
   // Expansões de comando rodam pelo mesmo classificador; o valor produzido é texto opaco no comando externo.
   let comandoExterno = cmdTexto;
   let substituicoes: string[];
@@ -3172,31 +3231,19 @@ function decidirTerminalVerified(
   }
 
   // 1. Tokenização e divisão em comandos simples antes de qualquer isenção.
-  let tokens: Token[];
+  let tokens: Token[] = [];
+  let erroTokenizacao: unknown;
   try {
     tokens = tokenizar(comandoExterno, isWindows);
   } catch (erro) {
-    const citaVerified = /verified/i.test(cmdTexto) || /\bby\s*:\s*human:/i.test(cmdTexto);
-    const motivo = citaVerified
-      ? `comando com sintaxe não interpretável citando verified ou aprovação: ${(erro as Error).message}`
-      : `comando com sintaxe não interpretável: ${(erro as Error).message}`;
-    return { acao: "bloquear", motivo };
+    erroTokenizacao = erro;
   }
 
-  const comandosSimples = dividirEmComandosSimples(tokens);
-  if (comandosSimples.length === 0) {
-    return { acao: "bloquear", motivo: "comando de terminal vazio ou inválido (falha fechada)" };
-  }
-
-  // 2. A isenção da CLI só vale para a invocação inteira quando há exatamente um comando simples.
-  if (comandosSimples.length === 1 && ehComandoSimplesCli(comandosSimples[0]!.tokens, base, raiz, ambiente)) {
-    return { acao: "liberar", motivo: "comando permitido da CLI do kit" };
-  }
-
+  const comandosSimples = erroTokenizacao ? [] : dividirEmComandosSimples(tokens);
   const temCdOuPushd = mudancaDirHerdada || tokens.some(t => !t.operador && /^(?:cd|pushd)$/i.test(t.texto)) || /\b(?:cd|pushd)\b/i.test(cmdTexto);
 
   // A contagem da linha de fora não se perde no aninhamento: vale o maior entre ela e a destes comandos.
-  const contexto: ContextoAninhado = { ...aninhado, comandosNaLinha: Math.max(aninhado.comandosNaLinha ?? 1, comandosSimples.length) };
+  const contexto: ContextoAninhado = { ...aninhado, comandosNaLinha: Math.max(aninhado.comandosNaLinha ?? 1, comandosSimples.length || 1) };
   if (substituicoes.length) {
     if (contexto.profundidade >= TETO_ANINHAMENTO) {
       return { acao: "bloquear", motivo: "comandos aninhados demais (falha fechada)" };
@@ -3207,6 +3254,26 @@ function decidirTerminalVerified(
       if (decisao.acao === "bloquear") return decisao;
     }
   }
+
+  // As expansões já foram verificadas para todos os segmentos; só agora valem retornos curtos e isenções.
+  if (erroTokenizacao) {
+    const citaVerified = /verified/i.test(cmdTexto) || /\bby\s*:\s*human:/i.test(cmdTexto);
+    const motivo = citaVerified
+      ? `comando com sintaxe não interpretável citando verified ou aprovação: ${(erroTokenizacao as Error).message}`
+      : `comando com sintaxe não interpretável: ${(erroTokenizacao as Error).message}`;
+    return { acao: "bloquear", motivo };
+  }
+  if (comandosSimples.length === 0) {
+    return { acao: "bloquear", motivo: "comando de terminal vazio ou inválido (falha fechada)" };
+  }
+  if (/(?:aprovarPaginas|aprovarPelaInterface|comandos[\\/]aprovar)/i.test(cmdTexto)) {
+    return { acao: "bloquear", motivo: "chamada direta a rotinas internas de aprovação" };
+  }
+  // 2. A isenção da CLI só vale para a invocação inteira quando há exatamente um comando simples.
+  if (comandosSimples.length === 1 && ehComandoSimplesCli(comandosSimples[0]!.tokens, base, raiz, ambiente)) {
+    return { acao: "liberar", motivo: "comando permitido da CLI do kit" };
+  }
+
   for (const [indice, { tokens: cmdTokens, doPipe }] of comandosSimples.entries()) {
     const decisao = analisarComandoSimples(cmdTokens, base, raiz, ambiente, temCdOuPushd, contexto, ambienteGit, doPipe || primeiroDoPipe);
     if (decisao.acao === "bloquear") {

@@ -1485,4 +1485,15 @@ test("Dado apply_patch no formato git Quando o caminho é identificável Então 
   expect(decidir(JSON.stringify({ tool_name: "apply_patch", tool_input: { patch: patchRenameRaw } })).acao).toBe("bloquear");
 });
 
+test("Dado heredoc com delimitador citado Quando o corpo contém substituições Então raw trata o conteúdo como dado", async () => {
+  for (const carga of ["rm raw/a.md", "cp p wiki/a.md"]) {
+    for (const delimitador of ["'EOF'", '"EOF"']) {
+      const command = `cat <<${delimitador}\n$(${carga})\nEOF`;
+      const payload = JSON.stringify({ tool_name: "Bash", cwd: temporario, tool_input: { command } });
+      expect(decidir(payload).acao).toBe("liberar");
+      expect(await executarProtecao(payload)).toBe(0);
+    }
+  }
+});
+
 

@@ -91,6 +91,31 @@ describe("trava de verified nos quatro agentes", () => {
     ], 2, temporario);
   });
 
+  test("Dado uma isenção do terminal e uma posição de expansão Quando o comando interno escreve em raw ou wiki Então bloqueia antes de qualquer isenção", async () => {
+    const isencoes = ["anvilore validar", "cat", "ls", "git status", "git commit -m", "echo"];
+    const formas = [
+      (exe: string, ataque: string) => `${exe} \"$(${ataque})\"`,
+      (exe: string, ataque: string) => `${exe} $(${ataque})`,
+      (exe: string, ataque: string) => `${exe} \`${ataque}\``,
+      (exe: string, ataque: string) => `${exe} <(${ataque})`,
+      (exe: string, ataque: string) => `X=$(${ataque}) ${exe}`,
+      (exe: string, ataque: string) => `${exe} > \"$(${ataque})\"`,
+      (exe: string, ataque: string) => `${exe} <<EOF\n$(${ataque})\nEOF`,
+      (exe: string, ataque: string) => `${exe} <<-EOF\n\t$(${ataque})\n\tEOF`,
+      (exe: string, ataque: string) => `${exe} \${x:-$(${ataque})}`,
+    ];
+    const cargas = ["rm raw/a.md", "cp p wiki/a.md"];
+    for (const isencao of isencoes) {
+      for (const forma of formas) {
+        for (const carga of cargas) {
+          const command = forma(isencao, carga);
+          const codigo = await executarProtecao(JSON.stringify({ cwd: temporario, tool_name: "Bash", tool_input: { command } }));
+          expect({ isencao, command, carga: carga.split(" ")[0], codigo }).toEqual({ isencao, command, carga: carga.split(" ")[0], codigo: 2 });
+        }
+      }
+    }
+  });
+
   test("Dado comando de escrita com diretório trocado Quando o terminal é julgado Então bloqueia se o diretório efetivo é a wiki", async () => {
     const ataques = [
       "env -C wiki sed -i s/a/b/ a.md",

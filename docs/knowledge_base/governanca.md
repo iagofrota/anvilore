@@ -40,7 +40,8 @@ erro que nomeia o arquivo.
 Na trava do terminal, redirecionamentos entre descritores como `2>&1`, `>&2`, `2>&-` e `<&0` não
 contam como destino de arquivo; `&>arquivo` e `>&arquivo` continuam sendo julgados como gravação.
 Substituições de comando em `$()` e crases passam pelo classificador recursivo, e o texto que elas
-produzem é tratado como expansão. O hook `proteger-raw` reconhece os caminhos dos cabeçalhos
+produzem é tratado como expansão. Em heredocs, só o delimitador entre aspas torna o corpo literal;
+corpos sem aspas são analisados, inclusive com `<<-`. O hook `proteger-raw` reconhece os caminhos dos cabeçalhos
 `diff --git`, `---`/`+++` e `rename from`/`rename to` em `apply_patch` (`src/lib/trava-verified.ts`,
 funções `tokenizar` e `decidirTerminalVerified`; `src/comandos/hook-proteger-raw.ts`, função
 `caminhosDoPatch`).
