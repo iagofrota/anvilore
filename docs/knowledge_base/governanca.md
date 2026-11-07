@@ -46,7 +46,8 @@ guardas. Só se aceitam comandos simples de leitura da lista curta (`date`, `pwd
 com todo o delimitador entre aspas. O analisador lexical compartilhado reconhece aspas, escape e comentários;
 acompanha a fila de heredocs e fecha cada corpo na primeira linha igual ao delimitador. Ao remover o corpo,
 preserva a quebra de linha do terminador e deixa os parsers decidir se ela separa comandos ou continua o comando
-por pipe, `&&`, `||`, escape ou bloco composto. Corpo sem delimitador citado não é analisado como comando; se contiver
+por pipe, `&&`, `||`, escape ou bloco composto. Numa continuação, linhas vazias e linhas só de comentário são puladas,
+e comentário no fim da linha do operador não cancela a continuação. Corpo sem delimitador citado não é analisado como comando; se contiver
 `$(`, crase ou `${`, bloqueia mesmo que esses caracteres estejam entre aspas simples. Quando o corpo chega à entrada
 de um interpretador nessa continuação, também é analisado como script (`src/lib/heredoc.ts`, `src/lib/trava-verified.ts`
 e `src/comandos/hook-proteger-raw.ts`). O valor produzido por substituição aceita continua sendo tratado como caminho

@@ -5,11 +5,11 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { caminhoReal, dentroDe } from "./caminhos";
 import { lerFrontmatter } from "./frontmatter";
 import { caminhoWiki } from "./wiki-repo";
-import { analisarHeredocs, type CorpoHeredoc } from "./heredoc";
+import { analisarHeredocs, linhaSemComentarioShell, proximaLinhaDeComando, type CorpoHeredoc } from "./heredoc";
 
 export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
 type Json = Record<string, unknown>;
-type Token = { texto: string; operador: boolean };
+type Token = { texto: string; operador: boolean; comentario?: boolean };
 
 const FERRAMENTAS_TERMINAL = new Set([
   "bash", "exec_command", "shell_command", "shell", "local_shell", "run_shell_command", "powershell", "pwsh", "run_in_terminal", "sh", "zsh", "dash", "ksh",
@@ -778,9 +778,11 @@ async function decidirPatch(
 function tokenizar(comando: string, windows = false): Token[] {
   const tokens: Token[] = [];
   let palavra = "", aspas = "";
+  let palavraIniciada = false;
   function guardar() {
     if (palavra) tokens.push({ texto: palavra, operador: false });
     palavra = "";
+    palavraIniciada = false;
   }
   for (let i = 0; i < comando.length; i++) {
     const caractere = comando[i]!;
@@ -797,12 +799,19 @@ function tokenizar(comando: string, windows = false): Token[] {
       } else {
         palavra += caractere;
       }
+      palavraIniciada = true;
     } else if (caractere === "'" || caractere === '"') {
       aspas = caractere;
+      palavraIniciada = true;
     } else if (!windows && caractere === "\\" && (seguinte === "\n" || (seguinte === "\r" && comando[i + 2] === "\n"))) {
       i += seguinte === "\r" ? 2 : 1;
     } else if (!windows && caractere === "\\" && seguinte && /[\s'";|&<>\\]/.test(seguinte)) {
       palavra += comando[++i];
+      palavraIniciada = true;
+    } else if (caractere === "#" && !palavraIniciada) {
+      let comentario = "#";
+      while (i + 1 < comando.length && comando[i + 1] !== "\n") comentario += comando[++i];
+      tokens.push({ texto: comentario, operador: false, comentario: true });
     } else if (caractere === "`" || caractere === "(" || caractere === ")" || (caractere === "$" && /[({]/.test(seguinte) && seguinte)) {
       throw new Error("subshell ou expansão não interpretável");
     } else if (caractere === "<" && seguinte === "<") {
@@ -818,6 +827,7 @@ function tokenizar(comando: string, windows = false): Token[] {
       guardar();
     } else {
       palavra += caractere;
+      palavraIniciada = true;
     }
   }
   if (aspas) throw new Error("aspas sem fechamento no terminal");
@@ -1099,9 +1109,13 @@ function dividirEmComandosSimples(tokens: Token[]): Array<{ tokens: Token[]; doP
   let profundidadeComposta = 0;
   let emComandoComposto = false;
   for (const token of tokens) {
+    if (token.comentario) {
+      atual.push(token);
+      continue;
+    }
     if (token.operador && token.texto === "\n") {
       if (continuaNaQuebra || profundidadeComposta > 0 || emComandoComposto) continue;
-      if (atual.length > 0) {
+      if (atual.some(token => !token.comentario)) {
         comandos.push({ tokens: atual, doPipe: recebePipe });
         atual = [];
       }
@@ -1125,7 +1139,7 @@ function dividirEmComandosSimples(tokens: Token[]): Array<{ tokens: Token[]; doP
       else if (!token.operador && /^(?:fi|done|esac)$/.test(token.texto)) emComandoComposto = false;
     }
   }
-  if (atual.length > 0) comandos.push({ tokens: atual, doPipe: recebePipe });
+  if (atual.some(token => !token.comentario)) comandos.push({ tokens: atual, doPipe: recebePipe });
   return comandos;
 }
 
@@ -2590,6 +2604,8 @@ function analisarComandoSimples(
   ambienteGit: AmbienteGit = novoAmbienteGit(),
   doPipe = false
 ): Decisao {
+  const comentarios = cmdTokens.filter(token => token.comentario).map(token => token.texto);
+  cmdTokens = cmdTokens.filter(token => !token.comentario);
   let entradaRedirecionada = false;
   // 1. Extrai redirecionamentos e tokens sem operadores de redireção
   const alvosRedir: string[] = [];
@@ -2723,7 +2739,7 @@ function analisarComandoSimples(
   // Opção, chave de configuração ou subcomando que executa um comando: vale para todo verbo, inclusive os de leitura.
   const executa = opcaoQueExecuta(verbo, cmdArgs);
   if (executa) return { acao: "bloquear", motivo: executa };
-  const cmdTextoSimples = cmdTokens.map(t => t.texto).join(" ");
+  const cmdTextoSimples = [...cmdTokens.map(t => t.texto), ...comentarios].join(" ");
 
   if (verbo === "git") {
     const git = analisarGit(cmdArgs);
@@ -3208,7 +3224,7 @@ function decidirTerminalVerified(
   }
 
   const comandosSimples = erroTokenizacao ? [] : dividirEmComandosSimples(tokens);
-  const temCdOuPushd = mudancaDirHerdada || tokens.some(t => !t.operador && /^(?:cd|pushd)$/i.test(t.texto)) || /\b(?:cd|pushd)\b/i.test(cmdTexto);
+  const temCdOuPushd = mudancaDirHerdada || tokens.some(t => !t.operador && !t.comentario && /^(?:cd|pushd)$/i.test(t.texto)) || /\b(?:cd|pushd)\b/i.test(cmdTexto);
 
   // A contagem da linha de fora não se perde no aninhamento: vale o maior entre ela e a destes comandos.
   const contexto: ContextoAninhado = { ...aninhado, comandosNaLinha: Math.max(aninhado.comandosNaLinha ?? 1, comandosSimples.length || 1) };
@@ -3233,9 +3249,9 @@ function decidirTerminalVerified(
     for (const corpo of heredocs.corpos) {
       const inicioLinha = cmdTexto.lastIndexOf("\n", corpo.inicioOperador - 1) + 1;
       const fimLinha = cmdTexto.indexOf("\n", corpo.inicioOperador);
-      const cabecalho = cmdTexto.slice(inicioLinha, fimLinha < 0 ? cmdTexto.length : fimLinha);
+      const cabecalho = linhaSemComentarioShell(cmdTexto.slice(inicioLinha, fimLinha < 0 ? cmdTexto.length : fimLinha));
       if (!/(?:\|&?|\\)\s*$/.test(cabecalho)) continue;
-      const consumidor = cmdTexto.slice(corpo.fimTermino).replace(/^\r?\n/, "").split(/\r?\n/, 1)[0] ?? "";
+      const consumidor = proximaLinhaDeComando(cmdTexto, corpo.fimTermino);
       const verbo = consumidor.trim().split(/\s+/, 1)[0]?.toLowerCase();
       if (!verbo || !new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "powershell"]).has(verbo)) continue;
       if (!corpo.texto.trim()) continue;
@@ -3264,7 +3280,7 @@ function decidirTerminalVerified(
     return { acao: "bloquear", motivo: "chamada direta a rotinas internas de aprovação" };
   }
   // 2. A isenção da CLI só vale para a invocação inteira quando há exatamente um comando simples.
-  if (comandosSimples.length === 1 && ehComandoSimplesCli(comandosSimples[0]!.tokens, base, raiz, ambiente)) {
+  if (comandosSimples.length === 1 && ehComandoSimplesCli(comandosSimples[0]!.tokens.filter(token => !token.comentario), base, raiz, ambiente)) {
     return { acao: "liberar", motivo: "comando permitido da CLI do kit" };
   }
 

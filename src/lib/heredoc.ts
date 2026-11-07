@@ -14,6 +14,47 @@ export type CorpoHeredoc = {
 
 export type ResultadoHeredocs = { original: string; semCorpos: string; corpos: CorpoHeredoc[] };
 
+export function linhaSemComentarioShell(linha: string): string {
+  let aspas: "'" | '"' | null = null;
+  let palavraIniciada = false;
+  for (let i = 0; i < linha.length; i++) {
+    const c = linha[i]!;
+    if (c === "\\" && aspas !== "'") {
+      palavraIniciada = true;
+      i++;
+      continue;
+    }
+    if (aspas) {
+      if (c === aspas) aspas = null;
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      aspas = c;
+      palavraIniciada = true;
+      continue;
+    }
+    if (c === "#" && !palavraIniciada) return linha.slice(0, i);
+    if (/\s/.test(c) || /[;|&(){}<>]/.test(c)) palavraIniciada = false;
+    else palavraIniciada = true;
+  }
+  return linha;
+}
+
+export function proximaLinhaDeComando(comando: string, inicio: number): string {
+  let cursor = inicio;
+  while (cursor <= comando.length) {
+    if (comando.startsWith("\r\n", cursor)) cursor += 2;
+    else if (comando[cursor] === "\n") cursor++;
+    const fim = comando.indexOf("\n", cursor);
+    const linha = comando.slice(cursor, fim < 0 ? comando.length : fim);
+    const texto = linhaSemComentarioShell(linha).trim();
+    if (texto) return texto;
+    if (fim < 0) return "";
+    cursor = fim + 1;
+  }
+  return "";
+}
+
 type Pendente = { inicioOperador: number; fimDelimitador: number; delimitador: string; citado: boolean; tabs: boolean };
 
 function decodificarAnsi(entrada: string): string {

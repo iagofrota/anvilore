@@ -19,6 +19,19 @@ async function executarProtecaoSemLog(payload: string): Promise<number> {
   finally { console.error = erroOriginal; }
 }
 
+function variacoesNasQuebras(comando: string): string[] {
+  const variantes = new Set<string>([comando]);
+  for (let i = 0; i < comando.length; i++) {
+    if (comando[i] !== "\n") continue;
+    for (const insercao of ["\n", "# c\n", "  # c\n"]) {
+      variantes.add(`${comando.slice(0, i + 1)}${insercao}${comando.slice(i + 1)}`);
+    }
+  }
+  const comentarioNoOperador = comando.replace(/(\|&?)(\s*)\n/, "$1$2  # c\n");
+  if (comentarioNoOperador !== comando) variantes.add(comentarioNoOperador);
+  return [...variantes];
+}
+
 test.skipIf(!heredoctsDisponiveis)("Dado corpus gerado de heredocs Quando comparo com Bash Então só as linhas consumidas como corpo são classificadas como corpo", async () => {
   const casos: string[] = [];
   const cabecalhos = [
@@ -133,6 +146,12 @@ test.skipIf(!heredoctsDisponiveis)("Dado corpus gerado de heredocs Quando compar
     ...continuacoes.map(op => `${["|", "| ", "|&"].includes(op) ? "cat" : op === "||" ? "false" : "true"} <<'EOF' ${op}`),
     ...consumidores.map(() => `{ cat <<'EOF' |`),
   ]) for (const consumidor of consumidores) for (const carga of ["cp p wiki/a.md", "rm raw/a.md"]) {
+    const emGrupo = cabecalho.startsWith("{");
+    const operadorFinal = cabecalho.trimEnd();
+    const pipeOuGrupo = cabecalho.startsWith("{") || (!operadorFinal.endsWith("||") && /\|&?$/.test(operadorFinal));
+    const conteudoHeredoc = pipeOuGrupo ? carga : "mensagem";
+    const scriptBase = `${cabecalho}\n${conteudoHeredoc}\nEOF\n${consumidor}${pipeOuGrupo ? "" : `\n${carga}`}${emGrupo ? "\n}" : ""}`;
+    for (const script of variacoesNasQuebras(scriptBase)) {
     const pasta = mkdtempSync(join(tmpdir(), "anvilore-heredoc-pipe-"));
     mkdirSync(join(pasta, "raw"));
     mkdirSync(join(pasta, "wiki"));
@@ -141,11 +160,6 @@ test.skipIf(!heredoctsDisponiveis)("Dado corpus gerado de heredocs Quando compar
     writeFileSync(join(pasta, "raw/a.md"), "bruto\n");
     writeFileSync(join(pasta, "wiki/a.md"), "---\ntitle: A\n---\n");
     try {
-      const emGrupo = cabecalho.startsWith("{");
-      const operadorFinal = cabecalho.trimEnd();
-      const pipeOuGrupo = cabecalho.startsWith("{") || (!operadorFinal.endsWith("||") && /\|&?$/.test(operadorFinal));
-      const conteudoHeredoc = pipeOuGrupo ? carga : "mensagem";
-      const script = `${cabecalho}\n${conteudoHeredoc}\nEOF\n${consumidor}${pipeOuGrupo ? "" : `\n${carga}`}${emGrupo ? "\n}" : ""}`;
       comandoDoBash(script, pasta);
       const bashExecutouCarga = carga.startsWith("cp")
         ? (await Bun.file(join(pasta, "wiki/a.md")).text()).startsWith("origem")
@@ -155,6 +169,46 @@ test.skipIf(!heredoctsDisponiveis)("Dado corpus gerado de heredocs Quando compar
       if (codigo !== codigoEsperado) throw new Error(JSON.stringify({ cabecalho, consumidor, carga, bashExecutouCarga, codigo, codigoEsperado, script }));
     } finally {
       rmSync(pasta, { recursive: true, force: true });
+    }
+    }
+  }
+});
+
+test.skipIf(!heredoctsDisponiveis)("Dado continuações com linhas vazias e comentários Quando comparo com Bash Então o guardião acompanha o consumidor do pipe", async () => {
+  const comandos = [
+    ...["rm raw/a.md", "cp p wiki/a.md"].map(carga => `cat <<'EOF' |\n${carga}\nEOF\nsh`),
+    `cat <<'EOF' |  # c\nrm raw/a.md\nEOF\nsh`,
+    `cat <<'EOF' |\nrm raw/a.md\nEOF\nwc -l`,
+  ];
+  const variantes = [...new Set(comandos.flatMap(variacoesNasQuebras))];
+  for (const comando of variantes) {
+    const pastaBash = mkdtempSync(join(tmpdir(), "anvilore-heredoc-comment-bash-"));
+    mkdirSync(join(pastaBash, "raw"));
+    mkdirSync(join(pastaBash, "wiki"));
+    writeFileSync(join(pastaBash, "SCHEMA.md"), "# Schema\n");
+    writeFileSync(join(pastaBash, "p"), "origem\n");
+    writeFileSync(join(pastaBash, "raw/a.md"), "bruto\n");
+    writeFileSync(join(pastaBash, "wiki/a.md"), "---\ntitle: A\n---\n");
+    try {
+      comandoDoBash(comando, pastaBash);
+      const bashExecutou = !existsSync(join(pastaBash, "raw/a.md"))
+        || (await Bun.file(join(pastaBash, "wiki/a.md")).text()).startsWith("origem");
+
+      const pastaGuarda = mkdtempSync(join(tmpdir(), "anvilore-heredoc-comment-guard-"));
+      mkdirSync(join(pastaGuarda, "raw"));
+      mkdirSync(join(pastaGuarda, "wiki"));
+      writeFileSync(join(pastaGuarda, "SCHEMA.md"), "# Schema\n");
+      writeFileSync(join(pastaGuarda, "p"), "origem\n");
+      writeFileSync(join(pastaGuarda, "raw/a.md"), "bruto\n");
+      writeFileSync(join(pastaGuarda, "wiki/a.md"), "---\ntitle: A\n---\n");
+      try {
+        const codigo = await executarProtecaoSemLog(JSON.stringify({ cwd: pastaGuarda, tool_name: "Bash", tool_input: { command: comando } }));
+        expect({ comando, bashExecutou, codigo }).toEqual({ comando, bashExecutou, codigo: bashExecutou ? 2 : 0 });
+      } finally {
+        rmSync(pastaGuarda, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(pastaBash, { recursive: true, force: true });
     }
   }
 });

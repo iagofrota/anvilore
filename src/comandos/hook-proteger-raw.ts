@@ -3,7 +3,7 @@ import { appendFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix, resolve } from "node:path";
 import { caminhoReal, dentroDe, estaEmRaw } from "../lib/caminhos";
 import { decidirVerified, encontrarRaizVault, extrairSubstituicoesComando, substituicaoDeLeituraPermitida } from "../lib/trava-verified";
-import { analisarHeredocs, textoHeredocParaAnalise } from "../lib/heredoc";
+import { analisarHeredocs, linhaSemComentarioShell, proximaLinhaDeComando, textoHeredocParaAnalise } from "../lib/heredoc";
 
 export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
 type Mapa = Record<string, unknown>;
@@ -232,11 +232,11 @@ function descartarCorpoHeredoc(comando: string): string {
   return textoHeredocParaAnalise(analise, corpo => {
     const inicioLinha = comando.lastIndexOf("\n", corpo.inicioOperador - 1) + 1;
     const fimLinha = comando.indexOf("\n", corpo.inicioOperador);
-    const linha = comando.slice(inicioLinha, fimLinha < 0 ? comando.length : fimLinha);
+    const linha = linhaSemComentarioShell(comando.slice(inicioLinha, fimLinha < 0 ? comando.length : fimLinha));
     if (alimentaInterpretador(linha)) return true;
     // Heredoc body can be stdin for an interpreter in a pipeline continued after its terminator.
     if (!/(?:\|&?|\\)\s*$/.test(linha)) return false;
-    const resto = comando.slice(corpo.fimTermino).replace(/^\r?\n/, "").split(/\r?\n/, 1)[0] ?? "";
+    const resto = proximaLinhaDeComando(comando, corpo.fimTermino);
     return alimentaInterpretador(`${linha} ${resto}`);
   });
 }
