@@ -5,11 +5,11 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { caminhoReal, dentroDe } from "./caminhos";
 import { lerFrontmatter } from "./frontmatter";
 import { caminhoWiki } from "./wiki-repo";
-import { analisarHeredocs, linhaSemComentarioShell, proximaLinhaDeComando, type CorpoHeredoc } from "./heredoc";
+import { analisarHeredocs, type CorpoHeredoc } from "./heredoc";
 
 export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
 type Json = Record<string, unknown>;
-type Token = { texto: string; operador: boolean; comentario?: boolean };
+type Token = { texto: string; operador: boolean; comentario?: boolean; heredocBody?: string };
 
 const FERRAMENTAS_TERMINAL = new Set([
   "bash", "exec_command", "shell_command", "shell", "local_shell", "run_shell_command", "powershell", "pwsh", "run_in_terminal", "sh", "zsh", "dash", "ksh",
@@ -775,12 +775,12 @@ async function decidirPatch(
   return { acao: "liberar", motivo: "patch não altera verified em wiki/" };
 }
 
-function tokenizar(comando: string, windows = false): Token[] {
+function tokenizar(comando: string, windows = false, heredocBodies = new Map<string, string>()): Token[] {
   const tokens: Token[] = [];
   let palavra = "", aspas = "";
   let palavraIniciada = false;
   function guardar() {
-    if (palavra) tokens.push({ texto: palavra, operador: false });
+    if (palavra) tokens.push({ texto: palavra, operador: false, heredocBody: heredocBodies.get(palavra) });
     palavra = "";
     palavraIniciada = false;
   }
@@ -907,17 +907,25 @@ function encontrarFimSubstituicao(comando: string, inicio: number, crase: boolea
   return -1;
 }
 
-export function extrairSubstituicoesComando(comando: string): { texto: string; substituicoes: string[] } {
+export function extrairSubstituicoesComando(comando: string): { texto: string; substituicoes: string[]; heredocs: Array<{ marcador: string; texto: string }> } {
   const analiseHeredoc = analisarHeredocs(comando);
   let texto = "";
   const substituicoes: string[] = [];
+  const heredocs: Array<{ marcador: string; texto: string }> = [];
   let aspas = "";
   for (let i = 0; i < comando.length; i++) {
     const c = comando[i]!;
     const prox = comando[i + 1] ?? "";
+    const heredocOperador = analiseHeredoc.corpos.find(item => item.inicioOperador === i);
+    if (heredocOperador) {
+      const marcador = `__ANVILORE_HEREDOC_${heredocs.length}__`;
+      heredocs.push({ marcador, texto: heredocOperador.texto });
+      texto += `< ${marcador}`;
+      i = heredocOperador.fimDelimitador - 1;
+      continue;
+    }
     const corpo = analiseHeredoc.corpos.find(item => i >= item.inicioCorpo && i < item.fimTermino);
     if (corpo) {
-      texto += comando.slice(i, corpo.fimTermino);
       if (!corpo.citado && /\$\(|\$\{|\$\(\(|`/.test(corpo.texto)) substituicoes.push("ANVILORE_HEREDOC_SEM_CITACAO_COM_EXPANSAO");
       i = corpo.fimTermino - 1;
       continue;
@@ -955,7 +963,7 @@ export function extrairSubstituicoesComando(comando: string): { texto: string; s
     texto += c;
   }
   const semCorpos = analisarHeredocs(texto).semCorpos;
-  return { texto: semCorpos, substituicoes };
+  return { texto: semCorpos, substituicoes, heredocs };
 }
 
 function verboNormalizado(palavra: string): string {
@@ -1103,6 +1111,7 @@ function argumentoTocaWiki(
 
 function dividirEmComandosSimples(tokens: Token[]): Array<{ tokens: Token[]; doPipe: boolean }> {
   const comandos: Array<{ tokens: Token[]; doPipe: boolean }> = [];
+  const limitesDeClausula = new Set(["then", "do", "else", "elif", "fi", "done", "esac"]);
   let atual: Token[] = [];
   let recebePipe = false;
   let continuaNaQuebra = false;
@@ -1114,13 +1123,20 @@ function dividirEmComandosSimples(tokens: Token[]): Array<{ tokens: Token[]; doP
       continue;
     }
     if (token.operador && token.texto === "\n") {
-      if (continuaNaQuebra || profundidadeComposta > 0 || emComandoComposto) continue;
+      const terminouHeredoc = atual.some(item => item.heredocBody !== undefined);
+      if (continuaNaQuebra || (profundidadeComposta > 0 || emComandoComposto) && !terminouHeredoc) continue;
       if (atual.some(token => !token.comentario)) {
         comandos.push({ tokens: atual, doPipe: recebePipe });
         atual = [];
       }
       recebePipe = false;
       continue;
+    }
+    if (!token.operador && limitesDeClausula.has(token.texto) && atual.some(item => !item.comentario)) {
+      comandos.push({ tokens: atual, doPipe: recebePipe });
+      atual = [];
+      recebePipe = false;
+      continuaNaQuebra = false;
     }
     if (token.operador && /^(?:[;&|]+|\|&)$/.test(token.texto)) {
       if (atual.length > 0) {
@@ -1997,15 +2013,18 @@ function analisarComandosEx(texto: string): EscritaDeScript {
 function lePeloStdin(verbo: string, args: string[]): boolean {
   const stdin = (operando: string | undefined) => operando === undefined || operando === "-" || operando === "/dev/stdin"
     || /^\/(?:dev|proc\/self)\/fd\//.test(operando);
-  if (ehShell(verbo)) {
+  if (ehShell(verbo) || verbo === "fish") {
     const { temComando, operando } = textosDeShell(verbo, args);
     return !temComando && (stdin(operando) || args.includes("-s"));
   }
-  if (/^(?:python[\d.]*|perl|ruby|node|bun|deno|php)$/.test(verbo)) {
+  if (/^(?:python[\d.]*|perl|ruby|node|bun|deno|php|osascript)$/.test(verbo)) {
     // O 1º operando que não é opção é o programa; `/dev/stdin`, `/dev/fd/N` e `/proc/self/fd/N` são a própria entrada.
     // Em qualquer posição (as opções com valor, como `-W ignore`, mudam qual operando é o programa).
     return args.includes("-") || args.some(arg => !arg.startsWith("-") && stdin(arg))
       || args.every(arg => arg.startsWith("-") && !/^-[a-zA-Z]*[ce]/.test(arg));
+  }
+  if (verbo === "powershell" || verbo === "pwsh") {
+    return !args.some(arg => /^-(?:command|file|c|f)(?:=|$)/i.test(arg)) && (args.length === 0 || args.includes("-"));
   }
   return false;
 }
@@ -2602,11 +2621,13 @@ function analisarComandoSimples(
   temMudancaDir: boolean,
   aninhado: ContextoAninhado = { profundidade: 0 },
   ambienteGit: AmbienteGit = novoAmbienteGit(),
-  doPipe = false
+  doPipe = false,
+  heredocsDoPipe: string[] = []
 ): Decisao {
   const comentarios = cmdTokens.filter(token => token.comentario).map(token => token.texto);
   cmdTokens = cmdTokens.filter(token => !token.comentario);
   let entradaRedirecionada = false;
+  const corposHeredocDoComando: string[] = [];
   // 1. Extrai redirecionamentos e tokens sem operadores de redireção
   const alvosRedir: string[] = [];
   const tokensSemRedir: Token[] = [];
@@ -2639,6 +2660,7 @@ function analisarComandoSimples(
       entradaRedirecionada = true;
       const proximo = cmdTokens[i + 1];
       if (proximo && !proximo.operador) {
+        if (proximo.heredocBody !== undefined) corposHeredocDoComando.push(proximo.heredocBody);
         i++;
       }
     } else {
@@ -2728,6 +2750,19 @@ function analisarComandoSimples(
   }
 
   const cmdArgs = palavras.slice(1);
+  if (verbo && lePeloStdin(verbo, cmdArgs)) {
+    for (const corpo of [...corposHeredocDoComando, ...heredocsDoPipe]) {
+      if (!corpo.trim()) continue;
+      if (aninhado.profundidade >= TETO_ANINHAMENTO) {
+        return { acao: "bloquear", motivo: "comandos aninhados demais (falha fechada)" };
+      }
+      const programa = decidirTerminalVerified(corpo, false, base, raiz, ambiente, {
+        ...aninhado,
+        profundidade: aninhado.profundidade + 1,
+      }, temMudancaDir, ambienteGit, false);
+      if (programa.acao === "bloquear") return programa;
+    }
+  }
   // Verbo aninhado que só existe em tempo de execução ($1, {}, glob) não se classifica: falha fechada.
   if (aninhado.profundidade > 0 && /[$`{}*?\[\]]|^~/.test(palavras[0]!)) {
     return { acao: "bloquear", motivo: "comando aninhado com verbo não literal (falha fechada)" };
@@ -3027,7 +3062,8 @@ function analisarComandoSimples(
   }
 
   // 5.4a Shell ou interpretador que recebe pipe e não tem programa próprio lê os comandos da entrada padrão (`echo cmd | sh`, `| env sh`).
-  if ((doPipe || entradaRedirecionada) && lePeloStdin(verbo, cmdArgs)) {
+  const entradaConhecida = corposHeredocDoComando.length > 0 || heredocsDoPipe.length > 0;
+  if ((doPipe || entradaRedirecionada) && !entradaConhecida && lePeloStdin(verbo, cmdArgs)) {
     return { acao: "bloquear", motivo: "o comando que recebe o pipe lê o programa da entrada padrão (falha fechada)" };
   }
 
@@ -3206,10 +3242,12 @@ function decidirTerminalVerified(
   // Expansões de comando rodam pelo mesmo classificador; o valor produzido é texto opaco no comando externo.
   let comandoExterno = cmdTexto;
   let substituicoes: string[];
+  let heredocs: Array<{ marcador: string; texto: string }> = [];
   try {
     const extraidas = extrairSubstituicoesComando(cmdTexto);
     comandoExterno = extraidas.texto;
     substituicoes = extraidas.substituicoes;
+    heredocs = extraidas.heredocs;
   } catch (erro) {
     return { acao: "bloquear", motivo: `substituição de comando ilegível (falha fechada): ${(erro as Error).message}` };
   }
@@ -3218,7 +3256,7 @@ function decidirTerminalVerified(
   let tokens: Token[] = [];
   let erroTokenizacao: unknown;
   try {
-    tokens = tokenizar(comandoExterno, isWindows);
+    tokens = tokenizar(comandoExterno, isWindows, new Map(heredocs.map(corpo => [corpo.marcador, corpo.texto])));
   } catch (erro) {
     erroTokenizacao = erro;
   }
@@ -3242,29 +3280,6 @@ function decidirTerminalVerified(
     }
   }
 
-  // A heredoc body becomes script input when its continued command sends it to a shell.
-  // Analyze that input as commands too; otherwise stripping the body hides writes from the consumer.
-  try {
-    const heredocs = analisarHeredocs(cmdTexto);
-    for (const corpo of heredocs.corpos) {
-      const inicioLinha = cmdTexto.lastIndexOf("\n", corpo.inicioOperador - 1) + 1;
-      const fimLinha = cmdTexto.indexOf("\n", corpo.inicioOperador);
-      const cabecalho = linhaSemComentarioShell(cmdTexto.slice(inicioLinha, fimLinha < 0 ? cmdTexto.length : fimLinha));
-      if (!/(?:\|&?|\\)\s*$/.test(cabecalho)) continue;
-      const consumidor = proximaLinhaDeComando(cmdTexto, corpo.fimTermino);
-      const verbo = consumidor.trim().split(/\s+/, 1)[0]?.toLowerCase();
-      if (!verbo || !new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "powershell"]).has(verbo)) continue;
-      if (!corpo.texto.trim()) continue;
-      const entrada = decidirTerminalVerified(corpo.texto, false, base, raiz, ambiente, {
-        ...contexto,
-        profundidade: contexto.profundidade + 1,
-      }, temCdOuPushd, ambienteGit, false);
-      if (entrada.acao === "bloquear") return entrada;
-    }
-  } catch {
-    return { acao: "bloquear", motivo: "heredoc de entrada não interpretável (falha fechada)" };
-  }
-
   // As expansões já foram verificadas para todos os segmentos; só agora valem retornos curtos e isenções.
   if (erroTokenizacao) {
     const citaVerified = /verified/i.test(cmdTexto) || /\bby\s*:\s*human:/i.test(cmdTexto);
@@ -3284,11 +3299,17 @@ function decidirTerminalVerified(
     return { acao: "liberar", motivo: "comando permitido da CLI do kit" };
   }
 
+  let corposDoPipe: string[] = [];
   for (const [indice, { tokens: cmdTokens, doPipe }] of comandosSimples.entries()) {
-    const decisao = analisarComandoSimples(cmdTokens, base, raiz, ambiente, temCdOuPushd, contexto, ambienteGit, doPipe || primeiroDoPipe);
+    const corposHeredocDoComando = cmdTokens.flatMap(token => token.heredocBody === undefined ? [] : [token.heredocBody]);
+    const decisao = analisarComandoSimples(
+      cmdTokens, base, raiz, ambiente, temCdOuPushd, contexto, ambienteGit,
+      doPipe || primeiroDoPipe, doPipe ? corposDoPipe : []
+    );
     if (decisao.acao === "bloquear") {
       return decisao;
     }
+    corposDoPipe = corposHeredocDoComando;
   }
 
   return { acao: "liberar", motivo: "comando de terminal permitido" };

@@ -208,20 +208,20 @@ function extrairTextoPatch(entrada: Mapa, dados: Mapa): string {
 const INTERPRETADORES_HEREDOC = new Set([
   "bash", "sh", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd",
   "eval", "source", ".", "xargs", "parallel",
-  "python", "python3", "perl", "ruby", "node", "bun", "deno", "php",
+  "python", "perl", "ruby", "node", "bun", "deno", "php", "osascript",
 ]);
 
 function alimentaInterpretador(linhaComando: string): boolean {
-  const partes = linhaComando.split(/[|;&]+/);
-  for (const parte of partes) {
-    const palavras = parte.trim().split(/\s+/).filter(Boolean);
-    const inicio = palavras.findIndex(p => !/^[A-Za-z_]\w*=/.test(p));
-    if (inicio < 0) continue;
-    const verbo = verboNormalizado(palavras[inicio]!);
-    if (INTERPRETADORES_HEREDOC.has(verbo)) return true;
-    if (ENVOLVEDORES.has(verbo)) {
-      const { resto } = desembrulhar(verbo, palavras.slice(inicio + 1));
-      if (resto.length && INTERPRETADORES_HEREDOC.has(verboNormalizado(resto[0]!))) return true;
+  for (const palavras of segmentosDoTexto(linhaComando)) {
+    let comando = palavras;
+    while (comando.length) {
+      const inicio = comando.findIndex(p => !/^[A-Za-z_]\w*=/.test(p) && !PALAVRAS_DE_LACO.has(p));
+      if (inicio < 0) break;
+      comando = comando.slice(inicio);
+      const verbo = verboNormalizado(comando[0]!);
+      if (INTERPRETADORES_HEREDOC.has(verbo) || /^python\d+(?:\.\d+)*$/.test(verbo)) return true;
+      if (!ENVOLVEDORES.has(verbo)) break;
+      comando = desembrulhar(verbo, comando.slice(1)).resto;
     }
   }
   return false;
@@ -234,10 +234,14 @@ function descartarCorpoHeredoc(comando: string): string {
     const fimLinha = comando.indexOf("\n", corpo.inicioOperador);
     const linha = linhaSemComentarioShell(comando.slice(inicioLinha, fimLinha < 0 ? comando.length : fimLinha));
     if (alimentaInterpretador(linha)) return true;
+    if (/\\\s*$/.test(linha) && fimLinha >= 0) {
+      const continuacao = proximaLinhaDeComando(comando, fimLinha + 1);
+      if (alimentaInterpretador(`${linha.replace(/\\\s*$/, "")} ${continuacao}`)) return true;
+    }
     // Heredoc body can be stdin for an interpreter in a pipeline continued after its terminator.
     if (!/(?:\|&?|\\)\s*$/.test(linha)) return false;
     const resto = proximaLinhaDeComando(comando, corpo.fimTermino);
-    return alimentaInterpretador(`${linha} ${resto}`);
+    return alimentaInterpretador(`${linha.replace(/\\\s*$/, "")} ${resto}`);
   });
 }
 
