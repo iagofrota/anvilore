@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { executarProtecao } from "../src/comandos/hook-proteger-raw";
 import { comandoHooksWiki } from "../src/comandos/hooks-wiki";
@@ -2537,6 +2537,8 @@ describe("trava de verified nos quatro agentes", () => {
           `git --config-env=core.worktree=WT checkout .`,
           `git --config-env core.worktree=WT checkout .`,
           `git -c core.worktree=${cofre}/wiki checkout .`,
+          // Rodada 16: core.worktree está fora da lista permitida de chaves, então bloqueia mesmo com um diretório inofensivo.
+          `git config core.worktree ${longe}`,
           `fish --command "cp -R ${cofre}/../x ${cofre}/"`,
         ];
         await esperar(ataques, 2, longe);
@@ -2545,7 +2547,6 @@ describe("trava de verified nos quatro agentes", () => {
           `git config core.worktree`,
           `git config --get core.worktree`,
           `git config user.name x`,
-          `git config core.worktree ${longe}`,
           `git --config-env=user.name=NAME log`,
           `git -c user.name=x log`,
         ];
@@ -2602,6 +2603,8 @@ describe("trava de verified nos quatro agentes", () => {
           `GIT_CONFIG_KEY_0=core.worktree GIT_CONFIG_VALUE_0=${cofre} git checkout .`,
           `export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.worktree GIT_CONFIG_VALUE_0=${cofre}; git checkout .`,
           `GIT_CONFIG_PARAMETERS="'core.worktree'='${cofre}'" git checkout .`,
+          // Rodada 16: core.worktree está fora da lista permitida de chaves, então bloqueia mesmo com um diretório inofensivo.
+          `GIT_CONFIG_KEY_0=core.worktree git log`,
         ];
         await esperar(ataques, 2, longe);
 
@@ -2611,7 +2614,6 @@ describe("trava de verified nos quatro agentes", () => {
           `fish --command="echo ok"`,
           `parallel echo {} ::: a b`,
           `GIT_CONFIG_KEY_0=user.name git log`,
-          `GIT_CONFIG_KEY_0=core.worktree git log`,
         ];
         await esperar(regressoes, 0, longe);
       } finally {
@@ -2637,6 +2639,8 @@ describe("trava de verified nos quatro agentes", () => {
           `git config --fi ${fora}/cfg core.worktree ${cofre}`,
           `git config --typ bool core.worktree ${cofre}`,
           `git config --def x core.worktree ${cofre}`,
+          // Rodada 16: core.worktree está fora da lista permitida de chaves, então bloqueia mesmo com um diretório inofensivo.
+          `git config --file ${fora}/cfg core.worktree ${longe}`,
         ];
         await esperar(ataques, 2, longe);
 
@@ -2644,7 +2648,6 @@ describe("trava de verified nos quatro agentes", () => {
           `fish -c "echo ok"`,
           `fish --command "echo ok" --init-command "echo ok"`,
           `bash -C -c "echo ok"`,
-          `git config --file ${fora}/cfg core.worktree ${longe}`,
           `git config --fi ${fora}/cfg user.name x`,
         ];
         await esperar(regressoes, 0, longe);
@@ -2877,6 +2880,8 @@ describe("trava de verified nos quatro agentes", () => {
           `git config --default core.worktree core.worktree ${cofre}`,
           `git config core.worktree ${longe} ${cofre}`,
           `git config --add core.worktree ${longe} --add core.worktree ${cofre}`,
+          // Rodada 16: core.worktree está fora da lista permitida de chaves, então bloqueia mesmo com um diretório inofensivo.
+          `git config core.worktree ${longe}`,
           `bash -oc pipefail "${atacar}"`,
           `bash -Oc extglob "${atacar}"`,
           `bash -ocO pipefail extglob "${atacar}"`,
@@ -2892,7 +2897,6 @@ describe("trava de verified nos quatro agentes", () => {
         await esperar(ataques, 2, longe);
 
         const regressoes = [
-          `git config core.worktree ${longe}`,
           `git config --get core.worktree`,
           `git config core.worktree`,
           `git config --default x user.name y`,
@@ -3572,6 +3576,356 @@ describe("trava de verified nos quatro agentes", () => {
           `tar --remove-files -cf ${fora}/b.tar '*'`,
           `rsync --remove-sent-files ${fora}/p.md ${fora}/y/`,
           `curl -T ${fora}/p.md file://${fora}/x`,
+        ], 0, fora);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Achado P2 do bot (rodada 16): opção, chave de config ou variável de ambiente que EXECUTA um comando bloqueia", async () => {
+      const { fora, cofre, esperar } = prepararRodada11();
+      writeFileSync(join(fora, "prep.sh"), "echo ok\n");
+      const P = `sh ${fora}/prep.sh`;
+      try {
+        // Todos com o cwd FORA do cofre e sem citar a wiki: o bloqueio tem de vir da detecção, não de um caminho.
+        const opcoes = [
+          // git: opções que executam
+          `git grep --open-files-in-pager='${P}' x -- ${fora}/p.md`,
+          `git grep --open-files='${P}' x`,
+          `git grep --open='${P}' x`,
+          `git grep -O'${P}' x`,
+          `git grep -nO'${P}' x`,
+          `git grep -O x`,
+          `git diff --ext-diff`,
+          `git log --ext-diff`,
+          `git diff --ext-d`,
+          `git diff --textconv`,
+          `git show --textconv HEAD:x`,
+          `git blame --textconv x`,
+          `git cat-file --textconv HEAD:x`,
+          `git ls-remote --upload-pack='${P}' ${fora}/r`,
+          `git ls-remote --upload='${P}' ${fora}/r`,
+          `git fetch --upload-pack='${P}' ${fora}/r`,
+          `git pull --upload-pack='${P}' ${fora}/r`,
+          `git clone -u '${P}' ${fora}/r ${fora}/c`,
+          `git clone --upload-pack='${P}' ${fora}/r ${fora}/c`,
+          `git push --receive-pack='${P}' ${fora}/r`,
+          `git push --exec='${P}' ${fora}/r`,
+          `git archive --remote=${fora}/r --exec='${P}' HEAD`,
+          `git rebase -x '${P}' HEAD~1`,
+          `git rebase --exec '${P}' HEAD~1`,
+          `git rebase -i -x '${P}' HEAD~1`,
+          `git bisect run ${P}`,
+          `git submodule foreach '${P}'`,
+          `git difftool -x '${P}' HEAD`,
+          `git difftool --extcmd='${P}' HEAD`,
+          `git difftool -t x HEAD`,
+          `git mergetool`,
+          `git filter-branch --tree-filter x`,
+          `git instaweb`,
+          `git web--browse x`,
+          // tar, rsync, rg
+          `tar -I '${P}' -cf ${fora}/b.tar ${fora}/p.md`,
+          `tar -I'${P}' -cf ${fora}/b.tar ${fora}/p.md`,
+          `tar --use-compress-program='${P}' -cf ${fora}/b.tar ${fora}/p.md`,
+          `tar --use-compress='${P}' -cf ${fora}/b.tar ${fora}/p.md`,
+          `tar -xf ${fora}/a.tar --to-command='${P}'`,
+          `tar -cf ${fora}/b.tar --checkpoint=1 --checkpoint-action=exec='${P}' ${fora}/p.md`,
+          `tar -cf ${fora}/b.tar --checkpoint-ac=exec='${P}' ${fora}/p.md`,
+          `tar --rsh-command='${P}' -cf ${fora}/b.tar ${fora}/p.md`,
+          `tar -F ${fora}/prep.sh -cf ${fora}/b.tar ${fora}/p.md`,
+          `tar --info-script=${fora}/prep.sh -cf ${fora}/b.tar ${fora}/p.md`,
+          `tar --new-volume-script=${fora}/prep.sh -cf ${fora}/b.tar ${fora}/p.md`,
+          `tar cIf '${P}' ${fora}/b.tar ${fora}/p.md`,
+          `rsync -e '${P}' ${fora}/p h:${fora}/x`,
+          `rsync -e${P.replace(" ", "")} ${fora}/p h:${fora}/x`,
+          `rsync -avze ssh ${fora}/p h:${fora}/x`,
+          `rsync --rsh='${P}' ${fora}/p h:${fora}/x`,
+          `rsync --rsh ssh ${fora}/p h:${fora}/x`,
+          `rsync --rsync-path='${P}' ${fora}/p h:${fora}/x`,
+          `rsync --rsync-p='${P}' ${fora}/p h:${fora}/x`,
+          `rg --pre ${fora}/prep.sh x`,
+          `rg --pre=${fora}/prep.sh x`,
+          `rg --pr ${fora}/prep.sh x`,
+        ];
+        await esperar(opcoes, 2, fora);
+
+        const config = [
+          // -c, --config-env e as variáveis de config
+          `git -c core.pager='${P}' log`,
+          `git -c Core.Pager='${P}' log`,
+          `git -c pager.log='${P}' log`,
+          `git -c alias.x='!${P}' x`,
+          `git -c core.editor='${P}' commit`,
+          `git -c core.sshcommand='${P}' fetch r`,
+          `git -c core.fsmonitor='${P}' status`,
+          `git -c core.hookspath=${fora}/hooks commit`,
+          `git -c diff.external='${P}' diff`,
+          `git -c diff.x.textconv='${P}' diff`,
+          `git -c filter.x.clean='${P}' add x`,
+          `git -c gpg.program='${P}' log`,
+          `git -c credential.helper='!${P}' fetch r`,
+          `git -c include.path=${fora}/cfg log`,
+          `git -c sequence.editor='${P}' rebase -i HEAD~1`,
+          `git -c core.worktree=${fora} log`,
+          `git --config-env=core.pager=VAR log`,
+          `git --config-env core.pager=VAR log`,
+          `GIT_CONFIG_KEY_0=core.pager GIT_CONFIG_VALUE_0='${P}' GIT_CONFIG_COUNT=1 git log`,
+          `GIT_CONFIG_PARAMETERS="'core.pager'='${P}'" git log`,
+          `GIT_CONFIG_GLOBAL=${fora}/cfg git log`,
+          // escrita por git config, em qualquer forma
+          `git config alias.x '!${P}'`,
+          `git config core.pager '${P}'`,
+          `git config --add alias.x '!${P}'`,
+          `git config --global core.pager '${P}'`,
+          `git config --file ${fora}/cfg core.pager '${P}'`,
+          `git config --fi ${fora}/cfg core.pager '${P}'`,
+          `git config set core.pager '${P}'`,
+          `git config --replace-all core.editor '${P}'`,
+          `git config --local include.path ${fora}/cfg`,
+          `git config core.hooksPath ${fora}/hooks`,
+          `git config core.worktree ${fora}`,
+          `git config -e`,
+          `git config --edit`,
+          `git config --global -e`,
+        ];
+        await esperar(config, 2, fora);
+
+        const ambiente = [
+          `GIT_PAGER='${P}' git log`,
+          `PAGER='${P}' git log`,
+          `MANPAGER='${P}' man x`,
+          `GIT_EDITOR='${P}' git commit`,
+          `EDITOR='${P}' git commit`,
+          `VISUAL='${P}' git commit`,
+          `GIT_SEQUENCE_EDITOR='${P}' git rebase -i HEAD~1`,
+          `GIT_EXTERNAL_DIFF=${fora}/prep.sh git diff`,
+          `GIT_SSH=${fora}/prep.sh git fetch r`,
+          `GIT_SSH_COMMAND='${P}' git fetch r`,
+          `GIT_ASKPASS=${fora}/prep.sh git fetch r`,
+          `SSH_ASKPASS=${fora}/prep.sh git fetch r`,
+          `GIT_PROXY_COMMAND=${fora}/prep.sh git fetch r`,
+          `GIT_EXEC_PATH=${fora} git log`,
+          `GIT_TEMPLATE_DIR=${fora} git init`,
+          `LESSOPEN='|${P}' cat ${fora}/p.md`,
+          `LESSCLOSE='${P}' cat ${fora}/p.md`,
+          `BROWSER='${P}' git help x`,
+          `BASH_ENV=${fora}/prep.sh bash -c true`,
+          `ENV=${fora}/prep.sh sh -c true`,
+          `PROMPT_COMMAND='${P}' bash -c true`,
+          `LD_PRELOAD=${fora}/x.so cat ${fora}/p.md`,
+          `LD_LIBRARY_PATH=${fora} cat ${fora}/p.md`,
+          `NODE_OPTIONS='--require ${fora}/x.js' node -e 1`,
+          `PERL5OPT=-M${fora} perl -e 1`,
+          `PYTHONSTARTUP=${fora}/x.py python3 -c 1`,
+          `RUBYOPT=-r${fora} ruby -e 1`,
+          // formas: env, export, declare, atribuição isolada, aninhada
+          `env GIT_PAGER='${P}' git log`,
+          `env -i PAGER='${P}' git log`,
+          `export PAGER='${P}'; git log`,
+          `declare -x EDITOR='${P}'; git commit`,
+          `PAGER='${P}'; git log`,
+          `sh -c "PAGER='${P}' git log"`,
+          `sudo env GIT_PAGER='${P}' git log`,
+        ];
+        await esperar(ambiente, 2, fora);
+
+        const regressoes = [
+          `git log`,
+          `git grep x`,
+          `git grep -I x`,
+          `git grep -n -e x`,
+          `git diff`,
+          `git diff --no-ext-diff`,
+          `git log --stat`,
+          `git -c color.ui=always log`,
+          `git -c user.name=X log`,
+          `git -c core.quotepath=false log`,
+          `git -c advice.detachedHead=false log`,
+          `git -c log.date=short log`,
+          `git config --get user.name`,
+          `git config --get core.pager`,
+          `git config -l`,
+          `git config user.name X`,
+          `git config user.email a@b.c`,
+          `git config --global color.ui auto`,
+          `git config --unset core.pager`,
+          `git config core.worktree`,
+          `git fetch r`,
+          `git clone ${fora}/r ${fora}/c`,
+          `cat ${fora}/p.md`,
+          `rg x ${fora}`,
+          `rg --pre-glob '*.md' x ${fora}`,
+          `tar -cf ${fora}/b.tar ${fora}/y`,
+          `tar -xvf ${fora}/a.tar -C ${fora}/y`,
+          `rsync -a ${fora}/p ${fora}/q`,
+          `rsync -avz --delete ${fora}/p ${fora}/q`,
+          `LESS=-R git log`,
+          `GIT_AUTHOR_NAME=x git log`,
+          `FOO=1 cat ${fora}/p.md`,
+          `export FOO=1; git log`,
+        ];
+        await esperar(regressoes, 0, fora);
+        // cwd no cofre: a leitura segue liberada
+        await esperar([`git log`, `git grep x`, `git diff`, `git -c color.ui=always log`, `rg x wiki`, `tar -cf ${fora}/b.tar wiki`], 0, cofre);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Nota 9: glob, ~ e $ carregam um prefixo literal que já aponta para o cofre, e o cwd fora dele não basta", async () => {
+      const { fora, cofre, esperar } = prepararRodada11();
+      const homeAntes = process.env.HOME;
+      try {
+        // Com o cwd FORA do cofre: só o prefixo literal denuncia o alvo
+        await esperar([
+          `rsync --remove-source-files ${cofre}/wik*/ ${fora}/y/`,
+          `rsync --remove-source-files ${cofre}/wiki/*.md ${fora}/y/`,
+          `tar --remove-files -cf ${fora}/b.tar -C ${cofre} 'wik*'`,
+          `7z a -sdel ${fora}/x.7z ${cofre}/wik*/*.md`,
+          `7z a -sdel ${fora}/x.7z ${cofre}/wiki/[a-z]*`,
+          `ferramenta-inventada ${cofre}/wik*/a.md`,
+          `ferramenta-inventada ${cofre}/wiki/*.md`,
+          `ferramenta-inventada ${cofre}/w{iki,x}/a.md`,
+          `ferramenta-inventada ${cofre}/wiki/$NOME`,
+        ], 2, fora);
+        // ~ resolvido pelo HOME: com o HOME em cima do cofre, ~/<cofre>/wiki é a wiki
+        process.env.HOME = dirname(cofre);
+        await esperar([
+          `ferramenta-inventada ~/${basename(cofre)}/wiki/a.md`,
+          `ferramenta-inventada ~/${basename(cofre)}/wik*`,
+          `7z a -sdel ${fora}/x.7z ~/${basename(cofre)}/wiki/a.md`,
+        ], 2, fora);
+        process.env.HOME = fora;
+        await esperar([
+          `ferramenta-inventada ~/x`,
+          `ferramenta-inventada ${fora}/y*`,
+          `ferramenta-inventada ${fora}/*.md`,
+          `rsync --remove-source-files ${fora}/y* ${fora}/q/`,
+          `7z a -sdel ${fora}/x.7z ${fora}/y*`,
+        ], 0, fora);
+      } finally {
+        if (homeAntes === undefined) delete process.env.HOME; else process.env.HOME = homeAntes;
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Rodada 16 (revisão do commit): chave com subseção e barra, --rename-section, mais variáveis, tar --rmt-command e subcomandos do git que executam", async () => {
+      const { fora, esperar } = prepararRodada11();
+      writeFileSync(join(fora, "prep.sh"), "echo ok\n");
+      const P = `sh ${fora}/prep.sh`;
+      try {
+        await esperar([
+          // chaves com subseção que têm `/` ou `:` (includeIf.gitdir:/x/.path) e seções renomeadas
+          `git config includeIf.gitdir:${fora}/.path ${fora}/cfg`,
+          `git config includeIf.gitdir/i:${fora}/.path ${fora}/cfg`,
+          `git -c includeIf.gitdir:${fora}/.path=${fora}/cfg log`,
+          `git config --rename-section foo alias`,
+          `git config --rename-section alias core`,
+          `git config url.https://x/.insteadOf y`,
+          `git config color.diff.new.x bold`,
+          `git config log.a.b short`,
+          // variáveis que escolhem programa, arquivo de configuração ou biblioteca
+          `RSYNC_RSH='${P}' rsync ${fora}/p h:${fora}/x`,
+          `RSYNC_CONNECT_PROG='${P}' rsync ${fora}/p h::${fora}/x`,
+          `TAR_OPTIONS=--use-compress-program=${fora}/prep.sh tar -cf ${fora}/b.tar ${fora}/p.md`,
+          `RIPGREP_CONFIG_PATH=${fora}/rg rg x`,
+          `XDG_CONFIG_HOME=${fora} git log`,
+          `HOME=${fora} git log`,
+          `PATH=${fora}:/usr/bin git log`,
+          `PYTHONPATH=${fora} python3 -c 1`,
+          `PERL5LIB=${fora} perl -e 1`,
+          `RUBYLIB=${fora} ruby -e 1`,
+          `NODE_PATH=${fora} node -e 1`,
+          `DYLD_INSERT_LIBRARIES=${fora}/x.dylib cat ${fora}/p.md`,
+          // opções e subcomandos que faltavam
+          `tar --rmt-command='${P}' -cf ${fora}/b.tar ${fora}/p.md`,
+          `tar --rmt='${P}' -cf ${fora}/b.tar ${fora}/p.md`,
+          `git --exec-path=${fora} log`,
+          `git fetch-pack --upload-pack='${P}' ${fora}/r`,
+          `git fetch-pack --exec='${P}' ${fora}/r`,
+          `git send-email --sendmail-cmd='${P}' x`,
+          `git send-email --smtp-server=${fora}/prep.sh x`,
+          `git send-email --to-cmd='${P}' x`,
+          `git stash show --textconv`,
+          `git stash show --ext-diff`,
+        ], 2, fora);
+        await esperar([
+          `git --exec-path`,
+          `git config --get alias.x pattern`,
+          `git config --list`,
+          `git config --get-regexp 'alias.*'`,
+          `git config color.diff.meta bold`,
+          `git config color.ui always`,
+          `git config log.date short`,
+          `git config advice.detachedHead false`,
+          `git config user.email a@b.c`,
+          `git config user.name 'Fulano de Tal'`,
+          `git stash list`,
+          `git stash show`,
+        ], 0, fora);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Rodada 16 (2ª revisão): valor de opção do git config que parece ação de leitura, e mais duas variáveis", async () => {
+      const { fora, esperar } = prepararRodada11();
+      writeFileSync(join(fora, "prep.sh"), "echo ok\n");
+      const P = `sh ${fora}/prep.sh`;
+      try {
+        await esperar([
+          `git config --default --get alias.x '!${P}'`,
+          `git config --default --list core.pager '${P}'`,
+          `git config --def --get alias.x '!${P}'`,
+          `git config --type --get core.pager '${P}'`,
+          `git config --comment --get alias.x '!${P}'`,
+          `git config --file --list core.pager '${P}'`,
+          `git config -f --get core.pager '${P}'`,
+          `git config --blob --get core.pager '${P}'`,
+          `GIT_COMMON_DIR=${fora} git log`,
+          `LD_AUDIT=${fora}/x.so cat ${fora}/p.md`,
+        ], 2, fora);
+        await esperar([
+          `git config --file ${fora}/cfg user.name x`,
+          `git config --file ${fora}/x.cfg user.name x`,
+          `git config --type bool color.ui true`,
+          `git config --default x --get user.name`,
+          `git config --file ${fora}/cfg --get user.name`,
+          `git config --get --file ${fora}/cfg core.pager`,
+        ], 0, fora);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Rodada 16 (3ª revisão): atribuição com +=, read/printf -v em variável que executa e GIT_CONFIG_PARAMETERS parseado como o git", async () => {
+      const { fora, esperar } = prepararRodada11();
+      writeFileSync(join(fora, "prep.sh"), "echo ok\n");
+      const P = `sh ${fora}/prep.sh`;
+      try {
+        await esperar([
+          `PAGER+='${P}' git log`,
+          `GIT_PAGER+=x git log`,
+          `env PAGER+='${P}' git log`,
+          `export PATH+=:${fora}; git log`,
+          `PATH+=:${fora}; git log`,
+          `printf -v PAGER '%s' '${P}'; git log`,
+          `read PAGER < ${fora}/prep.sh; git log`,
+          `read -r GIT_PAGER < ${fora}/prep.sh; git log`,
+          `mapfile EDITOR < ${fora}/prep.sh; git commit`,
+          `GIT_CONFIG_PARAMETERS="'core.pager=${P}'" git log`,
+          `GIT_CONFIG_PARAMETERS="'color.ui'='always' 'core.pager'='${P}'" git log`,
+          `GIT_CONFIG_PARAMETERS="'color.ui'='always' 'alias x'='${P}'" git log`,
+          `GIT_CONFIG_PARAMETERS="'color.ui=always' 'core.editor=${P}'" git log`,
+          `GIT_CONFIG_PARAMETERS="solto" git log`,
+        ], 2, fora);
+        await esperar([
+          `GIT_CONFIG_PARAMETERS="'color.ui'='always'" git log`,
+          `GIT_CONFIG_PARAMETERS="'color.ui=always' 'user.name=X Y'" git log`,
+          `FOO+=x git log`,
+          `read LINHA < ${fora}/p.md; echo $LINHA`,
+          `printf -v LINHA '%s' x; echo ok`,
         ], 0, fora);
       } finally {
         rmSync(fora, { recursive: true, force: true });

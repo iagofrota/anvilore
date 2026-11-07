@@ -205,7 +205,7 @@ function desembrulhar(verbo: string, args: string[]): { resto: string[]; descart
   let pular = posicionais;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
-    if (/^[A-Za-z_]\w*=/.test(arg)) continue;
+    if (/^[A-Za-z_]\w*\+?=/.test(arg)) continue;
     if (arg === "--") return sai(i + 1);
     const ehS = verbo === "env" && ((arg.startsWith("-S") && !arg.startsWith("--")) || opcaoLongaGnu(arg, "--split-string", "--s"));
     if (ehS) {
@@ -1270,8 +1270,9 @@ const GIT_CLONE_COM_VALOR = new Set([
   "--server-option", "--bundle-uri", "--revision", "--ref-format",
 ]);
 
-function analisarGitArvore(args: string[]): { subcomando?: string; resto: string[]; arvores: string[]; configWorktree: boolean } {
+function analisarGitArvore(args: string[]): { subcomando?: string; resto: string[]; arvores: string[]; configWorktree: boolean; chaves: string[] } {
   const arvores: string[] = [];
+  const chaves: string[] = [];
   let configWorktree = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
@@ -1279,8 +1280,10 @@ function analisarGitArvore(args: string[]): { subcomando?: string; resto: string
     if (arg.startsWith("--") && opcaoLongaGnu(arg, "--config-env", "--config-e")) {
       const valor = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[++i];
       if (/^core\.worktree=/i.test(valor ?? "")) configWorktree = true;
+      if (valor !== undefined) chaves.push(valor.split("=")[0]!);
       continue;
     }
+    if (arg === "-c" && args[i + 1] !== undefined) chaves.push(args[i + 1]!.split("=")[0]!);
     if (arg === "-c" && /^core\.worktree=/i.test(args[i + 1] ?? "")) arvores.push(args[i + 1]!.slice(args[i + 1]!.indexOf("=") + 1));
     if (arg === "-C" || arg === "-c") { i++; continue; }
     if (arg.startsWith("--") && opcaoLongaGnu(arg, "--work-tree", "--wo")) {
@@ -1295,9 +1298,9 @@ function analisarGitArvore(args: string[]): { subcomando?: string; resto: string
     }
     if (arg.startsWith("--") && opcaoLongaGnu(arg, "--namespace", "--na") && !arg.includes("=")) { i++; continue; }
     if (arg.startsWith("-")) continue;
-    return { subcomando: arg.toLowerCase(), resto: args.slice(i + 1), arvores, configWorktree };
+    return { subcomando: arg.toLowerCase(), resto: args.slice(i + 1), arvores, configWorktree, chaves };
   }
-  return { resto: [], arvores, configWorktree };
+  return { resto: [], arvores, configWorktree, chaves };
 }
 
 function posicionaisGit(resto: string[]): string[] {
@@ -2087,7 +2090,7 @@ function novoAmbienteGit(): AmbienteGit {
   return { arvores: [], configWorktree: false };
 }
 function registrarAmbienteGit(palavra: string, alvo: AmbienteGit): void {
-  const arvore = /^GIT_WORK_TREE=(.*)$/.exec(palavra);
+  const arvore = /^GIT_WORK_TREE\+?=(.*)$/.exec(palavra);
   if (arvore) alvo.arvores.push(arvore[1]!);
   // GIT_DIR sozinho não muda a árvore, mas o repositório pode apontar para o cofre: o dir e o pai dele entram.
   const gitDir = /^GIT_DIR=(.*)$/.exec(palavra);
@@ -2182,10 +2185,166 @@ function cortarEntradasParallel(args: string[]): string[] {
   return indice < 0 ? args : args.slice(0, indice);
 }
 
+// ---- Opção, chave de configuração ou variável de ambiente que EXECUTA um comando ----
+// O padrão negado julga CAMINHOS; esta é a outra metade: um verbo (inclusive de leitura) que recebe um COMANDO para rodar. Presença =
+// bloqueia; o comando não se tenta provar (falso positivo aceito: `rsync -e ssh`, `PAGER=cat git log`).
+type RegraExecuta = { longas?: string[]; curtas?: string };
+const EXECUTA_DIFF: RegraExecuta = { longas: ["--ext-diff", "--textconv"] };
+const OPCOES_QUE_EXECUTAM: Record<string, RegraExecuta> = {
+  "git grep": { longas: ["--open-files-in-pager"], curtas: "O" },
+  "git diff": EXECUTA_DIFF, "git log": EXECUTA_DIFF, "git show": EXECUTA_DIFF, "git blame": EXECUTA_DIFF, "git cat-file": EXECUTA_DIFF,
+  "git format-patch": EXECUTA_DIFF, "git whatchanged": EXECUTA_DIFF, "git range-diff": EXECUTA_DIFF, "git diff-files": EXECUTA_DIFF,
+  "git diff-index": EXECUTA_DIFF, "git diff-tree": EXECUTA_DIFF,
+  "git ls-remote": { longas: ["--upload-pack", "--exec"] },
+  "git fetch": { longas: ["--upload-pack"] },
+  "git pull": { longas: ["--upload-pack"] },
+  "git clone": { longas: ["--upload-pack", "--template"], curtas: "u" },
+  "git push": { longas: ["--receive-pack", "--exec"] },
+  "git fetch-pack": { longas: ["--upload-pack", "--exec"] },
+  "git send-email": { longas: ["--sendmail-cmd", "--smtp-server", "--to-cmd", "--cc-cmd", "--smtp-ssl-cert-path"] },
+  "git stash": EXECUTA_DIFF,
+  "git send-pack": { longas: ["--receive-pack", "--exec"] },
+  "git archive": { longas: ["--exec"] },
+  "git rebase": { longas: ["--exec"], curtas: "x" },
+  tar: { longas: ["--use-compress-program", "--to-command", "--checkpoint-action", "--rsh-command", "--rmt-command", "--info-script", "--new-volume-script"], curtas: "IF" },
+  rsync: { longas: ["--rsh", "--rsync-path"], curtas: "e" },
+  rg: { longas: ["--pre"] },
+};
+// Subcomandos do git que existem para rodar comando: bloqueiam sempre.
+const SUBCOMANDOS_GIT_QUE_EXECUTAM = new Set(["difftool", "mergetool", "filter-branch", "filter-repo", "instaweb", "web--browse"]);
+
+// Variáveis de ambiente que escolhem um programa ou um arquivo a executar: atribuí-las antes do verbo, por `env`, `export`/`declare` ou
+// isoladamente bloqueia (o valor não se prova).
+const VARIAVEIS_QUE_EXECUTAM = new Set([
+  "GIT_PAGER", "PAGER", "MANPAGER", "GIT_EDITOR", "EDITOR", "VISUAL", "GIT_SEQUENCE_EDITOR", "GIT_EXTERNAL_DIFF", "GIT_SSH", "GIT_SSH_COMMAND",
+  "GIT_ASKPASS", "SSH_ASKPASS", "GIT_PROXY_COMMAND", "GIT_EXEC_PATH", "GIT_TEMPLATE_DIR", "LESSOPEN", "LESSCLOSE", "BROWSER", "BASH_ENV", "ENV",
+  "PROMPT_COMMAND", "LD_PRELOAD", "LD_LIBRARY_PATH", "NODE_OPTIONS", "PERL5OPT", "PYTHONSTARTUP", "RUBYOPT",
+  // Arquivos de configuração do git inteiros: o conteúdo não se prova.
+  "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG",
+  // Programas auxiliares, arquivos de configuração e caminhos de busca de programa ou biblioteca.
+  "RSYNC_RSH", "RSYNC_CONNECT_PROG", "TAR_OPTIONS", "RIPGREP_CONFIG_PATH", "XDG_CONFIG_HOME", "HOME", "PATH", "PYTHONPATH", "PERL5LIB",
+  "RUBYLIB", "NODE_PATH", "DYLD_INSERT_LIBRARIES", "LD_AUDIT", "GIT_COMMON_DIR",
+]);
+
+// Chaves de configuração do git que não executam nem mudam o que executa. Tudo fora desta lista (core.pager, pager.*, alias.*,
+// core.editor, core.sshcommand, core.fsmonitor, core.hookspath, diff.external, diff.*.textconv, filter.*, gpg.program, credential.helper,
+// sequence.editor, include.path, includeif.*, core.worktree...) bloqueia, no -c, no --config-env, em GIT_CONFIG_KEY_n/GIT_CONFIG_PARAMETERS
+// e na escrita por `git config`. Seção e variável não diferenciam caixa.
+const CHAVES_GIT_INOFENSIVAS = [
+  /^color\.[a-z0-9-]+(?:\.[a-z0-9-]+)?$/i, /^advice\.[a-z0-9-]+$/i, /^log\.[a-z0-9-]+$/i,
+  /^core\.(?:quotepath|autocrlf|safecrlf|filemode|ignorecase|precomposeunicode|abbrev|eol|symlinks)$/i,
+  /^format\.(?:pretty|numbered|signoff)$/i, /^user\.(?:name|email)$/i, /^init\.defaultbranch$/i,
+  /^pull\.(?:rebase|ff)$/i, /^push\.(?:default|followtags|autosetupremote)$/i, /^merge\.(?:conflictstyle|ff)$/i,
+  /^diff\.(?:renames|algorithm|colormoved|context|indentheuristic|wserrorhighlight|noprefix)$/i,
+  /^grep\.(?:linenumber|extendedregexp|patterntype|fullname)$/i, /^status\.(?:short|branch|showuntrackedfiles)$/i,
+  /^fetch\.prune$/i, /^rebase\.autostash$/i, /^rerere\.enabled$/i, /^branch\.autosetupmerge$/i, /^tag\.sort$/i, /^column\.ui$/i,
+];
+function chaveGitInofensiva(chave: string): boolean {
+  return CHAVES_GIT_INOFENSIVAS.some(padrao => padrao.test(chave.trim()));
+}
+
+function variavelQueExecuta(palavra: string): boolean {
+  const m = /^([A-Za-z_]\w*)\+?=([\s\S]*)$/.exec(palavra);
+  if (!m) return false;
+  const nome = m[1]!;
+  if (VARIAVEIS_QUE_EXECUTAM.has(nome)) return true;
+  // GIT_CONFIG_KEY_n=<chave> e GIT_CONFIG_PARAMETERS='chave'='valor' passam pela mesma lista permitida.
+  if (/^GIT_CONFIG_KEY_\d+$/.test(nome)) return !chaveGitInofensiva(m[2]!);
+  if (nome === "GIT_CONFIG_PARAMETERS") {
+    // O git guarda uma sequência de entradas entre aspas simples: 'chave'='valor' ou 'chave=valor', separadas por espaço. Cada entrada é
+    // uma sequência de trechos entre aspas ou de caracteres soltos; a chave é o que vem antes do 1º `=`. Entrada sem forma de chave bloqueia.
+    const entradas = m[2]!.match(/(?:'[^']*'|[^\s'])+/g) ?? [];
+    return entradas.some(entrada => !chaveGitInofensiva(entrada.replace(/'/g, "").split("=")[0]!));
+  }
+  return false;
+}
+
+// `git config` que ESCREVE: toda chave fora da lista permitida bloqueia, em qualquer forma (set, --add, --replace-all, --file...).
+// Leitura (--get*, -l, só a chave) e remoção seguem liberadas. -e/--edit abre o editor: bloqueia.
+function gitConfigGravaChaveInsegura(resto: string[]): boolean {
+  // Opções que levam valor (o valor pode parecer outra opção: `--default --get`): o valor sai da análise, como o git o consome.
+  // Abreviação vale (--def, --typ, --com, --blo, --fi); `-f` e `-t` são as curtas de --file e --type.
+  const comValor = ["--file", "--blob", "--type", "--default", "--comment", "--value"];
+  const ativos: string[] = [];
+  for (let i = 0; i < resto.length; i++) {
+    const arg = resto[i]!;
+    if (arg === "-f" || arg === "-t" || (arg.startsWith("--") && !arg.includes("=") && arg.length >= 5 && comValor.some(nome => nome.startsWith(arg)))) { i++; continue; }
+    ativos.push(arg);
+  }
+  resto = ativos;
+  if (resto.some(arg => arg === "-e" || arg === "--edit" || (arg.startsWith("--") && arg.length > 3 && "--edit".startsWith(arg)))) return true;
+  // Renomear seção move chaves para uma seção que pode executar (alias, core): trata como escrita proibida.
+  if (resto.some(arg => arg.startsWith("--rename") )) return true;
+  const leitura = resto.some(arg => /^--(?:get|list|unset|remove-section|show-origin|show-scope|name-only)/.test(arg) || arg === "-l");
+  if (leitura) return false;
+  const livres = resto.filter(arg => !arg.startsWith("-"));
+  if (livres[0] === "set") livres.shift();
+  if (livres.length < 2) return false;
+  // Sem modelar as opções com valor (--file X, --type T, abreviadas): toda palavra com forma de chave (seção.nome, e a subseção pode ter
+  // `/` e `:`, como em includeIf.gitdir:/x/.path) é julgada. E-mail (a@b.c) e caminho absoluto não têm essa forma.
+  return livres.filter(arg => /^[A-Za-z][A-Za-z0-9-]*\.\S+$/.test(arg)).some(chave => !chaveGitInofensiva(chave));
+}
+
+// Presença de opção que executa (forma longa com abreviação GNU, com `=valor` ou valor separado, e curta colada ou em grupo).
+function regraPresente(regra: RegraExecuta, args: string[]): boolean {
+  for (const arg of args) {
+    if (arg === "--") break;
+    if (arg.startsWith("--")) {
+      const nome = arg.split("=")[0]!;
+      if (nome.length >= 3 && (regra.longas ?? []).some(longa => longa.startsWith(nome))) return true;
+    } else if (regra.curtas && /^-[A-Za-z]/.test(arg) && [...arg.slice(1)].some(letra => regra.curtas!.includes(letra))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function opcaoQueExecuta(verbo: string, args: string[]): string | undefined {
+  if (verbo === "git") {
+    const { subcomando, resto, chaves } = analisarGitArvore(args);
+    const insegura = chaves.find(chave => !chaveGitInofensiva(chave));
+    if (insegura !== undefined) return `git com a chave de configuração ${insegura}, que executa ou muda o que executa (falha fechada)`;
+    // --exec-path=<dir> (global) troca o diretório de onde o git roda os seus programas; sem valor só imprime o caminho.
+    const global = subcomando === undefined ? args : args.slice(0, args.length - resto.length - 1);
+    if (global.some(arg => arg.startsWith("--exec-path="))) return "git --exec-path= troca de onde o git roda os programas (falha fechada)";
+    if (!subcomando) return undefined;
+    if (SUBCOMANDOS_GIT_QUE_EXECUTAM.has(subcomando)
+      || (subcomando === "bisect" && resto.includes("run")) || (subcomando === "submodule" && resto.includes("foreach"))) {
+      return `git ${subcomando} executa comando (falha fechada)`;
+    }
+    if (subcomando === "config" && gitConfigGravaChaveInsegura(resto)) return "git config grava chave que executa ou muda o que executa (falha fechada)";
+    const regra = OPCOES_QUE_EXECUTAM[`git ${subcomando}`];
+    return regra && regraPresente(regra, resto) ? `git ${subcomando} com opção que executa comando (falha fechada)` : undefined;
+  }
+  const tar = verbo === "tar" || verbo === "gtar" || verbo === "bsdtar";
+  const regra = OPCOES_QUE_EXECUTAM[tar ? "tar" : verbo];
+  if (!regra) return undefined;
+  // tar na forma antiga (sem traço): as letras do 1º argumento também valem (`tar cIf prog x.tar`).
+  const antigo = tar && /^[A-Za-z]+$/.test(args[0] ?? "") ? [`-${args[0]}`] : [];
+  return regraPresente(regra, [...antigo, ...args]) ? `${verbo} com opção que executa comando (falha fechada)` : undefined;
+}
+
+// Fonte/candidato com expansão (glob, `$`, `~`): além do cwd, vale o caminho literal que ela carrega antes da primeira expansão
+// (`<cofre>/wik*` já aponta para o cofre) e o diretório pai dele quando o prefixo foi cortado no meio de um nome.
+function expansaoPerigosa(fonte: string, dir: string, raiz: string, ambiente: Record<string, string | undefined>): boolean {
+  if (ehDestinoPerigoso(".", dir, raiz, ambiente)) return true;
+  let texto = fonte;
+  if (texto.startsWith("~")) {
+    const home = ambiente.HOME ?? process.env.HOME;
+    if (!home || /^~[^/]/.test(texto)) return true;
+    texto = `${home}${texto.slice(1)}`;
+  }
+  const prefixo = texto.split(/[$`*?\[{%]/)[0]!;
+  if (!prefixo) return false;
+  const cortou = prefixo.length < texto.length;
+  const alvos = cortou ? [prefixo, prefixo.endsWith("/") ? prefixo : dirname(prefixo)] : [prefixo];
+  return alvos.some(alvo => caminhoTocaWiki(alvo, dir, raiz, ambiente) || ehDestinoPerigoso(alvo, dir, raiz, ambiente));
+}
+
 // Fonte que uma opção apaga: caminho que toca a wiki ou ancestral dela; glob, `$` e `~` não se provam, então valem pelo diretório de
 // trabalho (cofre, ancestral ou wiki bloqueia).
 function fonteApagadaPerigosa(fonte: string, dir: string, raiz: string, ambiente: Record<string, string | undefined>): boolean {
-  if (EXPANSAO_DE_SHELL.test(fonte) || fonte.startsWith("~")) return ehDestinoPerigoso(".", dir, raiz, ambiente);
+  if (EXPANSAO_DE_SHELL.test(fonte) || fonte.startsWith("~")) return expansaoPerigosa(fonte, dir, raiz, ambiente);
   return caminhoTocaWiki(fonte, dir, raiz, ambiente) || ehDestinoPerigoso(fonte, dir, raiz, ambiente);
 }
 
@@ -2237,7 +2396,7 @@ function verboDesconhecidoTocaWiki(
       if (candidato === CANDIDATO_INVALIDO) return true;
       // Expansão de shell que pode apontar para a wiki: só bloqueia se o cwd já é o cofre, um ancestral ou a wiki.
       if (EXPANSAO_DE_SHELL.test(candidato) || candidato.startsWith("~")) {
-        if (cwdEhCofreOuWiki()) return true;
+        if (cwdEhCofreOuWiki() || expansaoPerigosa(candidato, base, raiz, ambiente)) return true;
         continue;
       }
       if (caminhoTocaWiki(candidato, base, raiz, ambiente) || ehDestinoPerigoso(candidato, base, raiz, ambiente)) return true;
@@ -2298,12 +2457,17 @@ function analisarComandoSimples(
   // 2. Extrai palavras do comando (ignora atribuições VAR=val e palavras de controle de bloco)
   let palavras = tokensSemRedir.map(t => t.texto);
   const doComando = novoAmbienteGit();
-  const guardarArvore = (palavra: string) => registrarAmbienteGit(palavra, doComando);
-  while (palavras.length > 0 && (/^[A-Za-z_]\w*=/.test(palavras[0]!) || /^(?:do|then|else|elif|\{|\}|!|while|until|if)$/.test(palavras[0]!))) {
+  let executaPorAmbiente = false;
+  const guardarArvore = (palavra: string) => {
+    registrarAmbienteGit(palavra, doComando);
+    if (variavelQueExecuta(palavra)) executaPorAmbiente = true;
+  };
+  while (palavras.length > 0 && (/^[A-Za-z_]\w*\+?=/.test(palavras[0]!) || /^(?:do|then|else|elif|\{|\}|!|while|until|if)$/.test(palavras[0]!))) {
     guardarArvore(palavras[0]!);
     palavras = palavras.slice(1);
   }
   if (!palavras.length) {
+    if (executaPorAmbiente) return { acao: "bloquear", motivo: "variável de ambiente que executa comando (falha fechada)" };
     // Atribuição isolada (`GIT_WORK_TREE=x`) fica para os comandos seguintes.
     ambienteGit.arvores.push(...doComando.arvores);
     ambienteGit.configWorktree ||= doComando.configWorktree;
@@ -2368,7 +2532,13 @@ function analisarComandoSimples(
   if (aninhado.profundidade > 0 && /[$`{}*?\[\]]|^~/.test(palavras[0]!)) {
     return { acao: "bloquear", motivo: "comando aninhado com verbo não literal (falha fechada)" };
   }
-  if (VERBOS_QUE_EXPORTAM.has(verbo)) cmdArgs.forEach(arg => registrarAmbienteGit(arg, ambienteGit));
+  if (VERBOS_QUE_EXPORTAM.has(verbo)) cmdArgs.forEach(arg => { registrarAmbienteGit(arg, ambienteGit); if (variavelQueExecuta(arg)) executaPorAmbiente = true; });
+  // read, printf -v e mapfile mudam uma variável sem o `=`: se ela escolhe um programa, o valor não se prova.
+  if (["read", "printf", "mapfile", "readarray"].includes(verbo) && cmdArgs.some(arg => VARIAVEIS_QUE_EXECUTAM.has(arg))) executaPorAmbiente = true;
+  if (executaPorAmbiente) return { acao: "bloquear", motivo: "variável de ambiente que executa comando (falha fechada)" };
+  // Opção, chave de configuração ou subcomando que executa um comando: vale para todo verbo, inclusive os de leitura.
+  const executa = opcaoQueExecuta(verbo, cmdArgs);
+  if (executa) return { acao: "bloquear", motivo: executa };
   const cmdTextoSimples = cmdTokens.map(t => t.texto).join(" ");
 
   if (verbo === "git") {
