@@ -190,8 +190,9 @@ versao_instalada() {
 }
 
 gravar_versao_tentada() {
-  local versao="$1" diretorio destino arquivo_temporario
+  local versao="$1" agora diretorio destino arquivo_temporario
   [ -n "$versao" ] || return 0
+  agora="$(date +%s 2>/dev/null || echo 0)"
   diretorio="${XDG_STATE_HOME:-$HOME/.local/state}/anvilore"
   destino="$diretorio/versao-tentada"
   if [ -L "$diretorio" ] || [ -L "$destino" ]; then return 0; fi
@@ -200,7 +201,7 @@ gravar_versao_tentada() {
   mkdir -p "$diretorio" 2>/dev/null || return 0
   chmod 700 "$diretorio" 2>/dev/null || true
   arquivo_temporario="$(mktemp "$diretorio/.versao-tentada.XXXXXX" 2>/dev/null)" || return 0
-  if (umask 077; printf '%s\n' "$versao" >"$arquivo_temporario") && chmod 600 "$arquivo_temporario" && mv -f -- "$arquivo_temporario" "$destino"; then
+  if (umask 077; printf '%s %s\n' "$versao" "$agora" >"$arquivo_temporario") && chmod 600 "$arquivo_temporario" && mv -f -- "$arquivo_temporario" "$destino"; then
     :
   else
     rm -f -- "$arquivo_temporario"
@@ -216,14 +217,36 @@ limpar_versao_tentada() {
 }
 
 versao_ja_tentada() {
-  local versao="$1" diretorio destino tentada
+  local versao="$1" diretorio destino tentada gravado agora limite=86400
   diretorio="${XDG_STATE_HOME:-$HOME/.local/state}/anvilore"
   destino="$diretorio/versao-tentada"
   if [ -f "$destino" ] && [ ! -L "$destino" ] && [ -O "$destino" ]; then
-    IFS= read -r tentada <"$destino" || return 1
-    [ "$tentada" = "$versao" ] && return 0
+    read -r tentada gravado <"$destino" 2>/dev/null || return 1
+    if [ "$tentada" = "$versao" ]; then
+      if [ -n "${gravado:-}" ] && [[ "$gravado" =~ ^[0-9]+$ ]]; then
+        agora="$(date +%s 2>/dev/null || echo 0)"
+        if [ "$agora" -ge "$gravado" ] && [ $(( agora - gravado )) -ge "$limite" ]; then
+          rm -f -- "$destino" 2>/dev/null || true
+          return 1
+        fi
+      fi
+      return 0
+    fi
   fi
   return 1
+}
+
+registrar_abrir_log() {
+  local mensagem="$1" diretorio destino
+  diretorio="${XDG_STATE_HOME:-$HOME/.local/state}/anvilore"
+  destino="$diretorio/abrir.log"
+  if [ -L "$diretorio" ] || [ -L "$destino" ]; then return 0; fi
+  if [ -e "$diretorio" ] && [ ! -O "$diretorio" ]; then return 0; fi
+  if [ -e "$destino" ] && [ ! -O "$destino" ]; then return 0; fi
+  mkdir -p "$diretorio" 2>/dev/null || return 0
+  chmod 700 "$diretorio" 2>/dev/null || true
+  ( umask 077; printf '%s %s\n' "$(date --iso-8601=seconds 2>/dev/null || date)" "$mensagem" >>"$destino" ) 2>/dev/null || true
+  chmod 600 "$destino" 2>/dev/null || true
 }
 
 atualizar_kit_do_pacote() {
@@ -234,7 +257,10 @@ atualizar_kit_do_pacote() {
   versao_atual="$(versao_instalada || true)"
   versao_numerica_valida "$versao_atual" || return 0
   versao_maior "$versao_pacote" "$versao_atual" || return 0
-  versao_ja_tentada "$versao_pacote" && return 0
+  if versao_ja_tentada "$versao_pacote"; then
+    registrar_abrir_log "atualização para $versao_pacote já tentada anteriormente; abrindo versão instalada $versao_atual"
+    return 0
+  fi
   versao_original="$versao_atual"
 
   instalador="$ORIGEM/instalar.sh"
@@ -248,9 +274,11 @@ atualizar_kit_do_pacote() {
   versao_atual="$(versao_instalada || true)"
   if [ "$codigo" -ne 0 ] || ! versao_numerica_valida "$versao_atual" || ! versao_pelo_menos "$versao_atual" "$versao_pacote"; then
     gravar_versao_tentada "$versao_pacote"
+    registrar_abrir_log "atualização de $versao_original para $versao_pacote falhou (código $codigo, instalada $versao_atual)"
     printf 'Não consegui atualizar o Anvilore de %s para %s. Vou abrir a versão existente.\n' "$versao_original" "$versao_pacote" >&2
   else
     limpar_versao_tentada
+    registrar_abrir_log "atualização de $versao_original para $versao_pacote concluída com sucesso"
   fi
 }
 

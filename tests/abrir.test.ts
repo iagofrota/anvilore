@@ -203,6 +203,102 @@ process.exit(0);
   } finally { await rm(base, { recursive: true, force: true }); }
 });
 
+test("Dado uma pasta cujo atualizador não conhece --versao (exit 2 com uso), Quando o instalador atualiza com ANVILORE_VERSAO, Então repete sem --versao e a atualização conclui", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-instalar-fallback-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const chamadasCli = join(base, "cli-chamadas.log");
+    const script = join(raiz, "instalador/instalar.sh");
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.9.0" }, null, 2));
+    await writeFile(join(pasta, "src/cli.ts"), `
+import { appendFileSync } from "node:fs";
+appendFileSync(process.env.CHAMADAS_CLI!, process.argv.slice(2).join(" ") + "\\n");
+if (process.argv[2] === "atualizar") {
+  if (process.argv.includes("--versao")) {
+    console.error("Uso: anvilore atualizar [--verificar | --voltar | --estado]");
+    process.exit(2);
+  }
+  console.log("atualizado com sucesso");
+  process.exit(0);
+}
+process.exit(0);
+`);
+    const comando = `
+      ANVILORE_INSTALAR_CARREGAR=1
+      source "$1"
+      conferir_estado_das_chaves() { :; }
+      dizer() { printf 'dizer: %s\\n' "$1"; }
+      avisar() { printf 'avisar: %s\\n' "$1"; }
+      falhar() { printf 'falhar: %s\\n' "$1" >&2; exit 1; }
+      CONFIANCA_MINIMA="0.0.0"
+      TMP_DIR="$2"
+      mkdir -p "$TMP_DIR"
+      touch "$TMP_DIR/assinantes"
+      PASTA="$3"
+      ANVILORE_VERSAO="v0.10.0"
+      passo_atualizar_existente
+    `;
+    const proc = Bun.spawnSync(["bash", "-c", comando, "_", script, join(base, "tmp"), pasta], {
+      env: { ...process.env, HOME: home, PATH: process.env.PATH, CHAMADAS_CLI: chamadasCli },
+      stdout: "pipe", stderr: "pipe",
+    });
+    const stdout = proc.stdout.toString();
+    const stderr = proc.stderr.toString();
+    expect(proc.exitCode, `${stdout}\n${stderr}`).toBe(0);
+    const chamadas = (await readFile(chamadasCli, "utf8")).trim().split("\n");
+    expect(chamadas.length).toBe(2);
+    expect(chamadas[0]).toContain("--versao 0.10.0");
+    expect(chamadas[1]).not.toContain("--versao");
+    expect(stdout).toMatch(/não conhece.*--versao|tentando atualizar para a release/i);
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+test("Dado versao-tentada registrada há mais de 24 horas, Quando abro o lançador, Então tenta atualizar novamente", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.10.0", codigoAtualizador: 7 });
+  try {
+    const dirEstado = join(c.base, "home/.local/state/anvilore");
+    await mkdir(dirEstado, { recursive: true });
+    const agora = Math.floor(Date.now() / 1000);
+    // Recente (1 hora atrás): deve pular
+    await writeFile(join(dirEstado, "versao-tentada"), `0.10.0 ${agora - 3600}\n`);
+    const proc1 = c.executar();
+    expect(proc1.stdout.toString() + proc1.stderr.toString()).not.toContain("Atualizando o Anvilore");
+    expect(await Bun.file(c.atualizador).exists()).toBe(false);
+
+    // Antigo (25 horas atrás): deve tentar novamente
+    const epochPassado = agora - (25 * 3600);
+    await writeFile(join(dirEstado, "versao-tentada"), `0.10.0 ${epochPassado}\n`);
+    const proc2 = c.executar();
+    const saida2 = proc2.stdout.toString() + proc2.stderr.toString();
+    expect(proc2.exitCode, saida2).toBe(0);
+    expect(saida2).toContain("Atualizando o Anvilore de 0.9.0 para 0.10.0");
+    expect(await Bun.file(c.atualizador).exists()).toBe(true);
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado que o lançador pula a tentativa por causa do marcador versao-tentada, Quando abro, Então registro em abrir.log", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.10.0", codigoAtualizador: 7 });
+  try {
+    // Primeiro clique: falha e grava o marcador
+    c.executar();
+    // Segundo clique: pula
+    c.executar();
+    const dirEstado = join(c.base, "home/.local/state/anvilore");
+    const logAbrir = join(dirEstado, "abrir.log");
+    expect(await Bun.file(logAbrir).exists()).toBe(true);
+    const conteudoLog = await readFile(logAbrir, "utf8");
+    expect(conteudoLog).toMatch(/já tentada|pula|anteriormente/i);
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
 test("Dado que o lançador não tem metadado VERSAO, Quando abro, Então não tento atualizar a pasta", async () => {
   if (process.platform !== "linux") return;
   const c = await criarCenarioAtualizacaoPacote({});
