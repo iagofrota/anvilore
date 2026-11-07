@@ -78,3 +78,52 @@ test("Dado servidor com autoEncerrar ativo, Quando recebe batimento periódico n
     await rm(raiz, { recursive: true, force: true });
   }
 });
+
+test("Dado requisição lenta em andamento em /api/*, Quando o período de inatividade expira sem batimento, Então o servidor aguarda a conclusão da requisição antes de encerrar", async () => {
+  const raiz = await mkdtemp(join(tmpdir(), "anvilore-req-voo-"));
+  try {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    await mkdir(join(raiz, "wiki"), { recursive: true });
+    await writeFile(join(raiz, "SCHEMA.md"), "# Schema\n");
+    await writeFile(join(raiz, "wiki/inicio.md"), "---\ntitle: Inicio\n---\n# Inicio\n");
+
+    const app = await iniciarServidorUi(raiz, {
+      portaInicial: 0,
+      token: "token-voo-1",
+      abrirNavegador: false,
+      ponte: new PonteFalsa(),
+      autoEncerrar: true,
+      inatividadeMs: 50,
+      intervaloChecagemMs: 15,
+    });
+
+    // Inicia a requisição lenta POST /api/validar
+    const requisicaoLenta = fetch(`http://127.0.0.1:${app.porta}/api/validar?token=token-voo-1`, {
+      method: "POST",
+      headers: { origin: `http://127.0.0.1:${app.porta}` },
+    });
+
+    // Aguarda a resposta (que dura tempo suficiente para ultrapassar os 50ms de inatividade)
+    const resposta = await requisicaoLenta;
+    expect(resposta.status).toBe(200);
+    const corpo = await resposta.json() as { codigo: number; saida: string };
+    expect(typeof corpo.codigo).toBe("number");
+    expect(typeof corpo.saida).toBe("string");
+
+    // Agora que a requisição terminou, aguarda mais um intervalo de inatividade
+    await new Promise(r => setTimeout(r, 90));
+
+    // Agora sim o servidor deve estar encerrado
+    let conexaoRecusada = false;
+    try {
+      await fetch(`http://127.0.0.1:${app.porta}/api/inicio?token=token-voo-1`, {
+        signal: AbortSignal.timeout(300),
+      });
+    } catch {
+      conexaoRecusada = true;
+    }
+    expect(conexaoRecusada).toBe(true);
+  } finally {
+    await rm(raiz, { recursive: true, force: true });
+  }
+});

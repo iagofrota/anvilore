@@ -199,6 +199,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
   const inatividadeMs = opcoes.inatividadeMs ?? 120_000;
   const intervaloChecagemMs = opcoes.intervaloChecagemMs ?? Math.min(5_000, Math.max(10, Math.floor(inatividadeMs / 2)));
   let ultimoBatimento = Date.now();
+  let requisicoesEmVoo = 0;
   let timerInatividade: ReturnType<typeof setInterval> | undefined;
 
   const encerrarServidor = async () => {
@@ -214,6 +215,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
 
   if (autoEncerrar) {
     timerInatividade = setInterval(async () => {
+      if (requisicoesEmVoo > 0) return;
       if (Date.now() - ultimoBatimento < inatividadeMs) return;
       if (ingestao?.ocupada) return;
       if ((ingestao?.paginasEmAjuste().size ?? 0) > 0) return;
@@ -257,7 +259,11 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
           if (url.pathname === "/api/batimento" && (request.method === "POST" || request.method === "GET")) {
             return json({ ok: true });
           }
-          if (soRevisao) {
+
+          const ehApi = url.pathname.startsWith("/api/");
+          if (ehApi) requisicoesEmVoo++;
+          try {
+            if (soRevisao) {
             if (
               url.pathname === "/api/ingestao" ||
               url.pathname === "/api/fontes" ||
@@ -540,7 +546,10 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             }
           }
           return respostaSegura("Não encontrado", { status: 404 });
-        },
+        } finally {
+          if (ehApi) requisicoesEmVoo--;
+        }
+      },
       });
       break;
     } catch (erro) {

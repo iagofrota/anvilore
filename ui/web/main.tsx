@@ -11,6 +11,7 @@ import type { EstadoOnboarding } from "../../src/lib/ui-onboarding";
 import { lerRota } from "./navegacao";
 import { Nota } from "./nota";
 import { diffLinhas, ErroApi, indiceVizinho } from "./revisao";
+import { criarControladorBatimento, MENSAGEM_INATIVIDADE } from "./inatividade";
 import { Shell } from "./shell";
 import "./styles.css";
 
@@ -32,6 +33,7 @@ function Aplicacao() {
   const [dadosOnboarding, setDadosOnboarding] = useState<EstadoOnboarding | null>(null);
   const [operandoAtualizador, setOperandoAtualizador] = useState(false);
   const [mensagemAtualizador, setMensagemAtualizador] = useState("");
+  const [encerradoPorInatividade, setEncerradoPorInatividade] = useState(false);
 
   const carregarOnboarding = useCallback(async () => {
     try {
@@ -55,10 +57,11 @@ function Aplicacao() {
     return () => window.removeEventListener("hashchange", mudou);
   }, []);
   useEffect(() => {
-    const enviarBatimento = () => { void api("/api/batimento", "POST").catch(() => {}); };
-    enviarBatimento();
-    const intervalo = setInterval(enviarBatimento, 20_000);
-    return () => clearInterval(intervalo);
+    return criarControladorBatimento({
+      enviar: () => api("/api/batimento", "POST"),
+      aoFalhar: () => setEncerradoPorInatividade(true),
+      intervaloMs: 20_000,
+    });
   }, []);
   useEffect(() => {
     document.documentElement.dataset.theme = tema;
@@ -92,6 +95,19 @@ function Aplicacao() {
   }, [rota.tela, recarregarEstado]);
 
   const atualizador = estado?.atualizador && <PainelDoAtualizador atualizador={estado.atualizador} mensagem={mensagemAtualizador} operando={operandoAtualizador} acionar={acionarAtualizador} />;
+
+  if (encerradoPorInatividade) {
+    return (
+      <main className="main" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+        <section className="done-state" role="alert" style={{ maxWidth: "560px", textAlign: "center", padding: "2.5rem" }}>
+          <div className="done-icon" style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>!</div>
+          <h2>Interface pausada</h2>
+          <p>{MENSAGEM_INATIVIDADE}</p>
+        </section>
+      </main>
+    );
+  }
+
   if (rota.tela === "onboarding" && dadosOnboarding) {
     if (!dadosOnboarding.precisaOnboarding) {
       window.location.hash = "#/inicio";
