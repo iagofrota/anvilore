@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -932,22 +932,23 @@ function argumentoTocaWiki(
   return false;
 }
 
-function dividirEmComandosSimples(tokens: Token[]): Token[][] {
-  const comandos: Token[][] = [];
+function dividirEmComandosSimples(tokens: Token[]): Array<{ tokens: Token[]; doPipe: boolean }> {
+  const comandos: Array<{ tokens: Token[]; doPipe: boolean }> = [];
   let atual: Token[] = [];
+  let recebePipe = false;
   for (const token of tokens) {
     if (token.operador && /^[;&|]+$/.test(token.texto)) {
       if (atual.length > 0) {
-        comandos.push(atual);
+        comandos.push({ tokens: atual, doPipe: recebePipe });
         atual = [];
       }
+      // Só `|` simples alimenta o comando seguinte pela entrada padrão (`||` e `&&` não).
+      recebePipe = token.texto === "|";
     } else {
       atual.push(token);
     }
   }
-  if (atual.length > 0) {
-    comandos.push(atual);
-  }
+  if (atual.length > 0) comandos.push({ tokens: atual, doPipe: recebePipe });
   return comandos;
 }
 
@@ -1241,6 +1242,453 @@ function gitNoAncestral(
   return [".", ...arvores, ...arvoresDoAmbiente].some(perigoso) ? motivo : undefined;
 }
 
+// ---- Ferramentas de texto cuja linguagem de script grava arquivo ou executa comando (sed, awk, ed/ex/vim) ----
+type EntradaDoComando = { redirecionada: boolean; dePipe: boolean };
+type EscritaDeScript = { destinos: string[]; comandos: string[]; bloqueio?: string };
+
+function lerScriptLegivel(arquivo: string, base: string): string | undefined {
+  const limpo = arquivo.replace(/^["']|["']$/g, "").trim();
+  if (!limpo || limpo === "-" || limpo.startsWith("/dev/") || EXPANSAO_DE_SHELL.test(limpo) || limpo.startsWith("~")) return undefined;
+  try {
+    return readFileSync(resolve(base, limpo), "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
+// sed: acha w/W (inclusive s///w), e (e s///e). O parse não é completo: token que não se prova inofensivo e pode ser w/W/e bloqueia.
+function analisarScriptSed(script: string): EscritaDeScript & { dinamico: boolean } {
+  const r: EscritaDeScript & { dinamico: boolean } = { destinos: [], comandos: [], dinamico: false };
+  const n = script.length;
+  const fimDeLinha = (de: number) => { const k = script.indexOf("\n", de); return k < 0 ? n : k; };
+  const delimitado = (de: number, delimitador: string): number => {
+    for (let k = de; k < n; k++) {
+      if (script[k] === "\\") { k++; continue; }
+      if (script[k] === delimitador) return k + 1;
+    }
+    return -1;
+  };
+  const desconhecido = () => { if (/[wWe]/.test(script)) r.bloqueio = "script do sed que não se prova inofensivo (falha fechada)"; };
+  let i = 0;
+  while (i < n) {
+    const c = script[i]!;
+    if (/\s/.test(c) || /[;{}!0-9$~+,]/.test(c)) { i++; continue; }
+    if (c === "#") { i = fimDeLinha(i); continue; }
+    if (c === "/" || c === "\\") {
+      const delimitador = c === "/" ? "/" : script[i + 1];
+      const fim = delimitador ? delimitado(c === "/" ? i + 1 : i + 2, delimitador) : -1;
+      if (fim < 0) { desconhecido(); return r; }
+      i = fim;
+      while (i < n && /[IM]/.test(script[i]!)) i++;
+      continue;
+    }
+    if (c === "s" || c === "y") {
+      const delimitador = script[i + 1];
+      if (!delimitador || delimitador === "\n" || delimitador === "\\") { desconhecido(); return r; }
+      const meio = delimitado(i + 2, delimitador);
+      const fim = meio < 0 ? -1 : delimitado(meio, delimitador);
+      if (fim < 0) { desconhecido(); return r; }
+      i = fim;
+      if (c === "y") continue;
+      while (i < n) {
+        const flag = script[i]!;
+        if (/[0-9gpiImM]/.test(flag)) { i++; continue; }
+        if (flag === "e") { r.dinamico = true; i++; continue; }
+        if (flag === "w") {
+          const arquivo = script.slice(i + 1, fimDeLinha(i + 1)).trim();
+          if (arquivo) r.destinos.push(arquivo); else r.dinamico = true;
+          i = fimDeLinha(i + 1);
+        }
+        break;
+      }
+      continue;
+    }
+    if (c === "w" || c === "W") {
+      const arquivo = script.slice(i + 1, fimDeLinha(i + 1)).trim();
+      if (arquivo) r.destinos.push(arquivo); else r.dinamico = true;
+      i = fimDeLinha(i + 1);
+      continue;
+    }
+    if (c === "e") {
+      const comando = script.slice(i + 1, fimDeLinha(i + 1)).trim();
+      if (comando) r.comandos.push(comando); else r.dinamico = true;
+      i = fimDeLinha(i + 1);
+      continue;
+    }
+    if (c === "r" || c === "R" || c === ":" || c === "b" || c === "t" || c === "T" || c === "v") {
+      i = fimDeLinha(i + 1);
+      continue;
+    }
+    if (c === "a" || c === "i" || c === "c") {
+      let k = i + 1;
+      while (true) {
+        const fim = fimDeLinha(k);
+        if (fim < n && script[fim - 1] === "\\") { k = fim + 1; continue; }
+        i = fim;
+        break;
+      }
+      continue;
+    }
+    if (c === "l" || c === "L" || c === "q" || c === "Q") { i++; while (i < n && /[0-9]/.test(script[i]!)) i++; continue; }
+    if (/[=dDgGhHnNpPxzF]/.test(c)) { i++; continue; }
+    desconhecido();
+    return r;
+  }
+  return r;
+}
+
+// awk: print/printf com > >> | |&, system(), "cmd" | getline. Literal vira destino ou comando; o que não for literal bloqueia.
+function analisarScriptAwk(script: string): EscritaDeScript {
+  const r: EscritaDeScript = { destinos: [], comandos: [] };
+  const n = script.length;
+  const nao = (motivo: string) => { r.bloqueio ??= `${motivo} (falha fechada)`; };
+  const lerString = (de: number): { texto: string; fim: number } | undefined => {
+    let texto = "";
+    for (let k = de + 1; k < n; k++) {
+      const c = script[k]!;
+      if (c === "\\" && k + 1 < n) { texto += script[k + 1]; k++; continue; }
+      if (c === '"') return { texto, fim: k + 1 };
+      texto += c;
+    }
+    return undefined;
+  };
+  let ultimaString: { texto: string; fim: number } | undefined;
+  let i = 0;
+  while (i < n) {
+    const c = script[i]!;
+    if (c === "#") { while (i < n && script[i] !== "\n") i++; continue; }
+    if (c === '"') {
+      const s1 = lerString(i);
+      if (!s1) { nao("string do awk sem fechamento"); return r; }
+      ultimaString = s1;
+      i = s1.fim;
+      continue;
+    }
+    if (c === "|") {
+      let k = i + 1;
+      if (script[k] === "&") k++;
+      while (k < n && /\s/.test(script[k]!)) k++;
+      if (script.startsWith("getline", k)) {
+        if (ultimaString && script.slice(ultimaString.fim, i).trim() === "") r.comandos.push(ultimaString.texto);
+        else nao("awk com comando não literal em getline");
+      }
+      i++;
+      continue;
+    }
+    if (/[A-Za-z_]/.test(c)) {
+      let k = i;
+      while (k < n && /\w/.test(script[k]!)) k++;
+      const palavra = script.slice(i, k);
+      i = k;
+      if (palavra === "system") {
+        let j = i;
+        while (j < n && /\s/.test(script[j]!)) j++;
+        if (script[j] === "(") {
+          j++;
+          while (j < n && /\s/.test(script[j]!)) j++;
+          const literal = script[j] === '"' ? lerString(j) : undefined;
+          if (literal && script.slice(literal.fim).trimStart().startsWith(")")) r.comandos.push(literal.texto);
+          else nao("awk com system() de comando não literal");
+        }
+      } else if (palavra === "print" || palavra === "printf") {
+        let profundidade = 0;
+        while (i < n) {
+          const d = script[i]!;
+          if (d === '"') {
+            const s2 = lerString(i);
+            if (!s2) { nao("string do awk sem fechamento"); return r; }
+            ultimaString = s2;
+            i = s2.fim;
+            continue;
+          }
+          if (d === "(") profundidade++;
+          else if (d === ")") profundidade--;
+          else if (profundidade <= 0 && (d === ";" || d === "\n" || d === "}")) break;
+          else if (profundidade <= 0 && (d === ">" || d === "|")) {
+            let k2 = i + 1;
+            if (script[k2] === ">" || script[k2] === "&") k2++;
+            while (k2 < n && /\s/.test(script[k2]!)) k2++;
+            const literal = script[k2] === '"' ? lerString(k2) : undefined;
+            if (!literal) nao(d === ">" ? "awk com destino de redirecionamento não literal" : "awk com comando de pipe não literal");
+            else (d === ">" ? r.destinos : r.comandos).push(literal.texto);
+            i = literal ? literal.fim : k2;
+            continue;
+          }
+          i++;
+        }
+      }
+      continue;
+    }
+    i++;
+  }
+  return r;
+}
+
+// Comandos ex/vim (de -c, +cmd, -S, --cmd): escrita (w, wq, x, saveas...), shell (!, r !) e comandos que podem tudo.
+function analisarComandosEx(texto: string): EscritaDeScript {
+  const r: EscritaDeScript = { destinos: [], comandos: [] };
+  const IMPREVISIVEIS = /^(?:exe|exec|execute|norm|normal|py|python|python3|py3|pyx|lua|perl|ruby|rub|so|source|redir|mksession|mks|mkvimrc|mkv|mkview|mkvie|bufdo|windo|tabdo|argdo|cdo|ldo|wincmd|@|\*)$/i;
+  const ESCRITA = /^(?:w|wr|wri|writ|write|wq|x|xi|xit|exi|exit|up|upd|upda|updat|update|sav|save|savea|saveas|wn|wnext|wN|wNext|wp|wprevious|wa|wal|wall|wqa|wqall|xa|xall|f|fil|file)$/i;
+  const GLOBAL = /^(?:g|gl|glo|glob|globa|global|v|vg|vgl|vglo|vglob|vgloba|vglobal)$/i;
+  const MODIFICADORES = /^(?:sil|silent|keepa|keepalt|keepm|keepmarks|keepj|keepjumps|noa|noautocmd|loc|lockmarks|verb|verbose|uns|unsilent|keepp|keeppatterns|leftabove|aboveleft|rightbelow|belowright|botright|topleft|vert|vertical|tab|hid|hide)$/i;
+  const analisar = (linha: string, nivel: number): void => {
+    if (r.bloqueio || nivel > 6) { if (nivel > 6) r.bloqueio = "comando do editor aninhado demais (falha fechada)"; return; }
+    let seg = linha.trim().replace(/^[:\s]+/, "");
+    if (seg.startsWith("!")) { r.comandos.push(seg.slice(1)); return; }
+    // Faixa: números, ., $, %, marcas, padrões /x/ e ?x?, deslocamentos.
+    while (true) {
+      const antes = seg;
+      seg = seg.replace(/^(?:\d+|\.|\$|%|,|;|[+-]\d*|'.|\/(?:\\.|[^/])*\/|\?(?:\\.|[^?])*\?)\s*/, "");
+      if (seg === antes) break;
+    }
+    if (seg.startsWith("!")) { r.comandos.push(seg.slice(1)); return; }
+    const m = /^([A-Za-z]+|@|\*)(!?)\s*([\s\S]*)$/.exec(seg);
+    if (!m) { if (seg) r.bloqueio = "comando do editor que não se prova inofensivo (falha fechada)"; return; }
+    const palavra = m[1]!;
+    const resto = m[3]!;
+    if (MODIFICADORES.test(palavra)) { analisar(resto, nivel + 1); return; }
+    if (IMPREVISIVEIS.test(palavra)) { r.bloqueio = `comando do editor imprevisível (${palavra}; falha fechada)`; return; }
+    if (GLOBAL.test(palavra)) {
+      const delimitador = resto[0];
+      if (!delimitador || /\w/.test(delimitador)) { r.bloqueio = "global do editor sem padrão (falha fechada)"; return; }
+      let k = 1;
+      while (k < resto.length && resto[k] !== delimitador) k += resto[k] === "\\" ? 2 : 1;
+      analisar(resto.slice(k + 1), nivel + 1);
+      return;
+    }
+    if (/^(?:r|re|rea|read)$/i.test(palavra)) {
+      // `r !cmd` e `r!cmd` leem a saída de um comando: o `!` colado cai no grupo de força.
+      if (m[2] === "!") r.comandos.push(resto);
+      else if (resto.startsWith("!")) r.comandos.push(resto.slice(1));
+      return;
+    }
+    if (ESCRITA.test(palavra)) {
+      const alvo = resto.replace(/^>>\s*/, "").trim();
+      if (alvo.startsWith("!")) r.comandos.push(alvo.slice(1));
+      else if (alvo && alvo !== "%" && alvo !== "#") r.destinos.push(alvo);
+    }
+  };
+  for (const linha of texto.split("\n")) {
+    const trecho = linha.trim().replace(/^[:\s]+/, "");
+    // `!cmd` e `r !cmd` levam o resto da linha, inclusive `|`; os demais comandos terminam em `|`.
+    if (trecho.startsWith("!")) { analisar(trecho, 0); continue; }
+    for (const parte of linha.split("|")) analisar(parte, 0);
+  }
+  return r;
+}
+
+const EDITORES = new Set(["ed", "red", "ex", "vi", "vim", "nvim", "view", "rvim", "rview", "vimdiff"]);
+
+// Aplica a regra de destino/execução aos achados de um script. Devolve a decisão de bloqueio, se houver.
+function decidirEscritaDeScript(
+  achados: EscritaDeScript,
+  base: string,
+  raiz: string,
+  ambiente: Record<string, string | undefined>,
+  temMudancaDir: boolean,
+  executar: (texto: string) => Decisao
+): Decisao | undefined {
+  if (achados.bloqueio) return { acao: "bloquear", motivo: achados.bloqueio };
+  for (const alvo of achados.destinos) {
+    if (alvo === "/dev/stdout" || alvo === "/dev/stderr") continue;
+    if (caminhoTocaWiki(alvo, base, raiz, ambiente) || !destinoEhSeguro(alvo, base, raiz, ambiente) || temMudancaDir) {
+      return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+    }
+  }
+  for (const comando of achados.comandos) {
+    const interno = executar(comando);
+    if (interno.acao === "bloquear") return interno;
+  }
+  return undefined;
+}
+
+function analisarFerramentaDeTexto(
+  verbo: string,
+  args: string[],
+  base: string,
+  raiz: string,
+  ambiente: Record<string, string | undefined>,
+  temMudancaDir: boolean,
+  entrada: EntradaDoComando,
+  executar: (texto: string) => Decisao
+): Decisao | undefined {
+  const decidir = (achados: EscritaDeScript) => decidirEscritaDeScript(achados, base, raiz, ambiente, temMudancaDir, executar);
+  const bloquear = (motivo: string): Decisao => ({ acao: "bloquear", motivo });
+  const valorDe = (inline: string | undefined, i: number): [string | undefined, number] =>
+    inline !== undefined && inline !== "" ? [inline, i] : [args[i + 1], i + 1];
+
+  if (verbo === "sed" || verbo === "gsed") {
+    let sandbox = false;
+    const scripts: Array<{ texto?: string; arquivo?: string }> = [];
+    const operandos: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i]!;
+      if (arg === "--") { operandos.push(...args.slice(i + 1)); break; }
+      if (arg.startsWith("--")) {
+        if (opcaoLongaGnu(arg, "--sandbox", "--sa")) sandbox = true;
+        else if (opcaoLongaGnu(arg, "--expression", "--ex")) {
+          const [valor, proximo] = valorDe(arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : undefined, i);
+          if (valor === undefined) return bloquear("sed -e sem script (falha fechada)");
+          scripts.push({ texto: valor }); i = proximo;
+        } else if (opcaoLongaGnu(arg, "--file", "--fi")) {
+          const [valor, proximo] = valorDe(arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : undefined, i);
+          if (valor === undefined) return bloquear("sed -f sem arquivo (falha fechada)");
+          scripts.push({ arquivo: valor }); i = proximo;
+        } else if (opcaoLongaGnu(arg, "--line-length", "--li") && !arg.includes("=")) i++;
+        continue;
+      }
+      if (/^-[^-]/.test(arg)) {
+        const grupo = arg.slice(1);
+        for (let j = 0; j < grupo.length; j++) {
+          const letra = grupo[j]!;
+          if (letra === "i") break;
+          if (letra === "e" || letra === "f" || letra === "l") {
+            const [valor, proximo] = valorDe(grupo.slice(j + 1) || undefined, i);
+            if (valor === undefined) return bloquear("sed com opção sem valor (falha fechada)");
+            if (letra === "e") scripts.push({ texto: valor }); else if (letra === "f") scripts.push({ arquivo: valor });
+            i = proximo;
+            break;
+          }
+        }
+        continue;
+      }
+      operandos.push(arg);
+    }
+    if (sandbox) return undefined;
+    if (!scripts.length && operandos.length) scripts.push({ texto: operandos.shift() });
+    for (const script of scripts) {
+      const texto = script.texto ?? lerScriptLegivel(script.arquivo!, base);
+      if (texto === undefined) return bloquear("script do sed ilegível ou não literal (falha fechada)");
+      const achados = analisarScriptSed(texto);
+      if (achados.dinamico) return bloquear("sed com e ou s///e executa o que não se prova (falha fechada)");
+      const decisao = decidir(achados);
+      if (decisao) return decisao;
+    }
+    return undefined;
+  }
+
+  if (/^(?:awk|gawk|mawk|nawk)$/.test(verbo)) {
+    let inplace = false;
+    const scripts: Array<{ texto?: string; arquivo?: string }> = [];
+    const operandos: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i]!;
+      if (arg === "--") { operandos.push(...args.slice(i + 1)); break; }
+      if (arg.startsWith("--")) {
+        const inline = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : undefined;
+        const cabeca = (nome: string, minimo: string) => opcaoLongaGnu(arg, nome, minimo);
+        if (cabeca("--file", "--fil") || cabeca("--exec", "--exe") || cabeca("--source", "--so")) {
+          const [valor, proximo] = valorDe(inline, i);
+          if (valor === undefined) return bloquear("awk com opção de programa sem valor (falha fechada)");
+          scripts.push(cabeca("--source", "--so") ? { texto: valor } : { arquivo: valor }); i = proximo;
+        } else if (cabeca("--include", "--inc")) {
+          const [valor, proximo] = valorDe(inline, i);
+          if (valor !== undefined && /inplace/i.test(valor)) inplace = true;
+          i = proximo;
+        } else if ((cabeca("--assign", "--as") || cabeca("--field-separator", "--fie") || cabeca("--load", "--lo")) && inline === undefined) i++;
+        continue;
+      }
+      if (/^-[^-]/.test(arg)) {
+        const grupo = arg.slice(1);
+        for (let j = 0; j < grupo.length; j++) {
+          const letra = grupo[j]!;
+          if ("fFvieElWd".includes(letra)) {
+            const [valor, proximo] = valorDe(grupo.slice(j + 1) || undefined, i);
+            if (valor === undefined) return bloquear("awk com opção sem valor (falha fechada)");
+            if (letra === "f" || letra === "E") scripts.push({ arquivo: valor });
+            else if (letra === "e") scripts.push({ texto: valor });
+            else if (letra === "i" && /inplace/i.test(valor)) inplace = true;
+            i = proximo;
+            break;
+          }
+        }
+        continue;
+      }
+      operandos.push(arg);
+    }
+    if (!scripts.length && operandos.length) scripts.push({ texto: operandos.shift() });
+    if (inplace && (temMudancaDir || operandos.some(arg => argumentoTocaWiki(arg, base, raiz, ambiente)))) return bloquear(MSG_TERMINAL_WIKI);
+    for (const script of scripts) {
+      const texto = script.texto ?? lerScriptLegivel(script.arquivo!, base);
+      if (texto === undefined) return bloquear("programa do awk ilegível ou não literal (falha fechada)");
+      const decisao = decidir(analisarScriptAwk(texto));
+      if (decisao) return decisao;
+    }
+    return undefined;
+  }
+
+  if (EDITORES.has(verbo)) {
+    const textos: string[] = [];
+    const arquivosScript: string[] = [];
+    const destinos: string[] = [];
+    const operandos: string[] = [];
+    const letras = new Set<string>();
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i]!;
+      if (arg === "--") { operandos.push(...args.slice(i + 1)); break; }
+      if (arg.startsWith("--")) {
+        const inline = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : undefined;
+        if (opcaoLongaGnu(arg, "--cmd", "--cm")) {
+          const [valor, proximo] = valorDe(inline, i);
+          if (valor === undefined) return bloquear("editor com --cmd sem valor (falha fechada)");
+          textos.push(valor); i = proximo;
+        } else if (opcaoLongaGnu(arg, "--log", "--lo") || opcaoLongaGnu(arg, "--startuptime", "--st")) {
+          const [valor, proximo] = valorDe(inline, i);
+          if (valor !== undefined) destinos.push(valor);
+          i = proximo;
+        }
+        continue;
+      }
+      if (arg.startsWith("+") && arg.length > 1) { textos.push(arg.slice(1)); continue; }
+      if (/^-[^-]/.test(arg)) {
+        const grupo = arg.slice(1);
+        const comValor = verbo === "ed" || verbo === "red" ? "cSuitTwWpG" : "cSuitTwW";
+        for (let j = 0; j < grupo.length; j++) {
+          const letra = grupo[j]!;
+          letras.add(letra);
+          if (letra === "V") {
+            const arquivo = grupo.slice(j + 1).replace(/^\d+/, "");
+            if (arquivo) destinos.push(arquivo);
+            break;
+          }
+          if (comValor.includes(letra)) {
+            const [valor, proximo] = valorDe(grupo.slice(j + 1) || undefined, i);
+            if (valor === undefined) return bloquear("editor com opção sem valor (falha fechada)");
+            if (letra === "c") textos.push(valor);
+            else if (letra === "S") arquivosScript.push(valor);
+            else if (letra === "w" || letra === "W") destinos.push(valor);
+            i = proximo;
+            break;
+          }
+        }
+        continue;
+      }
+      if (arg !== "-") operandos.push(arg);
+    }
+    // O terminal não escreve em wiki/: editor com arquivo da wiki, em qualquer modo, bloqueia.
+    if (temMudancaDir || operandos.some(arg => argumentoTocaWiki(arg, base, raiz, ambiente))) return bloquear(MSG_TERMINAL_WIKI);
+    const modoScript = verbo === "ed" || verbo === "red" || verbo === "ex" || letras.has("s") || letras.has("e") || letras.has("E");
+    if (modoScript && (entrada.redirecionada || entrada.dePipe)) {
+      return bloquear(`${verbo} com script vindo da entrada padrão (não se prova; falha fechada)`);
+    }
+    const achados: EscritaDeScript = { destinos: [...destinos], comandos: [] };
+    for (const texto of textos) {
+      const um = analisarComandosEx(texto);
+      if (um.bloqueio) return bloquear(um.bloqueio);
+      achados.destinos.push(...um.destinos); achados.comandos.push(...um.comandos);
+    }
+    for (const arquivo of arquivosScript) {
+      const conteudo = lerScriptLegivel(arquivo, base);
+      if (conteudo === undefined) return bloquear("script do editor ilegível ou não literal (falha fechada)");
+      const um = analisarComandosEx(conteudo);
+      if (um.bloqueio) return bloquear(um.bloqueio);
+      achados.destinos.push(...um.destinos); achados.comandos.push(...um.comandos);
+    }
+    return decidir(achados);
+  }
+  return undefined;
+}
+
 // Comando executado por outro comando (sh -c, find -exec, eval) volta ao mesmo classificador; acima do teto, bloqueia.
 type ContextoAninhado = { profundidade: number };
 // Ambiente que um comando simples deixa para os seguintes da mesma invocação (export, atribuição isolada).
@@ -1345,8 +1793,10 @@ function analisarComandoSimples(
   ambiente: Record<string, string | undefined>,
   temMudancaDir: boolean,
   aninhado: ContextoAninhado = { profundidade: 0 },
-  ambienteGit: AmbienteGit = novoAmbienteGit()
+  ambienteGit: AmbienteGit = novoAmbienteGit(),
+  doPipe = false
 ): Decisao {
+  let entradaRedirecionada = false;
   // 1. Extrai redirecionamentos e tokens sem operadores de redireção
   const alvosRedir: string[] = [];
   const tokensSemRedir: Token[] = [];
@@ -1367,6 +1817,7 @@ function analisarComandoSimples(
       alvosRedir.push(proximo.texto);
       i += 2;
     } else if (token.operador && token.texto === "<") {
+      entradaRedirecionada = true;
       const proximo = cmdTokens[i + 1];
       if (proximo && !proximo.operador) {
         i++;
@@ -1672,6 +2123,15 @@ function analisarComandoSimples(
     }
   }
 
+  // 5.4b Linguagem de script que grava ou executa: sed (w/W/e), awk (>, |, system) e ed/ex/vim (w, !, saveas)
+  const executarAninhado = (texto: string): Decisao => aninhado.profundidade >= TETO_ANINHAMENTO
+    ? { acao: "bloquear", motivo: "comandos aninhados demais (falha fechada)" }
+    : decidirTerminalVerified(texto, false, base, raiz, ambiente, { profundidade: aninhado.profundidade + 1 }, temMudancaDir, ambienteGit);
+  const ferramentaDeTexto = analisarFerramentaDeTexto(
+    verbo, cmdArgs, base, raiz, ambiente, temMudancaDir, { redirecionada: entradaRedirecionada, dePipe: doPipe }, executarAninhado
+  );
+  if (ferramentaDeTexto) return ferramentaDeTexto;
+
   // 5.5 Interpretadores com código inline
   if (/^(?:python(?:\d+(?:\.\d+)?)?|node|bun|deno|ruby|perl|php)$/i.test(verbo)) {
     const opcoesPerl = verbo === "perl" ? analisarOpcoesCurtas(cmdArgs, OPCOES_CURTAS_POR_VERBO.perl!) : undefined;
@@ -1845,14 +2305,14 @@ function decidirTerminalVerified(
   }
 
   // 2. A isenção da CLI só vale para a invocação inteira quando há exatamente um comando simples.
-  if (comandosSimples.length === 1 && ehComandoSimplesCli(comandosSimples[0]!, base, raiz, ambiente)) {
+  if (comandosSimples.length === 1 && ehComandoSimplesCli(comandosSimples[0]!.tokens, base, raiz, ambiente)) {
     return { acao: "liberar", motivo: "comando permitido da CLI do kit" };
   }
 
   const temCdOuPushd = mudancaDirHerdada || tokens.some(t => !t.operador && /^(?:cd|pushd)$/i.test(t.texto)) || /\b(?:cd|pushd)\b/i.test(cmdTexto);
 
-  for (const cmdTokens of comandosSimples) {
-    const decisao = analisarComandoSimples(cmdTokens, base, raiz, ambiente, temCdOuPushd, aninhado, ambienteGit);
+  for (const { tokens: cmdTokens, doPipe } of comandosSimples) {
+    const decisao = analisarComandoSimples(cmdTokens, base, raiz, ambiente, temCdOuPushd, aninhado, ambienteGit, doPipe);
     if (decisao.acao === "bloquear") {
       return decisao;
     }

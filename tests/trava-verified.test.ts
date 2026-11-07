@@ -2645,5 +2645,167 @@ describe("trava de verified nos quatro agentes", () => {
         rmSync(fora, { recursive: true, force: true });
       }
     });
+
+    const prepararRodada11 = () => {
+      const { fora, stage, cofre, julgar, todos } = prepararRodada8();
+      const wikiA = `${cofre}/wiki/a.md`;
+      writeFileSync(join(fora, "script.sed"), `1d\nw ${wikiA}\n`);
+      writeFileSync(join(fora, "limpo.sed"), "s/a/b/\n");
+      writeFileSync(join(fora, "script.awk"), `{ print > "${wikiA}" }\n`);
+      writeFileSync(join(fora, "p.md"), "# p\n");
+      return { fora, stage, cofre, julgar, todos, wikiA };
+    };
+
+    test("Achado P2 do bot (rodada 11): sed, awk e ed/ex/vim cujo script grava ou executa", async () => {
+      const { fora, stage, cofre, julgar, todos, wikiA } = prepararRodada11();
+      try {
+        // Dado o cwd no cofre e caminho absoluto, Quando o script da ferramenta de texto grava ou executa, Então bloqueia
+        const ataques = [
+          `sed -n 'w ${wikiA}' ${fora}/p.md`,
+          `sed -n 'w wiki/a.md' ${fora}/p.md`,
+          `sed 's/x/y/w ${wikiA}' ${fora}/p.md`,
+          `sed 's/x/y/gw ${wikiA}' ${fora}/p.md`,
+          `sed -e '1W ${wikiA}' ${fora}/p.md`,
+          `sed --expression='w ${wikiA}' ${fora}/p.md`,
+          `sed -n -e p -e 'w ${wikiA}' ${fora}/p.md`,
+          `sed -e '/x/{w ${wikiA}' -e '}' ${fora}/p.md`,
+          `sed -f ${fora}/script.sed ${fora}/p.md`,
+          `sed --file=${fora}/script.sed ${fora}/p.md`,
+          `sed -f ${fora}/nao-existe.sed ${fora}/p.md`,
+          `sed '1e cp -R ${stage}/. .' ${fora}/p.md`,
+          `sed 's/x/y/e' ${fora}/p.md`,
+          `sed e ${fora}/p.md`,
+          `gsed -n 'w ${wikiA}' ${fora}/p.md`,
+          `busybox sed -n 'w ${wikiA}' ${fora}/p.md`,
+          `awk '{print > "${wikiA}"}' ${fora}/p.md`,
+          `awk '{print >> "${wikiA}"}' ${fora}/p.md`,
+          `awk '{printf "%s", $0 > "wiki/a.md"}' ${fora}/p.md`,
+          `awk '{print > $1}' ${fora}/p.md`,
+          `awk '{print | "cat > ${wikiA}"}' ${fora}/p.md`,
+          `awk '{print | cmd}' ${fora}/p.md`,
+          `awk 'BEGIN{system("cp -R ${stage}/. .")}'`,
+          `awk 'BEGIN{system(cmd)}'`,
+          `awk 'BEGIN{"cp -R ${stage}/. ." | getline x}'`,
+          `awk -f ${fora}/script.awk ${fora}/p.md`,
+          `awk -f ${fora}/nao-existe.awk ${fora}/p.md`,
+          `gawk -i inplace '{print}' ${wikiA}`,
+          `gawk --include=inplace '{print}' wiki/a.md`,
+          `mawk '{print > "${wikiA}"}' ${fora}/p.md`,
+          `vim -es -c 'w! ${wikiA}' -c q ${fora}/p.md`,
+          `vim -es -c 'saveas ${wikiA}' -c q ${fora}/p.md`,
+          `vim -es -c '!cp -R ${stage}/. .' -c q ${fora}/p.md`,
+          `vim -es +'w ${wikiA}' +q ${fora}/p.md`,
+          `vim -es -c 'g/x/w ${wikiA}' -c q ${fora}/p.md`,
+          `vim -es -c 'normal :w wiki/a.md' -c q ${fora}/p.md`,
+          `vim -es -c q ${wikiA}`,
+          `nvim --headless -c 'w ${wikiA}' -c q ${fora}/p.md`,
+          `ex -sc 'w ${wikiA}|q' ${fora}/p.md`,
+          `ex -s -c 'wq' ${wikiA}`,
+          `ed -s ${wikiA}`,
+          `vi -c 'r !cp -R ${stage}/. .' -c q ${fora}/p.md`,
+          `printf 'w ${wikiA}\\nq\\n' | ex -s ${fora}/p.md`,
+          `ex -s ${fora}/p.md < ${fora}/script.sed`,
+        ];
+        expect(await julgar(ataques, cofre)).toEqual(todos(ataques, 2));
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Achado P2 do bot (rodada 11): leitura da wiki, escrita fora dela e scripts sem escrita nem execução continuam liberados", async () => {
+      const { fora, cofre, julgar, todos, wikiA } = prepararRodada11();
+      try {
+        const regressoes = [
+          `sed -n '1p' wiki/a.md`,
+          `sed 's/a/b/' wiki/a.md > ${fora}/x`,
+          `sed --sandbox -n 'w ${wikiA}' ${fora}/p.md`,
+          `sed -n 'w ${fora}/x' ${fora}/p.md`,
+          `sed -n 'w /dev/stdout' ${fora}/p.md`,
+          `sed -n 's/a/b/w /dev/stderr' ${fora}/p.md`,
+          `sed -n '/foo/{p;d}' ${fora}/p.md`,
+          `sed -e 's/w/e/g' -e 'y/abc/wxe/' ${fora}/p.md`,
+          `sed '1i\\\\wiki/a.md w e' ${fora}/p.md`,
+          `sed -f ${fora}/limpo.sed ${fora}/p.md`,
+          `sed '1e echo oi' ${fora}/p.md`,
+          `awk '{print $1}' wiki/a.md`,
+          `awk '{print > "${fora}/x"}' ${fora}/p.md`,
+          `awk '$1 > 5 {print}' ${fora}/p.md`,
+          `awk '{print | "cat"}' ${fora}/p.md`,
+          `awk 'BEGIN{system("echo ok")}'`,
+          `awk '{print "wiki/a.md > x"}' ${fora}/p.md`,
+          `gawk '{print}' ${fora}/p.md`,
+          `vim -es -c q ${fora}/p.md`,
+          `vim -es -c 'w ${fora}/x' -c q ${fora}/p.md`,
+          `ex -sc 'w ${fora}/x|q' ${fora}/p.md`,
+          `vim --version`,
+        ];
+        expect(await julgar(regressoes, cofre)).toEqual(todos(regressoes, 0));
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Achado P2 do bot (rodada 11): formas adicionais de script (endereços, a\\, -S, --cmd, -w, global, getline)", async () => {
+      const { fora, stage, cofre, julgar, todos, wikiA } = prepararRodada11();
+      writeFileSync(join(fora, "multi.sed"), `1a\\\ntexto\nw ${wikiA}\n`);
+      writeFileSync(join(fora, "grava.vim"), `%s/a/b/\nw! ${wikiA}\nq\n`);
+      writeFileSync(join(fora, "limpo.vim"), "%s/a/b/g\nq\n");
+      try {
+        const ataques = [
+          `sed -n '2{p;w wiki/a.md}' ${fora}/p.md`,
+          `sed -f ${fora}/multi.sed ${fora}/p.md`,
+          `sed 's|a|b|w wiki/a.md' ${fora}/p.md`,
+          `sed '/a/I,/b/w wiki/a.md' ${fora}/p.md`,
+          `sed '\\,x,w wiki/a.md' ${fora}/p.md`,
+          `sed -s -n '$w wiki/a.md' ${fora}/p.md`,
+          `sed '/x/!w wiki/a.md' ${fora}/p.md`,
+          `sed 'unknown w wiki/a.md' ${fora}/p.md`,
+          `sed -e`,
+          `awk -F: -v x=1 '{print > "wiki/a.md"}' ${fora}/p.md`,
+          `awk --source='{print > "wiki/a.md"}' ${fora}/p.md`,
+          `awk -e '{print > "wiki/a.md"}' ${fora}/p.md`,
+          `awk '{ "date" | getline d; print d > "wiki/a.md" }' ${fora}/p.md`,
+          `awk '{ cmd | getline d }' ${fora}/p.md`,
+          `awk '{print > "wiki/a.md}' ${fora}/p.md`,
+          `awk -i inplace -f ${fora}/script.awk ${wikiA}`,
+          `vim -es -S ${fora}/grava.vim ${fora}/p.md`,
+          `vim -es --cmd 'w wiki/a.md' -c q ${fora}/p.md`,
+          `vim -es -w wiki/a.md -c q ${fora}/p.md`,
+          `vim -es -V9wiki/a.md -c q ${fora}/p.md`,
+          `vim -es -c 'sil! w wiki/a.md' -c q ${fora}/p.md`,
+          `vim -es -c '%w wiki/a.md' -c q ${fora}/p.md`,
+          `vim -es -c 'r!cp -R ${stage}/. .' -c q ${fora}/p.md`,
+          `vim -es -c 'wq wiki/a.md' ${fora}/p.md`,
+          `vim -es -c 'exe "w wiki/a.md"' -c q ${fora}/p.md`,
+          `vim -es -S ${fora}/nao-existe.vim ${fora}/p.md`,
+          `vim -es -c '1,3!cp -R ${stage}/. .' ${fora}/p.md`,
+          `ed -p '> ' -s ${wikiA}`,
+          `ex -s ${fora}/p.md < /dev/null`,
+        ];
+        expect(await julgar(ataques, cofre)).toEqual(todos(ataques, 2));
+
+        const regressoes = [
+          `sed -n '/a/I,/b/p' ${fora}/p.md`,
+          `sed '1a\\\\\ntexto' ${fora}/p.md`,
+          `sed 'y/a/b/;l 5;q' ${fora}/p.md`,
+          `sed -s -n '$p' ${fora}/p.md`,
+          `sed -n '/x/!p' ${fora}/p.md`,
+          `awk -F: -v x=1 '{print $1}' ${fora}/p.md`,
+          `awk --source='{print}' ${fora}/p.md`,
+          `awk '{ "date" | getline d; print d }' ${fora}/p.md`,
+          `vim -es -S ${fora}/limpo.vim ${fora}/p.md`,
+          `vim -es -c '%s/a/b/g' -c wq ${fora}/p.md`,
+          `vim -es -c 'sil! w ${fora}/x' -c q ${fora}/p.md`,
+          `ed -s ${fora}/p.md`,
+          `ex -s -c 'g/x/d' -c wq ${fora}/p.md`,
+          `vim -es -c '!echo ok' -c q ${fora}/p.md`,
+          `vim -es -c 'g/x/' -c q ${fora}/p.md`,
+          `vim -es -c 'r !echo ok' -c q ${fora}/p.md`,
+        ];
+        expect(await julgar(regressoes, cofre)).toEqual(todos(regressoes, 0));
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
   });
 });
