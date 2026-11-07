@@ -37,6 +37,88 @@ const ENVOLVEDORES = new Set([
   "busybox", "xargs", "parallel", "env", "nice", "nohup", "time", "sudo", "doas", "command", "builtin", "exec", "timeout", "stdbuf", "ionice", "setsid",
 ]);
 
+type RegraOpcaoCurta = { recebeValor?: boolean; destino?: boolean; valorOpcionalColado?: boolean };
+type ResultadoOpcoesCurtas = {
+  operandos: string[];
+  destinos: string[];
+  letras: Set<string>;
+  consumiuProximo: boolean;
+  malformado: boolean;
+};
+
+const OPCOES_CURTAS_POR_VERBO: Record<string, Record<string, RegraOpcaoCurta>> = {
+  cp: { t: { recebeValor: true, destino: true }, S: { recebeValor: true } },
+  mv: { t: { recebeValor: true, destino: true }, S: { recebeValor: true } },
+  ln: { t: { recebeValor: true, destino: true }, S: { recebeValor: true } },
+  install: {
+    t: { recebeValor: true, destino: true }, S: { recebeValor: true },
+    m: { recebeValor: true }, o: { recebeValor: true }, g: { recebeValor: true },
+  },
+  sed: {
+    i: { valorOpcionalColado: true }, e: { recebeValor: true }, f: { recebeValor: true }, l: { recebeValor: true },
+  },
+  perl: { i: { valorOpcionalColado: true }, e: { recebeValor: true }, E: { recebeValor: true } },
+  // Ruby -E recebe encoding; só -e recebe código inline.
+  ruby: { i: { valorOpcionalColado: true }, e: { recebeValor: true }, E: { recebeValor: true } },
+  time: { o: { recebeValor: true, destino: true }, f: { recebeValor: true } },
+  git: { o: { recebeValor: true, destino: true } },
+  tee: {},
+  // rsync -t preserva horários; não recebe valor e nunca escolhe destino.
+  rsync: { t: {} },
+  // tee escreve nos operandos; dd usa of=FILE. Nenhum tem opção curta de valor que selecione destino.
+};
+
+function analisarOpcoesCurtas(args: string[], regras: Record<string, RegraOpcaoCurta>): ResultadoOpcoesCurtas {
+  const operandos: string[] = [];
+  const destinos: string[] = [];
+  const letras = new Set<string>();
+  let consumiuProximo = false;
+  let terminouOpcoes = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (terminouOpcoes) {
+      operandos.push(arg);
+      continue;
+    }
+    if (arg === "--") {
+      terminouOpcoes = true;
+      continue;
+    }
+    if (!/^-[^-]/.test(arg)) {
+      if (arg === "-" || !arg.startsWith("-")) operandos.push(arg);
+      continue;
+    }
+
+    const grupo = arg.slice(1);
+    for (let j = 0; j < grupo.length; j++) {
+      const letra = grupo[j]!;
+      letras.add(letra);
+      const regra = regras[letra];
+      if (!regra) continue;
+      const restante = grupo.slice(j + 1);
+      if (regra.valorOpcionalColado) {
+        // sed/perl/ruby -i aceitam sufixo só colado; -i sozinho não consome o próximo.
+        break;
+      }
+      if (regra.recebeValor) {
+        const valor = restante || args[i + 1];
+        if (valor === undefined) {
+          return { operandos, destinos, letras, consumiuProximo, malformado: true };
+        }
+        if (regra.destino) destinos.push(valor);
+        if (!restante) {
+          i++;
+          consumiuProximo = true;
+        }
+        break;
+      }
+    }
+  }
+
+  return { operandos, destinos, letras, consumiuProximo, malformado: false };
+}
+
 const CMDLETS_ESCRITA_PS = new Set([
   "set-content", "sc", "add-content", "ac", "out-file", "export-csv", "export-clixml", "set-item", "new-item", "ni",
 ]);
@@ -90,9 +172,9 @@ function extrairDestinoGit(
   return extrairDestinoOpcaoLongaGnu(arg, proximo, "--output");
 }
 
-function desembrulhar(verbo: string, args: string[]): { resto: string[]; descartados: string[] } {
+function desembrulhar(verbo: string, args: string[]): { resto: string[]; descartados: string[]; malformado: boolean } {
   const { valor, longas = [], posicionais = 0 } = OPCOES_ENVOLVEDOR[verbo] ?? { valor: [] };
-  const sai = (i: number, extra: string[] = []) => ({ resto: [...extra, ...args.slice(i)], descartados: args.slice(0, i) });
+  const sai = (i: number, extra: string[] = []) => ({ resto: [...extra, ...args.slice(i)], descartados: args.slice(0, i), malformado: false });
   let pular = posicionais;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
@@ -102,17 +184,24 @@ function desembrulhar(verbo: string, args: string[]): { resto: string[]; descart
     if (ehS) {
       const colado = arg.startsWith("--") ? (arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : undefined) : arg.slice(2) || undefined;
       const texto = (colado ?? args[i + 1] ?? "").replaceAll("\\_", " ");
-      return { resto: [...texto.split(/\s+/).filter(Boolean), ...args.slice(colado !== undefined ? i + 1 : i + 2)], descartados: args.slice(0, i) };
+      return { resto: [...texto.split(/\s+/).filter(Boolean), ...args.slice(colado !== undefined ? i + 1 : i + 2)], descartados: args.slice(0, i), malformado: false };
     }
     if (arg.startsWith("-")) {
       const longa = longas.find(([nome, minimo]) => opcaoLongaGnu(arg, nome, minimo));
-      if (valor.includes(arg) || (longa !== undefined && !longa[2] && !arg.includes("="))) i++;
+      const regraCurta = OPCOES_CURTAS_POR_VERBO[verbo];
+      if (regraCurta && /^-[^-]/.test(arg)) {
+        const curto = analisarOpcoesCurtas([arg, args[i + 1]].filter((v): v is string => v !== undefined), regraCurta);
+        if (curto.malformado) return { resto: [], descartados: args, malformado: true };
+        if (curto.consumiuProximo) i++;
+      } else if (valor.includes(arg) || (longa !== undefined && !longa[2] && !arg.includes("="))) {
+        i++;
+      }
       continue;
     }
     if (pular > 0) { pular--; continue; }
     return sai(i);
   }
-  return { resto: [], descartados: args };
+  return { resto: [], descartados: args, malformado: false };
 }
 
 function mapa(valor: unknown): valor is Json {
@@ -865,8 +954,20 @@ function analisarComandoSimples(
   // 3. Normaliza verbo e desembrulha wrappers (sudo, env, time, etc.)
   let verbo = verboNormalizado(palavras[0]!);
   while (ENVOLVEDORES.has(verbo) && palavras.length > 1) {
-    const { resto, descartados } = desembrulhar(verbo, palavras.slice(1));
+    const { resto, descartados, malformado } = desembrulhar(verbo, palavras.slice(1));
+    if (malformado) {
+      return { acao: "bloquear", motivo: `${verbo} com grupo de opções sem valor (falha fechada)` };
+    }
     if (verbo === "time" || verbo === "stdbuf") {
+      const opcoesCurtas = analisarOpcoesCurtas(descartados, OPCOES_CURTAS_POR_VERBO[verbo] ?? {});
+      if (opcoesCurtas.malformado) {
+        return { acao: "bloquear", motivo: `${verbo} com grupo de opções sem valor (falha fechada)` };
+      }
+      for (const outTarget of opcoesCurtas.destinos) {
+        if (caminhoTocaWiki(outTarget, base, raiz, ambiente) || !destinoEhSeguro(outTarget, base, raiz, ambiente) || temMudancaDir) {
+          return { acao: "bloquear", motivo: `${verbo} com opção de saída em arquivo citando wiki` };
+        }
+      }
       for (let i = 0; i < descartados.length; i++) {
         const arg = descartados[i]!;
         let outTarget: string | undefined;
@@ -874,10 +975,10 @@ function analisarComandoSimples(
         if (gnuOpt.bateu) {
           outTarget = gnuOpt.valor;
           if (gnuOpt.consumiuProximo) i++;
-        } else if (arg === "-o") {
+        } else if (verbo === "stdbuf" && arg === "-o") {
           outTarget = descartados[i + 1];
           if (outTarget !== undefined) i++;
-        } else if (arg.startsWith("-o") && arg.length > 2 && !arg.startsWith("--")) {
+        } else if (verbo === "stdbuf" && arg.startsWith("-o") && arg.length > 2 && !arg.startsWith("--")) {
           outTarget = arg.slice(2);
         }
         if (outTarget && (caminhoTocaWiki(outTarget, base, raiz, ambiente) || !destinoEhSeguro(outTarget, base, raiz, ambiente) || temMudancaDir)) {
@@ -907,6 +1008,7 @@ function analisarComandoSimples(
       }
       for (let i = 0; i < cmdArgs.length; i++) {
         const arg = cmdArgs[i]!;
+        if (arg === "--") break;
         let alvo: string | undefined;
         const gnuOpt = extrairDestinoGit(arg, cmdArgs[i + 1]);
         if (gnuOpt.bateu) {
@@ -939,19 +1041,21 @@ function analisarComandoSimples(
   // 5.1 Cópia / Movimentação: cp, mv, ln, install, rsync
   if (["cp", "mv", "ln", "install", "rsync"].includes(verbo)) {
     const destinos: string[] = [];
+    const opcoesCurtas = analisarOpcoesCurtas(cmdArgs, OPCOES_CURTAS_POR_VERBO[verbo] ?? {});
+    if (opcoesCurtas.malformado) {
+      return { acao: "bloquear", motivo: `${verbo} com grupo de opções sem valor (falha fechada)` };
+    }
+    destinos.push(...opcoesCurtas.destinos);
     for (let i = 0; i < cmdArgs.length; i++) {
       const arg = cmdArgs[i]!;
+      if (arg === "--") break;
       const gnuOpt = extrairDestinoOpcaoLongaGnu(arg, cmdArgs[i + 1], "--target-directory");
       if (gnuOpt.bateu) {
         if (gnuOpt.valor !== undefined) destinos.push(gnuOpt.valor);
         if (gnuOpt.consumiuProximo) i++;
-      } else if (arg === "-t") {
-        if (cmdArgs[i + 1]) destinos.push(cmdArgs[++i]!);
-      } else if (arg.startsWith("-t") && arg.length > 2 && !arg.startsWith("--")) {
-        destinos.push(arg.slice(2));
       }
     }
-    const operandos = cmdArgs.filter(arg => !arg.startsWith("-"));
+    const operandos = opcoesCurtas.operandos;
     if (destinos.length === 0) {
       if (verbo === "ln" && operandos.length === 1) {
         destinos.push(".");
@@ -970,7 +1074,7 @@ function analisarComandoSimples(
 
   // 5.2 tee: cada operando não-flag é um arquivo de destino
   if (verbo === "tee") {
-    const destinosTee = cmdArgs.filter(arg => !arg.startsWith("-"));
+    const destinosTee = analisarOpcoesCurtas(cmdArgs, OPCOES_CURTAS_POR_VERBO.tee!).operandos;
     for (const dest of destinosTee) {
       if (caminhoTocaWiki(dest, base, raiz, ambiente) || !destinoEhSeguro(dest, base, raiz, ambiente) || temMudancaDir) {
         return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
@@ -991,12 +1095,17 @@ function analisarComandoSimples(
 
   // 5.4 Editores com in-place: sed, perl, ruby
   if (["sed", "perl", "ruby"].includes(verbo)) {
-    const temInPlace = cmdArgs.some(arg =>
-      (arg.startsWith("--") && arg.length >= 3 && opcaoLongaGnu(arg, "--in-place", "--i")) ||
-      /^-[a-zA-Z0-9_]*i/i.test(arg)
+    const opcoesCurtas = analisarOpcoesCurtas(cmdArgs, OPCOES_CURTAS_POR_VERBO[verbo]!);
+    if (opcoesCurtas.malformado) {
+      return { acao: "bloquear", motivo: `${verbo} com grupo de opções sem valor (falha fechada)` };
+    }
+    const fimOpcoes = cmdArgs.indexOf("--");
+    const antesDoFim = fimOpcoes < 0 ? cmdArgs : cmdArgs.slice(0, fimOpcoes);
+    const temInPlace = opcoesCurtas.letras.has("i") || antesDoFim.some(arg =>
+      arg.startsWith("--") && arg.length >= 3 && opcaoLongaGnu(arg, "--in-place", "--i")
     );
     if (temInPlace) {
-      const operandos = cmdArgs.filter(arg => !arg.startsWith("-"));
+      const operandos = opcoesCurtas.operandos;
       if (temMudancaDir || operandos.some(arg => argumentoTocaWiki(arg, base, raiz, ambiente))) {
         return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
       }
@@ -1005,7 +1114,9 @@ function analisarComandoSimples(
 
   // 5.5 Interpretadores com código inline
   if (/^(?:python(?:\d+(?:\.\d+)?)?|node|bun|deno|ruby|perl|php)$/i.test(verbo)) {
-    const temInline = cmdArgs.some(arg => /^--(?:eval|print)(?:=|$)/.test(arg) || /^-[a-zA-Z0-9_]*[cepr]/.test(arg));
+    const opcoesPerl = verbo === "perl" ? analisarOpcoesCurtas(cmdArgs, OPCOES_CURTAS_POR_VERBO.perl!) : undefined;
+    const temInline = cmdArgs.some(arg => /^--(?:eval|print)(?:=|$)/.test(arg) || /^-[a-zA-Z0-9_]*[cepr]/.test(arg))
+      || opcoesPerl?.letras.has("E") === true;
     if (temInline) {
       if (temMudancaDir || cmdArgs.some(arg => argumentoTocaWiki(arg, base, raiz, ambiente) || arg.includes("wiki/"))) {
         return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
@@ -1022,6 +1133,15 @@ function analisarComandoSimples(
 
   // 5.7 git
   if (verbo === "git") {
+    const opcoesCurtas = analisarOpcoesCurtas(cmdArgs, OPCOES_CURTAS_POR_VERBO.git!);
+    if (opcoesCurtas.malformado) {
+      return { acao: "bloquear", motivo: "git com grupo de opções sem valor (falha fechada)" };
+    }
+    for (const alvo of opcoesCurtas.destinos) {
+      if (caminhoTocaWiki(alvo, base, raiz, ambiente) || !destinoEhSeguro(alvo, base, raiz, ambiente) || temMudancaDir) {
+        return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+      }
+    }
     const { subcomando } = analisarGit(cmdArgs);
     if (subcomando && !GIT_LEITURA.has(subcomando)) {
       if (temMudancaDir || cmdArgs.some(arg => argumentoTocaWiki(arg, base, raiz, ambiente))) {
@@ -1030,6 +1150,7 @@ function analisarComandoSimples(
     }
     for (let i = 0; i < cmdArgs.length; i++) {
       const arg = cmdArgs[i]!;
+      if (arg === "--") break;
       let alvo: string | undefined;
       const gnuOpt = extrairDestinoGit(arg, cmdArgs[i + 1]);
       if (gnuOpt.bateu) {

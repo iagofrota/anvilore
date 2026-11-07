@@ -37,6 +37,83 @@ describe("trava de verified nos quatro agentes", () => {
     }
   });
 
+  test("Dado opções curtas agrupadas que escolhem destino Quando o terminal é julgado Então bloqueia cópia ou edição na wiki", async () => {
+    const ataques = [
+      "cp -ft wiki /tmp/page.md",
+      `cp -ft ${wikiDir} /tmp/page.md`,
+      "mv -ft wiki /tmp/page.md",
+      `mv -ft ${wikiDir} /tmp/page.md`,
+      `ln -sft ${wikiDir} /tmp/page.md`,
+      `install -Dt ${wikiDir} /tmp/page.md`,
+      "install -gusers -m600 -otest -Dt wiki /tmp/page.md",
+      "time -ao wiki/time.txt true",
+      `time -ao${join(wikiDir, "time.txt")} true`,
+      `perl -E 'open my $f, ">", $ARGV[0]' ${join("wiki", "pessoal/concepts/a.md")}`,
+    ];
+
+    const resultados = await Promise.all(ataques.map(command => executarProtecao(JSON.stringify({
+      cwd: temporario,
+      tool_name: "Bash",
+      tool_input: { command },
+    }))));
+    expect(Object.fromEntries(ataques.map((command, index) => [command, resultados[index]]))).toEqual(
+      Object.fromEntries(ataques.map(command => [command, 2]))
+    );
+  });
+
+  test("Dado opções curtas de valor e modos seguros Quando o terminal é julgado Então não confunde valores com destinos", async () => {
+    const comandos = [
+      "cp -av /tmp/a.md /tmp/b.md",
+      "cp -ft /tmp/x /tmp/page.md",
+      "cp -r wiki/ /tmp/backup",
+      "cp -S .bak /tmp/a.md /tmp/b.md",
+      "cp -fS.bak /tmp/a.md /tmp/b.md",
+      "cp -- -t /tmp/a.md /tmp/b.md",
+      "install -m 600 -o user -g group /tmp/a.md /tmp/b.md",
+      "sed -n p wiki/a.md",
+      "sed -- -i wiki/a.md",
+      "sed -ni 's/a/b/' /tmp/a.md",
+      "sed -Ei.bak 's/a/b/' /tmp/a.md",
+      "perl -pi -e 's/a/b/' /tmp/a.md",
+      "perl -pi.bak -e 's/a/b/' /tmp/a.md",
+      "ruby -EUTF-8 -e 'puts 1' /tmp/a.md",
+      "time -ao /tmp/time.txt true",
+      "rsync -t /tmp/a.md /tmp/b.md",
+    ];
+    const resultados = await Promise.all(comandos.map(command => executarProtecao(JSON.stringify({
+      cwd: temporario,
+      tool_name: "Bash",
+      tool_input: { command },
+    }))));
+    expect(Object.fromEntries(comandos.map((command, index) => [command, resultados[index]]))).toEqual(
+      Object.fromEntries(comandos.map(command => [command, 0]))
+    );
+  });
+
+  test("Dado grupo de escrita com argumento obrigatório ausente Quando o terminal é julgado Então bloqueia por falha fechada", async () => {
+    const comandos = [
+      "cp -ft",
+      "mv -S",
+      "install -g",
+      "install -m",
+      "sed -e",
+      "sed -l",
+      "perl -E",
+      "ruby -e",
+      "ruby -E",
+      "time -ao",
+      "git format-patch -o",
+    ];
+    const resultados = await Promise.all(comandos.map(command => executarProtecao(JSON.stringify({
+      cwd: temporario,
+      tool_name: "Bash",
+      tool_input: { command },
+    }))));
+    expect(Object.fromEntries(comandos.map((command, index) => [command, resultados[index]]))).toEqual(
+      Object.fromEntries(comandos.map(command => [command, 2]))
+    );
+  });
+
   // --- Ataques A1 (A1.1 a A1.4): aprovar desarmado na CLI ---
   test("Dado comando aprovar na CLI por qualquer agente (A1.1-A1.4) Quando executado Então não altera verified e abre Revisão", async () => {
     const pagina = join(wikiDir, "pessoal/concepts/a.md");
