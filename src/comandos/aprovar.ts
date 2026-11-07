@@ -1,6 +1,7 @@
 import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { lerFrontmatter } from "../lib/frontmatter";
 import { estadoAprovacaoHumana } from "../lib/okf";
 import { caminhoWiki } from "../lib/wiki-repo";
@@ -49,16 +50,32 @@ function provenienciaAprovada(texto: string, identidade: string): string {
     ...entrada.filter(([chave]) => chave !== "by").map(([chave, valor]) => `    ${chave}: ${serializarYaml(valor)}`),
   ])];
 
-  const indiceVerified = linhas.findIndex((linha, indice) => indice < fim && /^verified\s*:/.test(linha));
-  if (indiceVerified < 0) linhas.splice(fim, 0, ...secao);
+  const linhaVerified = /^(?:verified|"verified"|'verified')\s*:/;
+  const indicesVerified = linhas.flatMap((linha, indice) => indice > 0 && indice < fim && linhaVerified.test(linha) ? [indice] : []);
+  if (indicesVerified.length > 1) throw new Error("página tem chaves verified duplicadas");
+  const indiceVerified = indicesVerified[0] ?? -1;
+  if (indiceVerified < 0) {
+    if (Object.hasOwn(frontmatter, "verified")) throw new Error("não foi possível localizar a chave verified sem alterar o frontmatter");
+    linhas.splice(fim, 0, ...secao);
+  }
   else {
     let fimVerified = fim;
     for (let indice = indiceVerified + 1; indice < fim; indice++) {
-      if (/^[A-Za-z_][\w-]*\s*:/.test(linhas[indice]!)) { fimVerified = indice; break; }
+      const linha = linhas[indice]!;
+      if (linha.length > 0 && !/^\s/.test(linha) && !linha.startsWith("#") && !linha.startsWith("- ")) { fimVerified = indice; break; }
     }
     linhas.splice(indiceVerified, fimVerified - indiceVerified, ...secao);
   }
-  return linhas.join(quebra);
+  const aprovado = linhas.join(quebra);
+  const esperado = lerFrontmatter(["---", ...secao, "---"].join(quebra));
+  const resultado = lerFrontmatter(aprovado);
+  if (!esperado || !resultado) throw new Error("não foi possível preservar o frontmatter ao registrar a aprovação");
+  const { verified: _verifiedAnterior, ...camposAnteriores } = frontmatter;
+  const { verified: verifiedNovo, ...camposNovos } = resultado;
+  if (!isDeepStrictEqual(camposNovos, camposAnteriores) || !isDeepStrictEqual(verifiedNovo, esperado.verified)) {
+    throw new Error("não foi possível preservar o frontmatter ao registrar a aprovação");
+  }
+  return aprovado;
 }
 
 export async function aprovarPaginas(raiz: string, arquivos: string[], ambiente: Record<string, string | undefined> = process.env, versaoEsperada?: string): Promise<ResultadoAprovacao> {

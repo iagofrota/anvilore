@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { conferirArquivoDeLeitura } from "../comandos/conferir-leitura";
 import { caminhoReal, dentroDe } from "./caminhos";
 import { isoComOffset } from "./hora";
@@ -155,11 +156,13 @@ export function invalidarAprovacaoVigente(conteudo: string, autor: string, agora
   const quebra = conteudo.includes("\r\n") ? "\r\n" : "\n";
   const linhas = conteudo.split(/\r?\n/);
   const fim = linhas.indexOf("---", 1);
-  if (fim < 0) return conteudo;
+  if (fim < 0) throw new Error("Não foi possível invalidar a aprovação: frontmatter sem fechamento.");
+
+  const fm = lerFrontmatter(conteudo);
+  if (!fm) throw new Error("Não foi possível invalidar a aprovação: frontmatter ausente.");
 
   let maiorData = agora.getTime();
-  const fm = lerFrontmatter(conteudo);
-  if (fm && fm.verified != null) {
+  if (fm.verified != null) {
     const verificacoes = lerVerificacoes(fm.verified, "pagina");
     for (const humana of verificacoes.humanas) {
       if (humana !== null) {
@@ -176,18 +179,37 @@ export function invalidarAprovacaoVigente(conteudo: string, autor: string, agora
     `  at: ${novaData}`,
   ];
 
-  const indiceGenerated = linhas.findIndex((l, i) => i < fim && /^generated\s*:/.test(l));
+  const linhaGenerated = /^(?:generated|"generated"|'generated')\s*:/;
+  const indicesGenerated = linhas.flatMap((linha, indice) => indice > 0 && indice < fim && linhaGenerated.test(linha) ? [indice] : []);
+  if (indicesGenerated.length > 1) throw new Error("Não foi possível invalidar a aprovação: chave generated duplicada.");
+  const indiceGenerated = indicesGenerated[0] ?? -1;
   if (indiceGenerated >= 0) {
     let fimGenerated = fim;
     for (let i = indiceGenerated + 1; i < fim; i++) {
-      if (/^[A-Za-z_][\w-]*\s*:/.test(linhas[i]!)) { fimGenerated = i; break; }
+      const linha = linhas[i]!;
+      if (linha.length > 0 && !/^\s/.test(linha) && !linha.startsWith("#") && !linha.startsWith("- ")) { fimGenerated = i; break; }
     }
     linhas.splice(indiceGenerated, fimGenerated - indiceGenerated, ...secaoGenerated);
   } else {
+    if (Object.hasOwn(fm, "generated")) throw new Error("Não foi possível localizar a chave generated sem alterar o frontmatter.");
     linhas.splice(fim, 0, ...secaoGenerated);
   }
 
-  return linhas.join(quebra);
+  const novoConteudo = linhas.join(quebra);
+  let novoFm: Record<string, unknown> | null;
+  try { novoFm = lerFrontmatter(novoConteudo); }
+  catch { throw new Error("Não foi possível invalidar a aprovação sem alterar outros campos do frontmatter."); }
+  if (!novoFm) throw new Error("Não foi possível invalidar a aprovação sem alterar outros campos do frontmatter.");
+
+  const { generated: _generatedOriginal, ...camposOriginais } = fm;
+  const { generated: novoGenerated, ...camposNovos } = novoFm;
+  const geracao = novoGenerated as Record<string, unknown> | null;
+  const instanteGerado = geracao?.at instanceof Date ? geracao.at.getTime() : Date.parse(String(geracao?.at ?? ""));
+  if (!isDeepStrictEqual(camposNovos, camposOriginais) || !geracao || Array.isArray(geracao) ||
+      Object.keys(geracao).sort().join(",") !== "at,by" || geracao.by !== autor || instanteGerado !== new Date(novaData).getTime()) {
+    throw new Error("Não foi possível invalidar a aprovação sem alterar outros campos do frontmatter.");
+  }
+  return novoConteudo;
 }
 
 // "N rascunhos esperam você" só quando o único erro do fechamento é a falta de aprovação humana,
@@ -893,19 +915,24 @@ export class IngestaoNaInterface {
     }
   }
 
-  private async tentarInvalidarAprovacaoSemMascarar(conversa: Conversa): Promise<void> {
+  private async tentarInvalidarAprovacaoSemMascarar(conversa: Conversa): Promise<boolean> {
     try {
       await this.assegurarAprovacaoInvalidaSeMudou(conversa);
+      return true;
     } catch (erro) {
       const detalhe = erro instanceof Error ? erro.message : String(erro);
       conversa.mensagens ??= [];
       conversa.mensagens.push(`Não foi possível invalidar a aprovação após a escrita: ${detalhe}`);
+      return false;
     }
   }
 
   private async terminarEscrita(conversa: Conversa, fim: FimDaFase): Promise<void> {
     if (conversa.tipo === "ajuste" && conversa.pagina) {
-      await this.tentarInvalidarAprovacaoSemMascarar(conversa);
+      if (!(await this.tentarInvalidarAprovacaoSemMascarar(conversa))) {
+        Object.assign(conversa, { situacao: "erro", erro: "Não foi possível conferir a aprovação anterior; a página precisa de revisão manual." });
+        return;
+      }
     }
     if (fim.situacao === "cancelada") { conversa.situacao = "cancelada"; return; }
     if (fim.situacao === "falhou") { Object.assign(conversa, { situacao: "erro", erro: fim.erro }); return; }

@@ -220,6 +220,44 @@ describe("Servidor UI — Pedir ajuste na Revisão", () => {
     expect(fila.some(item => item.caminho === caminhoRelativo)).toBe(true);
   });
 
+  test("Dado ajuste sobre frontmatter com alias que não pode ser reescrito sem perda Quando a invalidação falha Então a conversa registra a falha e a aprovação não some em silêncio", async () => {
+    const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
+    const inicial = [
+      "---", "type: concept", "slug: segundo-cerebro", "generated: &geracao",
+      "  by: claude-opus/2026-10", "  at: 2026-10-26T14:35:00-03:00", "title: *geracao",
+      "verified:", "  by: human:iago", "  at: 2030-01-01T12:00:00-03:00", "---", "", "Texto inicial aprovado.",
+    ].join("\n");
+    writeFileSync(join(raiz, "wiki", caminhoRelativo), inicial);
+    const ponte = new PonteFalsa({ escritor: async (_pedido, aoEvento) => {
+      aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-haiku/2.1.311" });
+      aoEvento({ tipo: "ferramenta", id: "w1", nome: "Edit", caminho: join(raiz, "wiki", caminhoRelativo) });
+      writeFileSync(join(raiz, "wiki", caminhoRelativo), inicial.replace("Texto inicial aprovado.", "Texto ajustado."));
+      aoEvento({ tipo: "resultado-ferramenta", id: "w1", erro: false, texto: "Editado" });
+      return { situacao: "concluida", sessao: SESSAO, texto: "Ajuste feito", recusas: [] };
+    }});
+    const { postar, chamar } = await subirServidor(ponte);
+
+    const resposta = await postar("/api/ajuste", {
+      caminho: caminhoRelativo,
+      versao: createHash("sha256").update(inicial).digest("hex"),
+      pedido: "Ajustar o texto",
+    });
+    expect(resposta.status).toBe(201);
+    const { id } = await resposta.json() as { id: string };
+    let conversa: Conversa | undefined;
+    for (let i = 0; i < 30; i++) {
+      conversa = await (await chamar(`/api/conversas/${id}`)).json() as Conversa;
+      if (conversa.situacao !== "rodando") break;
+      await new Promise(r => setTimeout(r, 50));
+    }
+
+    expect(conversa).toMatchObject({ situacao: "erro", erro: "Não foi possível conferir a aprovação anterior; a página precisa de revisão manual." });
+    expect(conversa?.mensagens?.join(" ")).toContain("Não foi possível invalidar a aprovação após a escrita");
+    const textoFinal = readFileSync(join(raiz, "wiki", caminhoRelativo), "utf8");
+    expect(textoFinal).toContain("Texto ajustado.");
+    expect(estadoAprovacaoHumana(lerFrontmatter(textoFinal)!)).toBe("vigente");
+  });
+
   test("Dado que o escritor altera uma página aprovada e termina com falha Então invalida a aprovação e a página entra na revisão", async () => {
     const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
     const fluxo = await criarAjusteComPaginaAprovada(async aoEvento => {
@@ -1080,6 +1118,78 @@ describe("Servidor UI — Pedir ajuste na Revisão", () => {
 });
 
 describe("invalidarAprovacaoVigente", () => {
+  test("Dado campos irmãos com chaves entre aspas depois de generated Quando invalido aprovação Então preservo os campos e só troco generated", () => {
+    const conteudo = [
+      "---",
+      "type: concept",
+      "slug: segundo-cerebro",
+      "generated:",
+      "  by: claude-haiku/2.1.311",
+      "  at: 2026-11-06T19:00:00-03:00",
+      '"verified":',
+      "  by: human:iago",
+      "  at: 2030-01-01T12:00:00-03:00",
+      '"title": Segundo cérebro',
+      "'tags': [uma, duas]",
+      "---",
+      "",
+      "Texto.",
+    ].join("\n");
+    const antes = lerFrontmatter(conteudo)!;
+
+    const depois = invalidarAprovacaoVigente(conteudo, "escritor", new Date("2026-11-06T19:00:00-03:00"));
+    const fmDepois = lerFrontmatter(depois)!;
+    const { generated: _geracaoAntes, ...camposAntes } = antes;
+    const { generated: _geracaoDepois, ...camposDepois } = fmDepois;
+
+    expect(camposDepois).toEqual(camposAntes);
+    expect(fmDepois.generated).toMatchObject({ by: "escritor" });
+  });
+
+  test("Dado generated com chave entre aspas Quando invalido aprovação Então atualizo a única chave generated", () => {
+    const conteudo = [
+      "---",
+      "type: concept",
+      '"generated":',
+      "  by: claude-haiku/2.1.311",
+      "  at: 2026-11-06T19:00:00-03:00",
+      '"verified":',
+      "  by: human:iago",
+      "  at: 2030-01-01T12:00:00-03:00",
+      "---",
+      "",
+      "Texto.",
+    ].join("\n");
+
+    const depois = invalidarAprovacaoVigente(conteudo, "escritor", new Date("2026-11-06T19:00:00-03:00"));
+    const fmDepois = lerFrontmatter(depois)!;
+
+    expect(depois.match(/^(?:generated|\"generated\"|'generated')\s*:/gm)).toHaveLength(1);
+    expect(fmDepois.generated).toMatchObject({ by: "escritor" });
+  });
+
+  test("Dado frontmatter com alias que a substituição textual não preserva Quando invalido aprovação Então falho antes de devolver texto alterado", () => {
+    const conteudo = [
+      "---",
+      "type: concept",
+      "slug: segundo-cerebro",
+      "generated: &geracao",
+      "  by: claude-haiku/2.1.311",
+      "  at: 2026-11-06T19:00:00-03:00",
+      "title: *geracao",
+      "verified:",
+      "  by: human:iago",
+      "  at: 2030-01-01T12:00:00-03:00",
+      "---",
+      "",
+      "Texto.",
+    ].join("\n");
+    expect(estadoAprovacaoHumana(lerFrontmatter(conteudo)!)).toBe("vigente");
+
+    expect(() => invalidarAprovacaoVigente(conteudo, "escritor", new Date("2026-11-06T19:00:00-03:00"))).toThrow();
+    expect(estadoAprovacaoHumana(lerFrontmatter(conteudo)!)).toBe("vigente");
+  });
+
   test("Dado verified na forma de mapa com at futuro Quando invalido aprovação Então generated.at é estritamente maior que verified.at e estadoAprovacaoHumana é antiga", () => {
     const conteudo = [
       "---",
