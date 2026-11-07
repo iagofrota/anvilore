@@ -3931,5 +3931,69 @@ describe("trava de verified nos quatro agentes", () => {
         rmSync(fora, { recursive: true, force: true });
       }
     });
+
+    test("Achado P2 do bot (rodada 17, A): todo caminho do agente é julgado pelo caminho físico, que segue o link ANTES do `..`", async () => {
+      const verificado = "verified:\n  - by: human:fraude\n    at: 2026-11-04T11:00:00Z\n";
+      const pagina = `---\ntitle: A\ngenerated:\n  by: process:agente\n  at: 2026-11-04T10:00:00Z\n---\nTexto\n`;
+      const comVerificado = `---\ntitle: A\ngenerated:\n  by: process:agente\n  at: 2026-11-04T10:00:00Z\n${verificado}---\nTexto\n`;
+      mkdirSync(join(wikiDir, "sub/deep"), { recursive: true });
+      writeFileSync(join(wikiDir, "a.md"), pagina);
+      const fora = mkdtempSync(join(tmpdir(), "anvilore-fora17-"));
+      mkdirSync(join(temporario, "x"), { recursive: true });
+      writeFileSync(join(temporario, "p.md"), "# p\n");
+      writeFileSync(join(fora, "src.md"), comVerificado);
+      symlinkSync(join(wikiDir, "sub"), join(temporario, "alias"), "dir");
+      symlinkSync(join(wikiDir, "sub/deep"), join(temporario, "alias2"), "dir");
+      symlinkSync(fora, join(temporario, "aliasFora"), "dir");
+      const alvo = `${temporario}/alias/../a.md`;
+      const alvo2 = `${temporario}/alias2/../../a.md`;
+      const novoNoAlias = `${temporario}/alias/../novo.md`;
+      const executar = async (nome: string, entrada: Record<string, unknown>, cwd = temporario) =>
+        executarProtecao(JSON.stringify({ cwd, tool_name: nome, tool_input: entrada }));
+      const patch = (corpo: string) => `*** Begin Patch\n${corpo}\n*** End Patch`;
+      try {
+        const ataques: Record<string, number> = {
+          // Write, Edit, MultiEdit em <cofre>/alias/../a.md com alias → wiki/sub: o kernel segue o link antes do `..`
+          "Write alias/..": await executar("Write", { file_path: alvo, content: comVerificado }),
+          "Write alias2/../..": await executar("Write", { file_path: alvo2, content: comVerificado }),
+          "Write relativo": await executar("Write", { file_path: "alias/../a.md", content: comVerificado }),
+          "Edit alias/..": await executar("Edit", { file_path: alvo, old_string: "title: A\n", new_string: `title: A\n${verificado}` }),
+          "Edit alias2/../..": await executar("Edit", { file_path: alvo2, old_string: "title: A\n", new_string: `title: A\n${verificado}` }),
+          "MultiEdit alias/..": await executar("MultiEdit", { file_path: alvo, edits: [{ old_string: "title: A\n", new_string: `title: A\n${verificado}` }] }),
+          "MultiEdit alias2/../..": await executar("MultiEdit", { file_path: alvo2, edits: [{ old_string: "title: A\n", new_string: `title: A\n${verificado}` }] }),
+          // apply_patch: add, update e move para o caminho com link
+          "patch add": await executar("apply_patch", { patch: patch(`*** Add File: ${novoNoAlias}\n${comVerificado.split("\n").map(l => `+${l}`).join("\n")}`) }),
+          "patch update": await executar("apply_patch", { patch: patch(`*** Update File: ${alvo}\n@@\n-title: A\n+title: A\n+verified:\n+  - by: human:fraude\n+    at: 2026-11-04T11:00:00Z`) }),
+          "patch move": await executar("apply_patch", { patch: patch(`*** Update File: ${fora}/src.md\n*** Move to: ${alvo}\n@@\n-title: A\n+title: A`) }),
+          // cwd do payload com `..` depois de um link, e caminho relativo
+          "cwd alias/..": await executar("Write", { file_path: "a.md", content: comVerificado }, `${temporario}/alias/..`),
+          "cwd alias2/../..": await executar("Edit", { file_path: "a.md", old_string: "title: A\n", new_string: `title: A\n${verificado}` }, `${temporario}/alias2/../..`),
+          // terminal: workdir com `..` depois de um link, com escrita relativa
+          "terminal workdir relativo": await executar("Bash", { command: "cp p.md a.md", workdir: "alias/.." }),
+          "terminal workdir absoluto": await executar("Bash", { command: "cp p.md a.md", workdir: `${temporario}/alias/..` }),
+          "terminal cwd do payload": await executar("Bash", { command: "cp p.md a.md" }, `${temporario}/alias/..`),
+          "terminal -C": await executar("Bash", { command: `env -C alias/.. cp p.md a.md` }),
+          "terminal destino": await executar("Bash", { command: `cp p.md alias/../a.md` }),
+        };
+        const regressoes: Record<string, number> = {
+          "Write fora da wiki com ..": await executar("Write", { file_path: `${temporario}/x/../b.md`, content: comVerificado }),
+          "Write alias para fora": await executar("Write", { file_path: `${temporario}/aliasFora/../c.md`, content: comVerificado }),
+          "Edit alias para fora": await executar("Edit", { file_path: `${temporario}/aliasFora/../src.md`, old_string: "title: A\n", new_string: "title: B\n" }),
+          "patch fora da wiki": await executar("apply_patch", { patch: patch(`*** Add File: ${temporario}/x/../d.md\n+${comVerificado.split("\n").join("\n+")}`) }),
+          "terminal workdir fora": await executar("Bash", { command: "cp p.md a.md", workdir: "x/.." }),
+          "terminal alias para fora": await executar("Bash", { command: "cp p.md c.md", workdir: "aliasFora/.." }),
+        };
+        // A edição de uma página que já tem verified, sem mexer nele, segue liberada pelo caminho com link
+        writeFileSync(join(wikiDir, "sub/deep/b.md"), comVerificado);
+        regressoes["Edit sem mexer no verified"] = await executar("Edit", { file_path: `${temporario}/alias2/b.md`, old_string: "Texto", new_string: "Texto novo" });
+        const divergentes = [
+          ...Object.entries(ataques).filter(([, codigo]) => codigo !== 2).map(([nome, codigo]) => `ataque ${nome}: esperado 2, obtido ${codigo}`),
+          ...Object.entries(regressoes).filter(([, codigo]) => codigo !== 0).map(([nome, codigo]) => `regressão ${nome}: esperado 0, obtido ${codigo}`),
+        ];
+        expect(divergentes).toEqual([]);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
   });
 });

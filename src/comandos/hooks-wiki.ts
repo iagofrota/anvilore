@@ -3,6 +3,7 @@ import { atualizar } from "../lib/atualizacao";
 import { access, readFile, readdir } from "node:fs/promises";
 import { caminhoWiki, repositorioDaWiki } from "../lib/wiki-repo";
 import { decidirVerified } from "../lib/trava-verified";
+import { ambienteComCaminhosAbsolutos } from "../lib/caminhos";
 
 type Json = Record<string, unknown>;
 const dataLocal = (data = new Date()) => `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, "0")}-${String(data.getDate()).padStart(2, "0")}`;
@@ -155,7 +156,7 @@ export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise
       if (Number.isFinite(ultima) && Date.now() - ultima < 24 * 60 * 60 * 1000) return 0;
       const bun = Bun.which("bun");
       if (bun) {
-        const processo = Bun.spawn([bun, resolve(raiz, "src/cli.ts"), "atualizar", "--verificar"], { cwd: raiz, stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
+        const processo = Bun.spawn([bun, resolve(raiz, "src/cli.ts"), "atualizar", "--verificar"], { cwd: raiz, env: ambienteComCaminhosAbsolutos(process.env), stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
         processo.unref();
       }
       return 0;

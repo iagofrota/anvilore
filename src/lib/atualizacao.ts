@@ -10,6 +10,7 @@ import { consultarConfianca, filtrarAssinantes, type BuscarConfianca } from "./c
 import { devolverTudo, lerManifestos, migrarRastreio, situacaoDaMigracao } from "./migracao";
 import { LISTA_DO_RASTREIO } from "./modelos";
 import { caminhoWiki } from "./wiki-repo";
+import { ambienteComCaminhosAbsolutos } from "./caminhos";
 
 // PLANO §4 (U2). Este módulo é o código da versão que ESTÁ instalada quando a atualização começa: ele guarda, decide e
 // desfaz. Tudo o que depende da versão ativa no disco (instalar, doctor, hook) roda em subprocesso `bun src/cli.ts`,
@@ -496,7 +497,7 @@ async function conferirConfig(raiz: string, copia: Copia): Promise<string[]> {
 }
 
 async function cli(raiz: string, args: string[], entrada?: string): Promise<Saida> {
-  const p = Bun.spawn([process.execPath, join(raiz, "src/cli.ts"), ...args], { cwd: raiz, env: process.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const p = Bun.spawn([process.execPath, join(raiz, "src/cli.ts"), ...args], { cwd: raiz, env: ambienteComCaminhosAbsolutos(process.env), stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   if (entrada !== undefined) p.stdin.write(entrada);
   p.stdin.end();
   const [stdout, stderr, codigo] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
@@ -529,7 +530,7 @@ async function instalarAtivo(raiz: string, estado: Estado, deps: DependenciasAtu
 }
 async function instalarDependencias(raiz: string, deps: DependenciasAtualizacao) {
   if (deps.instalarDependencias) return { codigo: await deps.instalarDependencias(raiz), saida: "dependências injetadas" };
-  const p = Bun.spawnSync([process.execPath, "install", "--frozen-lockfile"], { cwd: raiz, env: process.env, stdout: "pipe", stderr: "pipe" });
+  const p = Bun.spawnSync([process.execPath, "install", "--frozen-lockfile"], { cwd: raiz, env: ambienteComCaminhosAbsolutos(process.env), stdout: "pipe", stderr: "pipe" });
   return { codigo: p.exitCode, saida: `${p.stdout.toString()}${p.stderr.toString()}`.trim() };
 }
 async function versaoBunPadrao(): Promise<string | undefined> {

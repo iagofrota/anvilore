@@ -391,6 +391,14 @@ function caminhoEstaSobWikiDaRaiz(
   return primeiro.replace(/[. ]+$/, "").toLowerCase() === "wiki";
 }
 
+// POLÍTICA DE CAMINHOS. Todo caminho que vem do AGENTE (file_path de Write/Edit/MultiEdit, caminhos do apply_patch com Move to, workdir e
+// dir_path do terminal, cwd do payload, destinos e diretórios dos comandos) é julgado pelo caminho FÍSICO (caminhoReal: segue cada
+// componente existente ANTES de aplicar o `..`, como o kernel) e pelo lexical (o texto como ele está), e qualquer um sob a wiki vale como
+// wiki. Por isso o chamador NUNCA passa o caminho do agente por resolve()/join() antes: isso colapsaria o `..` antes de o link ser seguido
+// (`<cofre>/alias/../a.md`, com alias → wiki/sub, é wiki/a.md). Ficam lexicais, de propósito: (1) a segunda leitura (lexical) dentro de
+// estaSobWiki/ehDestinoPerigoso/destinoEhSeguro, que existe para somar à física; (2) caminhos que vêm do AMBIENTE do hook (ANVILORE_WIKI,
+// ANVILORE_DESTINO, raiz instalada), não do agente; (3) a igualdade do script com o src/cli.ts da CLI, que compara dois caminhos montados
+// pelo próprio guarda; (4) `resolve(cwd, "wiki")`, uma constante. No Windows o `..` é lexical, como o próprio sistema o resolve.
 export function estaSobWiki(
   caminhoAlvo: string,
   raizPadrao: string,
@@ -439,6 +447,8 @@ export function estaSobWiki(
   return false;
 }
 
+// `caminhoAbsoluto` é o caminho BRUTO que o agente deu (com os `..`): estaSobWiki julga o texto e o caminho físico, e o arquivo atual
+// vem do alvo físico (o kernel segue o link ANTES do `..`; resolve() colapsaria o `..` antes e leria outro arquivo).
 export async function verificarMudancaVerified(
   caminhoAbsoluto: string,
   novoTexto: string,
@@ -450,9 +460,16 @@ export async function verificarMudancaVerified(
     return { acao: "liberar", motivo: "caminho fora de wiki/" };
   }
 
+  let fisico: string;
+  try {
+    fisico = caminhoReal(caminhoAbsoluto, cwd ?? process.cwd());
+  } catch (erro) {
+    return { acao: "bloquear", motivo: `caminho em wiki/ que não se resolve (falha fechada): ${(erro as Error).message}` };
+  }
+
   let textoAtual: string | null = null;
   try {
-    textoAtual = await readFile(caminhoAbsoluto, "utf8");
+    textoAtual = await readFile(fisico, "utf8");
   } catch (erro) {
     if ((erro as NodeJS.ErrnoException).code !== "ENOENT") {
       return { acao: "bloquear", motivo: `falha ao ler arquivo atual em wiki/: ${(erro as Error).message}` };
@@ -705,8 +722,8 @@ async function decidirPatch(
     const caminhoRef = arq.destino ?? arq.origem;
     if (!caminhoRef) continue;
 
-    const abs = isAbsolute(caminhoRef) ? resolve(caminhoRef) : resolve(cwd, caminhoRef);
-    if (!estaSobWiki(abs, raiz, ambiente, cwd)) continue;
+    // O caminho vai BRUTO (com os `..`): estaSobWiki julga o lexical e o físico, e a leitura usa o alvo físico.
+    if (!estaSobWiki(caminhoRef, raiz, ambiente, cwd)) continue;
 
     if (arq.acao === "update") {
       if (arq.hunks.length === 0) {
@@ -728,9 +745,8 @@ async function decidirPatch(
       novoConteudo = arq.linhasAdicionadas.join("\n");
     } else {
       let textoAtual = "";
-      const caminhoLeitura = arq.origem ? (isAbsolute(arq.origem) ? resolve(arq.origem) : resolve(cwd, arq.origem)) : abs;
       try {
-        textoAtual = await readFile(caminhoLeitura, "utf8");
+        textoAtual = await readFile(caminhoReal(arq.origem ?? caminhoRef, cwd), "utf8");
       } catch (erro) {
         return { acao: "bloquear", motivo: `falha ao ler arquivo em wiki/ para aplicar patch: ${(erro as Error).message}` };
       }
@@ -744,15 +760,14 @@ async function decidirPatch(
         novoConteudo = textoAtual;
       }
       if (arq.destino && arq.origem && arq.destino !== arq.origem) {
-        const absOrigem = isAbsolute(arq.origem) ? resolve(arq.origem) : resolve(cwd, arq.origem);
-        if (estaSobWiki(absOrigem, raiz, ambiente, cwd)) {
-          const decisaoOrigem = await verificarMudancaVerified(absOrigem, "", raiz, ambiente, cwd);
+        if (estaSobWiki(arq.origem, raiz, ambiente, cwd)) {
+          const decisaoOrigem = await verificarMudancaVerified(arq.origem, "", raiz, ambiente, cwd);
           if (decisaoOrigem.acao === "bloquear") return decisaoOrigem;
         }
       }
     }
 
-    const decisao = await verificarMudancaVerified(abs, novoConteudo, raiz, ambiente, cwd);
+    const decisao = await verificarMudancaVerified(caminhoRef, novoConteudo, raiz, ambiente, cwd);
     if (decisao.acao === "bloquear") return decisao;
   }
 
@@ -834,7 +849,8 @@ function resolverDiretorioEfetivo(base: string, diretorio: string): string | und
   // `~` só expande no começo da palavra: no meio é literal (RUNNER~1, o nome curto 8.3 do tmpdir() do runner do Windows).
   if (!diretorio || diretorio.startsWith("~") || /[$`*?\[\]{}]/.test(diretorio)) return undefined;
   try {
-    const abs = caminhoReal(resolve(base, diretorio), base);
+    // Físico: o `..` depois de um link sobe a partir do alvo do link (resolve() colapsaria antes).
+    const abs = caminhoReal(diretorio, base);
     return statSync(abs).isDirectory() ? abs : undefined;
   } catch {
     return undefined;
@@ -1033,7 +1049,7 @@ function origemEhArquivoRegular(origem: string, base: string): boolean {
   const limpo = origem.replace(/^["']|["']$/g, "").trim();
   if (!limpo || limpo === "-" || EXPANSAO_DE_SHELL.test(limpo) || limpo.startsWith("~")) return false;
   try {
-    return lstatSync(resolve(base, limpo)).isFile();
+    return lstatSync(caminhoParaOKernel(base, limpo)).isFile();
   } catch {
     return false;
   }
@@ -1043,17 +1059,23 @@ function origemEhDiretorioOuIncerta(origem: string, base: string): boolean {
   const limpo = origem.replace(/^["']|["']$/g, "").trim();
   if (!limpo || EXPANSAO_DE_SHELL.test(limpo) || limpo.startsWith("~")) return true;
   try {
-    return statSync(resolve(base, limpo)).isDirectory();
+    return statSync(caminhoParaOKernel(base, limpo)).isDirectory();
   } catch {
     return false;
   }
+}
+
+// Caminho como o kernel o lê: sem colapsar o `..` (path.resolve/join o colapsam antes de o link ser seguido). Só para stat/leitura e para
+// montar um caminho que ainda vai ser julgado pelas funções físicas; nunca para decidir se algo está sob a wiki.
+function caminhoParaOKernel(base: string, caminho: string): string {
+  return isAbsolute(caminho) ? caminho : `${base}${sep}${caminho}`;
 }
 
 // Onde `cp`/`mv`/`ln`/`install` põem a origem quando o destino é um diretório: destino/nome-da-origem.
 function destinoFinal(origem: string, diretorio: string): string | undefined {
   const nome = basename(origem.replace(/^["']|["']$/g, "").replace(/[\\/]+$/, ""));
   if (!nome || nome === "." || nome === "..") return undefined;
-  return join(diretorio, nome);
+  return `${diretorio}${sep}${nome}`;
 }
 
 function opcaoLongaPresente(args: string[], nomeCompleto: string, prefixoMinimo: string): boolean {
@@ -1100,7 +1122,7 @@ function escritaEmMassaNoAncestral(
       return `${alvo} (ln de diretório ou origem não comprovada; falha fechada)`;
     }
     for (const destino of perigosos) {
-      const final = destinoFinal(fonte, resolve(base, destino));
+      const final = destinoFinal(fonte, caminhoParaOKernel(base, destino));
       if (!final || caminhoTocaWiki(final, base, raiz, ambiente) || ehDestinoPerigoso(final, base, raiz, ambiente)) {
         return `${alvo} (o destino final cai na wiki; falha fechada)`;
       }
@@ -1370,7 +1392,7 @@ function lerScriptLegivel(arquivo: string, base: string, unicoComando: boolean):
   const limpo = arquivo.replace(/^["']|["']$/g, "").trim();
   if (!unicoComando || !limpo || limpo === "-" || limpo.startsWith("/dev/") || EXPANSAO_DE_SHELL.test(limpo) || limpo.startsWith("~")) return undefined;
   try {
-    const caminho = resolve(base, limpo);
+    const caminho = caminhoParaOKernel(base, limpo);
     if (!statSync(caminho).isFile()) return undefined;
     return readFileSync(caminho, "utf8");
   } catch {
@@ -3057,8 +3079,10 @@ export async function decidirVerified(
 
   // Raiz do vault: sobe a partir de dados.cwd até achar SCHEMA.md e wiki/; fallback para ANVILORE_DESTINO ou instalado
   const cwdInformado = typeof dados.cwd === "string" && dados.cwd.trim() ? dados.cwd.trim() : undefined;
-  const raizVault = encontrarRaizVault(cwdInformado ?? raiz, ambiente);
-  const cwd = cwdInformado ? resolve(cwdInformado) : raizVault;
+  // O cwd do payload também é caminho do agente: `<cofre>/alias/..` é a pasta ACIMA do alvo do link, não o cofre. Resolução física.
+  const cwdFisico = cwdInformado ? caminhoReal(cwdInformado, process.cwd()) : undefined;
+  const raizVault = encontrarRaizVault(cwdFisico ?? raiz, ambiente);
+  const cwd = cwdFisico ?? raizVault;
 
   let entrada: unknown = dados.tool_input ?? dados.toolInput ?? dados.toolArgs ?? dados.tool_args ?? dados.arguments;
 
@@ -3096,7 +3120,8 @@ export async function decidirVerified(
     const cmdTexto = typeof comandoRaw === "string" ? comandoRaw : comandoRaw.join(" ");
 
     const workdirRel = entradaMapa ? (entradaMapa.workdir ?? entradaMapa.dir_path ?? ".") : ".";
-    const base = isAbsolute(String(workdirRel)) ? resolve(String(workdirRel)) : resolve(cwd, String(workdirRel));
+    // workdir/dir_path também é caminho do agente: físico, para o `..` depois de um link subir a partir do alvo do link.
+    const base = caminhoReal(String(workdirRel), cwd);
 
     const isWindows = nomeEfetivo === "powershell" || nomeEfetivo === "pwsh" ||
       (Array.isArray(comandoRaw) && /^(?:powershell|pwsh)(?:\.exe)?$/i.test(String(comandoRaw[0]))) ||
@@ -3114,10 +3139,12 @@ export async function decidirVerified(
     if (typeof caminho !== "string" || !caminho.trim()) {
       return { acao: "bloquear", motivo: "ferramenta de escrita sem caminho de arquivo (falha fechada)" };
     }
-    const abs = isAbsolute(caminho) ? resolve(caminho) : resolve(cwd, caminho);
+    // Caminho BRUTO para estaSobWiki (lexical e físico) e físico para ler o arquivo atual.
+    const abs = caminho;
     if (!estaSobWiki(abs, raizVault, ambiente, cwd)) {
       return { acao: "liberar", motivo: "caminho fora de wiki/" };
     }
+    const fisico = caminhoReal(caminho, cwd);
     if (typeof entradaMapa.content !== "string") {
       return { acao: "bloquear", motivo: "ferramenta de escrita sem content string (falha fechada)" };
     }
@@ -3133,10 +3160,12 @@ export async function decidirVerified(
     if (typeof caminho !== "string" || !caminho.trim()) {
       return { acao: "bloquear", motivo: "ferramenta de edição sem caminho de arquivo (falha fechada)" };
     }
-    const abs = isAbsolute(caminho) ? resolve(caminho) : resolve(cwd, caminho);
+    // Caminho BRUTO para estaSobWiki (lexical e físico) e físico para ler o arquivo atual.
+    const abs = caminho;
     if (!estaSobWiki(abs, raizVault, ambiente, cwd)) {
       return { acao: "liberar", motivo: "caminho fora de wiki/" };
     }
+    const fisico = caminhoReal(caminho, cwd);
     const oldStr = entradaMapa.old_string ?? entradaMapa.oldText;
     const newStr = entradaMapa.new_string ?? entradaMapa.newText;
     if (typeof oldStr !== "string" || typeof newStr !== "string") {
@@ -3146,7 +3175,7 @@ export async function decidirVerified(
 
     let textoAtual = "";
     try {
-      textoAtual = await readFile(abs, "utf8");
+      textoAtual = await readFile(fisico, "utf8");
     } catch (erro) {
       return { acao: "bloquear", motivo: `falha ao ler arquivo em wiki/ para edição: ${(erro as Error).message}` };
     }
@@ -3176,17 +3205,19 @@ export async function decidirVerified(
     if (typeof caminho !== "string" || !caminho.trim()) {
       return { acao: "bloquear", motivo: "ferramenta de multiedit sem caminho de arquivo (falha fechada)" };
     }
-    const abs = isAbsolute(caminho) ? resolve(caminho) : resolve(cwd, caminho);
+    // Caminho BRUTO para estaSobWiki (lexical e físico) e físico para ler o arquivo atual.
+    const abs = caminho;
     if (!estaSobWiki(abs, raizVault, ambiente, cwd)) {
       return { acao: "liberar", motivo: "caminho fora de wiki/" };
     }
+    const fisico = caminhoReal(caminho, cwd);
     if (!Array.isArray(entradaMapa.edits) || entradaMapa.edits.length === 0) {
       return { acao: "bloquear", motivo: "ferramenta de multiedit sem array edits (falha fechada)" };
     }
 
     let textoAtual = "";
     try {
-      textoAtual = await readFile(abs, "utf8");
+      textoAtual = await readFile(fisico, "utf8");
     } catch (erro) {
       return { acao: "bloquear", motivo: `falha ao ler arquivo em wiki/ para edição: ${(erro as Error).message}` };
     }

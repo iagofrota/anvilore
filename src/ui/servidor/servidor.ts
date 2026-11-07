@@ -24,6 +24,7 @@ import {
   validarDestinoAnvilore,
   validarPastaVault,
 } from "../../lib/ui-onboarding";
+import { ambienteComCaminhosAbsolutos } from "../../lib/caminhos";
 
 type Servidor = ReturnType<typeof Bun.serve>;
 type OpcoesServidor = {
@@ -151,7 +152,7 @@ async function validar(raiz: string, wiki: string): Promise<{ codigo: number; sa
   const cli = resolve(import.meta.dir, "../../cli.ts");
   const processo = Bun.spawn([process.execPath, cli, "validar", wiki], {
     cwd: raiz,
-    env: { ...process.env, ANVILORE_WIKI: wiki },
+    env: ambienteComCaminhosAbsolutos({ ...process.env, ANVILORE_WIKI: wiki }),
     stdout: "pipe",
     stderr: "pipe",
   });

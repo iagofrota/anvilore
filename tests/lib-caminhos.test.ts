@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { caminhoReal, chaveDeNome, dentroDe, estaEmRaw, normalizarFimDeLinha } from "../src/lib/caminhos";
+import { join, resolve } from "node:path";
+import { ambienteComCaminhosAbsolutos, caminhoReal, chaveDeNome, dentroDe, estaEmRaw, normalizarFimDeLinha } from "../src/lib/caminhos";
 
 test("Dado texto com CRLF, Quando normalizo o fim de linha, Então só restam LF", () => {
   expect(normalizarFimDeLinha("a\r\nb\r\n")).toBe("a\nb\n");
@@ -198,4 +198,39 @@ test.skipIf(process.platform === "win32")("Dado nome longo demais para o disco Q
   try {
     expect(() => caminhoReal("a".repeat(300), base)).toThrow();
   } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+test("Dado caminhos do Anvilore relativos no ambiente Quando monto o ambiente de um filho com outro cwd Então ficam absolutos a partir do cwd do pai", () => {
+  const pai = mkdtempSync(join(tmpdir(), "anvilore-pai-"));
+  try {
+    const env = ambienteComCaminhosAbsolutos({
+      ANVILORE_WIKI: "wiki", ANVILORE_DESTINO: ".", ANVILORE_PASTA: "pasta", ANVILORE_ORIGEM: "../irmao", ANVILORE_DIR: "d",
+      ANVILORE_RG_PROVA_DIR: "rg", ANVILORE_ASSINANTES: "seguranca/assinantes", ANVILORE_PATH_TEMP: "tmp",
+      ANVILORE_VERSAO: "1.2.3", ANVILORE_SEM_PERGUNTAS: "1", ANVILORE_LOG_HOOK: "1", OUTRA: "relativa", ANVILORE_WIKI_VAZIA_DIR: "",
+    }, pai);
+    expect(env.ANVILORE_WIKI).toBe(join(pai, "wiki"));
+    expect(env.ANVILORE_DESTINO).toBe(pai);
+    expect(env.ANVILORE_PASTA).toBe(join(pai, "pasta"));
+    expect(env.ANVILORE_ORIGEM).toBe(resolve(pai, "../irmao"));
+    expect(env.ANVILORE_DIR).toBe(join(pai, "d"));
+    expect(env.ANVILORE_RG_PROVA_DIR).toBe(join(pai, "rg"));
+    expect(env.ANVILORE_ASSINANTES).toBe(join(pai, "seguranca/assinantes"));
+    expect(env.ANVILORE_PATH_TEMP).toBe(join(pai, "tmp"));
+    // Não são caminhos, ou estão vazios: ficam como estavam
+    expect(env.ANVILORE_VERSAO).toBe("1.2.3");
+    expect(env.ANVILORE_SEM_PERGUNTAS).toBe("1");
+    expect(env.ANVILORE_LOG_HOOK).toBe("1");
+    expect(env.OUTRA).toBe("relativa");
+    expect(env.ANVILORE_WIKI_VAZIA_DIR).toBe("");
+  } finally {
+    rmSync(pai, { recursive: true, force: true });
+  }
+});
+
+test("Dado caminhos do Anvilore já absolutos Quando monto o ambiente de um filho Então ficam iguais e o original não é alterado", () => {
+  const original = { ANVILORE_WIKI: join(tmpdir(), "w"), ANVILORE_DESTINO: tmpdir(), PATH_X: "x" };
+  const copia = { ...original };
+  const env = ambienteComCaminhosAbsolutos(original, join(tmpdir(), "outro"));
+  expect(env).toEqual(copia);
+  expect(original).toEqual(copia);
 });

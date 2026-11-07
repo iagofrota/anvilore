@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type { Subprocess } from "bun";
+import { ambienteComCaminhosAbsolutos } from "../lib/caminhos";
 import { lerFrontmatter } from "../lib/frontmatter";
 import { estadoAprovacaoHumana } from "../lib/okf";
 import { caminhoWiki } from "../lib/wiki-repo";
@@ -31,7 +32,7 @@ export function lancarServidorRevisao(raiz: string): Subprocess | undefined {
       stdout: "ignore",
       stderr: "ignore",
       detached: true,
-      env: { ...process.env, ANVILORE_DESTINO: raiz },
+      env: ambienteComCaminhosAbsolutos({ ...process.env, ANVILORE_DESTINO: raiz }),
     });
     processo.unref();
     processosRevisaoAtivos.push(processo);

@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { aprovarPelaInterface, comandoAprovar, fecharProcessosRevisao } from "../src/comandos/aprovar";
+import { aprovarPelaInterface, comandoAprovar, fecharProcessosRevisao, lancarServidorRevisao } from "../src/comandos/aprovar";
 import { lerFrontmatter } from "../src/lib/frontmatter";
 import { iniciarServidorUi } from "../src/ui/servidor/servidor";
 import { capturarConsole } from "./apoio/console";
@@ -331,5 +331,48 @@ test("Dado falha ao listar fila de rascunhos Quando aprovar roda Então exibe er
     c.restaurar();
     if (raizAnterior === undefined) delete process.env.ANVILORE_DESTINO;
     else process.env.ANVILORE_DESTINO = raizAnterior;
+  }
+});
+
+test("Dado ANVILORE_WIKI e ANVILORE_DESTINO relativos Quando o servidor da Revisão nasce em outro cwd Então o filho recebe os dois absolutos, a partir do cwd do pai", () => {
+  const antes = { wiki: process.env.ANVILORE_WIKI, destino: process.env.ANVILORE_DESTINO, pasta: process.env.ANVILORE_PASTA };
+  const cwdAntes = process.cwd();
+  const espiao = spyOn(Bun, "spawn").mockImplementation((() => ({ unref() {}, kill() {} })) as never);
+  try {
+    process.chdir(raiz);
+    process.env.ANVILORE_WIKI = "wiki";
+    process.env.ANVILORE_DESTINO = ".";
+    process.env.ANVILORE_PASTA = "pasta";
+    lancarServidorRevisao(".");
+    const opcoes = espiao.mock.calls[0]![1] as { cwd?: string; env: Record<string, string> };
+    const base = process.cwd();
+    expect(opcoes.cwd).not.toBe(base);
+    expect(opcoes.env.ANVILORE_DESTINO).toBe(base);
+    expect(opcoes.env.ANVILORE_WIKI).toBe(join(base, "wiki"));
+    expect(opcoes.env.ANVILORE_PASTA).toBe(join(base, "pasta"));
+  } finally {
+    espiao.mockRestore();
+    process.chdir(cwdAntes);
+    for (const [chave, valor] of [["ANVILORE_WIKI", antes.wiki], ["ANVILORE_DESTINO", antes.destino], ["ANVILORE_PASTA", antes.pasta]] as const) {
+      if (valor === undefined) delete process.env[chave]; else process.env[chave] = valor;
+    }
+  }
+});
+
+test("Dado ANVILORE_WIKI e ANVILORE_DESTINO já absolutos Quando o servidor da Revisão nasce Então os valores ficam iguais", () => {
+  const antes = { wiki: process.env.ANVILORE_WIKI, destino: process.env.ANVILORE_DESTINO };
+  const espiao = spyOn(Bun, "spawn").mockImplementation((() => ({ unref() {}, kill() {} })) as never);
+  try {
+    process.env.ANVILORE_WIKI = join(raiz, "wiki");
+    process.env.ANVILORE_DESTINO = raiz;
+    lancarServidorRevisao(raiz);
+    const opcoes = espiao.mock.calls[0]![1] as { env: Record<string, string> };
+    expect(opcoes.env.ANVILORE_DESTINO).toBe(raiz);
+    expect(opcoes.env.ANVILORE_WIKI).toBe(join(raiz, "wiki"));
+  } finally {
+    espiao.mockRestore();
+    for (const [chave, valor] of [["ANVILORE_WIKI", antes.wiki], ["ANVILORE_DESTINO", antes.destino]] as const) {
+      if (valor === undefined) delete process.env[chave]; else process.env[chave] = valor;
+    }
   }
 });
