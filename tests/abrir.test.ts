@@ -451,6 +451,135 @@ test("Dado Bun só em ~/.local/bin e PATH sem ele, Quando abro no Linux, Então 
   } finally { await rm(base, { recursive: true, force: true }); }
 });
 
+test("Dado Bun só em nvm e SHELL que dorme 5 s, Quando abro no Linux com PATH de menu, Então acho o Bun do nvm sem estourar timeout e registro o caminho", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-bun-nvm-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(home, ".nvm/versions/node/v24.15.0/bin");
+    const chamadas = join(base, "chamadas");
+    const shellLenta = join(base, "shell-lenta");
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh\nprintf '%s\\n' "$*" >>"$ANVILORE_TEST_CHAMADAS"\n`);
+    await chmod(bun, 0o755);
+    await writeFile(shellLenta, `#!/bin/sh\nsleep 5\nprintf '%s\\n' "$ANVILORE_TEST_BUN"\n`);
+    await chmod(shellLenta, 0o755);
+    const proc = Bun.spawnSync(["bash", join(raiz, "instalador/anvilore-abrir")], {
+      cwd: base,
+      env: {
+        ...process.env,
+        HOME: home,
+        XDG_CONFIG_HOME: join(home, ".config"),
+        PATH: "/usr/bin:/bin",
+        SHELL: shellLenta,
+        ANVILORE_PASTA: pasta,
+        ANVILORE_TEST_BUN: bun,
+        ANVILORE_TEST_CHAMADAS: chamadas,
+      },
+      stdout: "pipe", stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await readFile(chamadas, "utf8")).toContain("src/cli.ts ui");
+    const registro = join(home, ".config/anvilore/bun-path");
+    expect(await readFile(registro, "utf8")).toBe(`${bun}\n`);
+    expect((await stat(registro)).mode & 0o777).toBe(0o600);
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+test("Dado múltiplos nós no nvm, Quando há alias/default válido, Então prefiro o default; senão a maior versão", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-bun-nvm-multi-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const nvmDir = join(home, ".nvm");
+    const v18 = join(nvmDir, "versions/node/v18.20.0/bin");
+    const v20 = join(nvmDir, "versions/node/v20.10.0/bin");
+    const v24 = join(nvmDir, "versions/node/v24.15.0/bin");
+    const chamadas = join(base, "chamadas");
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(v18, { recursive: true });
+    await mkdir(v20, { recursive: true });
+    await mkdir(v24, { recursive: true });
+    await mkdir(join(nvmDir, "alias"), { recursive: true });
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+
+    await writeFile(join(v18, "bun"), `#!/bin/sh\nprintf 'v18\\n' >>"$ANVILORE_TEST_CHAMADAS"\n`);
+    await writeFile(join(v20, "bun"), `#!/bin/sh\nprintf 'v20\\n' >>"$ANVILORE_TEST_CHAMADAS"\n`);
+    await writeFile(join(v24, "bun"), `#!/bin/sh\nprintf 'v24\\n' >>"$ANVILORE_TEST_CHAMADAS"\n`);
+    await chmod(join(v18, "bun"), 0o755);
+    await chmod(join(v20, "bun"), 0o755);
+    await chmod(join(v24, "bun"), 0o755);
+
+    // Cenário 1: alias/default aponta para v20.10.0
+    await writeFile(join(nvmDir, "alias/default"), "v20.10.0\n");
+    let proc = Bun.spawnSync(["bash", join(raiz, "instalador/anvilore-abrir")], {
+      cwd: base,
+      env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, ".config"), PATH: "/usr/bin:/bin", ANVILORE_PASTA: pasta, ANVILORE_TEST_CHAMADAS: chamadas },
+      stdout: "pipe", stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await readFile(chamadas, "utf8")).toContain("v20");
+
+    // Remove registro para testar fallback para a maior versão
+    await rm(join(home, ".config/anvilore/bun-path"), { force: true });
+    await rm(join(nvmDir, "alias/default"), { force: true });
+    await rm(chamadas, { force: true });
+
+    // Cenário 2: sem alias/default, escolhe a maior versão (v24.15.0)
+    proc = Bun.spawnSync(["bash", join(raiz, "instalador/anvilore-abrir")], {
+      cwd: base,
+      env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, ".config"), PATH: "/usr/bin:/bin", ANVILORE_PASTA: pasta, ANVILORE_TEST_CHAMADAS: chamadas },
+      stdout: "pipe", stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await readFile(chamadas, "utf8")).toContain("v24");
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+test("Dado Bun fora do nvm e achado pela shell de login em 4 s, Quando abro, Então não estouro timeout de 10 s e gravo bun-path", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-bun-shell-grava-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "custom-node/bin");
+    const chamadas = join(base, "chamadas");
+    const login = join(base, "login-shell");
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh\nprintf '%s\\n' "$*" >>"$ANVILORE_TEST_CHAMADAS"\n`);
+    await chmod(bun, 0o755);
+    await writeFile(login, `#!/bin/sh\nif [ "$1" = "-lic" ]; then sleep 4; printf '%s\\n' "$ANVILORE_TEST_BUN"; else exec /bin/bash "$@"; fi\n`);
+    await chmod(login, 0o755);
+    const proc = Bun.spawnSync(["bash", join(raiz, "instalador/anvilore-abrir")], {
+      cwd: base,
+      env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, ".config"), PATH: "/usr/bin:/bin", SHELL: login, ANVILORE_PASTA: pasta, ANVILORE_TEST_BUN: bun, ANVILORE_TEST_CHAMADAS: chamadas },
+      stdout: "pipe", stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await readFile(chamadas, "utf8")).toContain("src/cli.ts ui");
+    const registro = join(home, ".config/anvilore/bun-path");
+    expect(await readFile(registro, "utf8")).toBe(`${bun}\n`);
+    expect((await stat(registro)).mode & 0o777).toBe(0o600);
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
 test("Dado o instalador com Bun em nvm, Quando registra o caminho para o lançador, Então grava em configuração do usuário com permissão privada", async () => {
   if (process.platform !== "linux") return;
   const base = await mkdtemp(join(tmpdir(), "anvilore-registra-bun-"));

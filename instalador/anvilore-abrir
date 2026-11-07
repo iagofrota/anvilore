@@ -43,6 +43,85 @@ fi
 
 export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
 
+registrar_bun() {
+  local bun_caminho="$1" diretorio destino arquivo_temporario
+  [ -n "$bun_caminho" ] || return 0
+  diretorio="${XDG_CONFIG_HOME:-$HOME/.config}/anvilore"
+  destino="$diretorio/bun-path"
+  if [ -L "$diretorio" ] || [ -L "$destino" ]; then return 0; fi
+  if [ -e "$diretorio" ] && [ ! -O "$diretorio" ]; then return 0; fi
+  if [ -e "$destino" ] && [ ! -O "$destino" ]; then return 0; fi
+  mkdir -p "$diretorio" 2>/dev/null || return 0
+  arquivo_temporario="$(mktemp "$diretorio/.bun-path.XXXXXX" 2>/dev/null)" || return 0
+  if (umask 077; printf '%s\n' "$bun_caminho" >"$arquivo_temporario") && chmod 600 "$arquivo_temporario" && mv -f -- "$arquivo_temporario" "$destino"; then
+    :
+  else
+    rm -f -- "$arquivo_temporario"
+  fi
+}
+
+resolver_nvm_diretorio() {
+  local alvo="$1" visitados="${2:-}"
+  local nvm_dir="${NVM_DIR:-$HOME/.nvm}"
+  [ -n "$alvo" ] || return 1
+  [[ " $visitados " =~ " $alvo " ]] && return 1
+  visitados="$visitados $alvo"
+
+  if [ -d "$nvm_dir/versions/node/$alvo" ]; then
+    printf '%s' "$nvm_dir/versions/node/$alvo"
+    return 0
+  fi
+  if [ -d "$nvm_dir/versions/node/v$alvo" ]; then
+    printf '%s' "$nvm_dir/versions/node/v$alvo"
+    return 0
+  fi
+  if [ -d "$alvo" ]; then
+    printf '%s' "$alvo"
+    return 0
+  fi
+  if [ -f "$nvm_dir/alias/$alvo" ]; then
+    local proximo
+    proximo="$(tr -d '[:space:]' <"$nvm_dir/alias/$alvo" 2>/dev/null || true)"
+    resolver_nvm_diretorio "$proximo" "$visitados" && return 0
+  fi
+  return 1
+}
+
+encontrar_bun_nvm() {
+  local nvm_dir="${NVM_DIR:-$HOME/.nvm}"
+  [ -d "$nvm_dir/versions/node" ] || return 1
+
+  local padrao dir_padrao candidato
+  if [ -f "$nvm_dir/alias/default" ]; then
+    padrao="$(tr -d '[:space:]' <"$nvm_dir/alias/default" 2>/dev/null || true)"
+    dir_padrao="$(resolver_nvm_diretorio "$padrao" || true)"
+    if [ -n "$dir_padrao" ] && [ -d "$dir_padrao" ]; then
+      candidato="$dir_padrao/bin/bun"
+      if [[ "$candidato" = /* && -x "$candidato" && -O "$candidato" ]]; then
+        printf '%s' "$candidato"
+        return 0
+      fi
+    fi
+  fi
+
+  local -a candidatos=()
+  local dir c
+  for dir in "$nvm_dir/versions/node/"*/; do
+    [ -d "$dir" ] || continue
+    c="${dir}bin/bun"
+    if [[ "$c" = /* && -x "$c" && -O "$c" ]]; then
+      candidatos+=("$c")
+    fi
+  done
+
+  if [ ${#candidatos[@]} -gt 0 ]; then
+    printf '%s\n' "${candidatos[@]}" | sort -V 2>/dev/null | tail -n1
+    return 0
+  fi
+
+  return 1
+}
+
 encontrar_bun() {
   local candidato registro shell_login
   candidato="$(command -v bun 2>/dev/null || true)"
@@ -58,10 +137,22 @@ encontrar_bun() {
     if [[ "$candidato" = /* && -x "$candidato" && -O "$candidato" ]]; then BUN_BIN="$candidato"; return 0; fi
   fi
 
+  candidato="$(encontrar_bun_nvm || true)"
+  if [[ "$candidato" = /* && -x "$candidato" && -O "$candidato" ]]; then
+    BUN_BIN="$candidato"
+    registrar_bun "$candidato"
+    return 0
+  fi
+
   shell_login="${SHELL:-}"
   if [[ "$shell_login" = /* && -x "$shell_login" ]] && command -v timeout >/dev/null 2>&1; then
-    candidato="$(timeout 3 "$shell_login" -lic 'command -v bun' 2>/dev/null || true)"
-    if [[ "$candidato" = /* && -x "$candidato" ]]; then BUN_BIN="$candidato"; return 0; fi
+    candidato="$(timeout 10 "$shell_login" -lic 'command -v bun' 2>/dev/null || true)"
+    if [[ "$candidato" != /* && -n "$candidato" ]]; then candidato="$(readlink -f -- "$candidato" 2>/dev/null || true)"; fi
+    if [[ "$candidato" = /* && -x "$candidato" && -O "$candidato" ]]; then
+      BUN_BIN="$candidato"
+      registrar_bun "$candidato"
+      return 0
+    fi
   fi
   return 1
 }

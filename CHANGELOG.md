@@ -15,6 +15,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - O lançador encontra o Bun instalado pelo npm/nvm e explica como instalá-lo quando ele não está disponível; no Windows, também procura o diretório npm do usuário.
 - A Revisão mostra mensagens em português quando o servidor falha ou fica inacessível, sem exibir HTML de erro como resultado da validação nem indicar que a wiki foi revisada.
 - Pacotes Linux incluem sua versão; ao abrir pelo menu, o lançador atualiza automaticamente um kit de usuário mais antigo e abre a versão existente se a atualização falhar.
+- O lançador busca o Bun no nvm diretamente e com timeout estendido na shell de login, gravando o caminho para aberturas seguintes.
 
 ## [0.3.2] - 2026-11-07
 
