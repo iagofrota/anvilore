@@ -3022,5 +3022,96 @@ describe("trava de verified nos quatro agentes", () => {
         rmSync(fora, { recursive: true, force: true });
       }
     });
+
+    test("Achado P2 do bot (rodada 14): rede léxica do awk, primitivas de execução e escrita escondidas dentro de outra construção", async () => {
+      const { fora, stage, cofre, esperar } = prepararRodada11();
+      const copiar = `cp ${fora}/p.md wiki/a.md`;
+      try {
+        const ataques = [
+          `awk 'BEGIN { print system("${copiar}") }'`,
+          `awk 'BEGIN{printf "%d", system("${copiar}")}'`,
+          `awk 'BEGIN{print length(system("${copiar}"))}'`,
+          `awk 'BEGIN{print toupper(system("${copiar}"))}'`,
+          `awk 'BEGIN{print (system("${copiar}") ? "a" : "b")}'`,
+          `awk 'BEGIN{print 1, 2, system("${copiar}")}'`,
+          `awk 'BEGIN{print foo(system("${copiar}"))} function foo(x) { return x }'`,
+          `awk 'BEGIN { print system(\n"${copiar}"\n) }'`,
+          `gawk 'BEGIN { print system("${copiar}") }'`,
+          `mawk 'BEGIN { print system("${copiar}") }'`,
+          `awk 'BEGIN { print system("cp -R ${stage}/. .") }'`,
+          `awk 'BEGIN { print system(cmd) }'`,
+          `awk 'BEGIN { print system("a" "b") }'`,
+          `awk '{print ("x" > "wiki/a.md")}' ${fora}/p.md`,
+          `awk '{print foo("a" > "wiki/a.md")}' ${fora}/p.md`,
+          `awk 'BEGIN{printf("%s\n", "x" > "wiki/a.md")}'`,
+          `awk '{print ($1 > 5) ? "a" : "b" > "wiki/a.md"}' ${fora}/p.md`,
+          `awk '{print ($1 > $2)}' ${fora}/p.md`,
+          `awk 'BEGIN{print 1 | "sh"}'`,
+          `awk 'BEGIN{print (1 | "sh")}'`,
+          `awk 'BEGIN{print 1 | "bash"}'`,
+          `awk 'BEGIN{print 1 |& "sh"}'`,
+          `awk 'BEGIN{print foo(1 | "cat > wiki/a.md")}'`,
+          `awk 'BEGIN{print 1 | cmd}'`,
+          `awk 'BEGIN{print (1 | cmd)}'`,
+          `awk 'BEGIN{print (1) | "cat" "x"}'`,
+          `awk 'BEGIN{while (("cat x" | getline l) > 0) print l > "wiki/a.md"}'`,
+          `awk 'BEGIN{("cp ${fora}/p.md wiki/a.md" | getline x)}'`,
+          `awk 'BEGIN{print ("cp ${fora}/p.md wiki/a.md" | getline x)}'`,
+          `awk 'BEGIN{print (cmd | getline x)}'`,
+        ];
+        await esperar(ataques, 2, cofre);
+
+        const regressoes = [
+          `awk '$3 > 100' ${fora}/p.md`,
+          `awk '$1 >= 5 {print}' ${fora}/p.md`,
+          `awk '{print $1}' wiki/a.md`,
+          `awk 'BEGIN{print 1+2}'`,
+          `awk -F'|' '{print $2}' ${fora}/p.md`,
+          `awk '/a|b/ {print}' ${fora}/p.md`,
+          `awk '$1 == "a" || $2 == "b" {print}' ${fora}/p.md`,
+          `awk 'BEGIN{print system("echo ok")}'`,
+          `awk 'BEGIN{x = 3 > 2; print x}'`,
+          `awk 'BEGIN{print 1 | "cat"}'`,
+          `awk '{print $1 > "/dev/stderr"}' ${fora}/p.md`,
+          `awk '{print $1 > "${fora}/x"}' ${fora}/p.md`,
+          `awk 'BEGIN{print length("abc")}'`,
+        ];
+        await esperar(regressoes, 0, cofre);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Achado P2 do bot (rodada 14): sed e vim — caminhos que pulam texto e expressões em comandos permitidos", async () => {
+      const { fora, cofre, esperar } = prepararRodada11();
+      try {
+        const ataques = [
+          `sed 's/[/]/x/;w wiki/a.md' ${fora}/p.md`,
+          `sed ':a;s/x/y/;ta;w wiki/a.md' ${fora}/p.md`,
+          `sed '1!{;w wiki/a.md}' ${fora}/p.md`,
+          `sed -n '/a/I w wiki/a.md' ${fora}/p.md`,
+          `sed 'r ${fora}/p.md\nw wiki/a.md' ${fora}/p.md`,
+          `sed 'y/a/b/;e cp ${fora}/p.md wiki/a.md' ${fora}/p.md`,
+          `sed -n '1~2{p;e}' ${fora}/p.md`,
+          `vim -es -c 'm =system("cp x y")' -c q ${fora}/p.md`,
+          `vim -es -c 't =execute("w wiki/a.md")' -c q ${fora}/p.md`,
+          `vim -es -c 'y =x' -c q ${fora}/p.md`,
+          `vim -es -c '%s/a/\\=system("cp x y")/' -c q ${fora}/p.md`,
+          `vim -es -c 'g/a/s//\\=system("cp x y")/' -c q ${fora}/p.md`,
+        ];
+        await esperar(ataques, 2, cofre);
+        const regressoes = [
+          `sed -n '1p' ${fora}/p.md`,
+          `sed -e 's/w/e/g' -e 'y/abc/wxe/' ${fora}/p.md`,
+          `sed ':a;N;$!ba;s/\\n/ /g' ${fora}/p.md`,
+          `sed -n '/x/{s//y/;p}' ${fora}/p.md`,
+          `vim -es -c 's/a=b/c/' -c wq ${fora}/p.md`,
+          `vim -es -c '%m0' -c wq ${fora}/p.md`,
+        ];
+        await esperar(regressoes, 0, cofre);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
   });
 });

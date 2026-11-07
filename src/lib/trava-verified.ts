@@ -1246,7 +1246,7 @@ function gitNoAncestral(
 
 // ---- Ferramentas de texto cuja linguagem de script grava arquivo ou executa comando (sed, awk, ed/ex/vim) ----
 type EntradaDoComando = { redirecionada: boolean; dePipe: boolean; unicoComando: boolean };
-type EscritaDeScript = { destinos: string[]; comandos: string[]; bloqueio?: string };
+type EscritaDeScript = { destinos: string[]; comandos: string[]; entradas?: string[]; bloqueio?: string };
 
 // O arquivo é lido agora, mas pode ser trocado por um comando anterior da mesma linha: com mais de um comando, não se prova.
 function lerScriptLegivel(arquivo: string, base: string, unicoComando: boolean): string | undefined {
@@ -1316,7 +1316,8 @@ function analisarScriptSed(script: string): EscritaDeScript & { dinamico: boolea
     }
     if (c === "e") {
       const comando = script.slice(i + 1, fimDeLinha(i + 1)).trim();
-      if (comando) r.comandos.push(comando); else r.dinamico = true;
+      // `e` sozinho, ou seguido de `;`/`}` (`{p;e}`), executa o espaço de padrão: o que vai rodar não se prova.
+      if (comando && !/^[;}]/.test(comando)) r.comandos.push(comando); else r.dinamico = true;
       i = fimDeLinha(i + 1);
       continue;
     }
@@ -1347,6 +1348,12 @@ function analisarScriptSed(script: string): EscritaDeScript & { dinamico: boolea
     return r;
   }
   return r;
+}
+
+// Rede do sed, independente do parser: `w`/`W`/`e` na posição de comando (começo do script, depois de `;`, `{`, `}` ou nova linha,
+// com endereço opcional) que o parser não registrou. Cobre o texto que o parser pulou por ter lido a estrutura diferente do sed.
+function redeLexicaSed(script: string): boolean {
+  return /(?:^|[;{}\n])[ \t0-9,$~+!]*(?:\/(?:\\.|[^/\n])*\/[IM]*[ \t!]*)?[wWe](?=[ \t\n;}]|$)/.test(script);
 }
 
 // awk: print/printf com > >> | |&, system(), "cmd" | getline. Literal vira destino ou comando; o que não for literal bloqueia.
@@ -1486,6 +1493,130 @@ function analisarScriptAwk(script: string): EscritaDeScript {
   return r;
 }
 
+// Rede léxica do awk: varre o programa INTEIRO, sem depender da estrutura (o parser acima consome a expressão de um `print` sem ver
+// um `system()` ou um `>` aninhado). Primitivas: `system(`, `|`/`|&` (saída para comando e `"cmd" | getline`) e `>`/`>>` num statement
+// com `print`/`printf` (comparação ou redirecionamento: na dúvida é redirecionamento). Literal simples é destino/comando; o resto bloqueia.
+function redeLexicaAwk(script: string): EscritaDeScript {
+  const r: EscritaDeScript = { destinos: [], comandos: [], entradas: [] };
+  const n = script.length;
+  const nao = (motivo: string) => { r.bloqueio ??= `${motivo} (falha fechada)`; };
+  const lerString = (de: number): { texto: string; bruto: string; fim: number } | undefined => {
+    let texto = "";
+    for (let k = de + 1; k < n; k++) {
+      const c = script[k]!;
+      if (c === "\\" && k + 1 < n) { texto += script[k + 1]; k++; continue; }
+      if (c === '"') return { texto, bruto: script.slice(de + 1, k), fim: k + 1 };
+      texto += c;
+    }
+    return undefined;
+  };
+  const registrar = (lista: string[], literal: { texto: string; bruto: string }) => {
+    lista.push(literal.texto);
+    if (literal.bruto !== literal.texto) lista.push(literal.bruto);
+  };
+  const lerRegex = (de: number): number => {
+    let colchete = false;
+    for (let k = de + 1; k < n; k++) {
+      const c = script[k]!;
+      if (c === "\\") { k++; continue; }
+      if (c === "\n") return -1;
+      if (c === "[") colchete = true;
+      else if (c === "]") colchete = false;
+      else if (c === "/" && !colchete) return k + 1;
+    }
+    return -1;
+  };
+  const esperaOperando = (anterior: string | undefined) => anterior === undefined || /[(,{;!~|&=<>+\-*%^?:\n]/.test(anterior);
+  const proximoUtil = (de: number) => { let k = de; while (k < n && /\s/.test(script[k]!)) k++; return k; };
+  // Depois de um alvo literal só pode vir o fim da instrução ou o fecho de um grupo.
+  const terminaAli = (de: number) => /^[ \t]*(?:$|[;}\n)#,])/.test(script.slice(de));
+  let ultima: { texto: string; bruto: string; inicio: number; fim: number } | undefined;
+  let anterior: string | undefined;
+  let temPrint = false;
+  let i = 0;
+  while (i < n) {
+    const c = script[i]!;
+    if (c === "#") { while (i < n && script[i] !== "\n") i++; continue; }
+    if (c === "\n" || c === ";" || c === "{" || c === "}") { temPrint = false; anterior = c; i++; continue; }
+    if (/\s/.test(c)) { i++; continue; }
+    if (c === "/" && esperaOperando(anterior)) {
+      const fim = lerRegex(i);
+      if (fim < 0) { nao("regex do awk sem fechamento"); return r; }
+      i = fim; anterior = ")";
+      continue;
+    }
+    if (c === '"') {
+      const l = lerString(i);
+      if (!l) { nao("string do awk sem fechamento"); return r; }
+      ultima = { ...l, inicio: i };
+      i = l.fim; anterior = '"';
+      continue;
+    }
+    if (c === "|") {
+      if (script[i + 1] === "|") { anterior = "|"; i += 2; continue; }
+      let k = i + 1;
+      if (script[k] === "&") k++;
+      k = proximoUtil(k);
+      if (script.startsWith("getline", k)) {
+        const antes = ultima ? script.slice(0, ultima.inicio).trimEnd().slice(-1) : "";
+        const solta = ultima && script.slice(ultima.fim, i).trim() === "" && (antes === "" || /[;{}(=\n]/.test(antes));
+        if (solta) registrar(r.comandos, ultima!); else nao("awk com comando não literal ou concatenado em getline");
+      } else {
+        const literal = script[k] === '"' ? lerString(k) : undefined;
+        if (!literal) nao("awk com comando de pipe não literal");
+        else if (!terminaAli(literal.fim)) nao("awk com comando de pipe concatenado");
+        else { registrar(r.entradas!, literal); ultima = { ...literal, inicio: k }; i = literal.fim; anterior = '"'; continue; }
+      }
+      anterior = "|"; i++;
+      continue;
+    }
+    if (c === ">") {
+      if (script[i + 1] === "=") { anterior = ">"; i += 2; continue; }
+      if (temPrint) {
+        let k = i + 1;
+        if (script[k] === ">") k++;
+        k = proximoUtil(k);
+        const literal = script[k] === '"' ? lerString(k) : undefined;
+        if (!literal) nao("awk com destino de redirecionamento não literal");
+        else if (!terminaAli(literal.fim)) nao("awk com alvo de redirecionamento concatenado");
+        else { registrar(r.destinos, literal); ultima = { ...literal, inicio: k }; i = literal.fim; anterior = '"'; continue; }
+      }
+      anterior = ">"; i++;
+      continue;
+    }
+    if (/[A-Za-z_]/.test(c)) {
+      let k = i;
+      while (k < n && /\w/.test(script[k]!)) k++;
+      const palavra = script.slice(i, k);
+      i = k; anterior = "a";
+      if (palavra === "print" || palavra === "printf") temPrint = true;
+      else if (palavra === "system") {
+        const j = proximoUtil(i);
+        if (script[j] === "(") {
+          const a = proximoUtil(j + 1);
+          const literal = script[a] === '"' ? lerString(a) : undefined;
+          if (literal && /^\s*\)/.test(script.slice(literal.fim))) registrar(r.comandos, literal);
+          else nao("awk com system() de comando não literal");
+        }
+      }
+      continue;
+    }
+    if ((c === "+" || c === "-") && script[i + 1] === c) { anterior = ")"; i += 2; continue; }
+    anterior = c;
+    i++;
+  }
+  return r;
+}
+
+// Interpretador sem argumento de programa recebe o código pela entrada padrão (`print 1 | "sh"` executa o que o awk escrever).
+function leOCodigoDaEntrada(comando: string): boolean {
+  const palavras = comando.trim().split(/\s+/).filter(Boolean);
+  if (!palavras.length) return false;
+  const verbo = verboNormalizado(palavras[0]!);
+  const interpretador = ehShell(verbo) || /^(?:python[\d.]*|perl|ruby|node|bun|deno|php|ed|red|ex|vi|vim|nvim)$/.test(verbo);
+  return interpretador && palavras.slice(1).every(arg => arg.startsWith("-") && !/^-[a-zA-Z]*[ce]/.test(arg));
+}
+
 // Comandos ex/vim (de -c, +cmd, -S, --cmd): escrita (w, wq, x, saveas...), shell (!, r !) e comandos que podem tudo.
 function analisarComandosEx(texto: string): EscritaDeScript {
   const r: EscritaDeScript = { destinos: [], comandos: [] };
@@ -1531,7 +1662,11 @@ function analisarComandosEx(texto: string): EscritaDeScript {
       else if (alvo && alvo !== "%" && alvo !== "#") r.destinos.push(alvo);
       return;
     }
-    if (!PERMITIDOS.test(palavra)) r.bloqueio = `comando do editor fora da lista permitida (${palavra}; falha fechada)`;
+    if (!PERMITIDOS.test(palavra)) { r.bloqueio = `comando do editor fora da lista permitida (${palavra}; falha fechada)`; return; }
+    // `=` no argumento de comando que não é busca/substituição vale como registrador de expressão (`m =expr`, `t =expr`, `y =x`).
+    if (!/^(?:s|su|sub|subs|subst|substi|substit|substitu|substitut|substitute|&&?|~)$/.test(palavra) && resto.includes("=")) {
+      r.bloqueio = `comando do editor com expressão (${palavra} ...=; falha fechada)`;
+    }
   };
   // `\=` no substitute avalia uma expressão (system(), por exemplo): não se prova.
   if (texto.includes("\\=")) { r.bloqueio = "substitute com expressão (\\=) do editor (falha fechada)"; return r; }
@@ -1553,7 +1688,7 @@ function decidirEscritaDeScript(
   raiz: string,
   ambiente: Record<string, string | undefined>,
   temMudancaDir: boolean,
-  executar: (texto: string) => Decisao
+  executar: (texto: string, dePipe?: boolean) => Decisao
 ): Decisao | undefined {
   if (achados.bloqueio) return { acao: "bloquear", motivo: achados.bloqueio };
   for (const alvo of achados.destinos) {
@@ -1564,6 +1699,12 @@ function decidirEscritaDeScript(
   }
   for (const comando of achados.comandos) {
     const interno = executar(comando);
+    if (interno.acao === "bloquear") return interno;
+  }
+  // Comando que recebe a saída do script por pipe: interpretador sem programa lê o código dela; os demais seguem o classificador.
+  for (const comando of achados.entradas ?? []) {
+    if (leOCodigoDaEntrada(comando)) return { acao: "bloquear", motivo: "script entrega o texto a um interpretador pela entrada padrão (falha fechada)" };
+    const interno = executar(comando, true);
     if (interno.acao === "bloquear") return interno;
   }
   return undefined;
@@ -1577,7 +1718,7 @@ function analisarFerramentaDeTexto(
   ambiente: Record<string, string | undefined>,
   temMudancaDir: boolean,
   entrada: EntradaDoComando,
-  executar: (texto: string) => Decisao
+  executar: (texto: string, dePipe?: boolean) => Decisao
 ): Decisao | undefined {
   const decidir = (achados: EscritaDeScript) => decidirEscritaDeScript(achados, base, raiz, ambiente, temMudancaDir, executar);
   const bloquear = (motivo: string): Decisao => ({ acao: "bloquear", motivo });
@@ -1628,6 +1769,9 @@ function analisarFerramentaDeTexto(
       if (texto === undefined) return bloquear("script do sed ilegível ou não literal (falha fechada)");
       const achados = analisarScriptSed(texto);
       if (achados.dinamico) return bloquear("sed com e ou s///e executa o que não se prova (falha fechada)");
+      if (!achados.destinos.length && !achados.comandos.length && !achados.bloqueio && redeLexicaSed(texto)) {
+        return bloquear("sed com w, W ou e que o parser não provou (falha fechada)");
+      }
       const decisao = decidir(achados);
       if (decisao) return decisao;
     }
@@ -1695,7 +1839,15 @@ function analisarFerramentaDeTexto(
     for (const script of scripts) {
       const texto = script.texto ?? lerScriptLegivel(script.arquivo!, base, entrada.unicoComando);
       if (texto === undefined) return bloquear("programa do awk ilegível ou não literal (falha fechada)");
-      const decisao = decidir(analisarScriptAwk(texto));
+      const estrutural = analisarScriptAwk(texto);
+      const rede = redeLexicaAwk(texto);
+      // O parser estrutural continua, mas não é a única defesa: valem os achados dos dois.
+      const decisao = decidir({
+        destinos: [...estrutural.destinos, ...rede.destinos],
+        comandos: [...estrutural.comandos, ...rede.comandos],
+        entradas: rede.entradas ?? [],
+        ...(estrutural.bloqueio ?? rede.bloqueio ? { bloqueio: (estrutural.bloqueio ?? rede.bloqueio)! } : {}),
+      });
       if (decisao) return decisao;
     }
     return undefined;
@@ -2220,9 +2372,9 @@ function analisarComandoSimples(
   }
 
   // 5.4b Linguagem de script que grava ou executa: sed (w/W/e), awk (>, |, system) e ed/ex/vim (w, !, saveas)
-  const executarAninhado = (texto: string): Decisao => aninhado.profundidade >= TETO_ANINHAMENTO
+  const executarAninhado = (texto: string, dePipe = false): Decisao => aninhado.profundidade >= TETO_ANINHAMENTO
     ? { acao: "bloquear", motivo: "comandos aninhados demais (falha fechada)" }
-    : decidirTerminalVerified(texto, false, base, raiz, ambiente, { profundidade: aninhado.profundidade + 1, comandosNaLinha: aninhado.comandosNaLinha }, temMudancaDir, ambienteGit);
+    : decidirTerminalVerified(texto, false, base, raiz, ambiente, { profundidade: aninhado.profundidade + 1, comandosNaLinha: aninhado.comandosNaLinha }, temMudancaDir, ambienteGit, dePipe);
   const ferramentaDeTexto = analisarFerramentaDeTexto(
     verbo, cmdArgs, base, raiz, ambiente, temMudancaDir, { redirecionada: entradaRedirecionada, dePipe: doPipe, unicoComando: (aninhado.comandosNaLinha ?? 1) <= 1 }, executarAninhado
   );
@@ -2372,7 +2524,8 @@ function decidirTerminalVerified(
   ambiente: Record<string, string | undefined>,
   aninhado: ContextoAninhado = { profundidade: 0 },
   mudancaDirHerdada = false,
-  ambienteGit: AmbienteGit = novoAmbienteGit()
+  ambienteGit: AmbienteGit = novoAmbienteGit(),
+  primeiroDoPipe = false
 ): Decisao {
   if (!cmdTexto.trim()) {
     return { acao: "bloquear", motivo: "comando de terminal vazio citando verified ou aprovação (falha fechada)" };
@@ -2409,8 +2562,8 @@ function decidirTerminalVerified(
 
   // A contagem da linha de fora não se perde no aninhamento: vale o maior entre ela e a destes comandos.
   const contexto: ContextoAninhado = { ...aninhado, comandosNaLinha: Math.max(aninhado.comandosNaLinha ?? 1, comandosSimples.length) };
-  for (const { tokens: cmdTokens, doPipe } of comandosSimples) {
-    const decisao = analisarComandoSimples(cmdTokens, base, raiz, ambiente, temCdOuPushd, contexto, ambienteGit, doPipe);
+  for (const [indice, { tokens: cmdTokens, doPipe }] of comandosSimples.entries()) {
+    const decisao = analisarComandoSimples(cmdTokens, base, raiz, ambiente, temCdOuPushd, contexto, ambienteGit, doPipe || (indice === 0 && primeiroDoPipe));
     if (decisao.acao === "bloquear") {
       return decisao;
     }
