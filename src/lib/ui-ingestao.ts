@@ -411,6 +411,20 @@ export class IngestaoNaInterface {
     return resumos.sort((a, b) => b.criadaEm.localeCompare(a.criadaEm) || b.id.localeCompare(a.id));
   }
 
+  async recuperarInterrompidas(): Promise<void> {
+    let nomes: string[];
+    try { nomes = await readdir(this.pasta); } catch { return; }
+    for (const nome of nomes) {
+      if (!nome.endsWith(".json")) continue;
+      const id = nome.slice(0, -5);
+      if (!ID_VALIDO.test(id)) continue;
+      try {
+        const conversa = JSON.parse(await readFile(join(this.pasta, nome), "utf8")) as Conversa;
+        if (conversa?.id === id && conversa.situacao === "rodando") await this.carregar(id);
+      } catch { /* uma conversa inválida ou sem permissão não impede recuperar as outras */ }
+    }
+  }
+
   async obter(id: string): Promise<Conversa | undefined> {
     await this.carregar(id);
     const conversa = this.publicadas.get(id);

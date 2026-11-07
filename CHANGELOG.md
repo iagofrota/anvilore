@@ -28,7 +28,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 ### Fixed
 
 - Cópias usadas como base em Mudanças agora são escolhidas pelo momento em que foram capturadas.
-- Ao recuperar um ajuste interrompido, a interface confere a página antes de encerrar a conversa e tira da aprovação vigente qualquer conteúdo que tenha mudado.
+- Ao iniciar a interface, o servidor recupera ajustes interrompidos antes de abrir as rotas; se a página mudou, remove a aprovação vigente antes de responder.
 - Ajustes que cancelam ou falham depois de uma escrita parcial invalidam a aprovação anterior antes de encerrar a conversa e mantêm o desfecho original visível.
 
 ## [0.3.1] - 2026-10-31

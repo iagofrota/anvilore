@@ -172,6 +172,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
   const token = opcoes.token ?? randomBytes(32).toString("base64url");
   const portaInicial = opcoes.portaInicial ?? 4173;
   let ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
+  await ingestao.recuperarInterrompidas();
   let servidor: Servidor | undefined;
   let ultimoErro: unknown;
 
