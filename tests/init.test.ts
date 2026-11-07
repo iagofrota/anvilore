@@ -560,10 +560,12 @@ describe("init × anvilore.toml (R70-F)", () => {
 
 describe("comandoInit --onboarding-pendente (instalação nova pelo instalador)", () => {
   const caminhoEstado = () => join(raiz, ".anvilore", "onboarding.json");
+  // Quando o código não é 0, o CI precisa mostrar o stderr do init: é ele que diz a causa.
+  const saidaDeErro = () => `stderr do init: ${console_.erros.join("\n") || "(vazio)"}`;
 
   test("Dado instalação nova Quando o instalador roda init --areas com --onboarding-pendente Então o estado do onboarding diz que precisa e não concluiu, com as áreas padrão mantidas", async () => {
     const codigo = await comandoInit(["--areas", AREAS_PADRAO.join(","), "--onboarding-pendente"], { raiz, interativo: false });
-    expect(codigo).toBe(0);
+    expect(codigo, saidaDeErro()).toBe(0);
     expect(areasEm(join(raiz, "wiki"))).toEqual([...AREAS_PADRAO].sort());
     expect(JSON.parse(readFileSync(caminhoEstado(), "utf8"))).toEqual({ concluido: false, etapa: 1 });
     const estado = await estadoOnboarding(raiz);
@@ -585,7 +587,7 @@ describe("comandoInit --onboarding-pendente (instalação nova pelo instalador)"
     const original = JSON.stringify({ concluido: true, concluidoEm: "2026-11-01T12:00:00-03:00", etapa: 4 });
     writeFileSync(caminhoEstado(), original);
     const codigo = await comandoInit(["--areas", "pessoal", "--onboarding-pendente"], { raiz, interativo: false });
-    expect(codigo).toBe(0);
+    expect(codigo, saidaDeErro()).toBe(0);
     expect(readFileSync(caminhoEstado(), "utf8")).toBe(original);
     expect((await estadoOnboarding(raiz)).precisaOnboarding).toBe(false);
   });

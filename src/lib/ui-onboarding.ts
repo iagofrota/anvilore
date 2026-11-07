@@ -12,7 +12,10 @@ import { caminhoWiki } from "./wiki-repo";
 
 export function validarDestinoAnvilore(raiz: string, destino: string): void {
   const raizAbs = resolve(raiz);
-  const raizReal = realpathSync(raizAbs);
+  // Mesmo resolvedor dos dois lados da comparação (`dentroDe` compara texto): `pastaReal` e `destinoReal` saem de `caminhoReal`
+  // (realpath nativo), então a raiz também. Misturar com o `realpathSync` do JS pode dar grafias diferentes do mesmo diretório
+  // no Windows (nome curto 8.3 do tmp, RUNNER~1, contra o longo) e reprovar um cofre legítimo.
+  const raizReal = caminhoReal(raizAbs);
   const destinoAbs = resolve(destino);
   const rel = relative(raizAbs, destinoAbs);
   if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
