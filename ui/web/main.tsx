@@ -60,6 +60,7 @@ function Aplicacao() {
     return criarControladorBatimento({
       enviar: () => api("/api/batimento", "POST"),
       aoFalhar: () => setEncerradoPorInatividade(true),
+      aoRecuperar: () => setEncerradoPorInatividade(false),
       intervaloMs: 20_000,
     });
   }, []);

@@ -3,18 +3,29 @@ export const MENSAGEM_INATIVIDADE = "O Anvilore foi fechado por inatividade. Cli
 export function criarControladorBatimento(opcoes: {
   enviar: () => Promise<void>;
   aoFalhar: () => void;
+  aoRecuperar?: () => void;
   intervaloMs?: number;
+  limiteFalhas?: number;
 }): () => void {
   const intervaloMs = opcoes.intervaloMs ?? 20_000;
+  const limiteFalhas = opcoes.limiteFalhas ?? 3;
   let timer: ReturnType<typeof setInterval> | undefined;
   let ativo = true;
+  let falhasConsecutivas = 0;
 
   const disparar = async () => {
     if (!ativo) return;
     try {
       await opcoes.enviar();
+      if (!ativo) return;
+      if (falhasConsecutivas > 0) {
+        falhasConsecutivas = 0;
+        opcoes.aoRecuperar?.();
+      }
     } catch {
-      if (ativo) {
+      if (!ativo) return;
+      falhasConsecutivas++;
+      if (falhasConsecutivas >= limiteFalhas) {
         opcoes.aoFalhar();
       }
     }
