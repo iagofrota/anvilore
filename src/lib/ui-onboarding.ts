@@ -415,3 +415,21 @@ export async function concluirOnboarding(raiz: string): Promise<void> {
     "utf8",
   );
 }
+
+// Instalação NOVA: o instalador cria as áreas padrão antes da 1ª abertura da interface e marca o onboarding como
+// pendente, senão "sem arquivo + áreas" valeria como instalação antiga e pularia as 4 telas. Nunca sobrescreve um
+// arquivo que já exista (inclusive link simbólico) e recusa destino que resolva para raw/ ou fora do cofre.
+export async function marcarOnboardingPendente(raiz: string): Promise<boolean> {
+  const pastaAnvilore = join(raiz, ".anvilore");
+  const caminhoOnboarding = join(pastaAnvilore, "onboarding.json");
+  validarDestinoAnvilore(raiz, caminhoOnboarding);
+  await mkdir(pastaAnvilore, { recursive: true });
+  validarDestinoAnvilore(raiz, caminhoOnboarding);
+  try {
+    await writeFile(caminhoOnboarding, JSON.stringify({ concluido: false, etapa: 1 }, null, 2), { encoding: "utf8", flag: "wx" });
+    return true;
+  } catch (erro) {
+    if ((erro as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw erro;
+  }
+}

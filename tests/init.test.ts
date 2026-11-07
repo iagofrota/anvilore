@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough, Readable } from "node:stream";
 import { AREAS_PADRAO, comandoInit, inicializar } from "../src/comandos/init";
 import { subcomandos } from "../src/cli";
 import { validarWiki } from "../src/comandos/validar";
+import { estadoOnboarding } from "../src/lib/ui-onboarding";
 import { capturarConsole } from "./apoio/console";
 
 let raiz: string;
@@ -554,5 +555,47 @@ describe("init × anvilore.toml (R70-F)", () => {
     mkdirSync(join(raiz, "wiki", "exemplo"), { recursive: true });
     await comandoInit(["--areas", "pessoal"], { raiz });
     expect(console_.avisos.join("\n")).not.toContain("wiki/exemplo");
+  });
+});
+
+describe("comandoInit --onboarding-pendente (instalação nova pelo instalador)", () => {
+  const caminhoEstado = () => join(raiz, ".anvilore", "onboarding.json");
+
+  test("Dado instalação nova Quando o instalador roda init --areas com --onboarding-pendente Então o estado do onboarding diz que precisa e não concluiu, com as áreas padrão mantidas", async () => {
+    const codigo = await comandoInit(["--areas", AREAS_PADRAO.join(","), "--onboarding-pendente"], { raiz, interativo: false });
+    expect(codigo).toBe(0);
+    expect(areasEm(join(raiz, "wiki"))).toEqual([...AREAS_PADRAO].sort());
+    expect(JSON.parse(readFileSync(caminhoEstado(), "utf8"))).toEqual({ concluido: false, etapa: 1 });
+    const estado = await estadoOnboarding(raiz);
+    expect(estado.precisaOnboarding).toBe(true);
+    expect(estado.concluido).toBe(false);
+    expect(estado.etapa).toBe(1);
+  });
+
+  test("Dado pasta antiga sem onboarding.json e com áreas Quando leio o estado sem a opção Então o onboarding conta como concluído", async () => {
+    expect(await comandoInit(["--areas", AREAS_PADRAO.join(",")], { raiz, interativo: false })).toBe(0);
+    expect(existsSync(caminhoEstado())).toBe(false);
+    const estado = await estadoOnboarding(raiz);
+    expect(estado.precisaOnboarding).toBe(false);
+    expect(estado.concluido).toBe(true);
+  });
+
+  test("Dado onboarding.json já existente Quando rodo init com --onboarding-pendente Então os bytes do arquivo não mudam", async () => {
+    mkdirSync(join(raiz, ".anvilore"), { recursive: true });
+    const original = JSON.stringify({ concluido: true, concluidoEm: "2026-11-01T12:00:00-03:00", etapa: 4 });
+    writeFileSync(caminhoEstado(), original);
+    const codigo = await comandoInit(["--areas", "pessoal", "--onboarding-pendente"], { raiz, interativo: false });
+    expect(codigo).toBe(0);
+    expect(readFileSync(caminhoEstado(), "utf8")).toBe(original);
+    expect((await estadoOnboarding(raiz)).precisaOnboarding).toBe(false);
+  });
+
+  test("Dado .anvilore que resolve para raw/ Quando rodo init com --onboarding-pendente Então recusa e não grava nada em raw/", async () => {
+    mkdirSync(join(raiz, "raw", "x"), { recursive: true });
+    symlinkSync(join(raiz, "raw", "x"), join(raiz, ".anvilore"));
+    const codigo = await comandoInit(["--areas", "pessoal", "--onboarding-pendente"], { raiz, interativo: false });
+    expect(codigo).not.toBe(0);
+    expect(readdirSync(join(raiz, "raw", "x"))).toEqual([]);
+    expect(console_.erros.join("\n")).toMatch(/raw|cofre/i);
   });
 });
