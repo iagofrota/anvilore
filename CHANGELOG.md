@@ -31,6 +31,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - Cópias usadas como base em Mudanças agora são escolhidas pelo momento em que foram capturadas.
 - Ao iniciar a interface, o servidor recupera ajustes interrompidos antes de abrir as rotas; se a página mudou, remove a aprovação vigente antes de responder.
 - Ajustes que cancelam ou falham depois de uma escrita parcial invalidam a aprovação anterior antes de encerrar a conversa e mantêm o desfecho original visível.
+- Se a aprovação não puder ser invalidada com segurança, o ajuste restaura atomicamente a cópia-base aprovada ou move a página para `.anvilore/ui/quarentena` quando não consegue restaurá-la; a conversa informa o descarte da edição não revisada.
 
 ## [0.3.1] - 2026-10-31
 

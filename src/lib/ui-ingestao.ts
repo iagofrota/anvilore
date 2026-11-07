@@ -1,10 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { lstat, mkdir, readdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, readlink, realpath, rename, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { conferirArquivoDeLeitura } from "../comandos/conferir-leitura";
-import { caminhoReal, dentroDe } from "./caminhos";
+import { caminhoReal, dentroDe, estaEmRaw } from "./caminhos";
 import { isoComOffset } from "./hora";
 import { caminhoDeRawIngerivelPeloBotao, caminhoTemMetacaracteres } from "./caminho-raw";
 export { caminhoDeRawIngerivelPeloBotao, caminhoTemMetacaracteres } from "./caminho-raw";
@@ -18,6 +18,7 @@ import { caminhoDaCopia } from "./ui-fila";
 import { caminhoWiki } from "./wiki-repo";
 import { lerFrontmatter } from "./frontmatter";
 import { estadoAprovacaoHumana, lerVerificacoes } from "./okf";
+import { gravarArquivoWiki, validarEscritaNaWiki } from "./escrita-segura";
 
 function carimboLocalComMilissegundos(data: Date): string {
   const local = isoComOffset(data).slice(0, 19);
@@ -747,7 +748,7 @@ export class IngestaoNaInterface {
       if (conversa.tipo === "ajuste" && conversa.pagina && conversa.versaoEsperada) {
         await this.tentarInvalidarAprovacaoSemMascarar(conversa);
       }
-      Object.assign(conversa, { situacao: "interrompida", erro: "A interface foi fechada durante esta etapa." });
+      Object.assign(conversa, { situacao: "interrompida", erro: conversa.erro ?? "A interface foi fechada durante esta etapa." });
       delete conversa.agora;
       await this.salvar(conversa);
     } else {
@@ -797,7 +798,7 @@ export class IngestaoNaInterface {
         if (conversa.tipo === "ajuste" && conversa.pagina) {
           await this.tentarInvalidarAprovacaoSemMascarar(conversa);
         }
-        Object.assign(conversa, { situacao: "erro", erro: mensagemOriginal });
+        Object.assign(conversa, { situacao: "erro", erro: conversa.erro ?? mensagemOriginal });
       })
       .finally(async () => {
         this.ativa = undefined;
@@ -901,18 +902,141 @@ export class IngestaoNaInterface {
 
   private async assegurarAprovacaoInvalidaSeMudou(conversa: Conversa): Promise<void> {
     if (!conversa.pagina || !conversa.versaoEsperada) return;
-    const arquivoPagina = resolve(this.wiki(), conversa.pagina);
-    let conteudoFinal: string;
-    try { conteudoFinal = await readFile(arquivoPagina, "utf8"); } catch { return; }
-    const versaoFinal = createHash("sha256").update(conteudoFinal).digest("hex");
+    this.validarCaminhoDaPagina(conversa.pagina);
+    let bytesFinais: Buffer;
+    try { bytesFinais = await readFile(resolve(this.wiki(), conversa.pagina)); }
+    catch (erro) {
+      if ((erro as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw erro;
+    }
+    const conteudoFinal = bytesFinais.toString("utf8");
+    const versaoFinal = createHash("sha256").update(bytesFinais).digest("hex");
     if (versaoFinal === conversa.versaoEsperada) return;
     let frontmatter: Record<string, unknown> | null;
-    try { frontmatter = lerFrontmatter(conteudoFinal); } catch { return; }
-    if (!frontmatter) return;
+    try { frontmatter = lerFrontmatter(conteudoFinal); }
+    catch (erro) { throw new Error("o frontmatter da página alterada não pôde ser conferido", { cause: erro }); }
+    if (!frontmatter) throw new Error("a página alterada não tem frontmatter válido");
     if (estadoAprovacaoHumana(frontmatter) === "vigente") {
       const novoConteudo = invalidarAprovacaoVigente(conteudoFinal, conversa.geracao?.by ?? conversa.autor ?? "escritor", this.agora());
-      await writeFile(arquivoPagina, novoConteudo);
+      await gravarArquivoWiki(this.wiki(), conversa.pagina, novoConteudo);
     }
+  }
+
+  private validarCaminhoDaPagina(pagina: string, validarAlvo = true): void {
+    if (typeof pagina !== "string" || isAbsolute(pagina) || pagina.includes("\\") || pagina.includes("\0") || !pagina.endsWith(".md")) {
+      throw new Error("o caminho da página do ajuste não é seguro");
+    }
+    const partes = pagina.split("/");
+    if (partes.some(parte => !parte || parte === "." || parte === "..")) throw new Error("o caminho da página do ajuste não é seguro");
+    if (validarAlvo) validarEscritaNaWiki(this.wiki(), pagina);
+  }
+
+  private async restaurarOuQuarentenarPagina(conversa: Conversa): Promise<"restaurada" | "quarentenada" | "ausente"> {
+    const pagina = conversa.pagina;
+    if (!pagina || !conversa.versaoEsperada || !ID_VALIDO.test(conversa.id)) throw new Error("não há identidade segura para proteger a página do ajuste");
+    this.validarCaminhoDaPagina(pagina, false);
+
+    const arquivoCopia = join(this.raiz, ".anvilore/ui/copias", conversa.id, pagina);
+    try {
+      const raizReal = await realpath(this.raiz);
+      const anvilore = join(raizReal, ".anvilore");
+      const infoAnvilore = await lstat(anvilore);
+      if (!infoAnvilore.isDirectory() || infoAnvilore.isSymbolicLink()) throw new Error(".anvilore não é um diretório seguro");
+      const anviloreReal = await realpath(anvilore);
+      const pastaCopias = await realpath(join(anviloreReal, "ui/copias"));
+      if (dentro(pastaCopias, anviloreReal) === undefined) throw new Error("a pasta de cópias saiu de .anvilore");
+      const infoCopia = await lstat(arquivoCopia);
+      if (!infoCopia.isFile() || infoCopia.isSymbolicLink()) throw new Error("a cópia-base não é um arquivo regular");
+      const caminhoCopiaReal = await realpath(arquivoCopia);
+      if (dentro(caminhoCopiaReal, pastaCopias) === undefined) throw new Error("a cópia-base saiu da pasta de cópias");
+      const copia = await readFile(caminhoCopiaReal);
+      if (createHash("sha256").update(copia).digest("hex") === conversa.versaoEsperada) {
+        let frontmatter: Record<string, unknown> | null;
+        try { frontmatter = lerFrontmatter(copia.toString("utf8")); } catch { frontmatter = null; }
+        if (frontmatter && estadoAprovacaoHumana(frontmatter) === "vigente") {
+          try {
+            await gravarArquivoWiki(this.wiki(), pagina, copia);
+            return "restaurada";
+          } catch { /* se o alvo não puder ser substituído com segurança, retire-o da wiki */ }
+        }
+      }
+    } catch { /* uma cópia ausente, inacessível ou com hash inválido não pode ser base de restauração */ }
+
+    const wikiReal = await realpath(this.wiki());
+    if (estaEmRaw(wikiReal)) throw new Error("a wiki está dentro de raw/ e não pode ser movida para quarentena");
+    const origemParaMover = resolve(wikiReal, pagina);
+    let pastaOrigem = wikiReal;
+    for (const parte of pagina.split("/").slice(0, -1)) {
+      pastaOrigem = join(pastaOrigem, parte);
+      const info = await lstat(pastaOrigem);
+      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("a origem da página atravessa um link simbólico");
+    }
+    let paginaAtual: Buffer | undefined;
+    let origemInfo: Awaited<ReturnType<typeof lstat>>;
+    try {
+      origemInfo = await lstat(origemParaMover);
+      if (!origemInfo.isSymbolicLink()) {
+        if (!origemInfo.isFile()) throw new Error("a página não é um arquivo regular");
+        paginaAtual = await readFile(origemParaMover);
+      }
+    }
+    catch (erro) {
+      if ((erro as NodeJS.ErrnoException).code === "ENOENT") return "ausente";
+      throw erro;
+    }
+    // Validar também a origem real: a quarentena nunca pode retirar um arquivo de raw/ ou seguir links.
+    const origemReal = origemInfo.isSymbolicLink() ? origemParaMover : await realpath(origemParaMover);
+    if (dentro(origemReal, wikiReal) === undefined) {
+      throw new Error("a página não está dentro da wiki");
+    }
+
+    const raizReal = await realpath(this.raiz);
+    const pastaAnvilore = join(raizReal, ".anvilore");
+    await mkdir(pastaAnvilore, { recursive: true });
+    const infoAnvilore = await lstat(pastaAnvilore);
+    if (!infoAnvilore.isDirectory() || infoAnvilore.isSymbolicLink()) throw new Error("o diretório .anvilore não é seguro para quarentena");
+    const anviloreReal = await realpath(pastaAnvilore);
+    if (dentro(anviloreReal, raizReal) === undefined) throw new Error("o diretório de quarentena saiu da raiz do projeto");
+    const destino = resolve(anviloreReal, "ui", "quarentena", conversa.id, pagina);
+    const relDestino = relative(anviloreReal, destino);
+    if (!relDestino || relDestino === ".." || relDestino.startsWith(`..${sep}`) || isAbsolute(relDestino)) {
+      throw new Error("o destino de quarentena saiu de .anvilore");
+    }
+    await mkdir(dirname(destino), { recursive: true });
+    const paiReal = await realpath(dirname(destino));
+    if (dentro(paiReal, anviloreReal) === undefined) throw new Error("o diretório pai da quarentena saiu de .anvilore");
+    let atual = anviloreReal;
+    for (const parte of relative(anviloreReal, paiReal).split(sep).filter(Boolean)) {
+      atual = join(atual, parte);
+      const info = await lstat(atual);
+      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("o destino da quarentena atravessa um link simbólico");
+    }
+    try { await lstat(destino); throw new Error("o destino da quarentena já existe"); }
+    catch (erro) { if ((erro as NodeJS.ErrnoException).code !== "ENOENT") throw erro; }
+
+    try {
+      await rename(origemParaMover, destino);
+    } catch (erro) {
+      if ((erro as NodeJS.ErrnoException).code !== "EXDEV") throw erro;
+      const temporario = `${destino}.${randomBytes(8).toString("hex")}.tmp`;
+      try {
+        if (!paginaAtual) {
+          await symlink(await readlink(origemParaMover), temporario);
+          await rename(temporario, destino);
+          await unlink(origemParaMover);
+          return "quarentenada";
+        }
+        await writeFile(temporario, paginaAtual, { flag: "wx" });
+        await rename(temporario, destino);
+        const bytesAntesDeRemover = await readFile(origemParaMover);
+        if (!bytesAntesDeRemover.equals(paginaAtual)) throw new Error("a página mudou durante a quarentena");
+        await unlink(origemParaMover);
+      } catch (erroDeCopia) {
+        try { await unlink(temporario); } catch {}
+        throw erroDeCopia;
+      }
+    }
+    return "quarentenada";
   }
 
   private async tentarInvalidarAprovacaoSemMascarar(conversa: Conversa): Promise<boolean> {
@@ -922,7 +1046,23 @@ export class IngestaoNaInterface {
     } catch (erro) {
       const detalhe = erro instanceof Error ? erro.message : String(erro);
       conversa.mensagens ??= [];
-      conversa.mensagens.push(`Não foi possível invalidar a aprovação após a escrita: ${detalhe}`);
+      try {
+        const destino = await this.restaurarOuQuarentenarPagina(conversa);
+        if (destino === "restaurada") {
+          conversa.mensagens.push("A edição não revisada foi descartada; a página aprovada foi restaurada da cópia-base.");
+          conversa.erro = "A edição não revisada foi descartada e a página aprovada foi restaurada.";
+        } else if (destino === "quarentenada") {
+          conversa.mensagens.push("A edição não revisada foi descartada; sem cópia-base íntegra, a página foi movida para .anvilore/ui/quarentena.");
+          conversa.erro = "A edição não revisada foi descartada e a página foi movida para quarentena.";
+        } else {
+          conversa.mensagens.push("A página já não está na wiki; não havia conteúdo aprovado para restaurar ou mover.");
+          conversa.erro = "A página já não está na wiki; a aprovação anterior não pôde ser conferida.";
+        }
+      } catch (protecao) {
+        const detalheProtecao = protecao instanceof Error ? protecao.message : String(protecao);
+        conversa.mensagens.push(`Não foi possível invalidar a aprovação após a escrita: ${detalhe}. Também não foi possível restaurar ou mover a página para quarentena: ${detalheProtecao}`);
+        conversa.erro = "Não foi possível proteger a página alterada; é necessária revisão manual imediata.";
+      }
       return false;
     }
   }
@@ -930,7 +1070,7 @@ export class IngestaoNaInterface {
   private async terminarEscrita(conversa: Conversa, fim: FimDaFase): Promise<void> {
     if (conversa.tipo === "ajuste" && conversa.pagina) {
       if (!(await this.tentarInvalidarAprovacaoSemMascarar(conversa))) {
-        Object.assign(conversa, { situacao: "erro", erro: "Não foi possível conferir a aprovação anterior; a página precisa de revisão manual." });
+        Object.assign(conversa, { situacao: "erro", erro: conversa.erro ?? "Não foi possível conferir a aprovação anterior; a página precisa de revisão manual." });
         return;
       }
     }

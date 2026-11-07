@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { iniciarServidorUi } from "../src/ui/servidor/servidor";
@@ -251,11 +251,107 @@ describe("Servidor UI — Pedir ajuste na Revisão", () => {
       await new Promise(r => setTimeout(r, 50));
     }
 
-    expect(conversa).toMatchObject({ situacao: "erro", erro: "Não foi possível conferir a aprovação anterior; a página precisa de revisão manual." });
-    expect(conversa?.mensagens?.join(" ")).toContain("Não foi possível invalidar a aprovação após a escrita");
+    expect(conversa).toMatchObject({ situacao: "erro", erro: "A edição não revisada foi descartada e a página aprovada foi restaurada." });
     const textoFinal = readFileSync(join(raiz, "wiki", caminhoRelativo), "utf8");
-    expect(textoFinal).toContain("Texto ajustado.");
+    expect(textoFinal).toBe(inicial);
+    expect(conversa?.mensagens?.join(" ")).toContain("página aprovada foi restaurada");
     expect(estadoAprovacaoHumana(lerFrontmatter(textoFinal)!)).toBe("vigente");
+  });
+
+  test("Dado que o escritor deixa generated duplicado numa página aprovada Quando o ajuste conclui Então restaura os bytes aprovados e informa o descarte", async () => {
+    const inicial = [
+      "---", "type: concept", "slug: segundo-cerebro", "title: Segundo cérebro",
+      "generated:", "  by: claude-opus/2026-10", "  at: 2026-10-26T14:35:00-03:00",
+      "verified:", "  by: human:iago", "  at: 2026-10-26T14:36:00-03:00", "---", "", "Texto original aprovado.",
+    ].join("\n");
+    const fluxo = await criarAjusteComPaginaAprovada(async aoEvento => {
+      aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-haiku/2.1.311" });
+      aoEvento({ tipo: "ferramenta", id: "w1", nome: "Edit", caminho: join(raiz, "wiki", "pessoal/concepts/segundo-cerebro.md") });
+      const geracaoDuplicada = "generated:\n  by: claude-opus/2026-10\n  at: 2026-10-26T14:35:00-03:00\n";
+      const malformado = inicial.replace("verified:", `${geracaoDuplicada}verified:`)
+        .replace("Texto original aprovado.", "Texto alterado não revisado.");
+      writeFileSync(join(raiz, "wiki/pessoal/concepts/segundo-cerebro.md"), malformado);
+      aoEvento({ tipo: "resultado-ferramenta", id: "w1", erro: false, texto: "Editado" });
+      return { situacao: "concluida", sessao: SESSAO, texto: "Ajuste feito", recusas: [] };
+    });
+    const conteudoFinal = readFileSync(join(raiz, "wiki", fluxo.caminhoRelativo), "utf8");
+    expect(fluxo.conversa).toMatchObject({ situacao: "erro" });
+    expect(conteudoFinal).toBe(fluxo.conteudoInicial);
+    expect(fluxo.conversa?.mensagens?.join(" ")).toContain("página aprovada foi restaurada");
+  });
+
+  test("Dado que o escritor preserva os bytes de uma página aprovada Quando o ajuste conclui Então a aprovação e os bytes permanecem iguais", async () => {
+    const fluxo = await criarAjusteComPaginaAprovada(async aoEvento => {
+      const caminho = join(raiz, "wiki/pessoal/concepts/segundo-cerebro.md");
+      const bytesAprovados = readFileSync(caminho);
+      aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-haiku/2.1.311" });
+      aoEvento({ tipo: "ferramenta", id: "w1", nome: "Edit", caminho });
+      writeFileSync(caminho, bytesAprovados);
+      aoEvento({ tipo: "resultado-ferramenta", id: "w1", erro: false, texto: "Sem alteração" });
+      return { situacao: "concluida", sessao: SESSAO, texto: "Sem alterações", recusas: [] };
+    });
+    const caminho = join(raiz, "wiki", fluxo.caminhoRelativo);
+    const paginaFinal = readFileSync(caminho, "utf8");
+    expect(fluxo.conversa?.situacao).toBe("concluida");
+    expect(paginaFinal).toBe(fluxo.conteudoInicial);
+    expect(estadoAprovacaoHumana(lerFrontmatter(paginaFinal)!)).toBe("vigente");
+  });
+
+  test("Dado ajuste rodando persistido com página aprovada malformada Quando o servidor inicia Então restaura a cópia antes da primeira rota", async () => {
+    const caminhoRelativo = "pessoal/concepts/segundo-cerebro.md";
+    const conteudoAprovado = [
+      "---", "type: concept", "slug: segundo-cerebro", "title: Segundo cérebro",
+      "generated:", "  by: claude-opus/2026-10", "  at: 2026-10-26T14:35:00-03:00",
+      "verified:", "  by: human:iago", "  at: 2026-10-26T14:36:00-03:00", "---", "", "Texto original aprovado.",
+    ].join("\n");
+    const versaoEsperada = createHash("sha256").update(conteudoAprovado).digest("hex");
+    const id = "ajuste-recuperacao";
+    const copia = join(raiz, ".anvilore/ui/copias", id, caminhoRelativo);
+    const conversas = join(raiz, ".anvilore/ui/conversas");
+    mkdirSync(join(raiz, ".anvilore/ui/copias", id, "pessoal/concepts"), { recursive: true });
+    mkdirSync(conversas, { recursive: true });
+    writeFileSync(copia, conteudoAprovado);
+    const geracaoDuplicada = "generated:\n  by: claude-opus/2026-10\n  at: 2026-10-26T14:35:00-03:00\n";
+    writeFileSync(join(raiz, "wiki", caminhoRelativo), conteudoAprovado.replace("verified:", `${geracaoDuplicada}verified:`).replace("Texto original aprovado.", "Texto alterado não revisado."));
+    writeFileSync(join(conversas, `${id}.json`), JSON.stringify({
+      versao: 1, id, criadaEm: "2026-11-07T00:00:00.000Z", atualizadaEm: "2026-11-07T00:00:00.000Z",
+      tipo: "ajuste", pagina: caminhoRelativo, versaoEsperada, pedido: "Ajustar", area: "pessoal",
+      fonte: "raw/pessoal/origem.md", nome: "origem.md", bytes: 1, passo: "escrita", situacao: "rodando",
+      atividade: [], avisos: [], recusas: [],
+    }));
+
+    const { chamar } = await subirServidor();
+    const resposta = await chamar("/api/rascunhos");
+    expect(resposta.status).toBe(200);
+    const paginaFinal = readFileSync(join(raiz, "wiki", caminhoRelativo), "utf8");
+    expect(paginaFinal).toBe(conteudoAprovado);
+    expect(estadoAprovacaoHumana(lerFrontmatter(paginaFinal)!)).toBe("vigente");
+  });
+
+  test("Dado que a cópia aprovada está ausente e a invalidação falha Quando o ajuste termina Então move a página para quarentena fora da wiki", async () => {
+    const raw = join(raiz, "raw/pessoal/origem-intocada.md");
+    writeFileSync(raw, "bytes de raw preservados");
+    const fluxo = await criarAjusteComPaginaAprovada(async aoEvento => {
+      const id = readdirSync(join(raiz, ".anvilore/ui/copias"))[0]!;
+      rmSync(join(raiz, ".anvilore/ui/copias", id, "pessoal/concepts/segundo-cerebro.md"));
+      aoEvento({ tipo: "inicio", sessao: SESSAO, autor: "claude-haiku/2.1.311" });
+      aoEvento({ tipo: "ferramenta", id: "w1", nome: "Edit", caminho: join(raiz, "wiki", "pessoal/concepts/segundo-cerebro.md") });
+      const malformado = "---\ngenerated:\n  by: agente/teste\n  at: 2026-10-26T14:35:00-03:00\ngenerated:\n  by: agente/teste\n  at: 2026-10-26T14:35:00-03:00\nverified:\n  by: human:iago\n  at: 2030-01-01T00:00:00-03:00\n---\nTexto não revisado.";
+      writeFileSync(join(raiz, "wiki/pessoal/concepts/segundo-cerebro.md"), malformado);
+      expect(estadoAprovacaoHumana(lerFrontmatter(malformado)!)).toBe("vigente");
+      expect(() => invalidarAprovacaoVigente(malformado, "agente/teste")).toThrow("generated duplicada");
+      aoEvento({ tipo: "resultado-ferramenta", id: "w1", erro: false, texto: "Editado" });
+      return { situacao: "concluida", sessao: SESSAO, texto: "Ajuste feito", recusas: [] };
+    });
+    const caminhoPagina = join(raiz, "wiki", fluxo.caminhoRelativo);
+    const id = readdirSync(join(raiz, ".anvilore/ui/conversas"))[0]!.replace(/\.json$/, "");
+    const quarentena = join(raiz, ".anvilore/ui/quarentena", id, fluxo.caminhoRelativo);
+    expect(fluxo.conversa).toMatchObject({ situacao: "erro" });
+    expect(fluxo.conversa?.mensagens?.join(" ")).toContain("quarentena");
+    expect(existsSync(caminhoPagina)).toBe(false);
+    expect(existsSync(quarentena)).toBe(true);
+    expect(readFileSync(quarentena, "utf8")).toContain("Texto não revisado.");
+    expect(readFileSync(raw, "utf8")).toBe("bytes de raw preservados");
   });
 
   test("Dado que o escritor altera uma página aprovada e termina com falha Então invalida a aprovação e a página entra na revisão", async () => {
