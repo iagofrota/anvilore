@@ -146,6 +146,7 @@ export async function criarCenario(opcoes: { agentes?: string[]; comBun?: boolea
 
   const env = (extra: Record<string, string> = {}): Record<string, string> => ({
     HOME: home, TMPDIR: tmp, LANG: "C.UTF-8", PATH: bin,
+    ANVILORE_SYSTEM_APPLICATIONS_DIR: join(pai, "applications-system"),
     ANVILORE_SEM_PERGUNTAS: "1", ANVILORE_ORIGEM: kit.raiz,
     GIT_CONFIG_GLOBAL: join(pai, "gitconfig-vazio"), GIT_CONFIG_NOSYSTEM: "1",
     ...extra,

@@ -36,6 +36,7 @@ type OpcoesServidor = {
   fechar?: (raiz: string, wiki: string) => Promise<{ codigo: number; saida: string }>;
   ambiente?: Record<string, string | undefined>;
   soRevisao?: boolean;
+  validar?: (raiz: string, wiki: string) => Promise<{ codigo: number; saida: string }>;
 };
 
 // Teto de uma fonte enviada pela tela. Acima da janela grande (~1,15 MB) a ingestão já pede para dividir;
@@ -100,6 +101,12 @@ function tokenValido(url: URL, token: string): boolean {
 function erroDaIngestao(erro: unknown): Response {
   if (erro instanceof ErroDeIngestao) return json({ mensagens: [erro.message] }, erro.status);
   throw erro;
+}
+
+function erroDaRevisao(mensagem: string, erro: unknown): Response {
+  const detalhe = (erro instanceof Error ? erro.message : String(erro)).replace(/\s+/g, " ").trim().slice(0, 300) || "erro desconhecido";
+  console.error(`[Anvilore UI] ${mensagem} ${detalhe}`, erro);
+  return json({ mensagens: [`${mensagem} ${detalhe}`] }, 500);
 }
 
 async function receberFonte(request: Request, ingestao: IngestaoNaInterface, agora: Date): Promise<Response> {
@@ -222,40 +229,48 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
           const origem = request.headers.get("origin");
           if (request.method === "POST" && (!origem || origem !== url.origin)) return json({ erro: "Origem recusada." }, 403);
           if (url.pathname === "/api/rascunhos" && request.method === "GET") {
-            const fila = await listarFilaRascunhos(raiz);
-            const copias = await indexarCopias(raiz);
-            return json(await Promise.all(fila.map(async item => {
-              const copia = copias.get(item.caminho);
-              let anterior: string | undefined;
-              if (copia) { try { anterior = await readFile(copia, "utf8"); } catch { /* cópia removida durante a leitura */ } }
-              const emAjuste = ingestao?.ajusteAtivoPara(item.caminho) ?? false;
-              const aprovavel = item.aprovavel && !emAjuste;
-              const motivoNaoAprovavel = emAjuste
-                ? "Esta página está em ajuste; aprove depois que o ajuste terminar."
-                : item.motivoNaoAprovavel;
-              return {
-                ...item,
-                anterior,
-                aprovavel,
-                ...(motivoNaoAprovavel ? { motivoNaoAprovavel } : {}),
-                // Só-revisão não sobe a ponte com o agente: a tela desabilita o botão e mostra o motivo.
-                ...(ingestao ? {} : { ajustavel: false, motivoNaoAjustavel: "Pedir ajuste só funciona com a interface completa aberta." }),
-              };
-            })));
+            try {
+              const fila = await listarFilaRascunhos(raiz);
+              const copias = await indexarCopias(raiz);
+              return json(await Promise.all(fila.map(async item => {
+                const copia = copias.get(item.caminho);
+                let anterior: string | undefined;
+                if (copia) { try { anterior = await readFile(copia, "utf8"); } catch { /* cópia removida durante a leitura */ } }
+                const emAjuste = ingestao?.ajusteAtivoPara(item.caminho) ?? false;
+                const aprovavel = item.aprovavel && !emAjuste;
+                const motivoNaoAprovavel = emAjuste
+                  ? "Esta página está em ajuste; aprove depois que o ajuste terminar."
+                  : item.motivoNaoAprovavel;
+                return {
+                  ...item,
+                  anterior,
+                  aprovavel,
+                  ...(motivoNaoAprovavel ? { motivoNaoAprovavel } : {}),
+                  // Só-revisão não sobe a ponte com o agente: a tela desabilita o botão e mostra o motivo.
+                  ...(ingestao ? {} : { ajustavel: false, motivoNaoAjustavel: "Pedir ajuste só funciona com a interface completa aberta." }),
+                };
+              })));
+            } catch (erro) {
+              return erroDaRevisao("Não consegui ler os rascunhos:", erro);
+            }
           }
           if (url.pathname === "/api/aprovar" && request.method === "POST") {
-            let corpo: { caminho?: unknown; versao?: unknown };
-            try { corpo = await request.json() as { caminho?: unknown }; } catch { return json({ codigo: 2, mensagens: ["Pedido inválido."] }, 400); }
-            if (typeof corpo.caminho !== "string") return json({ codigo: 2, mensagens: ["Página inválida."] }, 400);
-            if (typeof corpo.versao !== "string" || !/^[a-f0-9]{64}$/.test(corpo.versao)) return json({ codigo: 2, mensagens: ["Versão inválida."] }, 400);
-            if (ingestao?.ajusteAtivoPara(corpo.caminho)) {
-              return json({ codigo: 3, mensagens: ["Esta página está em ajuste; aprove depois que o ajuste terminar."] }, 409);
+            try {
+              let corpo: { caminho?: unknown; versao?: unknown };
+              try { corpo = await request.json() as { caminho?: unknown }; } catch { return json({ codigo: 2, mensagens: ["Pedido inválido."] }, 400); }
+              if (typeof corpo.caminho !== "string") return json({ codigo: 2, mensagens: ["Página inválida."] }, 400);
+              if (typeof corpo.versao !== "string" || !/^[a-f0-9]{64}$/.test(corpo.versao)) return json({ codigo: 2, mensagens: ["Versão inválida."] }, 400);
+              if (ingestao?.ajusteAtivoPara(corpo.caminho)) {
+                return json({ codigo: 3, mensagens: ["Esta página está em ajuste; aprove depois que o ajuste terminar."] }, 409);
+              }
+              const fila = await listarFilaRascunhos(raiz);
+              const item = fila.find(rascunho => rascunho.caminho === corpo.caminho && rascunho.aprovavel);
+              if (!item) return json({ codigo: 1, mensagens: ["Aprovação recusada: página ausente da fila ou inválida."] }, 409);
+              const resultado = await aprovarPelaInterface(raiz, join(wiki, item.caminho), corpo.versao, ambiente);
+              return json(resultado, resultado.codigo === 0 ? 200 : 409);
+            } catch (erro) {
+              return erroDaRevisao("Não consegui aprovar:", erro);
             }
-            const fila = await listarFilaRascunhos(raiz);
-            const item = fila.find(rascunho => rascunho.caminho === corpo.caminho && rascunho.aprovavel);
-            if (!item) return json({ codigo: 1, mensagens: ["Aprovação recusada: página ausente da fila ou inválida."] }, 409);
-            const resultado = await aprovarPelaInterface(raiz, join(wiki, item.caminho), corpo.versao, ambiente);
-            return json(resultado, resultado.codigo === 0 ? 200 : 409);
           }
           if (url.pathname === "/api/ajuste" && request.method === "POST") {
             // Só-revisão não sobe a ponte com o agente: sem ingestão não há como pedir ajuste.
@@ -269,10 +284,14 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
               const conversa = await ingestao.ajustar({ caminho: corpo.caminho, versao: corpo.versao, pedido: corpo.pedido });
               return json(conversa, 201);
             } catch (erro) {
-              return erroDaIngestao(erro);
+              if (erro instanceof ErroDeIngestao) return erroDaIngestao(erro);
+              return erroDaRevisao("Não consegui pedir o ajuste:", erro);
             }
           }
-          if (url.pathname === "/api/validar" && request.method === "POST") return json(await validar(raiz, wiki));
+          if (url.pathname === "/api/validar" && request.method === "POST") {
+            try { return json(await (opcoes.validar ?? validar)(raiz, wiki)); }
+            catch (erro) { return erroDaRevisao("Não consegui rodar a validação:", erro); }
+          }
           if (url.pathname === "/api/inicio" && request.method === "GET") {
             try {
               const conversas = ingestao ? (await ingestao.listar()).filter(c => CONVERSA_PENDENTE.includes(c.situacao)) : [];

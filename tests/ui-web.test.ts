@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import { diffLinhas, erroDaResposta, indiceVizinho } from "../ui/web/revisao";
 
-test("Dado resposta HTTP vazia Quando obtenho o erro Então uso a mensagem padrão", async () => {
-  const erro = await erroDaResposta(new Response(""));
-  expect(erro.message).toBe("Falha ao falar com o Anvilore.");
+test("Dado resposta HTML HTTP 500 Quando obtenho o erro Então uso uma mensagem simples sem o corpo HTML", async () => {
+  const erro = await erroDaResposta(new Response("<!doctype html><title>Internal Server Error</title>", { status: 500, headers: { "content-type": "text/html" } }));
+  expect(erro.message).toBe("O servidor do Anvilore falhou ao processar a solicitação.");
 });
 
 test("Dado conflito de versão Quando obtenho o erro HTTP Então preservo código 3 e mensagem", async () => {
-  const erro = await erroDaResposta(new Response(JSON.stringify({ codigo: 3, mensagens: ["Página atualizada."] }), { status: 409 }));
+  const erro = await erroDaResposta(new Response(JSON.stringify({ codigo: 3, mensagens: ["Página atualizada."] }), { status: 409, headers: { "content-type": "application/json" } }));
   expect(erro.codigo).toBe(3);
   expect(erro.message).toBe("Página atualizada.");
 });

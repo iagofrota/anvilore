@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { iniciarServidorUi } from "../src/ui/servidor/servidor";
+import { IngestaoNaInterface } from "../src/lib/ui-ingestao";
 
 let raiz: string;
 let servidores: Array<{ stop: (forcibly?: boolean) => void }> = [];
@@ -120,6 +121,74 @@ test("Dado wiki válida Quando peço Tudo revisado Então roda validar e devolve
   const resposta = await fetch(`http://127.0.0.1:${app.porta}/api/validar?token=token-teste`, { method: "POST", headers: { origin: `http://127.0.0.1:${app.porta}` } });
   expect(resposta.status).toBe(200);
   expect(await resposta.json()).toMatchObject({ codigo: 0, saida: expect.stringContaining("VALIDACAO: PASS") });
+});
+
+test("Dado Bun.spawn lança ao validar Quando peço Tudo revisado Então recebo erro JSON e causa no log", async () => {
+  writeFileSync(join(raiz, "wiki/index.md"), "# Wiki\n");
+  const originalValidar = async () => { throw new Error("spawn do validador falhou"); };
+  const app = await iniciarServidorUi(raiz, {
+    portaInicial: 0, token: "token-teste", abrirNavegador: false,
+    validar: originalValidar,
+  } as Parameters<typeof iniciarServidorUi>[1]);
+  servidores.push(app.servidor);
+  const originalError = console.error;
+  const logs: unknown[][] = [];
+  console.error = ((...args: unknown[]) => { logs.push(args); }) as typeof console.error;
+  try {
+    const resposta = await fetch(`http://127.0.0.1:${app.porta}/api/validar?token=token-teste`, { method: "POST", headers: { origin: `http://127.0.0.1:${app.porta}` } });
+    expect(resposta.status).toBe(500);
+    expect(resposta.headers.get("content-type")).toContain("application/json");
+    expect(await resposta.json()).toEqual({ mensagens: ["Não consegui rodar a validação: spawn do validador falhou"] });
+    expect(logs.flat().join(" ")).toContain("spawn do validador falhou");
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test("Dado wiki inacessível Quando listo os rascunhos Então recebo erro JSON em vez de página HTML", async () => {
+  rmSync(join(raiz, "wiki"), { recursive: true, force: true });
+  writeFileSync(join(raiz, "wiki"), "não é um diretório\n");
+  const app = await servidor();
+  const resposta = await fetch(`http://127.0.0.1:${app.porta}/api/rascunhos?token=token-teste`);
+  expect(resposta.status).toBe(500);
+  expect(resposta.headers.get("content-type")).toContain("application/json");
+  expect(await resposta.json()).toMatchObject({ mensagens: [expect.stringContaining("Não consegui ler os rascunhos:")] });
+});
+
+test("Dado wiki inacessível Quando tento aprovar Então recebo erro JSON em vez de página HTML", async () => {
+  rmSync(join(raiz, "wiki"), { recursive: true, force: true });
+  writeFileSync(join(raiz, "wiki"), "não é um diretório\n");
+  const app = await servidor();
+  const resposta = await postAprovar(app, "concepts/pagina.md");
+  expect(resposta.status).toBe(500);
+  expect(resposta.headers.get("content-type")).toContain("application/json");
+  expect(await resposta.json()).toMatchObject({ mensagens: [expect.stringContaining("Não consegui aprovar:")] });
+});
+
+test("Dado uma exceção inesperada ao pedir ajuste Quando envio a ação Então recebo erro JSON e a causa no log", async () => {
+  const caminho = "concepts/ajuste.md";
+  writeFileSync(join(raiz, "wiki", caminho), "rascunho\n");
+  const app = await servidor();
+  const prototipo = IngestaoNaInterface.prototype;
+  const originalAjustar = prototipo.ajustar;
+  const originalError = console.error;
+  const logs: unknown[][] = [];
+  prototipo.ajustar = async () => { throw new Error("falha inesperada ao ajustar"); };
+  console.error = ((...args: unknown[]) => { logs.push(args); }) as typeof console.error;
+  try {
+    const resposta = await fetch(`http://127.0.0.1:${app.porta}/api/ajuste?token=token-teste`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: `http://127.0.0.1:${app.porta}` },
+      body: JSON.stringify({ caminho, versao: versaoAtual(caminho), pedido: "Revisar a explicação." }),
+    });
+    expect(resposta.status).toBe(500);
+    expect(resposta.headers.get("content-type")).toContain("application/json");
+    expect(await resposta.json()).toEqual({ mensagens: ["Não consegui pedir o ajuste: falha inesperada ao ajustar"] });
+    expect(logs.flat().join(" ")).toContain("falha inesperada ao ajustar");
+  } finally {
+    prototipo.ajustar = originalAjustar;
+    console.error = originalError;
+  }
 });
 
 test("Dado porta inicial e seguinte ocupadas Quando inicio Então escuta em qualquer porta livre", async () => {

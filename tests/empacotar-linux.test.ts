@@ -89,7 +89,7 @@ test.skipIf(process.platform !== "linux" || (process.env.ANVILORE_PULAR_TESTE_NF
 
     expect(arquivosDeb).toMatch(/-rwxr-xr-x .* \.\/usr\/lib\/anvilore\/anvilore-abrir/);
     expect(arquivosDeb).toMatch(/-rwxr-xr-x .* \.\/usr\/lib\/anvilore\/instalar\.sh/);
-    expect(arquivosDeb).toMatch(/l--------- .* \.\/usr\/bin\/anvilore-abrir -> \/usr\/lib\/anvilore\/anvilore-abrir/);
+    expect(arquivosDeb).toMatch(/l[-rwx]{9} .* \.\/usr\/bin\/anvilore-abrir -> \/usr\/lib\/anvilore\/anvilore-abrir/);
     expect(arquivosDeb).toMatch(/-rw-r--r-- .* \.\/usr\/share\/applications\/anvilore\.desktop/);
     expect(arquivosDeb).toMatch(/-rw-r--r-- .* \.\/usr\/share\/icons\/hicolor\/scalable\/apps\/anvilore\.svg/);
 

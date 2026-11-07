@@ -9,11 +9,17 @@ export async function erroDaResposta(resposta: Response): Promise<ErroApi> {
   let mensagem: string | undefined;
   let codigo: number | undefined;
   try {
+    if (!resposta.headers.get("content-type")?.toLowerCase().includes("application/json")) throw new Error("resposta não JSON");
     const corpo = JSON.parse(texto) as { codigo?: unknown; mensagens?: unknown };
     if (typeof corpo.codigo === "number") codigo = corpo.codigo;
     if (Array.isArray(corpo.mensagens) && typeof corpo.mensagens[0] === "string") mensagem = corpo.mensagens[0];
-  } catch { /* respostas não JSON mantêm o texto original */ }
-  return new ErroApi(mensagem || texto || "Falha ao falar com o Anvilore.", codigo);
+  } catch {
+    return new ErroApi(resposta.status >= 500
+      ? "O servidor do Anvilore falhou ao processar a solicitação."
+      : `O Anvilore respondeu com um erro (HTTP ${resposta.status}).`);
+  }
+  if (resposta.status >= 500 && !mensagem) return new ErroApi("O servidor do Anvilore falhou ao processar a solicitação.");
+  return new ErroApi(mensagem || `O Anvilore respondeu com um erro (HTTP ${resposta.status}).`, codigo);
 }
 
 export function indiceVizinho(indice: number, direcao: -1 | 1, tamanho: number): number {

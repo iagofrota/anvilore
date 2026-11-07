@@ -145,6 +145,7 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
   const [filtro, setFiltro] = useState<Filtro>("Todas");
   const [aba, setAba] = useState<"visual" | "markdown">("visual");
   const [erro, setErro] = useState("");
+  const [erroValidacao, setErroValidacao] = useState("");
   const [validacao, setValidacao] = useState<ResultadoValidacao | null>(null);
   const [validando, setValidando] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -153,11 +154,11 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
   const [enviandoAjuste, setEnviandoAjuste] = useState(false);
 
   const carregar = useCallback(async (selecionarPrimeiro = false) => {
+    setErro("");
     try {
       const fila = await api<Item[]>("/api/rascunhos");
       setItens(fila);
       setSelecionado(atual => selecionarPrimeiro || !fila.some(item => item.caminho === atual) ? fila[0]?.caminho ?? "" : atual);
-      setErro("");
     } catch (motivo) { setErro(motivo instanceof Error ? motivo.message : "Não foi possível ler a fila."); }
   }, []);
 
@@ -165,14 +166,18 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
 
   const executarValidacao = useCallback(async () => {
     setValidando(true);
+    setErroValidacao("");
     try { setValidacao(await api<ResultadoValidacao>("/api/validar", "POST")); }
-    catch (motivo) { setValidacao({ codigo: 1, saida: motivo instanceof Error ? motivo.message : "Falha ao validar a wiki." }); }
+    catch (motivo) {
+      setValidacao(null);
+      setErroValidacao(motivo instanceof Error ? motivo.message : "Não consegui rodar a validação.");
+    }
     finally { setValidando(false); }
   }, []);
 
   useEffect(() => {
-    if (itens !== null && itens.length === 0 && validacao === null && !validando) void executarValidacao();
-  }, [itens, validacao, validando, executarValidacao]);
+    if (itens !== null && itens.length === 0 && validacao === null && !validando && !erroValidacao) void executarValidacao();
+  }, [itens, validacao, validando, erroValidacao, executarValidacao]);
 
   const filtrados = useMemo(() => (itens ?? []).filter(item => filtro === "Todas" || (filtro === "Novas" ? item.status === "nova" : item.status === "atualizada")), [itens, filtro]);
   const item = filtrados.find(candidato => candidato.caminho === selecionado) ?? filtrados[0];
@@ -236,7 +241,7 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
 
   return <main className="main">
       <header className="topbar">
-        <div><h1>Revisão</h1><span className="subhead">{pendentes ? `${pendentes} aguardando você` : itens === null ? "Lendo a wiki…" : "nada pendente"}</span></div>
+        <div><h1>Revisão</h1><span className="subhead">{pendentes ? `${pendentes} aguardando você` : itens === null ? erro ? "fila indisponível" : "Lendo a wiki…" : erroValidacao ? "validação indisponível" : "nada pendente"}</span></div>
         <div className="top-actions">
           <div className="segmented" role="group" aria-label="Filtrar rascunhos">
             {(["Todas", "Novas", "Atualizadas"] as Filtro[]).map(opcao => <button key={opcao} className={filtro === opcao ? "selected" : ""} aria-pressed={filtro === opcao} onClick={() => { setFiltro(opcao); setAjusteAberto(false); setTextoAjuste(""); }}>{opcao}</button>)}
@@ -246,11 +251,16 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
       </header>
 
       {erro && <div className="alert" role="alert">{erro}</div>}
-      {itens === null ? <div className="loading">Lendo os rascunhos…</div> : itens.length === 0 ? <section className="done-state">
-        <div className="done-icon">✓</div><h2>Tudo revisado</h2><p>{validando ? "Validando a wiki…" : validacao?.codigo === 0 ? "A validação passou." : validacao ? "A validação encontrou problemas." : "A validação vai começar."}</p>
-        {validacao && <><span className={`result-badge ${validacao.codigo === 0 ? "pass" : "fail"}`}>CÓDIGO {validacao.codigo} · {validacao.codigo === 0 ? "PASS" : "FAIL"}</span><pre className="validation-output">{validacao.saida}</pre></>}
-        <button className="secondary-button" onClick={() => void executarValidacao()} disabled={validando}>{validando ? "Validando…" : "Validar de novo"}</button>
-      </section> : <div className="workspace">
+      {itens === null ? erro
+        ? <section className="done-state"><h2>Revisão indisponível</h2><button className="secondary-button" onClick={() => void carregar(true)}>Tentar carregar a fila de novo</button></section>
+        : <div className="loading">Lendo os rascunhos…</div>
+        : itens.length === 0 ? erroValidacao
+          ? <section className="done-state"><h2>Validação indisponível</h2><p role="alert">{erroValidacao}</p><button className="secondary-button" onClick={() => void executarValidacao()} disabled={validando}>{validando ? "Validando…" : "Validar de novo"}</button></section>
+          : <section className="done-state">
+            <div className="done-icon">✓</div><h2>Tudo revisado</h2><p>{validando ? "Validando a wiki…" : validacao?.codigo === 0 ? "A validação passou." : validacao ? "A validação encontrou problemas." : "A validação vai começar."}</p>
+            {validacao && <><span className={`result-badge ${validacao.codigo === 0 ? "pass" : "fail"}`}>CÓDIGO {validacao.codigo} · {validacao.codigo === 0 ? "PASS" : "FAIL"}</span><pre className="validation-output">{validacao.saida}</pre></>}
+            <button className="secondary-button" onClick={() => void executarValidacao()} disabled={validando}>{validando ? "Validando…" : "Validar de novo"}</button>
+          </section> : <div className="workspace">
         <section className="queue" aria-label="Rascunhos">
           <div className="queue-title"><span>▤</span> Fila de revisão <span className="count">{filtrados.length}</span></div>
           <div className="queue-items" role="listbox" aria-label="Páginas pendentes">
