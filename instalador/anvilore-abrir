@@ -30,18 +30,22 @@ obter_ou_preparar_arquivo_log() {
   return 1
 }
 
-gravar_log_erro() {
-  local log_file
+registrar_abrir_log() {
+  local mensagem="$1" log_file
   log_file="$(obter_ou_preparar_arquivo_log 2>/dev/null || true)"
   [ -n "$log_file" ] || return 0
   (
     umask 077
     local carimbo msg
-    carimbo="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%d %H:%M:%S")"
-    msg="$(printf '%s\n' "$*" | sed -E 's/token=[a-zA-Z0-9_-]+/token=[REDUZIDO]/g')"
-    printf '[%s] %s\n' "$carimbo" "$msg" >>"$log_file"
+    carimbo="$(date --iso-8601=seconds 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
+    msg="$(printf '%s\n' "$mensagem" | sed -E 's/token=[a-zA-Z0-9_-]+/token=[REDUZIDO]/g')"
+    printf '%s %s\n' "$carimbo" "$msg" >>"$log_file"
   ) 2>/dev/null || true
   chmod 600 "$log_file" 2>/dev/null || true
+}
+
+gravar_log_erro() {
+  registrar_abrir_log "$*"
 }
 
 montar_mensagem_erro_servidor() {
@@ -373,19 +377,6 @@ versao_ja_tentada() {
   return 1
 }
 
-registrar_abrir_log() {
-  local mensagem="$1" diretorio destino
-  diretorio="${XDG_STATE_HOME:-$HOME/.local/state}/anvilore"
-  destino="$diretorio/abrir.log"
-  if [ -L "$diretorio" ] || [ -L "$destino" ]; then return 0; fi
-  if [ -e "$diretorio" ] && [ ! -O "$diretorio" ]; then return 0; fi
-  if [ -e "$destino" ] && [ ! -O "$destino" ]; then return 0; fi
-  mkdir -p "$diretorio" 2>/dev/null || return 0
-  chmod 700 "$diretorio" 2>/dev/null || true
-  ( umask 077; printf '%s %s\n' "$(date --iso-8601=seconds 2>/dev/null || date)" "$mensagem" >>"$destino" ) 2>/dev/null || true
-  chmod 600 "$destino" 2>/dev/null || true
-}
-
 atualizar_kit_do_pacote() {
   local arquivo_versao="$ORIGEM/VERSAO" versao_pacote versao_atual versao_original instalador codigo
   [ -f "$arquivo_versao" ] || return 0
@@ -461,16 +452,27 @@ travar_instancia() {
     mostrar_erro_e_esperar "Arquivo de trava inválido: não pertence ao usuário atual ($arquivo_trava)"
     exit 1
   fi
+  if [ -d "$arquivo_trava" ]; then
+    mostrar_erro_e_esperar "Não consegui abrir a trava do Anvilore em $arquivo_trava: o arquivo de trava é um diretório."
+    exit 1
+  fi
 
   mkdir -p -m 700 "$trava_dir" 2>/dev/null || true
   chmod 700 "$trava_dir" 2>/dev/null || true
 
   if command -v flock >/dev/null 2>&1; then
-    exec 9>"$arquivo_trava" || return 0
+    if ! ( : >>"$arquivo_trava" ) 2>/dev/null; then
+      mostrar_erro_e_esperar "Não consegui abrir a trava do Anvilore em $arquivo_trava."
+      exit 1
+    fi
+    exec 9>"$arquivo_trava" || {
+      mostrar_erro_e_esperar "Não consegui abrir a trava do Anvilore em $arquivo_trava."
+      exit 1
+    }
     chmod 600 "$arquivo_trava" 2>/dev/null || true
     if ! flock -w 20 9; then
-      mostrar_erro_e_esperar "Não foi possível obter a trava de inicialização do Anvilore (tempo esgotado de 20s)."
-      exit 1
+      gravar_log_erro "Trava de inicialização ocupada por mais de 20s (outro processo ainda subindo). Saindo silenciosamente."
+      exit 0
     fi
   else
     # P3-A: Fallback atômico com mkdir caso flock não esteja disponível
@@ -492,8 +494,8 @@ travar_instancia() {
       sleep 0.1
     done
     if [ "$obtido" -ne 1 ]; then
-      mostrar_erro_e_esperar "Não foi possível obter a trava de inicialização do Anvilore (tempo esgotado de 20s via diretório)."
-      exit 1
+      gravar_log_erro "Trava de inicialização ocupada por mais de 20s (outro processo ainda subindo via diretório). Saindo silenciosamente."
+      exit 0
     fi
   fi
 }
@@ -546,15 +548,15 @@ verificar_instancia_existente() {
       const fs = require("node:fs");
       const est = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
       if (typeof est.pid === "number" && typeof est.porta === "number" && typeof est.token === "string" && typeof est.pasta === "string") {
-        console.log(`${est.pid}:${est.porta}:${est.token}:${est.pasta}:${est.inicio || ""}`);
+        console.log(`${est.pid}:${est.porta}:${est.token}:${est.inicio || ""}:${est.pasta}`);
       }
     } catch {}
   ' "$arquivo_estado" 2>/dev/null || true)"
 
   [ -n "$info" ] || { rm -f -- "$arquivo_estado"; return 1; }
 
-  local est_pid est_porta est_token est_pasta est_inicio
-  IFS=: read -r est_pid est_porta est_token est_pasta est_inicio <<<"$info"
+  local est_pid est_porta est_token est_inicio est_pasta
+  IFS=: read -r est_pid est_porta est_token est_inicio est_pasta <<<"$info"
 
   if ! kill -0 "$est_pid" 2>/dev/null; then
     rm -f -- "$arquivo_estado"

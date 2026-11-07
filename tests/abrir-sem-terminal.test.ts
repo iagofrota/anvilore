@@ -1194,3 +1194,223 @@ exit 0
     await rm(base, { recursive: true, force: true });
   }
 }, 20000);
+
+test("Dado pasta cujo caminho contém dois pontos (:), Quando lançador executa com servidor vivo, Então não corrompe a leitura de estado e reabre URL sem subir outro servidor (P2-2 QA3)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-colon-"));
+  try {
+    const home = join(base, "home");
+    // Pasta contendo dois pontos no nome
+    const pasta = join(home, "An:vilore");
+    const bin = join(base, "bin");
+    const xdgRuntime = join(base, "run");
+    const chamadas = join(base, "chamadas");
+    const navegador = join(base, "navegador");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await mkdir(xdgRuntime, { recursive: true });
+
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh
+if [ "$1" = "-e" ]; then
+  exec "${process.execPath}" "$@"
+fi
+if [ "$1" = "src/cli.ts" ] && [ "$2" = "ui" ]; then
+  echo "start $$" >>"${chamadas}"
+  exit 0
+fi
+exit 0
+`);
+    await chmod(bun, 0o755);
+
+    const xdgOpen = join(bin, "xdg-open");
+    await writeFile(xdgOpen, `#!/bin/sh
+echo "$1" >>"${navegador}"
+exit 0
+`);
+    await chmod(xdgOpen, 0o755);
+
+    // Servidor real Bun na porta 45999
+    const server = Bun.serve({
+      port: 45999,
+      fetch() {
+        return new Response("OK", { status: 200 });
+      },
+    });
+
+    try {
+      // Obtém o starttime real do processo do teste para colocar no estado
+      const statStr = await readFile(`/proc/${process.pid}/stat`, "utf8");
+      const posP = statStr.lastIndexOf(")");
+      const campos = statStr.slice(posP + 2).trim().split(/\s+/);
+      const inicioProc = campos[19];
+
+      const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+      await writeFile(estadoFile, JSON.stringify({
+        pid: process.pid,
+        porta: 45999,
+        token: "tokColon",
+        pasta,
+        inicio: inicioProc,
+      }, null, 2), { mode: 0o600 });
+
+      const env = {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:/usr/bin:/bin`,
+        ANVILORE_PASTA: pasta,
+        XDG_RUNTIME_DIR: xdgRuntime,
+        ANVILORE_SEM_DIALOGO: "1",
+      };
+
+      const proc = Bun.spawnSync(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+      expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+
+      // Não deve ter iniciado outro servidor (starts = 0)
+      const starts = (await readFile(chamadas, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
+      expect(starts.length).toBe(0);
+
+      // Deve ter reaberto o navegador
+      for (let i = 0; i < 20; i++) {
+        if (await Bun.file(navegador).exists()) break;
+        await new Promise(r => setTimeout(r, 25));
+      }
+      expect(await Bun.file(navegador).exists()).toBe(true);
+      const url = await readFile(navegador, "utf8");
+      expect(url.trim()).toContain(":45999/?token=tokColon");
+    } finally {
+      server.stop(true);
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("Dado arquivo de trava que é um diretório, Quando lançador executa, Então rejeita com erro claro e não inicia servidor (P2-1 QA3)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-trava-dir-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "bin");
+    const xdgRuntime = join(base, "run");
+    const chamadas = join(base, "chamadas");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await mkdir(xdgRuntime, { recursive: true });
+
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh
+echo "start $$" >>"${chamadas}"
+exit 0
+`);
+    await chmod(bun, 0o755);
+
+    // Cria a trava como um diretório
+    const lockDir = join(xdgRuntime, "anvilore-ui.lock");
+    await mkdir(lockDir, { recursive: true });
+
+    const env = {
+      ...process.env,
+      HOME: home,
+      PATH: `${bin}:/usr/bin:/bin`,
+      ANVILORE_PASTA: pasta,
+      XDG_RUNTIME_DIR: xdgRuntime,
+      ANVILORE_SEM_DIALOGO: "1",
+    };
+
+    const proc = Bun.spawnSync(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+    // Deve sair com código 1
+    expect(proc.exitCode).toBe(1);
+    const stderr = proc.stderr.toString();
+    expect(stderr).toContain("diretório");
+
+    // Nenhum servidor deve ter sido iniciado
+    const starts = (await readFile(chamadas, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
+    expect(starts.length).toBe(0);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("Dado segundo lançamento concorrente onde a trava fica ocupada por mais de 20s, Quando ocorre o timeout, Então sai com 0 sem exibir diálogo de erro (P3-1 QA3)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-trava-timeout-ux-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "bin");
+    const xdgRuntime = join(base, "run");
+    const dialogoArquivo = join(base, "dialogo-aberto");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await mkdir(xdgRuntime, { recursive: true });
+
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh
+exit 0
+`);
+    await chmod(bun, 0o755);
+
+    // Mock zenity para capturar se algum diálogo modal for aberto
+    const zenity = join(bin, "zenity");
+    await writeFile(zenity, `#!/bin/sh
+echo "abriu zenity" >>"${dialogoArquivo}"
+exit 0
+`);
+    await chmod(zenity, 0o755);
+
+    // Segura a trava externamente via flock por 25s
+    const lockFile = join(xdgRuntime, "anvilore-ui.lock");
+    const procLock = Bun.spawn(["bash", "-c", `exec 9>"${lockFile}"; flock -x 9; sleep 25`]);
+
+    try {
+      // Aguarda 200ms para garantir que a trava externa foi adquirida
+      await new Promise(r => setTimeout(r, 200));
+
+      const env = {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:/usr/bin:/bin`,
+        ANVILORE_PASTA: pasta,
+        XDG_RUNTIME_DIR: xdgRuntime,
+        DISPLAY: ":0",
+        ANVILORE_TEST_DIALOGO: "1",
+      };
+
+      // Dispara o lançador que vai esperar na trava
+      const proc = Bun.spawnSync(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+
+      // O segundo clique com início lento deve sair com 0
+      expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+
+      // Não deve ter exibido diálogo modal
+      expect(await Bun.file(dialogoArquivo).exists()).toBe(false);
+    } finally {
+      procLock.kill();
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+}, 30000);
