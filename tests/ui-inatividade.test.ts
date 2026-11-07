@@ -1,0 +1,80 @@
+import { expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { iniciarServidorUi } from "../src/ui/servidor/servidor";
+import { PonteClaudeCode } from "../src/lib/ponte-claude-code";
+
+class PonteFalsa extends PonteClaudeCode {
+  override async disponibilidade() {
+    return { ok: true as const, binario: "claude", versao: "fake" };
+  }
+}
+
+test("Dado servidor com autoEncerrar ativo, Quando passa o tempo limite sem batimento, Então encerra o servidor automaticamente", async () => {
+  const raiz = await mkdtemp(join(tmpdir(), "anvilore-inatividade-"));
+  try {
+    const app = await iniciarServidorUi(raiz, {
+      portaInicial: 0,
+      token: "token-inatividade-1",
+      abrirNavegador: false,
+      ponte: new PonteFalsa(),
+      autoEncerrar: true,
+      inatividadeMs: 60,
+      intervaloChecagemMs: 15,
+    });
+
+    expect(app.servidor.pendingRequests).toBeDefined();
+
+    // Aguarda o tempo limite passar
+    await new Promise(r => setTimeout(r, 120));
+
+    // O servidor deve ter sido interrompido
+    let erroAoConectar = false;
+    try {
+      await fetch(`http://127.0.0.1:${app.porta}/api/inicio?token=token-inatividade-1`, {
+        signal: AbortSignal.timeout(500),
+      });
+    } catch {
+      erroAoConectar = true;
+    }
+    expect(erroAoConectar).toBe(true);
+  } finally {
+    await rm(raiz, { recursive: true, force: true });
+  }
+});
+
+test("Dado servidor com autoEncerrar ativo, Quando recebe batimento periódico na rota /api/batimento, Então mantém o servidor rodando", async () => {
+  const raiz = await mkdtemp(join(tmpdir(), "anvilore-inatividade-"));
+  try {
+    const app = await iniciarServidorUi(raiz, {
+      portaInicial: 0,
+      token: "token-inatividade-2",
+      abrirNavegador: false,
+      ponte: new PonteFalsa(),
+      autoEncerrar: true,
+      inatividadeMs: 100,
+      intervaloChecagemMs: 20,
+    });
+
+    // Envia batimentos a cada 40ms por 3 vezes (total ~120ms, acima dos 100ms)
+    for (let i = 0; i < 3; i++) {
+      await new Promise(r => setTimeout(r, 40));
+      const res = await fetch(`http://127.0.0.1:${app.porta}/api/batimento?token=token-inatividade-2`, {
+        method: "POST",
+      });
+      expect(res.status).toBe(200);
+      const dados = await res.json() as { ok: boolean };
+      expect(dados.ok).toBe(true);
+    }
+
+    // Servidor continua respondendo normalmente
+    const inicio = await fetch(`http://127.0.0.1:${app.porta}/api/inicio?token=token-inatividade-2`);
+    expect(inicio.status).toBe(200);
+
+    await app.encerrar();
+    app.servidor.stop(true);
+  } finally {
+    await rm(raiz, { recursive: true, force: true });
+  }
+});

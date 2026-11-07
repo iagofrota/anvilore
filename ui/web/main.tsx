@@ -55,6 +55,12 @@ function Aplicacao() {
     return () => window.removeEventListener("hashchange", mudou);
   }, []);
   useEffect(() => {
+    const enviarBatimento = () => { void api("/api/batimento", "POST").catch(() => {}); };
+    enviarBatimento();
+    const intervalo = setInterval(enviarBatimento, 20_000);
+    return () => clearInterval(intervalo);
+  }, []);
+  useEffect(() => {
     document.documentElement.dataset.theme = tema;
     localStorage.setItem("anvilore-tema", tema);
   }, [tema]);

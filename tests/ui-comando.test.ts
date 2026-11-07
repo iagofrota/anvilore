@@ -100,3 +100,50 @@ test("Dado servidor que expõe limpeza Quando comandoUi recebe o sinal Então es
     expect(ingestaoEncerrada).toBe(true);
   } finally { c.restaurar(); }
 });
+
+test("Dado comando com --auto-encerrar Quando o servidor abre Então passa autoEncerrar: true", async () => {
+  const c = capturarConsole();
+  let opcoesRecebidas: any;
+  const fake = { servidor: { stop: () => {} }, porta: 4173, token: "token", url: "http://127.0.0.1:4173/?token=token" } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>;
+  try {
+    expect(await comandoUi(["--auto-encerrar"], async (_raiz, opcoes) => { opcoesRecebidas = opcoes; return fake; }, async servidor => { servidor.stop(true); })).toBe(0);
+    expect(opcoesRecebidas?.autoEncerrar).toBe(true);
+  } finally { c.restaurar(); }
+});
+
+test("Dado instância já em execução Quando comandoUi é chamado Então reabre o navegador na URL existente sem subir outro servidor", async () => {
+  const c = capturarConsole();
+  let navegadorAberto: string | undefined;
+  let novoServidorIniciado = false;
+  const fake = { servidor: { stop: () => {} }, porta: 4173, token: "token", url: "http://127.0.0.1:4173/?token=token" } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>;
+  const { gravarEstadoUi, removerEstadoUi } = await import("../src/lib/ui-estado");
+  const estado = { pid: process.pid, porta: 4173, token: "token-existente", pasta: process.cwd() };
+
+  // Servidor fake local para responder GET autenticado
+  const server = Bun.serve({
+    port: 4173,
+    fetch(req) {
+      const url = new URL(req.url);
+      if (url.searchParams.get("token") === "token-existente") return new Response("OK", { status: 200 });
+      return new Response("Forbidden", { status: 403 });
+    },
+  });
+
+  try {
+    await gravarEstadoUi(estado);
+    const codigo = await comandoUi(
+      [],
+      async () => { novoServidorIniciado = true; return fake; },
+      async () => {},
+      url => { navegadorAberto = url; },
+    );
+    expect(codigo).toBe(0);
+    expect(novoServidorIniciado).toBe(false);
+    expect(navegadorAberto).toBe("http://127.0.0.1:4173/?token=token-existente");
+    expect(c.saida.join(" ")).toContain("Interface do Anvilore aberta no navegador");
+  } finally {
+    server.stop(true);
+    await removerEstadoUi(process.pid);
+    c.restaurar();
+  }
+});

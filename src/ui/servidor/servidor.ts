@@ -37,6 +37,10 @@ type OpcoesServidor = {
   ambiente?: Record<string, string | undefined>;
   soRevisao?: boolean;
   validar?: (raiz: string, wiki: string) => Promise<{ codigo: number; saida: string }>;
+  autoEncerrar?: boolean;
+  inatividadeMs?: number;
+  intervaloChecagemMs?: number;
+  aoEncerrar?: () => Promise<void>;
 };
 
 // Teto de uma fonte enviada pela tela. Acima da janela grande (~1,15 MB) a ingestão já pede para dividir;
@@ -191,6 +195,41 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
   let servidor: Servidor | undefined;
   let ultimoErro: unknown;
 
+  const autoEncerrar = opcoes.autoEncerrar ?? (ambiente.ANVILORE_AUTO_ENCERRAR === "1");
+  const inatividadeMs = opcoes.inatividadeMs ?? 120_000;
+  const intervaloChecagemMs = opcoes.intervaloChecagemMs ?? Math.min(5_000, Math.max(10, Math.floor(inatividadeMs / 2)));
+  let ultimoBatimento = Date.now();
+  let timerInatividade: ReturnType<typeof setInterval> | undefined;
+
+  const encerrarServidor = async () => {
+    if (timerInatividade) clearInterval(timerInatividade);
+    if (timeoutInatividade) clearTimeout(timeoutInatividade);
+    servidor?.stop(true);
+    await ingestao?.encerrar();
+    if (opcoes.aoEncerrar) {
+      await opcoes.aoEncerrar();
+    }
+    process.emit("SIGTERM");
+  };
+
+  if (autoEncerrar) {
+    timerInatividade = setInterval(async () => {
+      if (Date.now() - ultimoBatimento < inatividadeMs) return;
+      if (ingestao?.ocupada) return;
+      if ((ingestao?.paginasEmAjuste().size ?? 0) > 0) return;
+      if (ingestao) {
+        try {
+          const conversas = await ingestao.listar();
+          if (conversas.some(c => c.situacao === "rodando")) return;
+        } catch { return; }
+      }
+      clearInterval(timerInatividade!);
+      timerInatividade = undefined;
+      await encerrarServidor();
+    }, intervaloChecagemMs);
+    timerInatividade.unref?.();
+  }
+
   let timeoutInatividade: ReturnType<typeof setTimeout> | undefined;
   const resetarInatividade = () => {
     if (!soRevisao) return;
@@ -214,6 +253,10 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
           const url = new URL(request.url);
           if (url.pathname === "/favicon.ico" && request.method === "GET") return respostaSegura(null, { status: 204 });
           if (!tokenValido(url, token)) return respostaSegura("Acesso recusado", { status: 403 });
+          ultimoBatimento = Date.now();
+          if (url.pathname === "/api/batimento" && (request.method === "POST" || request.method === "GET")) {
+            return json({ ok: true });
+          }
           if (soRevisao) {
             if (
               url.pathname === "/api/ingestao" ||
@@ -510,5 +553,15 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
 
   const url = `http://127.0.0.1:${servidor.port}/?token=${encodeURIComponent(token)}${soRevisao ? "#revisao" : ""}`;
   if (opcoes.abrirNavegador !== false) (opcoes.abrir ?? abrirNavegador)(url);
-  return { servidor, porta: servidor.port, token, url, encerrar: async () => { await ingestao?.encerrar(); } };
+  return {
+    servidor,
+    porta: servidor.port,
+    token,
+    url,
+    encerrar: async () => {
+      if (timerInatividade) clearInterval(timerInatividade);
+      if (timeoutInatividade) clearTimeout(timeoutInatividade);
+      await ingestao?.encerrar();
+    },
+  };
 }
