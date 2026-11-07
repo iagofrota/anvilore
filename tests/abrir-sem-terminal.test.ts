@@ -987,3 +987,134 @@ exit 0
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test("Dado dois lançamentos simultâneos onde o servidor demora 8s para gravar estado, Quando ambos executam em paralelo, Então a trava aguarda a prontidão e produz apenas 1 início de servidor (P2-2, P3-A)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-trava-8s-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "bin");
+    const xdgRuntime = join(base, "run");
+    const chamadas = join(base, "chamadas");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await mkdir(xdgRuntime, { recursive: true });
+
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh
+if [ "$1" = "-e" ]; then
+  exec "${process.execPath}" "$@"
+fi
+if [ "$1" = "src/cli.ts" ] && [ "$2" = "ui" ]; then
+  echo "start $$" >>"${chamadas}"
+  sleep 8
+  cat <<EOF >"${estadoFile}"
+{
+  "pid": $$,
+  "porta": 45999,
+  "token": "tok123",
+  "pasta": "${pasta}"
+}
+EOF
+  sleep 15 &
+  wait $!
+  exit 0
+fi
+exit 0
+`);
+    await chmod(bun, 0o755);
+
+    const xdgOpen = join(bin, "xdg-open");
+    await writeFile(xdgOpen, `#!/bin/sh
+exit 0
+`);
+    await chmod(xdgOpen, 0o755);
+
+    const server = Bun.serve({
+      port: 45999,
+      fetch() {
+        return new Response("OK", { status: 200 });
+      },
+    });
+
+    try {
+      const env = {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:/usr/bin:/bin`,
+        ANVILORE_PASTA: pasta,
+        XDG_RUNTIME_DIR: xdgRuntime,
+        ANVILORE_SEM_DIALOGO: "1",
+      };
+
+      const p1 = Bun.spawn(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+      const p2 = Bun.spawn(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+
+      const [c1, c2] = await Promise.all([p1.exited, p2.exited]);
+      expect(c1).toBe(0);
+      expect(c2).toBe(0);
+
+      const starts = (await readFile(chamadas, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
+      expect(starts.length).toBe(1);
+    } finally {
+      server.stop(true);
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+}, 25000);
+
+test("Dado arquivo de trava que é um symlink, Quando o lançador executa, Então recusa com erro e não desliga a trava em silêncio (P3-A)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-trava-symlink-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "bin");
+    const xdgRuntime = join(base, "run");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await mkdir(xdgRuntime, { recursive: true });
+
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh\nexit 0\n`);
+    await chmod(bun, 0o755);
+
+    const lockTarget = join(base, "alvo-lock");
+    await writeFile(lockTarget, "bloqueado");
+    const lockFile = join(xdgRuntime, "anvilore-ui.lock");
+    await symlink(lockTarget, lockFile);
+
+    const env = {
+      ...process.env,
+      HOME: home,
+      PATH: `${bin}:/usr/bin:/bin`,
+      ANVILORE_PASTA: pasta,
+      XDG_RUNTIME_DIR: xdgRuntime,
+      ANVILORE_SEM_DIALOGO: "1",
+    };
+
+    const proc = Bun.spawnSync(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+    expect(proc.exitCode).toBe(1);
+    const stderr = proc.stderr.toString();
+    expect(stderr).toContain("symlink não é permitido");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
