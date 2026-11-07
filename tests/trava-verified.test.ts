@@ -7,6 +7,13 @@ import { comandoHooksWiki } from "../src/comandos/hooks-wiki";
 import { blocoVerified, candidatosDeCaminho, decidirVerified, encontrarRaizVault, mudouBloco } from "../src/lib/trava-verified";
 import { capturarConsole } from "./apoio/console";
 
+// URL file: de um caminho local, no formato certo em qualquer sistema: file://HOST/caminho, com barras normais e UMA barra antes da
+// letra da unidade no Windows (file:///C:/Users/x). `file://localhost` + `C:\\Users\\x` não é uma URL, e a trava (corretamente) não a lê.
+function paraUrlArquivo(caminho: string, host = ""): string {
+  const barras = caminho.replaceAll("\\", "/");
+  return `file://${host}${barras.startsWith("/") ? barras : `/${barras}`}`;
+}
+
 // Julga cada comando pelo hook real e, quando o código difere, devolve na mensagem o comando, o código obtido e o motivo da
 // trava (o log do CI só mostra o mapa comando → código, que não diz por que o Windows decidiu diferente).
 async function esperarCodigos(comandos: string[], codigo: number, cwd: string): Promise<void> {
@@ -3124,7 +3131,7 @@ describe("trava de verified nos quatro agentes", () => {
     test("Achado P2 do bot (rodada 15): verbo desconhecido que recebe caminho da wiki é negado por padrão", async () => {
       const { fora, cofre, esperar, wikiA } = prepararRodada11();
       writeFileSync(join(fora, "s.py"), "print(1)\n");
-      const url = `file://${fora}/p.md`;
+      const url = paraUrlArquivo(`${fora}/p.md`);
       try {
         // Dado o cwd no cofre, Quando um verbo fora da lista de leitura recebe um argumento que toca a wiki, Então bloqueia
         const ataques = [
@@ -3219,10 +3226,10 @@ describe("trava de verified nos quatro agentes", () => {
           `zsh ${fora}/s.sh -owiki/a.md`,
           `fish ${fora}/s.fish wiki/a.md`,
           `bash wiki/s.sh`,
-          `curl -T ${fora}/p.md file://localhost${wikiA}`,
-          `curl -T ${fora}/p.md file://example.com${wikiA}`,
-          `curl -T ${fora}/p.md file://${wikiA}`,
-          `curl --upload-file ${fora}/p.md file://127.0.0.1${wikiA}`,
+          `curl -T ${fora}/p.md ${paraUrlArquivo(wikiA, "localhost")}`,
+          `curl -T ${fora}/p.md ${paraUrlArquivo(wikiA, "example.com")}`,
+          `curl -T ${fora}/p.md ${paraUrlArquivo(wikiA)}`,
+          `curl --upload-file ${fora}/p.md ${paraUrlArquivo(wikiA, "127.0.0.1")}`,
         ];
         await esperar(ataques, 2, cofre);
         const regressoes = [
@@ -3230,7 +3237,7 @@ describe("trava de verified nos quatro agentes", () => {
           `bash ${fora}/s.sh ${fora}/x`,
           `bash -c "cat wiki/a.md"`,
           `sh -c 'echo hi'`,
-          `curl -T ${fora}/p.md file://localhost${fora}/x`,
+          `curl -T ${fora}/p.md ${paraUrlArquivo(`${fora}/x`, "localhost")}`,
           `curl https://example.com`,
         ];
         await esperar(regressoes, 0, cofre);
@@ -3416,7 +3423,7 @@ describe("trava de verified nos quatro agentes", () => {
           `echo x | fish ${fora}/s.fish`,
           `tar xfC ${fora}/x.tar ${fora}/y`,
           `tar tf wiki/x.tar`,
-          `curl -T ${fora}/p.md file://${fora}/%78`,
+          `curl -T ${fora}/p.md ${paraUrlArquivo(`${fora}/%78`)}`,
           `curl file:${fora}/p.md -o ${fora}/x`,
           `curl https://example.com/%77iki`,
           `tar --remove-files -cf ${fora}/b.tar ${fora}/p.md`,
@@ -3453,8 +3460,8 @@ describe("trava de verified nos quatro agentes", () => {
           `tar cfN ${cofre}/wiki/x.tar 2020-01-01 ${fora}/p.md`,
           `tar xfC ${fora}/x.tar ${cofre}`,
           `tar xCf ${cofre} ${fora}/x.tar`,
-          `curl -T ${fora}/p.md file://${cofre}/%77iki/a.md`,
-          `curl -T ${fora}/p.md file://localhost${cofre}/%57iki/a.md`,
+          `curl -T ${fora}/p.md ${paraUrlArquivo(`${cofre}/%77iki/a.md`)}`,
+          `curl -T ${fora}/p.md ${paraUrlArquivo(`${cofre}/%57iki/a.md`, "localhost")}`,
           `curl -T ${fora}/p.md file:${wikiA}`,
           `curl -T ${fora}/p.md file:${cofre}/%2e/wiki/a.md`,
           `curl -T ${fora}/p.md file:${cofre}/wiki%2Fa.md`,
@@ -3563,11 +3570,11 @@ describe("trava de verified nos quatro agentes", () => {
         await esperar([
           `rsync --remove-sent-files ${cofre}/wiki/ ${fora}/y/`,
           `rsync -a --remove-sent-files ${cofre}/ ${fora}/y/`,
-          `curl -T ${fora}/p.md file://${cofre}/wiki/a.md?x=1`,
-          `curl -T ${fora}/p.md file://${cofre}/wiki/a.md#frag`,
-          `curl -T ${fora}/p.md file://${cofre}/[w]iki/a.md`,
-          `curl -T ${fora}/p.md file://${cofre}/{wiki,x}/a.md`,
-          `curl -T ${fora}/p.md file://${cofre}/wik*/a.md`,
+          `curl -T ${fora}/p.md ${paraUrlArquivo(`${cofre}/wiki/a.md?x=1`)}`,
+          `curl -T ${fora}/p.md ${paraUrlArquivo(`${cofre}/wiki/a.md#frag`)}`,
+          `curl -T ${fora}/p.md ${paraUrlArquivo(`${cofre}/[w]iki/a.md`)}`,
+          `curl -T ${fora}/p.md ${paraUrlArquivo(`${cofre}/{wiki,x}/a.md`)}`,
+          `curl -T ${fora}/p.md ${paraUrlArquivo(`${cofre}/wik*/a.md`)}`,
           `curl -T ${fora}/p.md file:${wikiA}`,
         ], 2, fora);
         await esperar([
@@ -3575,7 +3582,7 @@ describe("trava de verified nos quatro agentes", () => {
           `7z a -sdel ${fora}/x.7z ${fora}/p.md`,
           `tar --remove-files -cf ${fora}/b.tar '*'`,
           `rsync --remove-sent-files ${fora}/p.md ${fora}/y/`,
-          `curl -T ${fora}/p.md file://${fora}/x`,
+          `curl -T ${fora}/p.md ${paraUrlArquivo(`${fora}/x`)}`,
         ], 0, fora);
       } finally {
         rmSync(fora, { recursive: true, force: true });
@@ -3952,7 +3959,9 @@ describe("trava de verified nos quatro agentes", () => {
         executarProtecao(JSON.stringify({ cwd, tool_name: nome, tool_input: entrada }));
       const patch = (corpo: string) => `*** Begin Patch\n${corpo}\n*** End Patch`;
       try {
-        const ataques: Record<string, number> = {
+        // Todos têm `..` depois de um link. No Windows o `..` é lexical (GetFullPathName colapsa antes de tocar o disco): `alias\\..\\a.md` é
+        // `<cofre>\\a.md`, fora da wiki, então o ataque não existe lá e o comportamento CORRETO é liberar. No POSIX o kernel segue o link antes.
+        const comPontos: Record<string, number> = {
           // Write, Edit, MultiEdit em <cofre>/alias/../a.md com alias → wiki/sub: o kernel segue o link antes do `..`
           "Write alias/..": await executar("Write", { file_path: alvo, content: comVerificado }),
           "Write alias2/../..": await executar("Write", { file_path: alvo2, content: comVerificado }),
@@ -3986,12 +3995,59 @@ describe("trava de verified nos quatro agentes", () => {
         // A edição de uma página que já tem verified, sem mexer nele, segue liberada pelo caminho com link
         writeFileSync(join(wikiDir, "sub/deep/b.md"), comVerificado);
         regressoes["Edit sem mexer no verified"] = await executar("Edit", { file_path: `${temporario}/alias2/b.md`, old_string: "Texto", new_string: "Texto novo" });
+        // O link seguido SEM `..` vale nos dois sistemas: escrever em wiki/sub/a.md pelo alias bloqueia também no Windows.
+        const semPontos: Record<string, number> = {
+          "Write via alias sem ..": await executar("Write", { file_path: `${temporario}/alias/novo2.md`, content: comVerificado }),
+          "patch add via alias sem ..": await executar("apply_patch", { patch: patch(`*** Add File: ${temporario}/alias/novo3.md\n${comVerificado.split("\n").map(l => `+${l}`).join("\n")}`) }),
+        };
+        const esperadoComPontos = process.platform === "win32" ? 0 : 2;
         const divergentes = [
-          ...Object.entries(ataques).filter(([, codigo]) => codigo !== 2).map(([nome, codigo]) => `ataque ${nome}: esperado 2, obtido ${codigo}`),
+          ...Object.entries(comPontos).filter(([, codigo]) => codigo !== esperadoComPontos).map(([nome, codigo]) => `ataque ${nome}: esperado ${esperadoComPontos}, obtido ${codigo}`),
+          ...Object.entries(semPontos).filter(([, codigo]) => codigo !== 2).map(([nome, codigo]) => `ataque ${nome}: esperado 2, obtido ${codigo}`),
           ...Object.entries(regressoes).filter(([, codigo]) => codigo !== 0).map(([nome, codigo]) => `regressão ${nome}: esperado 0, obtido ${codigo}`),
         ];
         expect(divergentes).toEqual([]);
       } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Windows (c1): o sufixo de um grupo de opções curtas que cai depois de RUNNER não vira `~` de expansão", () => {
+      // Dado -o seguido do caminho do runner do Windows (nome curto 8.3 RUNNER~1), Quando listo os candidatos a caminho
+      const arg = "-oC:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\anvilore-stage-x/y";
+      const candidatos = candidatosDeCaminho(arg);
+      // Então o caminho inteiro é candidato, e nenhum sufixo começa com `~` ou `:` (pedaços de um nome, não valores)
+      expect(candidatos).toContain("C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\anvilore-stage-x/y");
+      expect(candidatos.filter(c => c.startsWith("~") || c.startsWith(":"))).toEqual([]);
+      // O til de verdade (valor colado que começa com `~`, ou o argumento inteiro) segue sendo candidato com expansão
+      expect(candidatosDeCaminho("~/x")).toContain("~/x");
+      expect(candidatosDeCaminho("--saida=~/x")).toContain("~/x");
+      // A URL do Windows montada pelo helper (host + unidade com barras normais) é extraída até o caminho com a unidade; a forma errada
+      // `file://localhostC:\\...` (sem barra) é o que os testes montavam antes e não é uma URL.
+      expect(paraUrlArquivo("C:\\Users\\x\\wiki\\a.md", "localhost")).toBe("file://localhost/C:/Users/x/wiki/a.md");
+      expect(candidatosDeCaminho(paraUrlArquivo("C:\\Users\\x\\wiki\\a.md", "localhost"))).toContain("C:/Users/x/wiki/a.md");
+      expect(paraUrlArquivo("/home/x/wiki/a.md", "localhost")).toBe("file://localhost/home/x/wiki/a.md");
+    });
+
+    test("Windows (c2): ~ se resolve por USERPROFILE quando não há HOME, como no runner do Windows", async () => {
+      const { fora, cofre } = prepararRodada11();
+      const homeAntes = process.env.HOME;
+      const perfilAntes = process.env.USERPROFILE;
+      try {
+        // Dado um ambiente sem HOME (o Windows só tem USERPROFILE), Quando um verbo desconhecido recebe ~/x com o cwd fora do cofre
+        delete process.env.HOME;
+        delete process.env.USERPROFILE;
+        const ambiente = { ...process.env, ANVILORE_WIKI: join(cofre, "wiki"), USERPROFILE: fora };
+        const decidir = async (comando: string) =>
+          (await decidirVerified(JSON.stringify({ cwd: fora, tool_name: "Bash", tool_input: { command: comando } }), cofre, ambiente)).acao;
+        // Então o ~ vira o perfil (fora do cofre) e libera; com o perfil dentro da wiki, bloqueia
+        expect(await decidir("ferramenta-inventada ~/x")).toBe("liberar");
+        const ambienteNaWiki = { ...ambiente, USERPROFILE: join(cofre, "wiki") };
+        const naWiki = await decidirVerified(JSON.stringify({ cwd: fora, tool_name: "Bash", tool_input: { command: "ferramenta-inventada ~/x" } }), cofre, ambienteNaWiki);
+        expect(naWiki.acao).toBe("bloquear");
+      } finally {
+        if (homeAntes === undefined) delete process.env.HOME; else process.env.HOME = homeAntes;
+        if (perfilAntes === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = perfilAntes;
         rmSync(fora, { recursive: true, force: true });
       }
     });

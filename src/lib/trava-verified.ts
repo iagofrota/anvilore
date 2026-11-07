@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { caminhoReal, dentroDe } from "./caminhos";
 import { lerFrontmatter } from "./frontmatter";
@@ -2346,14 +2346,19 @@ function opcaoQueExecuta(verbo: string, args: string[]): string | undefined {
   return regraPresente(regra, [...antigo, ...args]) ? `${verbo} com opção que executa comando (falha fechada)` : undefined;
 }
 
+function homedirOuUndefined(): string | undefined {
+  try { return homedir() || undefined; } catch { return undefined; }
+}
+
 // Fonte/candidato com expansão (glob, `$`, `~`): além do cwd, vale o caminho literal que ela carrega antes da primeira expansão
 // (`<cofre>/wik*` já aponta para o cofre) e o diretório pai dele quando o prefixo foi cortado no meio de um nome.
 function expansaoPerigosa(fonte: string, dir: string, raiz: string, ambiente: Record<string, string | undefined>): boolean {
   if (ehDestinoPerigoso(".", dir, raiz, ambiente)) return true;
   let texto = fonte;
   if (texto.startsWith("~")) {
-    const home = ambiente.HOME ?? process.env.HOME;
-    if (!home || /^~[^/]/.test(texto)) return true;
+    // No Windows não há HOME (há USERPROFILE); nenhum dos dois, o diretório do usuário do sistema; nenhum resolvido, não se prova.
+    const home = ambiente.HOME ?? ambiente.USERPROFILE ?? process.env.HOME ?? process.env.USERPROFILE ?? homedirOuUndefined();
+    if (!home || /^~[^/\\]/.test(texto)) return true;
     texto = `${home}${texto.slice(1)}`;
   }
   const prefixo = texto.split(/[$`*?\[{%]/)[0]!;
@@ -2382,7 +2387,11 @@ export function candidatosDeCaminho(arg: string): string[] {
   const igual = limpo.indexOf("=");
   if (igual >= 0) candidatos.add(limpo.slice(igual + 1));
   // Grupo de opções curtas com valor colado, para qualquer letra e qualquer tamanho: -oVALOR, -vowiki/a.md → todos os sufixos.
-  if (/^-[A-Za-z]/.test(limpo)) for (let k = 2; k < limpo.length; k++) candidatos.add(limpo.slice(k));
+  // Um sufixo que começa com `~` ou `:` é o meio de um nome (RUNNER~1, a letra de unidade C:), não um valor: o til só expande no começo da palavra.
+  if (/^-[A-Za-z]/.test(limpo)) for (let k = 2; k < limpo.length; k++) {
+    const sufixo = limpo.slice(k);
+    if (!/^[~:]/.test(sufixo)) candidatos.add(sufixo);
+  }
   // Argumento com espaços (".output wiki/a.md" do sqlite3, comando entre aspas): cada palavra também.
   for (const palavra of limpo.split(/\s+/)) if (palavra) candidatos.add(palavra);
   // file:///c, file://QUALQUER-HOST/c, file:/c e file:c → o caminho c, com %XX decodificado como o curl faz (%77iki é wiki);
