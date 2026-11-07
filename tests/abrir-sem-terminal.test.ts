@@ -740,3 +740,199 @@ exit 0
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test("Dado processo com umask 0002, Quando o lançador desacoplado prepara log, Então o diretório é criado com permissão 0700 e o log com 0600 (P2-3, P3-2)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-perm-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "bin");
+    const xdgState = join(base, "state");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh
+exit 0
+`);
+    await chmod(bun, 0o755);
+
+    const env = {
+      ...process.env,
+      HOME: home,
+      PATH: `${bin}:/usr/bin:/bin`,
+      ANVILORE_PASTA: pasta,
+      XDG_STATE_HOME: xdgState,
+      ANVILORE_SEM_DIALOGO: "1",
+    };
+
+    // Executa lançador com umask 0002 explícito
+    const proc = Bun.spawnSync(["bash", "-c", `umask 0002; bash "${lancadorOriginal}"`], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+
+    const logDir = join(xdgState, "anvilore");
+    const logFile = join(logDir, "abrir.log");
+
+    const statDir = await stat(logDir);
+    const modeDir = (statDir.mode & 0o777).toString(8);
+    expect(modeDir).toBe("700");
+
+    const statFile = await stat(logFile);
+    const modeFile = (statFile.mode & 0o777).toString(8);
+    expect(modeFile).toBe("600");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("Dado falha ao subir o servidor sem terminal, Quando o diálogo de erro é exibido, Então contém as últimas linhas do erro com token mascarado, caminho do log e sem linha em branco inicial (P2-4)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-dialogo-causa-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "bin");
+    const xdgState = join(base, "state");
+    const dialogoTexto = join(base, "dialogo-texto");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    // Fake bun que falha com código 3 e grava linhas de erro com token sensível
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh
+if [ "$1" = "src/cli.ts" ] && [ "$2" = "ui" ]; then
+  echo "Erro critico ao vincular porta 4173" >&2
+  echo "Falha de autenticacao token=secreto_12345 no banco" >&2
+  exit 3
+fi
+exit 0
+`);
+    await chmod(bun, 0o755);
+
+    // Mock zenity que salva o texto do diálogo
+    const zenity = join(bin, "zenity");
+    await writeFile(zenity, `#!/bin/sh
+for arg in "$@"; do
+  case "$arg" in
+    --text=*) printf '%s' "\${arg#--text=}" >"${dialogoTexto}" ;;
+  esac
+done
+exit 0
+`);
+    await chmod(zenity, 0o755);
+
+    const env = {
+      ...process.env,
+      HOME: home,
+      PATH: `${bin}:/usr/bin:/bin`,
+      ANVILORE_PASTA: pasta,
+      XDG_STATE_HOME: xdgState,
+      DISPLAY: ":0",
+      ANVILORE_TEST_DIALOGO: "1",
+    };
+
+    const proc = Bun.spawnSync(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+    expect(proc.exitCode).toBe(3);
+
+    expect(await Bun.file(dialogoTexto).exists()).toBe(true);
+    const texto = await readFile(dialogoTexto, "utf8");
+
+    // Não deve começar com linha em branco
+    expect(texto.startsWith("\n")).toBe(false);
+    // Não deve conter a frase genérica antiga
+    expect(texto).not.toContain("Confira a mensagem acima");
+    // Deve conter detalhes das últimas linhas de erro
+    expect(texto).toContain("Erro critico ao vincular porta 4173");
+    // Deve mascarar o token
+    expect(texto).toContain("token=[REDUZIDO]");
+    expect(texto).not.toContain("secreto_12345");
+    // Deve conter o caminho do log
+    expect(texto).toContain(join(xdgState, "anvilore/abrir.log"));
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("Dado primeira instalação executada dentro do terminal com sucesso, Quando o instalador termina, Então exibe mensagem amigável, sai com código 0 e UI sobe desacoplada (P2-5)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-primeira-inst-term-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "bin");
+    const xdgRuntime = join(base, "run");
+
+    await mkdir(bin, { recursive: true });
+    await mkdir(xdgRuntime, { recursive: true });
+
+    // Instalação simulada: instalar.sh cria os arquivos do kit
+    const lancadorTemp = join(base, "anvilore-abrir");
+    const scriptOriginal = await readFile(lancadorOriginal, "utf8");
+    await writeFile(lancadorTemp, scriptOriginal);
+    await chmod(lancadorTemp, 0o755);
+
+    await writeFile(join(base, "instalar.sh"), `#!/bin/sh
+mkdir -p "$ANVILORE_PASTA/.git" "$ANVILORE_PASTA/src" "$ANVILORE_PASTA/skills"
+touch "$ANVILORE_PASTA/AGENTS.md" "$ANVILORE_PASTA/src/cli.ts"
+echo '{"version":"0.10.0"}' >"$ANVILORE_PASTA/package.json"
+exit 0
+`);
+    await chmod(join(base, "instalar.sh"), 0o755);
+
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh
+if [ "$1" = "-e" ]; then
+  exec "${process.execPath}" "$@"
+fi
+exit 0
+`);
+    await chmod(bun, 0o755);
+
+    const env = {
+      ...process.env,
+      HOME: home,
+      PATH: `${bin}:/usr/bin:/bin`,
+      ANVILORE_PASTA: pasta,
+      XDG_RUNTIME_DIR: xdgRuntime,
+      ANVILORE_EM_TERMINAL: "1",
+      ANVILORE_SEM_DIALOGO: "1",
+    };
+
+    const proc = Bun.spawnSync(["bash", lancadorTemp], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+    const stdout = proc.stdout.toString();
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    // Deve avisar que está abrindo no navegador e fechar o terminal
+    expect(stdout).toContain("Pronto, abrindo no navegador…");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("Dado o script do lançador, Quando analisado seu conteúdo, Então não possui referências a AGENTISTICS_THROWAWAY nem CI (P3-1)", async () => {
+  const conteudo = await readFile(lancadorOriginal, "utf8");
+  expect(conteudo).not.toContain("AGENTISTICS_THROWAWAY");
+  expect(conteudo).not.toContain("CI");
+});
+
+test("Dado lançamento desacoplado, Quando o processo é iniciado, Então utiliza setsid para desacoplar a sessão (P3-5)", async () => {
+  if (process.platform !== "linux") return;
+  const conteudo = await readFile(lancadorOriginal, "utf8");
+  // O lançador deve utilizar setsid com fallback para nohup
+  expect(conteudo).toContain("setsid");
+  expect(conteudo).toContain("nohup");
+});

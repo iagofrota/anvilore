@@ -10,14 +10,30 @@ instalacao_valida() {
   [ -d "$1/.git" ] && [ -f "$1/AGENTS.md" ] && [ -f "$1/src/cli.ts" ] && [ -d "$1/skills" ]
 }
 
-gravar_log_erro() {
+obter_ou_preparar_arquivo_log() {
   local log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/anvilore"
   local log_file="$log_dir/abrir.log"
-  if [ -L "$log_dir" ] || [ -L "$log_file" ]; then return 0; fi
-  if [ -e "$log_dir" ] && [ ! -O "$log_dir" ]; then return 0; fi
-  if [ -e "$log_file" ] && [ ! -O "$log_file" ]; then return 0; fi
-  mkdir -p "$log_dir" 2>/dev/null || return 0
+  if [ -L "$log_dir" ] || [ -L "$log_file" ]; then return 1; fi
+  if [ -e "$log_dir" ] && [ ! -O "$log_dir" ]; then return 1; fi
+  if [ -e "$log_file" ] && [ ! -O "$log_file" ]; then return 1; fi
+  (
+    umask 077
+    mkdir -p -m 700 "$log_dir" 2>/dev/null || true
+    touch "$log_file" 2>/dev/null || true
+  ) 2>/dev/null || true
   chmod 700 "$log_dir" 2>/dev/null || true
+  chmod 600 "$log_file" 2>/dev/null || true
+  if [ -f "$log_file" ] && [ -O "$log_file" ] && [ ! -L "$log_file" ]; then
+    printf '%s' "$log_file"
+    return 0
+  fi
+  return 1
+}
+
+gravar_log_erro() {
+  local log_file
+  log_file="$(obter_ou_preparar_arquivo_log 2>/dev/null || true)"
+  [ -n "$log_file" ] || return 0
   (
     umask 077
     local carimbo msg
@@ -26,6 +42,23 @@ gravar_log_erro() {
     printf '[%s] %s\n' "$carimbo" "$msg" >>"$log_file"
   ) 2>/dev/null || true
   chmod 600 "$log_file" 2>/dev/null || true
+}
+
+montar_mensagem_erro_servidor() {
+  local codigo="$1" log_file="$2"
+  local ultimas_linhas=""
+  if [ -n "$log_file" ] && [ -f "$log_file" ]; then
+    ultimas_linhas="$(tail -n 10 "$log_file" 2>/dev/null | sed -E 's/token=[a-zA-Z0-9_-]+/token=[REDUZIDO]/g')"
+  fi
+
+  local corpo="Não foi possível iniciar a interface do Anvilore (código $codigo)."
+  if [ -n "$ultimas_linhas" ]; then
+    corpo="$corpo"$'\n\n'"Últimas linhas do erro:"$'\n'"$ultimas_linhas"
+  fi
+  if [ -n "$log_file" ] && [ -f "$log_file" ] && [ "$log_file" != "/dev/null" ]; then
+    corpo="$corpo"$'\n\n'"Registro completo em: $log_file"
+  fi
+  printf '%s' "$corpo"
 }
 
 mostrar_erro_e_esperar() {
@@ -40,11 +73,11 @@ mostrar_erro_e_esperar() {
   fi
 
   local texto
-  texto="$(printf '%s\n' "$@")"
+  texto="$(printf '%s\n' "$@" | sed -e '/./,$!d')"
   [ -n "$texto" ] || return 0
 
-  # Se estiver em ambiente automatizado de testes ou sem display, não bloqueia com diálogo modal
-  if [ -n "${AGENTISTICS_THROWAWAY:-}" ] || [ -n "${CI:-}" ] || [ -n "${ANVILORE_SEM_DIALOGO:-}" ]; then
+  # Se estiver em ambiente com diálogos suprimidos, não bloqueia com diálogo modal
+  if [ -n "${ANVILORE_SEM_DIALOGO:-}" ]; then
     [ -n "${ANVILORE_TEST_DIALOGO:-}" ] || return 0
   fi
 
@@ -112,7 +145,7 @@ if ! instalacao_valida "$PASTA"; then
 
   if [ -n "$INSTALADOR" ]; then
     if ! { [ -t 0 ] || [ -t 1 ]; } && [ -z "${ANVILORE_EM_TERMINAL:-}" ]; then
-      if [ -n "${ANVILORE_TEST_DIALOGO:-}" ] || { [ -z "${AGENTISTICS_THROWAWAY:-}" ] && [ -z "${CI:-}" ]; }; then
+      if [ -z "${ANVILORE_SEM_DIALOGO:-}" ] || [ -n "${ANVILORE_TEST_DIALOGO:-}" ]; then
         abrir_no_terminal "$@" || true
       fi
     fi
@@ -129,6 +162,19 @@ if ! instalacao_valida "$PASTA"; then
   if ! instalacao_valida "$PASTA"; then
     mostrar_erro_e_esperar "A instalação não foi concluída em $PASTA. Rode o instalador Linux e tente de novo."
     exit 1
+  fi
+
+  # P2-5: depois da 1ª instalação no terminal, relançar desacoplado e fechar o terminal
+  if [ -n "${ANVILORE_EM_TERMINAL:-}" ]; then
+    printf 'Pronto, abrindo no navegador…\n'
+    if command -v setsid >/dev/null 2>&1; then
+      setsid env ANVILORE_DESACOPLADO=1 ANVILORE_PASTA="$PASTA" bash "$ARQUIVO_LANCADOR" "$@" </dev/null >/dev/null 2>&1 &
+    elif command -v nohup >/dev/null 2>&1; then
+      nohup env ANVILORE_DESACOPLADO=1 ANVILORE_PASTA="$PASTA" bash "$ARQUIVO_LANCADOR" "$@" </dev/null >/dev/null 2>&1 &
+    else
+      env ANVILORE_DESACOPLADO=1 ANVILORE_PASTA="$PASTA" bash "$ARQUIVO_LANCADOR" "$@" </dev/null >/dev/null 2>&1 &
+    fi
+    exit 0
   fi
 fi
 
@@ -508,25 +554,44 @@ if { [ -t 0 ] || [ -t 1 ]; } && [ -z "${ANVILORE_DESACOPLADO:-}" ]; then
   ANVILORE_DESTINO="$PASTA" "$BUN_BIN" src/cli.ts ui
   CODIGO=$?
   if [ "$CODIGO" -ne 0 ]; then
-    mostrar_erro_e_esperar "" "A interface do Anvilore fechou com erro (código $CODIGO). Confira a mensagem acima."
+    log_file="$(obter_ou_preparar_arquivo_log 2>/dev/null || true)"
+    msg_erro="$(montar_mensagem_erro_servidor "$CODIGO" "$log_file")"
+    mostrar_erro_e_esperar "$msg_erro"
   fi
   exit "$CODIGO"
 fi
 
-# Modo sem terminal: executa desacoplado com nohup, gravando saída no log
-log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/anvilore"
-log_file="$log_dir/abrir.log"
-mkdir -p "$log_dir" 2>/dev/null || true
-touch "$log_file" 2>/dev/null || true
-chmod 600 "$log_file" 2>/dev/null || true
+# Modo sem terminal: executa desacoplado com setsid/nohup, gravando saída no log
+log_file="$(obter_ou_preparar_arquivo_log 2>/dev/null || true)"
+if [ -z "$log_file" ]; then
+  log_file="/dev/null"
+fi
 
-(
-  exec 9>&-
-  set -o pipefail
-  ANVILORE_DESTINO="$PASTA" "$BUN_BIN" src/cli.ts ui --auto-encerrar 2>&1 | \
-    sed -E 's/token=[a-zA-Z0-9_-]+/token=[REDUZIDO]/g' >>"$log_file"
-) &
-server_pid=$!
+if command -v setsid >/dev/null 2>&1; then
+  setsid bash -c '
+    exec 9>&-
+    set -o pipefail
+    ANVILORE_DESTINO="$1" "$2" src/cli.ts ui --auto-encerrar 2>&1 | \
+      sed -E "s/token=[a-zA-Z0-9_-]+/token=[REDUZIDO]/g" >>"$3"
+  ' _ "$PASTA" "$BUN_BIN" "$log_file" </dev/null &
+  server_pid=$!
+elif command -v nohup >/dev/null 2>&1; then
+  nohup bash -c '
+    exec 9>&-
+    set -o pipefail
+    ANVILORE_DESTINO="$1" "$2" src/cli.ts ui --auto-encerrar 2>&1 | \
+      sed -E "s/token=[a-zA-Z0-9_-]+/token=[REDUZIDO]/g" >>"$3"
+  ' _ "$PASTA" "$BUN_BIN" "$log_file" </dev/null 2>/dev/null &
+  server_pid=$!
+else
+  (
+    exec 9>&-
+    set -o pipefail
+    ANVILORE_DESTINO="$PASTA" "$BUN_BIN" src/cli.ts ui --auto-encerrar 2>&1 | \
+      sed -E 's/token=[a-zA-Z0-9_-]+/token=[REDUZIDO]/g' >>"$log_file"
+  ) &
+  server_pid=$!
+fi
 
 # Aguarda o processo confirmar prontidão ou falhar
 pronto=0
@@ -536,8 +601,9 @@ for _ in $(seq 1 50); do
     CODIGO=$?
     if [ "$CODIGO" -ne 0 ]; then
       liberar_trava_instancia
-      [ -f "$log_file" ] && cat "$log_file" >&2
-      mostrar_erro_e_esperar "" "A interface do Anvilore fechou com erro (código $CODIGO). Confira a mensagem acima."
+      [ -f "$log_file" ] && [ "$log_file" != "/dev/null" ] && cat "$log_file" >&2
+      msg_erro="$(montar_mensagem_erro_servidor "$CODIGO" "$log_file")"
+      mostrar_erro_e_esperar "$msg_erro"
       exit "$CODIGO"
     fi
     liberar_trava_instancia
