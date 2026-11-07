@@ -7,6 +7,8 @@ function terminadorFinal(comando: string, palavra: string, fechamentoB = false):
   const linhas = comando.split("\n");
   const ocorrencias = linhas.filter(linha => linha === palavra).length;
   if (ocorrencias !== 1) return false;
+  const indiceTerminador = linhas.findIndex(linha => linha === palavra);
+  if (linhas.some((linha, indice) => indice !== indiceTerminador && linha.startsWith(palavra))) return false;
   if (!fechamentoB) return linhas.at(-1) === palavra;
   return linhas.length >= 3
     && linhas.at(-2) === palavra

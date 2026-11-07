@@ -106,6 +106,55 @@ test("Dado comandos de escrita em linhas separadas dentro de blocos Quando class
   }
 });
 
+test.skipIf(!bashDisponivel)("Dado Bash encerrando heredoc em linha que começa com o delimitador Quando executo as cargas B Então os dois guardas bloqueiam", async () => {
+  const vault = mkdtempSync(join(tmpdir(), "anvilore-heredoc-prefixo-delim-vault-"));
+  mkdirSync(join(vault, "raw"));
+  mkdirSync(join(vault, "wiki"));
+  writeFileSync(join(vault, "SCHEMA.md"), "# Schema\n");
+  writeFileSync(join(vault, "p"), "origem\n");
+  writeFileSync(join(vault, "raw/a.md"), "bruto\n");
+  writeFileSync(join(vault, "wiki/a.md"), "---\ntitle: A\n---\n");
+  const ataques: Array<{ comando: (carga: string) => string; carga: string; destino: "raw" | "wiki"; bashExecuta: boolean }> = [];
+  for (const carga of ["rm raw/a.md", "cp p wiki/a.md"]) {
+    const destino = carga.startsWith("rm ") ? "raw" : "wiki";
+    ataques.push(
+      { comando: c => `git commit -m \"$(cat <<'EOF'\nEOF)\"; ${c}; echo \"\nEOF\n)\"`, carga, destino, bashExecuta: true },
+      { comando: c => `git commit -m \"$(cat <<'EOF'\nEOF)\n${c}\necho \"\nEOF\n)\"`, carga, destino, bashExecuta: false },
+      { comando: c => `gh pr create --body \"$(cat <<'EOF'\nEOF) $(${c})\nEOF\n)\"`, carga, destino, bashExecuta: true },
+      { comando: c => `git commit -m \"$(cat <<'EOF'\nEOF )\"; ${c}; echo \"\nEOF\n)\"`, carga, destino, bashExecuta: true },
+    );
+  }
+  const erroOriginal = console.error;
+  console.error = () => {};
+  try {
+    for (const ataque of ataques) {
+      const comando = ataque.comando(ataque.carga);
+      const pastaBash = mkdtempSync(join(tmpdir(), "anvilore-heredoc-prefixo-delim-bash-"));
+      mkdirSync(join(pastaBash, "raw"));
+      mkdirSync(join(pastaBash, "wiki"));
+      writeFileSync(join(pastaBash, "p"), "origem\n");
+      writeFileSync(join(pastaBash, "raw/a.md"), "bruto\n");
+      writeFileSync(join(pastaBash, "wiki/a.md"), "---\ntitle: A\n---\n");
+      try {
+        Bun.spawnSync(["bash", "-c", comando], { cwd: pastaBash, stdin: "ignore", stdout: "ignore", stderr: "ignore", timeout: 1_000 });
+        const executou = ataque.destino === "raw"
+          ? !existsSync(join(pastaBash, "raw/a.md"))
+          : (await Bun.file(join(pastaBash, "wiki/a.md")).text()).startsWith("origem");
+        expect({ comando, bashExecutou: executou }).toEqual({ comando, bashExecutou: ataque.bashExecuta });
+      } finally {
+        rmSync(pastaBash, { recursive: true, force: true });
+      }
+
+      const payload = JSON.stringify({ cwd: vault, tool_name: "Bash", tool_input: { command: comando } });
+      expect(await executarProtecao(payload)).toBe(2);
+      expect((await decidirVerified(payload, vault)).acao).toBe("bloquear");
+    }
+  } finally {
+    console.error = erroOriginal;
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test.skipIf(!bashDisponivel)("Dado fuzz fixo de heredocs Quando comparo a execução no Bash com a proteção Então nenhum interpretador contorna o guarda", async () => {
   const vault = mkdtempSync(join(tmpdir(), "anvilore-heredoc-fuzz-"));
   mkdirSync(join(vault, "raw"));
