@@ -1,11 +1,31 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { executarProtecao } from "../src/comandos/hook-proteger-raw";
 import { comandoHooksWiki } from "../src/comandos/hooks-wiki";
-import { blocoVerified, encontrarRaizVault, mudouBloco } from "../src/lib/trava-verified";
+import { blocoVerified, decidirVerified, encontrarRaizVault, mudouBloco } from "../src/lib/trava-verified";
 import { capturarConsole } from "./apoio/console";
+
+// Julga cada comando pelo hook real e, quando o código difere, devolve na mensagem o comando, o código obtido e o motivo da
+// trava (o log do CI só mostra o mapa comando → código, que não diz por que o Windows decidiu diferente).
+async function esperarCodigos(comandos: string[], codigo: number, cwd: string): Promise<void> {
+  const divergencias: string[] = [];
+  for (const command of comandos) {
+    const payload = JSON.stringify({ cwd, tool_name: "Bash", tool_input: { command } });
+    const obtido = await executarProtecao(payload);
+    if (obtido === codigo) continue;
+    let motivo: string;
+    try {
+      const decisao = await decidirVerified(payload, cwd);
+      motivo = `${decisao.acao}: ${decisao.motivo}`;
+    } catch (erro) {
+      motivo = `exceção: ${(erro as Error).message}`;
+    }
+    divergencias.push(`  ${command}\n    esperado ${codigo}, obtido ${obtido}; trava de verified: ${motivo}`);
+  }
+  if (divergencias.length) throw new Error(`Comandos com resultado inesperado (${divergencias.length} de ${comandos.length}), cwd ${cwd}:\n${divergencias.join("\n")}`);
+}
 
 describe("trava de verified nos quatro agentes", () => {
   let temporario: string;
@@ -74,19 +94,13 @@ describe("trava de verified nos quatro agentes", () => {
   });
 
   test("Dado troca de diretório literal para fora da wiki ou só leitura Quando o terminal é julgado Então libera", async () => {
+    // `/tmp` literal não existe no Windows: o diretório de -C tem de ser uma pasta real, e tmpdir() é em qualquer sistema.
     const comandos = [
-      "env -C /tmp sed -i s/a/b/ x.md",
+      `env -C ${tmpdir()} sed -i s/a/b/ x.md`,
       "env -C wiki cat a.md",
       "git -C wiki log",
     ];
-    const resultados = await Promise.all(comandos.map(command => executarProtecao(JSON.stringify({
-      cwd: temporario,
-      tool_name: "Bash",
-      tool_input: { command },
-    }))));
-    expect(Object.fromEntries(comandos.map((command, index) => [command, resultados[index]]))).toEqual(
-      Object.fromEntries(comandos.map(command => [command, 0]))
-    );
+    await esperarCodigos(comandos, 0, temporario);
   });
 
   test("Dado CLI segura seguida de outro comando Quando o terminal é julgado Então a isenção só cobre o primeiro comando", async () => {
@@ -2053,7 +2067,8 @@ describe("trava de verified nos quatro agentes", () => {
         expect(resTmpWiki).toBe(2);
 
         // 2. Redirecionamento com traversal via /tmp/../<abs>/wiki/a.md
-        const caminhoTraversal = "/tmp/.." + pagina;
+        // `/tmp/..` + caminho absoluto só forma um caminho válido no POSIX; aqui a pasta temporária do sistema faz o papel de /tmp.
+        const caminhoTraversal = `${tmpdir()}/../${basename(tmpdir())}/${basename(cofreTmp)}/wiki/a.md`;
         const cmdTraversal = `printf "verified: - by: human:fraude\\n" > "${caminhoTraversal}"`;
         const resTraversal = await executarProtecao(JSON.stringify({
           cwd: cofreTmp,
@@ -2251,14 +2266,9 @@ describe("trava de verified nos quatro agentes", () => {
           `cp /tmp/p.md alias/../a.md`,
         ];
 
-        for (const cmd of ataques) {
-          const codigo = await executarProtecao(JSON.stringify({
-            cwd: temporario,
-            tool_name: "Bash",
-            tool_input: { command: cmd },
-          }));
-          expect(codigo).toBe(2);
-        }
+        // No POSIX o link é seguido antes do `..` seguinte (alias/../a.md cai na wiki). No Windows o `..` é lexical, como o próprio
+        // Windows faz (src/lib/caminhos.ts, caminhoReal): alias\..\a.md é <cofre>\a.md, fora da wiki, então o ataque não existe lá.
+        await esperarCodigos(ataques, process.platform === "win32" ? 0 : 2, temporario);
 
         // 2. Regressões com exit 0:
         // - cp /tmp/a.md /tmp/b.md
@@ -2271,14 +2281,7 @@ describe("trava de verified nos quatro agentes", () => {
           `cat wiki/a.md`,
         ];
 
-        for (const cmd of regressoes) {
-          const codigo = await executarProtecao(JSON.stringify({
-            cwd: temporario,
-            tool_name: "Bash",
-            tool_input: { command: cmd },
-          }));
-          expect(codigo).toBe(0);
-        }
+        await esperarCodigos(regressoes, 0, temporario);
       } finally {
         rmSync(pastaFora, { recursive: true, force: true });
       }
@@ -2304,11 +2307,12 @@ describe("trava de verified nos quatro agentes", () => {
         return Object.fromEntries(comandos.map((command, indice) => [command, codigos[indice]]));
       };
       const todos = (comandos: string[], codigo: number) => Object.fromEntries(comandos.map(command => [command, codigo]));
-      return { fora, stage, cofre, julgar, todos };
+      const esperar = (comandos: string[], codigo: number, cwd = cofre) => esperarCodigos(comandos, codigo, cwd);
+      return { fora, stage, cofre, julgar, todos, esperar };
     };
 
     test("Achado P2 do bot (rodada 8): escrita em massa num destino que é ancestral da wiki cria descendentes nela", async () => {
-      const { fora, stage, cofre, julgar, todos } = prepararRodada8();
+      const { fora, stage, cofre, esperar } = prepararRodada8();
       try {
         // Falham na base 2372e20 (exit 0) e passam a dar exit 2
         const ataques = [
@@ -2356,14 +2360,14 @@ describe("trava de verified nos quatro agentes", () => {
           `ln -s ${stage}/wiki ${cofre}/`,
           `ln -s ${stage} ${cofre}/`,
         ];
-        expect(await julgar(ataques)).toEqual(todos(ataques, 2));
+        await esperar(ataques, 2);
       } finally {
         rmSync(fora, { recursive: true, force: true });
       }
     });
 
     test("Achado P2 do bot (rodada 8): escrita de um arquivo só, destino fora do cofre e leitura continuam liberados", async () => {
-      const { fora, stage, cofre, julgar, todos } = prepararRodada8();
+      const { fora, stage, cofre, esperar } = prepararRodada8();
       try {
         const regressoes = [
           `cp ${fora}/a.md ${cofre}/a.md`,
@@ -2388,14 +2392,14 @@ describe("trava de verified nos quatro agentes", () => {
           `git clone ${fora}/repo ${fora}/y/clone`,
           `ln -s ${fora}/a.md ${cofre}/atalho.md`,
         ];
-        expect(await julgar(regressoes)).toEqual(todos(regressoes, 0));
+        await esperar(regressoes, 0);
       } finally {
         rmSync(fora, { recursive: true, force: true });
       }
     });
 
     test("Achado preventivo (rodada 9): comando executado por outro comando (sh -c, find -exec, xargs, parallel, eval) é analisado", async () => {
-      const { fora, stage, cofre, julgar, todos } = prepararRodada8();
+      const { fora, stage, cofre, esperar } = prepararRodada8();
       const aninhado = (niveis: number, interno = `cp -R ${stage}/. ${cofre}/`) => {
         let comando = interno;
         for (let i = 0; i < niveis; i++) comando = `sh -c '${comando.replaceAll("'", "'\\''")}'`;
@@ -2430,7 +2434,7 @@ describe("trava de verified nos quatro agentes", () => {
           `xargs sh -c 'cp -R "$0" ${cofre}/'`,
           `eval 'cp -R ${stage}/. ${cofre}/'`,
         ];
-        expect(await julgar(ataques)).toEqual(todos(ataques, 2));
+        await esperar(ataques, 2);
 
         // Regressões com exit 0: comandos aninhados que só leem ou escrevem fora da wiki
         const regressoes = [
@@ -2448,14 +2452,14 @@ describe("trava de verified nos quatro agentes", () => {
           `parallel echo {} ::: a b`,
           `eval 'echo ok'`,
         ];
-        expect(await julgar(regressoes)).toEqual(todos(regressoes, 0));
+        await esperar(regressoes, 0);
       } finally {
         rmSync(fora, { recursive: true, force: true });
       }
     });
 
     test("Achados da revisão automática da rodada 8: tar com P na forma antiga e vários -C, unzip -:, 7z -spf e caixa do comando, git -c core.worktree", async () => {
-      const { fora, cofre, julgar, todos } = prepararRodada8();
+      const { fora, cofre, esperar } = prepararRodada8();
       try {
         const ataques = [
           `tar xPf ${fora}/x.tar -C ${fora}/y`,
@@ -2467,21 +2471,21 @@ describe("trava de verified nos quatro agentes", () => {
           `7z X ${fora}/x.7z -o${cofre}`,
           `git -c core.worktree=${cofre} -C ${fora}/y checkout .`,
         ];
-        expect(await julgar(ataques)).toEqual(todos(ataques, 2));
+        await esperar(ataques, 2);
         const regressoes = [
           `tar -C ${fora}/y -xf ${fora}/x.tar`,
           `tar xf ${fora}/x.tar -C ${fora}/y`,
           `7z x ${fora}/x.7z -o${fora}/y`,
           `git -c user.name=x -C ${cofre} log`,
         ];
-        expect(await julgar(regressoes)).toEqual(todos(regressoes, 0));
+        await esperar(regressoes, 0);
       } finally {
         rmSync(fora, { recursive: true, force: true });
       }
     });
 
     test("Rodada 10 (a): GIT_WORK_TREE e GIT_DIR atribuídos num comando simples anterior valem para o git seguinte", async () => {
-      const { fora, cofre, julgar, todos } = prepararRodada8();
+      const { fora, cofre, esperar } = prepararRodada8();
       const longe = join(fora, "y");
       try {
         // Dado o cwd fora do cofre, Quando um comando anterior fixa a árvore de trabalho no cofre, Então o git que grava bloqueia
@@ -2497,7 +2501,7 @@ describe("trava de verified nos quatro agentes", () => {
           `export GIT_WORK_TREE=$DIR; git checkout .`,
           `sh -c "export GIT_WORK_TREE=${cofre}; git checkout ."`,
         ];
-        expect(await julgar(ataques, longe)).toEqual(todos(ataques, 2));
+        await esperar(ataques, 2, longe);
 
         const regressoes = [
           `export GIT_WORK_TREE=${longe}; git checkout .`,
@@ -2508,14 +2512,14 @@ describe("trava de verified nos quatro agentes", () => {
           `GIT_DIR=${longe}/.git git log`,
           `git checkout .`,
         ];
-        expect(await julgar(regressoes, longe)).toEqual(todos(regressoes, 0));
+        await esperar(regressoes, 0, longe);
       } finally {
         rmSync(fora, { recursive: true, force: true });
       }
     });
 
     test("Rodada 10 (b): git config core.worktree para a wiki ou ancestral bloqueia, e --config-env", async () => {
-      const { fora, cofre, julgar, todos } = prepararRodada8();
+      const { fora, cofre, esperar } = prepararRodada8();
       const longe = join(fora, "y");
       try {
         const ataques = [
@@ -2532,7 +2536,7 @@ describe("trava de verified nos quatro agentes", () => {
           `git -c core.worktree=${cofre}/wiki checkout .`,
           `fish --command "cp -R ${cofre}/../x ${cofre}/"`,
         ];
-        expect(await julgar(ataques, longe)).toEqual(todos(ataques, 2));
+        await esperar(ataques, 2, longe);
 
         const regressoes = [
           `git config core.worktree`,
@@ -2542,14 +2546,14 @@ describe("trava de verified nos quatro agentes", () => {
           `git --config-env=user.name=NAME log`,
           `git -c user.name=x log`,
         ];
-        expect(await julgar(regressoes, longe)).toEqual(todos(regressoes, 0));
+        await esperar(regressoes, 0, longe);
       } finally {
         rmSync(fora, { recursive: true, force: true });
       }
     });
 
     test("Rodada 10 (c): find -fprint, -fprint0, -fprintf e -fls escrevem no arquivo informado", async () => {
-      const { fora, cofre, julgar, todos } = prepararRodada8();
+      const { fora, cofre, esperar } = prepararRodada8();
       const longe = join(fora, "y");
       try {
         const ataques = [
@@ -2562,7 +2566,7 @@ describe("trava de verified nos quatro agentes", () => {
           `sh -c "find ${fora} -fprint ${cofre}/wiki/a.md"`,
           `find ${fora} -fprint $OUT`,
         ];
-        expect(await julgar(ataques, cofre)).toEqual(todos(ataques, 2));
+        await esperar(ataques, 2, cofre);
 
         const regressoes = [
           `find ${fora} -fprint ${longe}/lista.txt`,
@@ -2573,14 +2577,14 @@ describe("trava de verified nos quatro agentes", () => {
           `find ${cofre}/wiki -name x -fprint /dev/null`,
           `find ${cofre}/wiki -name '*.md'`,
         ];
-        expect(await julgar(regressoes, cofre)).toEqual(todos(regressoes, 0));
+        await esperar(regressoes, 0, cofre);
       } finally {
         rmSync(fora, { recursive: true, force: true });
       }
     });
 
     test("Rodada 10 (extras da revisão automática da rodada 9): verbo aninhado não literal, parallel sem comando, shells por padrão, fish e GIT_CONFIG_*", async () => {
-      const { fora, stage, cofre, julgar, todos } = prepararRodada8();
+      const { fora, stage, cofre, esperar } = prepararRodada8();
       const longe = join(fora, "y");
       try {
         const ataques = [
@@ -2596,7 +2600,7 @@ describe("trava de verified nos quatro agentes", () => {
           `export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.worktree GIT_CONFIG_VALUE_0=${cofre}; git checkout .`,
           `GIT_CONFIG_PARAMETERS="'core.worktree'='${cofre}'" git checkout .`,
         ];
-        expect(await julgar(ataques, longe)).toEqual(todos(ataques, 2));
+        await esperar(ataques, 2, longe);
 
         const regressoes = [
           `bash -c 'cp "$1" ${longe}/' _ ${fora}/a.md`,
@@ -2606,14 +2610,14 @@ describe("trava de verified nos quatro agentes", () => {
           `GIT_CONFIG_KEY_0=user.name git log`,
           `GIT_CONFIG_KEY_0=core.worktree git log`,
         ];
-        expect(await julgar(regressoes, longe)).toEqual(todos(regressoes, 0));
+        await esperar(regressoes, 0, longe);
       } finally {
         rmSync(fora, { recursive: true, force: true });
       }
     });
 
     test("Rodada 10 (revisão automática 3): fish com várias opções de comando, -C só no fish e git config com opção abreviada", async () => {
-      const { fora, stage, cofre, julgar, todos } = prepararRodada8();
+      const { fora, stage, cofre, esperar } = prepararRodada8();
       const longe = join(fora, "y");
       const atacar = `cp -R ${stage}/. ${cofre}/`;
       try {
@@ -2631,7 +2635,7 @@ describe("trava de verified nos quatro agentes", () => {
           `git config --typ bool core.worktree ${cofre}`,
           `git config --def x core.worktree ${cofre}`,
         ];
-        expect(await julgar(ataques, longe)).toEqual(todos(ataques, 2));
+        await esperar(ataques, 2, longe);
 
         const regressoes = [
           `fish -c "echo ok"`,
@@ -2640,24 +2644,24 @@ describe("trava de verified nos quatro agentes", () => {
           `git config --file ${fora}/cfg core.worktree ${longe}`,
           `git config --fi ${fora}/cfg user.name x`,
         ];
-        expect(await julgar(regressoes, longe)).toEqual(todos(regressoes, 0));
+        await esperar(regressoes, 0, longe);
       } finally {
         rmSync(fora, { recursive: true, force: true });
       }
     });
 
     const prepararRodada11 = () => {
-      const { fora, stage, cofre, julgar, todos } = prepararRodada8();
+      const { fora, stage, cofre, julgar, todos, esperar } = prepararRodada8();
       const wikiA = `${cofre}/wiki/a.md`;
       writeFileSync(join(fora, "script.sed"), `1d\nw ${wikiA}\n`);
       writeFileSync(join(fora, "limpo.sed"), "s/a/b/\n");
       writeFileSync(join(fora, "script.awk"), `{ print > "${wikiA}" }\n`);
       writeFileSync(join(fora, "p.md"), "# p\n");
-      return { fora, stage, cofre, julgar, todos, wikiA };
+      return { fora, stage, cofre, julgar, todos, esperar, wikiA };
     };
 
     test("Achado P2 do bot (rodada 11): sed, awk e ed/ex/vim cujo script grava ou executa", async () => {
-      const { fora, stage, cofre, julgar, todos, wikiA } = prepararRodada11();
+      const { fora, stage, cofre, esperar, wikiA } = prepararRodada11();
       try {
         // Dado o cwd no cofre e caminho absoluto, Quando o script da ferramenta de texto grava ou executa, Então bloqueia
         const ataques = [
@@ -2706,14 +2710,14 @@ describe("trava de verified nos quatro agentes", () => {
           `printf 'w ${wikiA}\\nq\\n' | ex -s ${fora}/p.md`,
           `ex -s ${fora}/p.md < ${fora}/script.sed`,
         ];
-        expect(await julgar(ataques, cofre)).toEqual(todos(ataques, 2));
+        await esperar(ataques, 2, cofre);
       } finally {
         rmSync(fora, { recursive: true, force: true });
       }
     });
 
     test("Achado P2 do bot (rodada 11): leitura da wiki, escrita fora dela e scripts sem escrita nem execução continuam liberados", async () => {
-      const { fora, cofre, julgar, todos, wikiA } = prepararRodada11();
+      const { fora, cofre, esperar, wikiA } = prepararRodada11();
       try {
         const regressoes = [
           `sed -n '1p' wiki/a.md`,
@@ -2739,14 +2743,14 @@ describe("trava de verified nos quatro agentes", () => {
           `ex -sc 'w ${fora}/x|q' ${fora}/p.md`,
           `vim --version`,
         ];
-        expect(await julgar(regressoes, cofre)).toEqual(todos(regressoes, 0));
+        await esperar(regressoes, 0, cofre);
       } finally {
         rmSync(fora, { recursive: true, force: true });
       }
     });
 
     test("Achado P2 do bot (rodada 11): formas adicionais de script (endereços, a\\, -S, --cmd, -w, global, getline)", async () => {
-      const { fora, stage, cofre, julgar, todos, wikiA } = prepararRodada11();
+      const { fora, stage, cofre, esperar, wikiA } = prepararRodada11();
       writeFileSync(join(fora, "multi.sed"), `1a\\\ntexto\nw ${wikiA}\n`);
       writeFileSync(join(fora, "grava.vim"), `%s/a/b/\nw! ${wikiA}\nq\n`);
       writeFileSync(join(fora, "limpo.vim"), "%s/a/b/g\nq\n");
@@ -2782,7 +2786,7 @@ describe("trava de verified nos quatro agentes", () => {
           `ed -p '> ' -s ${wikiA}`,
           `ex -s ${fora}/p.md < /dev/null`,
         ];
-        expect(await julgar(ataques, cofre)).toEqual(todos(ataques, 2));
+        await esperar(ataques, 2, cofre);
 
         const regressoes = [
           `sed -n '/a/I,/b/p' ${fora}/p.md`,
@@ -2802,14 +2806,14 @@ describe("trava de verified nos quatro agentes", () => {
           `vim -es -c 'g/x/' -c q ${fora}/p.md`,
           `vim -es -c 'r !echo ok' -c q ${fora}/p.md`,
         ];
-        expect(await julgar(regressoes, cofre)).toEqual(todos(regressoes, 0));
+        await esperar(regressoes, 0, cofre);
       } finally {
         rmSync(fora, { recursive: true, force: true });
       }
     });
 
     test("Rodada 11 (revisão automática): rótulo do sed, prefixos, -d/-W/-l do awk, concatenação e regex, ex por lista permitida e -u/-s/-i do vim", async () => {
-      const { fora, stage, cofre, julgar, todos, wikiA } = prepararRodada11();
+      const { fora, stage, cofre, esperar, wikiA } = prepararRodada11();
       writeFileSync(join(fora, "rc.vim"), "silent! !cp -R x y\n");
       writeFileSync(join(fora, "teclas"), `:w ${wikiA}\r`);
       try {
@@ -2840,7 +2844,7 @@ describe("trava de verified nos quatro agentes", () => {
           `vim -s ${fora}/teclas ${fora}/p.md`,
           `vim -i wiki/a.viminfo -es -c q ${fora}/p.md`,
         ];
-        expect(await julgar(ataques, cofre)).toEqual(todos(ataques, 2));
+        await esperar(ataques, 2, cofre);
 
         const regressoes = [
           `sed ':a;N;$!ba;s/\\n/ /g' ${fora}/p.md`,
@@ -2853,14 +2857,14 @@ describe("trava de verified nos quatro agentes", () => {
           `vim -es -u NONE -c q ${fora}/p.md`,
           `vim --clean -es -c '%s/a/b/g' -c wq ${fora}/p.md`,
         ];
-        expect(await julgar(regressoes, cofre)).toEqual(todos(regressoes, 0));
+        await esperar(regressoes, 0, cofre);
       } finally {
         rmSync(fora, { recursive: true, force: true });
       }
     });
 
     test("Rodada 11 (pendências): git config com -- e várias ocorrências, bash -oc, put/set do vim e awk x++ / 2", async () => {
-      const { fora, stage, cofre, julgar, todos, wikiA } = prepararRodada11();
+      const { fora, stage, cofre, esperar, wikiA } = prepararRodada11();
       const longe = join(fora, "y");
       const atacar = `cp -R ${stage}/. ${cofre}/`;
       try {
@@ -2882,7 +2886,7 @@ describe("trava de verified nos quatro agentes", () => {
           `awk 'BEGIN{x++ / 2; print > "wiki/a.md"; y / 3}' ${fora}/p.md`,
           `awk 'BEGIN{x-- / 2; print > "wiki/a.md"; y / 3}' ${fora}/p.md`,
         ];
-        expect(await julgar(ataques, longe)).toEqual(todos(ataques, 2));
+        await esperar(ataques, 2, longe);
 
         const regressoes = [
           `git config core.worktree ${longe}`,
@@ -2895,14 +2899,14 @@ describe("trava de verified nos quatro agentes", () => {
           `vim -es -c '%s/a/b/g' -c wq ${fora}/p.md`,
           `awk 'BEGIN{x++; y = 4 / 2; print y > "${fora}/x"}' ${fora}/p.md`,
         ];
-        expect(await julgar(regressoes, longe)).toEqual(todos(regressoes, 0));
+        await esperar(regressoes, 0, longe);
       } finally {
         rmSync(fora, { recursive: true, force: true });
       }
     });
 
     test("Rodada 11 (revisão automática 2): script trocado na mesma linha e opções do gawk que gravam arquivo", async () => {
-      const { fora, cofre, julgar, todos, wikiA } = prepararRodada11();
+      const { fora, cofre, esperar, wikiA } = prepararRodada11();
       writeFileSync(join(fora, "grava.vim"), `w! ${wikiA}\nq\n`);
       writeFileSync(join(fora, "limpo.vim"), "q\n");
       try {
@@ -2917,7 +2921,7 @@ describe("trava de verified nos quatro agentes", () => {
           `awk --profile=wiki/a.md 'BEGIN{}' ${fora}/p.md`,
           `awk --pretty-print=wiki/a.md 'BEGIN{}' ${fora}/p.md`,
         ];
-        expect(await julgar(ataques, cofre)).toEqual(todos(ataques, 2));
+        await esperar(ataques, 2, cofre);
 
         const regressoes = [
           `sed -f ${fora}/limpo.sed ${fora}/p.md`,
@@ -2926,7 +2930,52 @@ describe("trava de verified nos quatro agentes", () => {
           `awk -d 'BEGIN{}' ${fora}/p.md`,
           `awk --pretty-print 'BEGIN{}' ${fora}/p.md`,
         ];
-        expect(await julgar(regressoes, cofre)).toEqual(todos(regressoes, 0));
+        await esperar(regressoes, 0, cofre);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Achado P2 do bot (rodada 12, A): dd com vários of= julga todos, porque o dd grava no último", async () => {
+      const { fora, cofre, esperar, wikiA } = prepararRodada11();
+      try {
+        const ataques = [
+          `dd if=${fora}/p.md of=${fora}/seguro.md of=wiki/a.md`,
+          `dd if=${fora}/p.md of=${fora}/seguro.md of=${wikiA}`,
+          `dd of=${fora}/seguro.md if=${fora}/p.md of=${wikiA} conv=notrunc`,
+          `dd of=${fora}/a of=${fora}/b of=wiki/a.md`,
+          `dd of=wiki/a.md of=${fora}/seguro.md`,
+          `sudo dd if=${fora}/p.md of=${fora}/seguro.md of=wiki/a.md`,
+        ];
+        await esperar(ataques, 2, cofre);
+        const regressoes = [
+          `dd if=${fora}/p.md of=${fora}/seguro.md`,
+          `dd if=${fora}/p.md of=${fora}/a of=${fora}/b`,
+          `dd if=wiki/a.md of=${fora}/seguro.md`,
+        ];
+        await esperar(regressoes, 0, cofre);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Achado B (CI Windows): til no meio do caminho é literal, como em RUNNER~1 do tmpdir() do runner", async () => {
+      const { fora, cofre, esperar } = prepararRodada8();
+      // Dado um diretório de nome curto 8.3 (o runner do Windows usa C:\Users\RUNNER~1\...), Quando -C o escolhe, Então a pasta é literal
+      const curto = join(fora, "CURTO~1");
+      mkdirSync(curto);
+      try {
+        const regressoes = [
+          `tar -xf ${fora}/x.tar -C ${curto}`,
+          `tar -cf ${fora}/b.tar -C ${curto} .`,
+          `env -C ${curto} cat a.md`,
+          `git -C ${curto} log`,
+          `make -C ${curto}`,
+        ];
+        await esperar(regressoes, 0, cofre);
+        // O til no começo da palavra continua sendo expansão e continua bloqueando.
+        const ataques = [`env -C ~/x sed -i s/a/b/ a.md`, `tar -C ~ -xf ${fora}/x.tar`];
+        await esperar(ataques, 2, cofre);
       } finally {
         rmSync(fora, { recursive: true, force: true });
       }

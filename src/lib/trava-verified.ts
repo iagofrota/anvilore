@@ -815,7 +815,8 @@ function analisarGit(args: string[]): { subcomando?: string; globais: string[]; 
 
 function resolverDiretorioEfetivo(base: string, diretorio: string): string | undefined {
   // These tokens require shell expansion or describe a set of paths, so their cwd cannot be proven.
-  if (!diretorio || /[$`~*?\[\]{}]/.test(diretorio)) return undefined;
+  // `~` só expande no começo da palavra: no meio é literal (RUNNER~1, o nome curto 8.3 do tmpdir() do runner do Windows).
+  if (!diretorio || diretorio.startsWith("~") || /[$`*?\[\]{}]/.test(diretorio)) return undefined;
   try {
     const abs = caminhoReal(resolve(base, diretorio), base);
     return statSync(abs).isDirectory() ? abs : undefined;
@@ -1355,15 +1356,21 @@ function analisarScriptAwk(script: string): EscritaDeScript {
   const nao = (motivo: string) => { r.bloqueio ??= `${motivo} (falha fechada)`; };
   // @include/@load carregam código que o guarda não lê (a extensão inplace grava arquivos).
   if (/@(?:include|load|namespace)\b/.test(script) || /\binplace::/.test(script)) { nao("awk com @include, @load ou inplace::"); return r; }
-  const lerString = (de: number): { texto: string; fim: number } | undefined => {
+  // `texto` tem as barras de escape resolvidas (como o awk lê); `bruto` é o que está entre as aspas (no Windows, C:\Users\x é
+  // o caminho real e `\U` não é escape). Destino e comando valem nas duas leituras: qualquer uma perigosa bloqueia.
+  const lerString = (de: number): { texto: string; bruto: string; fim: number } | undefined => {
     let texto = "";
     for (let k = de + 1; k < n; k++) {
       const c = script[k]!;
       if (c === "\\" && k + 1 < n) { texto += script[k + 1]; k++; continue; }
-      if (c === '"') return { texto, fim: k + 1 };
+      if (c === '"') return { texto, bruto: script.slice(de + 1, k), fim: k + 1 };
       texto += c;
     }
     return undefined;
+  };
+  const registrar = (lista: string[], literal: { texto: string; bruto: string }) => {
+    lista.push(literal.texto);
+    if (literal.bruto !== literal.texto) lista.push(literal.bruto);
   };
   // `/regex/` onde se espera um operando (depois de ( , { ; ! ~ | & = < > ou no início); depois de um valor é divisão.
   const lerRegex = (de: number): number => {
@@ -1381,7 +1388,7 @@ function analisarScriptAwk(script: string): EscritaDeScript {
   const esperaOperando = (anterior: string | undefined) => anterior === undefined || /[(,{;!~|&=<>+\-*%^?:\n]/.test(anterior);
   // Depois do alvo literal só pode vir o fim da instrução: `"w" "iki"` concatena e o alvo real é outro.
   const fimDeInstrucao = (de: number) => { const m = /^[ \t]*(?:$|[;}\n)#])/.exec(script.slice(de)); return m !== null; };
-  let ultimaString: { texto: string; inicio: number; fim: number } | undefined;
+  let ultimaString: { texto: string; bruto: string; inicio: number; fim: number } | undefined;
   let anterior: string | undefined;
   let i = 0;
   while (i < n) {
@@ -1409,7 +1416,7 @@ function analisarScriptAwk(script: string): EscritaDeScript {
       if (script.startsWith("getline", k)) {
         const antes = ultimaString ? script.slice(0, ultimaString.inicio).trimEnd().slice(-1) : "";
         const solta = ultimaString && script.slice(ultimaString.fim, i).trim() === "" && (antes === "" || /[;{}(=\n]/.test(antes));
-        if (solta) r.comandos.push(ultimaString!.texto);
+        if (solta) registrar(r.comandos, ultimaString!);
         else nao("awk com comando não literal ou concatenado em getline");
       }
       anterior = "|"; i++;
@@ -1427,7 +1434,7 @@ function analisarScriptAwk(script: string): EscritaDeScript {
           j++;
           while (j < n && /\s/.test(script[j]!)) j++;
           const literal = script[j] === '"' ? lerString(j) : undefined;
-          if (literal && script.slice(literal.fim).trimStart().startsWith(")")) r.comandos.push(literal.texto);
+          if (literal && script.slice(literal.fim).trimStart().startsWith(")")) registrar(r.comandos, literal);
           else nao("awk com system() de comando não literal");
         }
       } else if (palavra === "print" || palavra === "printf") {
@@ -1459,7 +1466,7 @@ function analisarScriptAwk(script: string): EscritaDeScript {
             const literal = script[k2] === '"' ? lerString(k2) : undefined;
             if (!literal) { nao(d === ">" ? "awk com destino de redirecionamento não literal" : "awk com comando de pipe não literal"); return r; }
             if (!fimDeInstrucao(literal.fim)) { nao("awk com alvo de redirecionamento concatenado"); return r; }
-            (d === ">" ? r.destinos : r.comandos).push(literal.texto);
+            registrar(d === ">" ? r.destinos : r.comandos, literal);
             i = literal.fim; ant = '"';
             continue;
           }
@@ -2179,8 +2186,8 @@ function analisarComandoSimples(
 
   // 5.3 dd: of=...
   if (verbo === "dd") {
-    const ofArg = cmdArgs.find(arg => /^of=/i.test(arg));
-    if (ofArg) {
+    // O dd grava no ÚLTIMO of=, mas aqui todos são julgados: qualquer um perigoso bloqueia.
+    for (const ofArg of cmdArgs.filter(arg => /^of=/i.test(arg))) {
       const destDd = ofArg.slice(3).replace(/^["']|["']$/g, "").trim();
       if (caminhoTocaWiki(destDd, base, raiz, ambiente) || !destinoEhSeguro(destDd, base, raiz, ambiente) || temMudancaDir) {
         return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
