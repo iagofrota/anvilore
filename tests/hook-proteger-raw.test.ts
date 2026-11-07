@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -996,3 +996,543 @@ test('Dado raw solto em interpretador, Quando bun avalia, Então bloqueia',()=>{
 test('Dado Git destrutivo sobre raw, Quando decidir, Então clean -fdx e rm -r continuam bloqueados',()=>{
  for(const comando of ['git clean -fdx raw','git rm -r raw'])for(const payload of formasCaptura)expect(decidir(payload(comando)).acao).toBe('bloquear');
 });
+
+// Auditoria run-1 (S1) — achado medium: redirecionamento ou comentário contaminam operandos posicionais
+test("Dado cp com destino em raw e sufixo de redirecionamento ou comentário Quando decidir Então bloqueia", () => {
+  for (const comando of [
+    "cp wiki/rascunho.txt raw/fonte.txt 2>/dev/null",
+    "cp wiki/rascunho.txt raw/fonte.txt 2>&1",
+    "cp wiki/rascunho.txt raw/fonte.txt > /dev/null",
+    "cp wiki/rascunho.txt raw/fonte.txt # comentário",
+    "cp wiki/rascunho.txt raw/fonte.txt 2>log.txt",
+    "cp wiki/rascunho.txt raw/fonte.txt &>log.txt",
+    "cp wiki/rascunho.txt raw/fonte.txt >>log.txt",
+  ]) {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  }
+});
+
+test("Dado pdftotext com entrada em raw e sufixo de redirecionamento Quando decidir Então bloqueia", () => {
+  for (const comando of [
+    "pdftotext raw/a.pdf 2>&1",
+    "pdftotext raw/a.pdf 2>/dev/null",
+  ]) {
+    expect(decidir(terminal(comando)).acao).toBe("bloquear");
+  }
+});
+
+test("Dado uso legítimo com redirecionamento de erro ou saída fora de raw Quando decidir Então libera", () => {
+  expect(decidir(terminal("cp raw/fonte.txt wiki/x 2>/dev/null")).acao).toBe("liberar");
+  expect(decidir(terminal("rg x wiki/ 2>/dev/null")).acao).toBe("liberar");
+  expect(decidir(terminal("cat raw/a.md 2>&1 | head")).acao).toBe("liberar");
+  expect(decidir(terminal("pdftotext raw/a.pdf /tmp/a.txt 2>/dev/null")).acao).toBe("liberar");
+  expect(decidir(terminal("cp raw/a.pdf /tmp/")).acao).toBe("liberar");
+});
+
+// Auditoria run-1 (S1) — achado low: pontuação no corpo de apply_patch/heredoc não pode ignorar resolução de link para raw/
+test("Dado apply_patch para link que aponta para raw Quando o corpo contém pontuação comum Então bloqueia", () => {
+  const base = projeto();
+  symlinkSync(join(base, "raw"), join(base, "wiki/ln"), linkDeDiretorio);
+  for (const corpo of [
+    "+x",
+    "+veja [x](y)",
+    `+it's`,
+    "+usa `code`",
+    "+valor $(x)",
+  ]) {
+    const patch = `*** Begin Patch\n*** Add File: wiki/ln/a.md\n${corpo}\n*** End Patch`;
+    const payload = JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: patch } });
+    expect(decidir(payload).acao).toBe("bloquear");
+  }
+});
+
+test("Dado heredoc para link que aponta para raw Quando o corpo contém pontuação comum Então bloqueia", () => {
+  const base = projeto();
+  symlinkSync(join(base, "raw"), join(base, "wiki/ln"), linkDeDiretorio);
+  for (const corpo of [
+    "texto simples",
+    "ver [fonte](https://x.org)",
+    "it's",
+    "usa `code`",
+    "valor $(x)",
+  ]) {
+    const comando = `cat > wiki/ln/pagina.md <<'EOF'\n${corpo}\nEOF`;
+    for (const tool_name of ["Bash", "run_shell_command"]) {
+      const payload = JSON.stringify({ tool_name, cwd: base, tool_input: { command: comando } });
+      expect(decidir(payload).acao).toBe("bloquear");
+    }
+    const payloadCopilot = JSON.stringify({ toolName: "bash", cwd: base, toolArgs: JSON.stringify({ command: comando }) });
+    expect(decidir(payloadCopilot).acao).toBe("bloquear");
+  }
+});
+
+test("Dado patch normal em wiki com pontuação no corpo Quando decidir Então continua liberado", () => {
+  const base = projeto();
+  const patch = `*** Begin Patch\n*** Add File: wiki/a.md\n+veja [x](y) e 'aspas' e \`code\` e $(cmd)\n*** End Patch`;
+  const payload = JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: patch } });
+  expect(decidir(payload).acao).toBe("liberar");
+});
+
+describe("Auditoria run-1 (S1) — tabela completa do parecer de QA (QA-S1.md)", () => {
+  const vetoresComando = [
+    // RED-01..16
+    { id: "RED-01", acao: "bloquear", comando: "cp wiki/x raw/x 2> /dev/null" },
+    { id: "RED-02", acao: "bloquear", comando: "cp wiki/x raw/x 1>/tmp/out" },
+    { id: "RED-03", acao: "bloquear", comando: "cp wiki/x raw/x >|/tmp/out" },
+    { id: "RED-04", acao: "bloquear", comando: "cp wiki/x raw/x 3>/tmp/out" },
+    { id: "RED-05", acao: "bloquear", comando: "cp wiki/x raw/x &>>/tmp/out" },
+    { id: "RED-06", acao: "bloquear", comando: "cp wiki/x raw/x </dev/null" },
+    { id: "RED-07", acao: "bloquear", comando: "cp wiki/x raw/x <<<x" },
+    { id: "RED-08", acao: "bloquear", comando: "cp wiki/x raw/x 2>&-" },
+    { id: "RED-09", acao: "bloquear", comando: "cp 2>/dev/null wiki/x raw/x" },
+    { id: "RED-10", acao: "bloquear", comando: "cp wiki/x 2>/dev/null raw/x" },
+    { id: "RED-11", acao: "bloquear", comando: "cp 2> /dev/null wiki/x raw/x" },
+    { id: "RED-12", acao: "bloquear", comando: "echo x 1<>raw/fonte.txt" },
+    { id: "RED-13", acao: "bloquear", comando: "cat wiki/x <>raw/novo.txt" },
+    { id: "RED-14", acao: "bloquear", comando: 'cp ">origem" raw/x' },
+    { id: "RED-15", acao: "bloquear", comando: 'cp "<origem" raw/x' },
+    { id: "RED-16", acao: "bloquear", comando: 'cp "2>origem" raw/x' },
+
+    // COM-01..10
+    { id: "COM-01", acao: "bloquear", comando: "cp wiki/x raw/x#c" },
+    { id: "COM-02", acao: "bloquear", comando: 'cp wiki/x "#nota" raw/x' },
+    { id: "COM-03", acao: "bloquear", comando: 'cp "#nota" raw/x' },
+    { id: "COM-04", acao: "bloquear", comando: 'rm "#nota" raw/x' },
+    { id: "COM-05", acao: "bloquear", comando: 'cp wiki/x raw/x "#comentario"' },
+    { id: "COM-06", acao: "bloquear", comando: "cp wiki/x ''# raw/x" },
+    { id: "COM-07", acao: "bloquear", comando: "rm -f ''# raw/x" },
+    { id: "COM-08", acao: "bloquear", comando: "cp wiki/x \\#nota raw/x" },
+    { id: "COM-09", acao: "bloquear", comando: 'mv wiki/x "#nota" raw/x' },
+    { id: "COM-10", acao: "bloquear", comando: 'sed -i "#s/a/b/" raw/a.md' },
+
+    // ENC-01..08
+    { id: "ENC-01", acao: "bloquear", comando: "cp wiki/x raw/x 2>/dev/null; echo ok" },
+    { id: "ENC-02", acao: "bloquear", comando: "echo ok && cp wiki/x raw/x 2>&1" },
+    { id: "ENC-03", acao: "bloquear", comando: "cp wiki/x raw/x 2>&1 | cat" },
+    { id: "ENC-04", acao: "bloquear", comando: "mv wiki/x raw/x 2>/dev/null" },
+    { id: "ENC-05", acao: "bloquear", comando: "install wiki/x raw/x 2>/dev/null" },
+    { id: "ENC-06", acao: "bloquear", comando: "ln -s wiki/x raw/x 2>/dev/null" },
+    { id: "ENC-07", acao: "bloquear", comando: "cat wiki/x | tee raw/x 2>/dev/null" },
+    { id: "ENC-08", acao: "bloquear", comando: "rsync -a wiki/ raw/ 2>/dev/null" },
+
+    // PDF-01..04
+    { id: "PDF-01", acao: "bloquear", comando: "pdftotext -layout -f 1 -l 3 raw/a.pdf 2>/dev/null" },
+    { id: "PDF-02", acao: "bloquear", comando: "pdftotext 2>/dev/null raw/a.pdf" },
+    { id: "PDF-03", acao: "bloquear", comando: "pdftotext raw/a.pdf 2>&-" },
+    { id: "PDF-04", acao: "bloquear", comando: 'pdftotext -opw "#senha" raw/a.pdf' },
+
+    // HD-02, 03, 04, 06, 07
+    { id: "HD-02", acao: "bloquear", comando: "cat > wiki/a.md <<EOF-1\ntexto\nEOF-1\nrm raw/a.md" },
+    { id: "HD-03", acao: "bloquear", comando: "echo ok # <<EOF\nrm raw/a.md" },
+    { id: "HD-04", acao: "bloquear", comando: "bash <<'EOF'\nrm raw/a.md\nEOF" },
+    { id: "HD-06", acao: "bloquear", comando: "sh <<EOF\ncp wiki/x raw/x\nEOF" },
+    { id: "HD-07", acao: "bloquear", comando: "cat <<EOF | xargs rm\nraw/a.md\nEOF" },
+
+    // FP-01..08 (Falsos Positivos)
+    { id: "FP-01", acao: "liberar", comando: "rg x wiki/ 2>/dev/null" },
+    { id: "FP-02", acao: "liberar", comando: "cat raw/a.md 2>&1 | head" },
+    { id: "FP-03", acao: "liberar", comando: "pdftotext raw/a.pdf /tmp/a.txt 2>/dev/null" },
+    { id: "FP-04", acao: "liberar", comando: "cp raw/a.pdf /tmp/" },
+    { id: "FP-05", acao: "liberar", comando: "ls raw/ 2>/dev/null" },
+    { id: "FP-06", acao: "liberar", comando: "pdftotext raw/a.pdf wiki/x.txt 2>&1" },
+    { id: "FP-07", acao: "liberar", comando: "pdftotext -layout raw/a.pdf - 2>/dev/null" },
+    { id: "FP-08", acao: "liberar", comando: "git status 2>&1" },
+  ] as const;
+
+  test.each(vetoresComando)("Vetor $id: $comando -> $acao", ({ comando, acao }) => {
+    for (const forma of formasCaptura) {
+      expect(decidir(forma(comando)).acao).toBe(acao);
+    }
+  });
+
+  const vetoresContextuais: Array<{ id: string; acao: "bloquear" | "liberar"; executar: (base: string) => ReturnType<typeof decidir> }> = [
+    {
+      id: "PDF-05",
+      acao: "bloquear",
+      executar: (base: string) => {
+        symlinkSync(join(base, "raw"), join(base, "wiki/ln"), linkDeDiretorio);
+        return decidir(JSON.stringify({ tool_name: "Bash", cwd: base, tool_input: { command: "pdftotext -layout raw/a.pdf wiki/ln/a.txt 2>&1" } }));
+      },
+    },
+    {
+      id: "HD-01",
+      acao: "bloquear",
+      executar: (base: string) => {
+        symlinkSync(join(base, "raw"), join(base, "wiki/ln"), linkDeDiretorio);
+        const cmd = `cat > wiki/ln/p.md <<-"EOF"\r\n\tit's \`code\` $(cmd) C:\\x\\y ${"a".repeat(600)}\r\n\tEOF`;
+        return decidir(JSON.stringify({ tool_name: "Bash", cwd: base, tool_input: { command: cmd } }));
+      },
+    },
+    {
+      id: "HD-05",
+      acao: "bloquear",
+      executar: (base: string) => {
+        const pastaExt = join(temporario, "pasta-ext-hd05");
+        mkdirSync(pastaExt, { recursive: true });
+        rmSync(join(base, "raw"), { recursive: true });
+        symlinkSync(pastaExt, join(base, "raw"), linkDeDiretorio);
+        const cmd = `cat > ${pastaExt}/a.md <<'EOF'\nveja [x](y) e it's\nEOF`;
+        return decidir(JSON.stringify({ tool_name: "Bash", cwd: base, tool_input: { command: cmd } }));
+      },
+    },
+    {
+      id: "HD-08",
+      acao: "bloquear",
+      executar: (base: string) => {
+        symlinkSync(join(base, "raw"), join(base, "wiki/ln"), linkDeDiretorio);
+        const cmd = "cat > wiki/ln/a.md <<''\nveja [x](y)\n";
+        return decidir(JSON.stringify({ tool_name: "Bash", cwd: base, tool_input: { command: cmd } }));
+      },
+    },
+    {
+      id: "HD-09",
+      acao: "bloquear",
+      executar: (base: string) => {
+        symlinkSync(join(base, "raw"), join(base, "wiki/ln"), linkDeDiretorio);
+        const cmd = 'cd wiki/ln && cat > pagina.md <<""\nveja [x](y)\n';
+        return decidir(JSON.stringify({ tool_name: "Bash", cwd: base, tool_input: { command: cmd } }));
+      },
+    },
+    {
+      id: "PAT-01",
+      acao: "bloquear",
+      executar: (base: string) => {
+        symlinkSync(join(base, "raw"), join(base, "wiki/ln"), linkDeDiretorio);
+        const patch = `*** Update File: wiki/ln/a.md\r\n+it's \`code\` $(x) \\ ${"b".repeat(600)}`;
+        return decidir(JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: patch } }));
+      },
+    },
+    {
+      id: "PAT-02",
+      acao: "bloquear",
+      executar: (base: string) => {
+        symlinkSync(join(base, "raw"), join(base, "wiki/ln"), linkDeDiretorio);
+        const patch = "*** Update File: wiki/a.md\n*** Move to: wiki/ln/dest.md\n+(parênteses)";
+        return decidir(JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: patch } }));
+      },
+    },
+    {
+      id: "PAT-03",
+      acao: "bloquear",
+      executar: (base: string) => {
+        const pastaExt = join(temporario, "pasta-ext-pat03");
+        mkdirSync(pastaExt, { recursive: true });
+        rmSync(join(base, "raw"), { recursive: true });
+        symlinkSync(pastaExt, join(base, "raw"), linkDeDiretorio);
+        const patch = `*** Add File: ${pastaExt}/a.md\n+f(x) e it's`;
+        return decidir(JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: patch } }));
+      },
+    },
+    {
+      id: "PAT-04",
+      acao: "bloquear",
+      executar: (base: string) => {
+        symlinkSync(join(base, "raw"), join(base, "wiki/ln"), linkDeDiretorio);
+        return decidir(JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { input: "*** Add File: wiki/ln/a.md\n+veja [x](y)" } }));
+      },
+    },
+    {
+      id: "PAT-05",
+      acao: "bloquear",
+      executar: (base: string) => {
+        symlinkSync(join(base, "raw"), join(base, "wiki/ln"), linkDeDiretorio);
+        return decidir(JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { cmd: "*** Add File: wiki/ln/a.md\n+veja [x](y)" } }));
+      },
+    },
+    {
+      id: "PAT-06",
+      acao: "bloquear",
+      executar: (base: string) => {
+        symlinkSync(join(base, "raw"), join(base, "wiki/ln"), linkDeDiretorio);
+        return decidir(JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: ["apply_patch", "*** Add File: wiki/ln/a.md\n+veja [x](y)"] } }));
+      },
+    },
+    {
+      id: "PAT-07",
+      acao: "bloquear",
+      executar: (base: string) => {
+        symlinkSync(join(base, "raw"), join(base, "wiki/ln"), linkDeDiretorio);
+        const patch = "*** Begin Patch\n *** Add File: wiki/ln/a.md\n+veja [x](y)\n*** End Patch";
+        return decidir(JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: patch } }));
+      },
+    },
+    {
+      id: "P3-01",
+      acao: "bloquear",
+      executar: (base: string) => {
+        symlinkSync(join(base, "raw"), join(base, "wiki/meu link"), linkDeDiretorio);
+        const cmd = 'echo $(date) > "wiki/meu link/a.md"';
+        return decidir(JSON.stringify({ tool_name: "Bash", cwd: base, tool_input: { command: cmd } }));
+      },
+    },
+    {
+      id: "FP-09",
+      acao: "liberar",
+      executar: (base: string) => {
+        const patch = `*** Begin Patch\r\n*** Add File: wiki/a.md\r\n+it's \`code\` $(cmd) C:\\a\\b ${"x".repeat(600)}\r\n*** End Patch`;
+        return decidir(JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: patch } }));
+      },
+    },
+    {
+      id: "FP-10",
+      acao: "bloquear",
+      executar: (base: string) => {
+        const cmd = `cat > wiki/a.md <<-'EOF'\r\n\tit's \`code\` $(cmd) C:\\a\\b ${"x".repeat(600)}\r\n\tEOF`;
+        return decidir(JSON.stringify({ tool_name: "Bash", cwd: base, tool_input: { command: cmd } }));
+      },
+    },
+  ];
+
+  test.each(vetoresContextuais)("Vetor contextual $id -> $acao", ({ acao, executar }) => {
+    const base = projeto();
+    expect(executar(base).acao).toBe(acao);
+  });
+
+  test("Dado CLI real invocado com vetores dos 5 P1 Então retorna código de saída 2 e falsos positivos código 0", () => {
+    // P1-1: argumentos com # entre aspas
+    expect(cli(terminal('cp wiki/x "#nota" raw/x')).exitCode).toBe(2);
+    expect(cli(terminal("cp wiki/x ''# raw/x")).exitCode).toBe(2);
+    // P1-2: argumentos com > entre aspas
+    expect(cli(terminal('cp ">origem" raw/x')).exitCode).toBe(2);
+    expect(cli(terminal('cp "<origem" raw/x')).exitCode).toBe(2);
+    // P1-3: operador <> para raw
+    expect(cli(terminal("echo x 1<>raw/fonte.txt")).exitCode).toBe(2);
+    expect(cli(terminal("cat wiki/x <>raw/novo.txt")).exitCode).toBe(2);
+    // P1-4: heredoc que alimenta shell
+    expect(cli(terminal("bash <<'EOF'\nrm raw/a.md\nEOF")).exitCode).toBe(2);
+    expect(cli(terminal("cat <<EOF | xargs rm\nraw/a.md\nEOF")).exitCode).toBe(2);
+    // P1-5: apply_patch sem caminhos válidos
+    expect(cli(JSON.stringify({ tool_name: "apply_patch", tool_input: { patch: "nada aqui" } })).exitCode).toBe(2);
+
+    // Falsos positivos
+    expect(cli(terminal("rg x wiki/ 2>/dev/null")).exitCode).toBe(0);
+    expect(cli(terminal("cat raw/a.md 2>&1 | head")).exitCode).toBe(0);
+    expect(cli(terminal("cp raw/a.pdf /tmp/")).exitCode).toBe(0);
+  });
+});
+
+describe("Auditoria run-1 (S1) — Delta 5b21337 (QA 2)", () => {
+  const vetoresComandoQA2 = [
+    // ASPAS-01..11
+    { id: "ASPAS-01", acao: "bloquear", comando: 'cp wiki/x a"#"b raw/x' },
+    { id: "ASPAS-02", acao: "bloquear", comando: 'cp wiki/x "a"#b raw/x' },
+    { id: "ASPAS-03", acao: "bloquear", comando: "cp wiki/x \\# raw/x" },
+    { id: "ASPAS-04", acao: "bloquear", comando: "cp wiki/x \\#nota raw/x" },
+    { id: "ASPAS-05", acao: "bloquear", comando: "cp wiki/x $'#' raw/x" },
+    { id: "ASPAS-06", acao: "bloquear", comando: 'cp wiki/x $"x" raw/x' },
+    { id: "ASPAS-07", acao: "bloquear", comando: 'cp wiki/x $(echo "raw/x")' },
+    { id: "ASPAS-08", acao: "bloquear", comando: 'cp wiki/x `echo "raw/x"`' },
+    { id: "ASPAS-09", acao: "bloquear", comando: 'cp wiki/x "$(/bin/echo raw/x)"' },
+    { id: "ASPAS-10", acao: "bloquear", comando: 'echo ok > "$(/bin/echo raw/x)"' },
+    { id: "ASPAS-11", acao: "bloquear", comando: 'cp wiki/x "`echo raw/x`"' },
+
+    // REDIR-01..07
+    { id: "REDIR-01", acao: "bloquear", comando: 'cp wiki/x ">"raw/x raw/x' },
+    { id: "REDIR-02", acao: "bloquear", comando: 'cp wiki/x 2">"x raw/x' },
+    { id: "REDIR-03", acao: "bloquear", comando: 'echo x >"raw/x"' },
+    { id: "REDIR-04", acao: "bloquear", comando: 'cp wiki/x /tmp/x 2>"raw/err.log"' },
+    { id: "REDIR-05", acao: "bloquear", comando: 'echo x >>"raw/x"' },
+    { id: "REDIR-06", acao: "bloquear", comando: 'echo x &>"raw/x"' },
+    { id: "REDIR-07", acao: "bloquear", comando: 'cat wiki/x <>"raw/x"' },
+
+    // COM-M-01..04
+    { id: "COM-M-01", acao: "bloquear", comando: "echo ok; # comentario\ncp wiki/x raw/x" },
+    { id: "COM-M-02", acao: "bloquear", comando: "echo ok && # comentario\ncp wiki/x raw/x" },
+    { id: "COM-M-03", acao: "bloquear", comando: "cp wiki/x \\\nraw/x" },
+    { id: "COM-M-04", acao: "liberar", comando: "echo ok; # cp wiki/x raw/x" },
+
+    // HD-INT-01..10
+    { id: "HD-INT-01", acao: "bloquear", comando: "bash -c <<EOF\nrm raw/a.md\nEOF" },
+    { id: "HD-INT-02", acao: "bloquear", comando: "env bash <<EOF\nrm raw/a.md\nEOF" },
+    { id: "HD-INT-03", acao: "bloquear", comando: "/bin/sh <<EOF\nrm raw/a.md\nEOF" },
+    { id: "HD-INT-04", acao: "bloquear", comando: "sudo sh <<EOF\nrm raw/a.md\nEOF" },
+    { id: "HD-INT-05", acao: "bloquear", comando: "busybox sh <<EOF\nrm raw/a.md\nEOF" },
+    { id: "HD-INT-06", acao: "bloquear", comando: "python3 - <<EOF\nimport os; os.remove('raw/a.md')\nEOF" },
+    { id: "HD-INT-07", acao: "bloquear", comando: "perl <<EOF\nunlink 'raw/a.md'\nEOF" },
+    { id: "HD-INT-08", acao: "bloquear", comando: "ruby <<EOF\nFile.delete('raw/a.md')\nEOF" },
+    { id: "HD-INT-09", acao: "bloquear", comando: "tee raw/x <<EOF\nconteudo\nEOF" },
+    { id: "HD-INT-10", acao: "bloquear", comando: "echo $(cat <<EOF\nrm raw/a.md\nEOF\n)" },
+
+    // HD-MUL-01..03
+    { id: "HD-MUL-01", acao: "bloquear", comando: "bash <<EOF1 <<EOF2\nno-exec\nEOF1\nrm raw/a.md\nEOF2" },
+    { id: "HD-MUL-02", acao: "bloquear", comando: "cat <<EOF1 <<EOF2 | bash\nrm raw/a.md\nEOF1\nEOF2" },
+    { id: "HD-MUL-03", acao: "bloquear", comando: "cat <<EOF1 > raw/a.md <<EOF2\ntexto\nEOF1\nEOF2" },
+
+    // Variantes do P1-6 (continuação de linha)
+    { id: "P1-6-VAR-01", acao: "bloquear", comando: "rm -f \\\nraw/x" },
+    { id: "P1-6-VAR-02", acao: "bloquear", comando: "cat wiki/x > \\\nraw/x" },
+    { id: "P1-6-VAR-03", acao: "bloquear", comando: "cp wiki/x \\\r\nraw/x" },
+    { id: "P1-6-VAR-04", acao: "bloquear", comando: "cp wiki/x ra\\\nw/x" },
+    { id: "P1-6-VAR-05", acao: "bloquear", comando: 'cp wiki/x "ra\\\nw/x"' },
+    { id: "P1-6-VAR-06", acao: "liberar", comando: "cp wiki/x 'ra\\\nw/x'" },
+
+    // Variantes do P1-7 (expansão em aspas duplas)
+    { id: "P1-7-VAR-01", acao: "bloquear", comando: 'echo ok > "`echo raw/x`"' },
+    { id: "P1-7-VAR-02", acao: "bloquear", comando: 'cp wiki/x "${DIR}/raw/x"' },
+    { id: "P1-7-VAR-03", acao: "bloquear", comando: 'echo ok > "${DIR}/raw/x"' },
+
+    // Falsos positivos verificados (FP-NOVO-01..11)
+    { id: "FP-NOVO-01", acao: "liberar", comando: 'git commit -m "fix #12"' },
+    { id: "FP-NOVO-02", acao: "liberar", comando: 'echo "# título" > /tmp/x' },
+    { id: "FP-NOVO-03", acao: "liberar", comando: 'rg "#tag" wiki/' },
+    { id: "FP-NOVO-04", acao: "liberar", comando: "git commit -m 'fix #12'" },
+    { id: "FP-NOVO-05", acao: "liberar", comando: 'git checkout -b "fix/#12"' },
+    { id: "FP-NOVO-06", acao: "liberar", comando: 'echo "nota #1" | cat' },
+    { id: "FP-NOVO-07", acao: "liberar", comando: 'git log --grep="#12"' },
+    { id: "FP-NOVO-08", acao: "bloquear", comando: 'echo $(echo "wiki/x")' },
+    { id: "FP-NOVO-09", acao: "bloquear", comando: "cat > wiki/x <<EOF1\nt1\nEOF1\ncat > wiki/y <<EOF2\nt2\nEOF2" },
+    { id: "FP-NOVO-10", acao: "liberar", comando: 'git commit -m "fix $(date)"' },
+    { id: "FP-NOVO-11", acao: "liberar", comando: 'echo "$HOME"' },
+  ] as const;
+
+  test.each(vetoresComandoQA2)("Vetor QA2 $id: $comando -> $acao", ({ comando, acao }) => {
+    for (const forma of formasCaptura) {
+      expect(decidir(forma(comando)).acao).toBe(acao);
+    }
+  });
+
+  const vetoresContextuaisQA2: Array<{ id: string; acao: "bloquear" | "liberar"; executar: (base: string) => ReturnType<typeof decidir> }> = [
+    {
+      id: "PAT-N-01",
+      acao: "bloquear",
+      executar: (base: string) => {
+        return decidir(JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: "*** Delete File: raw/antigo.md" } }));
+      },
+    },
+    {
+      id: "PAT-N-02",
+      acao: "bloquear",
+      executar: (base: string) => {
+        return decidir(JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: "*** Update File: wiki/a.md\n*** Move to: raw/dest.md" } }));
+      },
+    },
+    {
+      id: "PAT-N-03",
+      acao: "bloquear",
+      executar: (base: string) => {
+        const pastaExt = join(temporario, "pasta-ext-patn03");
+        mkdirSync(pastaExt, { recursive: true });
+        rmSync(join(base, "raw"), { recursive: true });
+        symlinkSync(pastaExt, join(base, "raw"), linkDeDiretorio);
+        const patch = `*** Add File: ${join(pastaExt, "novo.md")}\n+conteudo`;
+        return decidir(JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: patch } }));
+      },
+    },
+    {
+      id: "PAT-N-04",
+      acao: "bloquear",
+      executar: (base: string) => {
+        return decidir(JSON.stringify({ tool_name: "apply_patch", cwd: base, tool_input: { command: "patch malformado sem cabeçalhos válidos" } }));
+      },
+    },
+  ];
+
+  test.each(vetoresContextuaisQA2)("Vetor contextual QA2 $id -> $acao", ({ acao, executar }) => {
+    const base = projeto();
+    expect(executar(base).acao).toBe(acao);
+  });
+
+  test("Dado CLI real invocado com vetores novos do Delta 5b21337 Então valida saídas esperadas", () => {
+    // P1-6: continuação de linha
+    expect(cli(terminal("cp wiki/x \\\nraw/x")).exitCode).toBe(2);
+    expect(cli(terminal("rm -f \\\nraw/x")).exitCode).toBe(2);
+    expect(cli(terminal("cat wiki/x > \\\nraw/x")).exitCode).toBe(2);
+
+    // P1-7: expansão dentro de aspas duplas
+    expect(cli(terminal('cp wiki/x "$(/bin/echo raw/x)"')).exitCode).toBe(2);
+    expect(cli(terminal('echo ok > "$(/bin/echo raw/x)"')).exitCode).toBe(2);
+    expect(cli(terminal('cp wiki/x "`echo raw/x`"')).exitCode).toBe(2);
+
+    // Falsos positivos novos
+    expect(cli(terminal('git commit -m "fix $(date)"')).exitCode).toBe(0);
+    expect(cli(terminal('echo "$HOME"')).exitCode).toBe(0);
+  });
+});
+
+test("Dado apply_patch no formato git Quando o caminho é identificável Então protege raw e libera wiki", () => {
+  const patchWiki = [
+    "diff --git a/wiki/a.md b/wiki/a.md",
+    "--- a/wiki/a.md",
+    "+++ b/wiki/a.md",
+    "@@ -1 +1 @@",
+    "-antigo",
+    "+novo",
+  ].join("\n");
+  const patchRaw = [
+    "diff --git a/raw/a.md b/raw/a.md",
+    "--- a/raw/a.md",
+    "+++ b/raw/a.md",
+    "@@ -1 +1 @@",
+    "-antigo",
+    "+novo",
+  ].join("\n");
+  const patchRenameRaw = [
+    "diff --git a/wiki/a.md b/raw/a.md",
+    "rename from wiki/a.md",
+    "rename to raw/a.md",
+  ].join("\n");
+  const patchAddWiki = [
+    "diff --git a/dev/null b/wiki/novo.md",
+    "--- /dev/null",
+    "+++ b/wiki/novo.md",
+    "@@ -0,0 +1 @@",
+    "+novo",
+  ].join("\n");
+
+  expect(decidir(JSON.stringify({ tool_name: "apply_patch", tool_input: { patch: patchWiki } })).acao).toBe("liberar");
+  expect(decidir(JSON.stringify({ tool_name: "apply_patch", tool_input: { patch: patchAddWiki } })).acao).toBe("liberar");
+  expect(decidir(JSON.stringify({ tool_name: "apply_patch", tool_input: { patch: patchRaw } })).acao).toBe("bloquear");
+  expect(decidir(JSON.stringify({ tool_name: "apply_patch", tool_input: { patch: patchRenameRaw } })).acao).toBe("bloquear");
+});
+
+test("Dado heredoc fora da lista permitida Quando o corpo contém texto inerte Então raw bloqueia por padrão", async () => {
+  for (const carga of ["rm raw/a.md", "cp p wiki/a.md"]) {
+    for (const delimitador of ["'EOF'", '"EOF"']) {
+      const command = `cat <<${delimitador}\n$(${carga})\nEOF`;
+      const payload = JSON.stringify({ tool_name: "Bash", cwd: temporario, tool_input: { command } });
+      expect(decidir(payload).acao).toBe("bloquear");
+      expect(await executarProtecao(payload)).toBe(2);
+    }
+  }
+});
+
+test("Dado substituições no corpo de heredoc ou após cd Quando o comando é julgado Então só libera leituras puras", () => {
+  const raw = join(temporario, "raw");
+  const wiki = join(temporario, "wiki");
+  mkdirSync(raw);
+  mkdirSync(wiki);
+  const decidirNo = (command: string, cwd: string) => decidir(JSON.stringify({ tool_name: "Bash", cwd, tool_input: { command } }));
+
+  expect(decidirNo("cat <<EOF\n'$(cp p wiki/a.md)'\nEOF", temporario).acao).toBe("bloquear");
+  expect(decidirNo('cd raw; echo "$(rm a.md)"', temporario).acao).toBe("bloquear");
+
+  const negados = ["rm a.md", "cp a.md b.md", "mv a.md b.md", "sed -i s/a/b/ a.md", "tee a.md", "sh -c true", "bash -c true", "eval true", "find .", "xargs echo", "python3 -c pass", "anvilore-inventado a.md"];
+  const formas = [
+    (interno: string) => `echo "$(${interno})"`,
+    (interno: string) => `echo \`${interno}\``,
+    (interno: string) => `echo <(${interno})`,
+  ];
+  for (const cwd of [temporario, raw, wiki]) {
+    for (const interno of negados) {
+      for (const forma of formas) expect(decidirNo(forma(interno), cwd).acao).toBe("bloquear");
+    }
+  }
+
+  const permitidos = ["date", "pwd", "basename a.md", "dirname a.md", "whoami", "hostname", "uname", "git rev-parse HEAD", "git log -1 --oneline", "git describe --always", "git branch --show-current", "git status --porcelain", "git status --short"];
+  for (const interno of permitidos) {
+    expect(decidirNo(`echo \"$(${interno})\"`, temporario).acao).toBe("liberar");
+    expect(decidirNo(`git commit -m \"x $(${interno})\"`, temporario).acao).toBe("liberar");
+  }
+
+  expect(decidirNo("cat <<EOF\n$(date)\nEOF", temporario).acao).toBe("bloquear");
+  expect(decidirNo("cat <<'EOF'\n$(date)\nEOF", temporario).acao).toBe("bloquear");
+});
+
+test("Dado limites reais do heredoc Quando há delimitador anterior ou operador escapado Então não oculta comandos seguintes", () => {
+  const escapar = join(temporario, "raw");
+  mkdirSync(escapar);
+  expect(decidir(JSON.stringify({ tool_name: "Bash", cwd: temporario, tool_input: { command: "echo \"$(cat <<'EOF'\nEOF\nrm raw/a.md\nEOF\n)\"" } })).acao).toBe("bloquear");
+  expect(decidir(JSON.stringify({ tool_name: "Bash", cwd: temporario, tool_input: { command: "cat \\<<'EOF'\nrm raw/a.md\nEOF" } })).acao).toBe("bloquear");
+});
+
+

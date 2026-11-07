@@ -37,6 +37,26 @@ validador também não imprime PASS quando o diretório não existe (`src/comand
 `validarWiki`) nem quando um arquivo, o anvilore.toml ou o YAML do frontmatter não lê: cada um vira um
 erro que nomeia o arquivo.
 
+Na trava do terminal, redirecionamentos entre descritores como `2>&1`, `>&2`, `2>&-` e `<&0` não
+contam como destino de arquivo; `&>arquivo` e `>&arquivo` continuam sendo julgados como gravação.
+Substituições de comando em `$()`, crases e substituições de processo são negadas por padrão nos dois
+guardas. Só se aceitam comandos simples de leitura da lista curta (`date`, `pwd`, `basename`, `dirname`,
+`whoami`, `hostname`, `uname` e algumas consultas `git`), sem encadeamento, redirecionamento, atribuição,
+`cd`, alias, função ou substituição aninhada. O gate de heredoc em `src/lib/heredoc.ts` é uma lista positiva
+compartilhada por `src/comandos/hook-proteger-raw.ts` e `src/lib/trava-verified.ts`: exige um único `<<`,
+delimitador citado formado por palavra ASCII, sem CR ou NUL, e terminador como última linha, único no texto.
+Aceita somente três formas: (A) `git commit` com `-F -`, `--file=-` ou `--file -`; (B) mensagem opaca de
+`$(cat <<'PALAVRA'...)` para `git commit`, `git tag`, `gh pr create|comment|edit|review` ou
+`gh issue create|comment|edit`; e (C) `cat` ou `tee` com redirecionamento para caminho literal. No formato B,
+o conteúdo é substituído por texto opaco antes da análise externa. No formato C, o destino passa pelas regras
+normais de escrita: `raw/` é bloqueado e `wiki/` continua sujeito à trava de `verified`. Qualquer outro heredoc,
+inclusive delimitador sem aspas, múltiplos operadores, linha extra, pipe ou interpretador, falha fechado.
+O valor produzido por substituições de leitura permitidas continua opaco no comando externo.
+O hook `proteger-raw` reconhece os caminhos dos cabeçalhos
+`diff --git`, `---`/`+++` e `rename from`/`rename to` em `apply_patch` (`src/lib/trava-verified.ts`,
+funções `tokenizar` e `decidirTerminalVerified`; `src/comandos/hook-proteger-raw.ts`, função
+`caminhosDoPatch`).
+
 ## Captura do bruto: só acréscimos
 
 O caminho de criação é `anvilore capturar` (`src/comandos/capturar.ts`), antes do leitor da ingestão.

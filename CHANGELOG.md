@@ -18,6 +18,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
+- Os dois guardas compartilham um gate positivo de heredoc. Só passam três formatos com delimitador citado, único e terminador final: (A) mensagem de `git commit -F -`/`--file`; (B) mensagem opaca para `git commit`, `git tag`, `gh pr create|comment|edit|review` ou `gh issue create|comment|edit`; e (C) `cat` (`>` ou `>>`) ou `tee` (`-a` opcional) para um caminho literal. O alvo de escrita segue as regras existentes de `raw/` e `wiki/`; qualquer outra forma de heredoc, inclusive para interpretadores, é bloqueada. Substituições sem heredoc seguem negadas por padrão, com a lista curta de leituras.
+- A trava do terminal aceita redirecionamentos entre descritores (`2>&1`) e classifica recursivamente comandos em `$()` e crases; o hook `proteger-raw` também identifica os caminhos de patches no formato git.
 - Na interface só de Revisão o botão "Pedir ajuste" aparece desabilitado, com o motivo "Pedir ajuste só funciona com a interface completa aberta.", em vez de dar erro ao clicar.
 - A remoção da área de exemplo no onboarding recusa links que apontem para `raw/`, preserva áreas com nomes que apenas começam por `exemplo` e protege o estado salvo do onboarding contra links simbólicos.
 
