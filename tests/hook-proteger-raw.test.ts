@@ -1275,7 +1275,7 @@ describe("Auditoria run-1 (S1) — tabela completa do parecer de QA (QA-S1.md)",
     },
     {
       id: "FP-10",
-      acao: "liberar",
+      acao: "bloquear",
       executar: (base: string) => {
         const cmd = `cat > wiki/a.md <<-'EOF'\r\n\tit's \`code\` $(cmd) C:\\a\\b ${"x".repeat(600)}\r\n\tEOF`;
         return decidir(JSON.stringify({ tool_name: "Bash", cwd: base, tool_input: { command: cmd } }));
@@ -1380,7 +1380,7 @@ describe("Auditoria run-1 (S1) — Delta 5b21337 (QA 2)", () => {
     { id: "FP-NOVO-06", acao: "liberar", comando: 'echo "nota #1" | cat' },
     { id: "FP-NOVO-07", acao: "liberar", comando: 'git log --grep="#12"' },
     { id: "FP-NOVO-08", acao: "bloquear", comando: 'echo $(echo "wiki/x")' },
-    { id: "FP-NOVO-09", acao: "liberar", comando: "cat > wiki/x <<EOF1\nt1\nEOF1\ncat > wiki/y <<EOF2\nt2\nEOF2" },
+    { id: "FP-NOVO-09", acao: "bloquear", comando: "cat > wiki/x <<EOF1\nt1\nEOF1\ncat > wiki/y <<EOF2\nt2\nEOF2" },
     { id: "FP-NOVO-10", acao: "liberar", comando: 'git commit -m "fix $(date)"' },
     { id: "FP-NOVO-11", acao: "liberar", comando: 'echo "$HOME"' },
   ] as const;
@@ -1485,13 +1485,13 @@ test("Dado apply_patch no formato git Quando o caminho é identificável Então 
   expect(decidir(JSON.stringify({ tool_name: "apply_patch", tool_input: { patch: patchRenameRaw } })).acao).toBe("bloquear");
 });
 
-test("Dado heredoc com delimitador citado Quando o corpo contém substituições Então raw trata o conteúdo como dado", async () => {
+test("Dado heredoc fora da lista permitida Quando o corpo contém texto inerte Então raw bloqueia por padrão", async () => {
   for (const carga of ["rm raw/a.md", "cp p wiki/a.md"]) {
     for (const delimitador of ["'EOF'", '"EOF"']) {
       const command = `cat <<${delimitador}\n$(${carga})\nEOF`;
       const payload = JSON.stringify({ tool_name: "Bash", cwd: temporario, tool_input: { command } });
-      expect(decidir(payload).acao).toBe("liberar");
-      expect(await executarProtecao(payload)).toBe(0);
+      expect(decidir(payload).acao).toBe("bloquear");
+      expect(await executarProtecao(payload)).toBe(2);
     }
   }
 });
@@ -1525,7 +1525,7 @@ test("Dado substituições no corpo de heredoc ou após cd Quando o comando é j
   }
 
   expect(decidirNo("cat <<EOF\n$(date)\nEOF", temporario).acao).toBe("bloquear");
-  expect(decidirNo("cat <<'EOF'\n$(date)\nEOF", temporario).acao).toBe("liberar");
+  expect(decidirNo("cat <<'EOF'\n$(date)\nEOF", temporario).acao).toBe("bloquear");
 });
 
 test("Dado limites reais do heredoc Quando há delimitador anterior ou operador escapado Então não oculta comandos seguintes", () => {

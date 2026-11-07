@@ -3,7 +3,7 @@ import { appendFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix, resolve } from "node:path";
 import { caminhoReal, dentroDe, estaEmRaw } from "../lib/caminhos";
 import { decidirVerified, encontrarRaizVault, extrairSubstituicoesComando, substituicaoDeLeituraPermitida } from "../lib/trava-verified";
-import { analisarHeredocs, linhaSemComentarioShell, proximaLinhaDeComando, textoHeredocParaAnalise } from "../lib/heredoc";
+import { avaliarGateHeredoc } from "../lib/heredoc";
 
 export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
 type Mapa = Record<string, unknown>;
@@ -205,46 +205,6 @@ function extrairTextoPatch(entrada: Mapa, dados: Mapa): string {
   return "";
 }
 
-const INTERPRETADORES_HEREDOC = new Set([
-  "bash", "sh", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd",
-  "eval", "source", ".", "xargs", "parallel",
-  "python", "perl", "ruby", "node", "bun", "deno", "php", "osascript",
-]);
-
-function alimentaInterpretador(linhaComando: string): boolean {
-  for (const palavras of segmentosDoTexto(linhaComando)) {
-    let comando = palavras;
-    while (comando.length) {
-      const inicio = comando.findIndex(p => !/^[A-Za-z_]\w*=/.test(p) && !PALAVRAS_DE_LACO.has(p));
-      if (inicio < 0) break;
-      comando = comando.slice(inicio);
-      const verbo = verboNormalizado(comando[0]!);
-      if (INTERPRETADORES_HEREDOC.has(verbo) || /^python\d+(?:\.\d+)*$/.test(verbo)) return true;
-      if (!ENVOLVEDORES.has(verbo)) break;
-      comando = desembrulhar(verbo, comando.slice(1)).resto;
-    }
-  }
-  return false;
-}
-
-function descartarCorpoHeredoc(comando: string): string {
-  const analise = analisarHeredocs(comando);
-  return textoHeredocParaAnalise(analise, corpo => {
-    const inicioLinha = comando.lastIndexOf("\n", corpo.inicioOperador - 1) + 1;
-    const fimLinha = comando.indexOf("\n", corpo.inicioOperador);
-    const linha = linhaSemComentarioShell(comando.slice(inicioLinha, fimLinha < 0 ? comando.length : fimLinha));
-    if (alimentaInterpretador(linha)) return true;
-    if (/\\\s*$/.test(linha) && fimLinha >= 0) {
-      const continuacao = proximaLinhaDeComando(comando, fimLinha + 1);
-      if (alimentaInterpretador(`${linha.replace(/\\\s*$/, "")} ${continuacao}`)) return true;
-    }
-    // Heredoc body can be stdin for an interpreter in a pipeline continued after its terminator.
-    if (!/(?:\|&?|\\)\s*$/.test(linha)) return false;
-    const resto = proximaLinhaDeComando(comando, corpo.fimTermino);
-    return alimentaInterpretador(`${linha.replace(/\\\s*$/, "")} ${resto}`);
-  });
-}
-
 // Reconhece palavras, aspas e operadores; não executa nem expande código de shell.
 // `windows`: no PowerShell e no cmd a barra invertida é separador de caminho, não escape (`raw\ -Force`, `"raw\"`).
 function tokenizar(comando: string, windows = false): Token[] {
@@ -341,7 +301,7 @@ function tokenizar(comando: string, windows = false): Token[] {
 }
 
 function tokensDoComando(comando: unknown, windows = false): Token[] {
-  if (typeof comando === "string") return tokenizar(descartarCorpoHeredoc(comando), windows);
+  if (typeof comando === "string") return tokenizar(comando, windows);
   if (!Array.isArray(comando) || !comando.length || !comando.every(item => typeof item === "string")) {
     throw new Error("comando de terminal ilegível");
   }
@@ -349,7 +309,7 @@ function tokensDoComando(comando: unknown, windows = false): Token[] {
   if (/^(?:bash|sh|zsh|powershell)(?:\.exe)?$/i.test(argv[0]!)) {
     const argumento = argv.findIndex(item => /^(?:-[a-z]*c|-command)$/i.test(item));
     const script = argv[argumento + 1];
-    if (argumento >= 0 && script !== undefined) return tokenizar(descartarCorpoHeredoc(script), /^(?:powershell|pwsh)(?:\.exe)?$/i.test(argv[0]!));
+    if (argumento >= 0 && script !== undefined) return tokenizar(script, /^(?:powershell|pwsh)(?:\.exe)?$/i.test(argv[0]!));
   }
   return argv.map(texto => ({ texto, operador: false, citada: false }));
 }
@@ -603,7 +563,7 @@ function segmentosDoTexto(texto: string, windows = false): string[][] {
         segmentos.push([]);
         continue;
       }
-      if (token.operador && /^(?:\d+)?(?:>{1,2}|>\||>&|<{1,3}|<&|<>|&>{1,2})$/.test(token.texto)) {
+      if (token.operador && /^(?:\d+)?(?:>{1,2}|>\||>&|<>|<&|<|&>{1,2})$/.test(token.texto)) {
         continue;
       }
       if (token.operador && /^[;|&]+$/.test(token.texto)) {
@@ -676,13 +636,13 @@ function citaRawSegmento(palavras: string[], cwd: string): boolean {
   return palavras.slice(1).some(palavra => escreveEmRaw(palavra, cwd) || citaRaw(palavra));
 }
 
-const REGEX_REDIRECAO = /^(?:\d+)?(?:>{1,2}|>\||>&|<{1,3}|<&|<>)|&(?:>{1,2})$/;
+const REGEX_REDIRECAO = /^(?:(?:\d+)?(?:>{1,2}|>\||>&|<>|<&|<)|&(?:>{1,2}))$/;
 const REGEX_REDIRECAO_SAIDA = /^(?:\d+)?(?:>{1,2}|>\||<>)|&(?:>{1,2})$/;
-const MARCADOR_HEREDOC_RESERVADO = /__ANVILORE_HEREDOC_\d+__/;
-
 function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cwdInicial, windows = false, profundidadeSubstituicao = 0): boolean {
   const textoEntrada = typeof comando === "string" ? comando : Array.isArray(comando) ? comando.join(" ") : "";
-  if (MARCADOR_HEREDOC_RESERVADO.test(textoEntrada)) return true;
+  const gate = avaliarGateHeredoc(textoEntrada);
+  if (!gate.aceito) return true;
+  if (textoEntrada.includes("<<")) comando = gate.comando;
   windows ||= Array.isArray(comando) && /^(?:powershell|pwsh)(?:\.exe)?$/i.test(String(comando[0]));
   let citaRawSubstituicao = false;
   let cwd = cwdInicial;

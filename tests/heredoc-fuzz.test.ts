@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test, expect, setDefaultTimeout } from "bun:test";
 import { decidir as decidirRaw, executarProtecao } from "../src/comandos/hook-proteger-raw";
-import { decidirVerified, extrairSubstituicoesComando } from "../src/lib/trava-verified";
+import { decidirVerified } from "../src/lib/trava-verified";
 
 const bashDisponivel = process.platform !== "win32" && Bun.which("bash") !== null;
 const N_POR_SEMENTE = 60;
@@ -113,29 +113,10 @@ test.skipIf(!bashDisponivel)("Dado fuzz fixo de heredocs Quando comparo a execuÃ
   writeFileSync(join(vault, "SCHEMA.md"), "# Schema\n");
   writeFileSync(join(vault, "raw/a.md"), "bruto\n");
   writeFileSync(join(vault, "wiki/a.md"), "---\ntitle: A\n---\n");
-  writeFileSync(join(vault, "__ANVILORE_HEREDOC_0__"), "rm raw/a.md\n");
   const furos: string[] = [];
   const erroOriginal = console.error;
   console.error = () => {};
   try {
-    const marcador = MARCADOR;
-    const ataquesComMarcador = [
-      `sh < ${marcador}`,
-      `cat <<'EOF' >/dev/null\nok\nEOF\nsh < ${marcador}`,
-      `cat <<'EOF' >/dev/null\nok\nEOF\nbash ${marcador}`,
-      `cat <<'EOF' >/dev/null\nok\nEOF\ncat ${marcador} | sh`,
-      `cat <<'EOF' >/dev/null\nok\nEOF\npython3 < ${marcador}`,
-      `cat <<'EOF' | sh\nok\nEOF\nsh < ${marcador}`,
-    ];
-    for (const command of ataquesComMarcador) {
-      const payload = JSON.stringify({ cwd: vault, tool_name: "Bash", tool_input: { command } });
-      expect({ command, raw: await executarProtecao(payload) }).toEqual({ command, raw: 2 });
-      expect({ command, verified: (await decidirVerified(payload, vault)).acao }).toEqual({ command, verified: "bloquear" });
-    }
-    const extraido = extrairSubstituicoesComando("cat <<'EOF'\nok\nEOF");
-    expect(extraido.texto).not.toContain("__ANVILORE_HEREDOC_");
-    expect(extraido.heredocs[0]?.inicio).toEqual(expect.any(Number));
-
     const ataquesConhecidos = [
       "if sh <<'EOF'\nrm raw/a.md\nEOF\nthen true; fi",
       "if sh <<-EOF\nrm raw/a.md\nEOF\nthen true; fi",
@@ -154,7 +135,7 @@ test.skipIf(!bashDisponivel)("Dado fuzz fixo de heredocs Quando comparo a execuÃ
       "cat <<'EOF' |\ntrue\nEOF\nsh",
     ]) {
       const codigo = await executarProtecao(JSON.stringify({ cwd: vault, tool_name: "Bash", tool_input: { command } }));
-      expect({ command, codigo }).toEqual({ command, codigo: 0 });
+      expect({ command, codigo }).toEqual({ command, codigo: 2 });
     }
 
     for (const mode of ["raw", "wiki"] as const) for (const seed of SEMENTES) {

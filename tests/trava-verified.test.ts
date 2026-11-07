@@ -132,7 +132,7 @@ describe("trava de verified nos quatro agentes", () => {
       }
     }
     await esperarCodigos(["cat <<EOF\n'$(cp p wiki/a.md)'\nEOF", 'cd raw; echo "$(rm a.md)"', "cat <<EOF\n$(date)\nEOF"], 2, temporario);
-    await esperarCodigos(["cat <<'EOF'\n$(date)\nEOF"], 0, temporario);
+    await esperarCodigos(["cat <<'EOF'\n$(date)\nEOF"], 2, temporario);
 
     const permitidos = ["date", "pwd", "basename a.md", "dirname a.md", "whoami", "hostname", "uname", "git rev-parse HEAD", "git log -1 --oneline", "git describe --always", "git branch --show-current", "git status --porcelain", "git status --short"];
     for (const interno of permitidos) await esperarCodigos([`echo \"$(${interno})\"`, `git commit -m \"x $(${interno})\"`], 0, temporario);
@@ -159,7 +159,7 @@ describe("trava de verified nos quatro agentes", () => {
 
     for (const carga of ataques) {
       const command = `cat <<'EOF'\n${carga}\nEOF`;
-      expect(await executarProtecao(JSON.stringify({ cwd: temporario, tool_name: "Bash", tool_input: { command } }))).toBe(0);
+      expect(await executarProtecao(JSON.stringify({ cwd: temporario, tool_name: "Bash", tool_input: { command } }))).toBe(2);
     }
   });
 

@@ -5,11 +5,11 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { caminhoReal, dentroDe } from "./caminhos";
 import { lerFrontmatter } from "./frontmatter";
 import { caminhoWiki } from "./wiki-repo";
-import { analisarHeredocs, type CorpoHeredoc } from "./heredoc";
+import { avaliarGateHeredoc } from "./heredoc";
 
 export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
 type Json = Record<string, unknown>;
-type Token = { texto: string; operador: boolean; comentario?: boolean; heredocBody?: string };
+type Token = { texto: string; operador: boolean; comentario?: boolean };
 
 const FERRAMENTAS_TERMINAL = new Set([
   "bash", "exec_command", "shell_command", "shell", "local_shell", "run_shell_command", "powershell", "pwsh", "run_in_terminal", "sh", "zsh", "dash", "ksh",
@@ -775,20 +775,17 @@ async function decidirPatch(
   return { acao: "liberar", motivo: "patch não altera verified em wiki/" };
 }
 
-function tokenizar(comando: string, windows = false, heredocBodies = new Map<number, string>()): Token[] {
+function tokenizar(comando: string, windows = false): Token[] {
   const tokens: Token[] = [];
   let palavra = "", aspas = "";
   let palavraIniciada = false;
-  let inicioPalavra: number | undefined;
   function guardar() {
     if (palavra) tokens.push({
       texto: palavra,
       operador: false,
-      heredocBody: inicioPalavra === undefined ? undefined : heredocBodies.get(inicioPalavra),
     });
     palavra = "";
     palavraIniciada = false;
-    inicioPalavra = undefined;
   }
   for (let i = 0; i < comando.length; i++) {
     const caractere = comando[i]!;
@@ -807,13 +804,11 @@ function tokenizar(comando: string, windows = false, heredocBodies = new Map<num
       }
       palavraIniciada = true;
     } else if (caractere === "'" || caractere === '"') {
-      if (!palavraIniciada) inicioPalavra = i;
       aspas = caractere;
       palavraIniciada = true;
     } else if (!windows && caractere === "\\" && (seguinte === "\n" || (seguinte === "\r" && comando[i + 2] === "\n"))) {
       i += seguinte === "\r" ? 2 : 1;
     } else if (!windows && caractere === "\\" && seguinte && /[\s'";|&<>\\]/.test(seguinte)) {
-      if (!palavraIniciada) inicioPalavra = i;
       palavra += comando[++i];
       palavraIniciada = true;
     } else if (caractere === "#" && !palavraIniciada) {
@@ -825,22 +820,15 @@ function tokenizar(comando: string, windows = false, heredocBodies = new Map<num
     } else if (caractere === "<" && seguinte === "<") {
       throw new Error("heredoc não interpretável");
     } else if (/[;|&<>\n]/.test(caractere)) {
-      // A file descriptor adjacent to a redirection operator belongs to the operator
-      // (`0<<`), not to argv. Keep it attached so command analysis can tell whether
-      // the redirection feeds stdin.
-      const fd = (caractere === "<" || caractere === ">") && !windows && /^\d+$/.test(palavra)
-        && i > 0 && /\d/.test(comando[i - 1]!) ? palavra : "";
-      if (fd) { palavra = ""; palavraIniciada = false; inicioPalavra = undefined; }
-      else guardar();
+      guardar();
       let operador = caractere === "\n" ? "\n" : caractere;
       if ((caractere === ">" || caractere === "<") && seguinte === "&") { operador += "&"; i++; }
       else if (caractere === "|" && seguinte === "&") { operador += comando[++i]; }
       else if (caractere !== "\n" && seguinte === caractere) { operador += comando[++i]; }
-      tokens.push({ texto: `${fd}${operador}`, operador: true });
+      tokens.push({ texto: operador, operador: true });
     } else if (/\s/.test(caractere)) {
       guardar();
     } else {
-      if (!palavraIniciada) inicioPalavra = i;
       palavra += caractere;
       palavraIniciada = true;
     }
@@ -854,14 +842,6 @@ function tokenizar(comando: string, windows = false, heredocBodies = new Map<num
 // Substituições são negadas por padrão: só aceitamos comandos de leitura simples cuja saída
 // continua opaca para a análise do comando externo.
 export function substituicaoDeLeituraPermitida(comando: string): boolean {
-  try {
-    const heredoc = analisarHeredocs(comando);
-    const comandoSemTerminador = heredoc.semCorpos.trim().replace(/;$/, "").trim();
-    if (heredoc.corpos.length === 1 && heredoc.corpos[0]!.citado && comandoSemTerminador === "cat < /dev/null") return true;
-  } catch {
-    return false;
-  }
-
   if (/[;|&<>()[\]$`]/.test(comando) || /\\\s*(?:\r?\n|$)/.test(comando)) return false;
   let tokens: Token[];
   try {
@@ -887,18 +867,11 @@ export function substituicaoDeLeituraPermitida(comando: string): boolean {
   return false;
 }
 
-// Encontra o fim sem executar o shell. Os intervalos de heredoc vêm do analisador compartilhado.
-function encontrarFimSubstituicao(comando: string, inicio: number, crase: boolean, corpos: CorpoHeredoc[]): number {
+// Encontra o fim sem executar o shell.
+function encontrarFimSubstituicao(comando: string, inicio: number, crase: boolean): number {
   let aspas = "";
   let profundidade = crase ? 0 : 1;
   for (let i = inicio; i < comando.length; i++) {
-    const corpo = corpos.find(item => i >= item.inicioCorpo && i < item.fimTermino);
-    if (corpo) {
-      i = corpo.fimTermino;
-      if (comando[i] === "\n") i++;
-      i--;
-      continue;
-    }
     const c = comando[i]!;
     const prox = comando[i + 1] ?? "";
     if (aspas) {
@@ -922,28 +895,13 @@ function encontrarFimSubstituicao(comando: string, inicio: number, crase: boolea
   return -1;
 }
 
-export function extrairSubstituicoesComando(comando: string): { texto: string; substituicoes: string[]; heredocs: Array<{ inicio: number; texto: string }> } {
-  const analiseHeredoc = analisarHeredocs(comando);
+export function extrairSubstituicoesComando(comando: string): { texto: string; substituicoes: string[] } {
   let texto = "";
   const substituicoes: string[] = [];
-  const heredocs: Array<{ inicio: number; texto: string }> = [];
   let aspas = "";
   for (let i = 0; i < comando.length; i++) {
     const c = comando[i]!;
     const prox = comando[i + 1] ?? "";
-    const heredocOperador = analiseHeredoc.corpos.find(item => item.inicioOperador === i);
-    if (heredocOperador) {
-      heredocs.push({ inicio: texto.length + 2, texto: heredocOperador.texto });
-      texto += "< /dev/null";
-      i = heredocOperador.fimDelimitador - 1;
-      continue;
-    }
-    const corpo = analiseHeredoc.corpos.find(item => i >= item.inicioCorpo && i < item.fimTermino);
-    if (corpo) {
-      if (!corpo.citado && /\$\(|\$\{|\$\(\(|`/.test(corpo.texto)) substituicoes.push("ANVILORE_HEREDOC_SEM_CITACAO_COM_EXPANSAO");
-      i = corpo.fimTermino - 1;
-      continue;
-    }
     if (aspas === "'") {
       texto += c;
       if (c === "'") aspas = "";
@@ -959,7 +917,7 @@ export function extrairSubstituicoesComando(comando: string): { texto: string; s
     if ((c === "$" && prox === "(" && comando[i + 2] !== "(") || (c === "`" && aspas !== "'")) {
       const crase = c === "`";
       const inicio = i + (crase ? 1 : 2);
-      const fim = encontrarFimSubstituicao(comando, inicio, crase, analiseHeredoc.corpos);
+      const fim = encontrarFimSubstituicao(comando, inicio, crase);
       if (fim < 0) throw new Error("substituição de comando sem fechamento");
       substituicoes.push(comando.slice(inicio, fim));
       texto += "$ANVILORE_EXPANSAO";
@@ -967,7 +925,7 @@ export function extrairSubstituicoesComando(comando: string): { texto: string; s
       continue;
     }
     if (c === "(" && (comando[i - 1] === "<" || comando[i - 1] === ">")) {
-      const fim = encontrarFimSubstituicao(comando, i + 1, false, analiseHeredoc.corpos);
+      const fim = encontrarFimSubstituicao(comando, i + 1, false);
       if (fim < 0) throw new Error("substituição de processo sem fechamento");
       substituicoes.push(comando.slice(i + 1, fim));
       texto += "$ANVILORE_EXPANSAO";
@@ -976,7 +934,7 @@ export function extrairSubstituicoesComando(comando: string): { texto: string; s
     }
     texto += c;
   }
-  return { texto, substituicoes, heredocs };
+  return { texto, substituicoes };
 }
 
 function verboNormalizado(palavra: string): string {
@@ -1160,7 +1118,7 @@ function dividirEmComandosSimples(tokens: Token[]): Array<{ tokens: Token[]; doP
       recebePipe = token.texto === "|" || token.texto === "|&";
       continuaNaQuebra = ["|", "|&", "||", "&&"].includes(token.texto);
       posicaoDeComando = true;
-    } else if (token.operador && /^(?:\d+)?(?:>{1,2}|>\||>&|<{1,3}|<&|<>|&>{1,2})$/.test(token.texto)) {
+    } else if (token.operador && /^(?:\d+)?(?:>{1,2}|>\||>&|<>|<&|<|&>{1,2})$/.test(token.texto)) {
       atual.push(token);
       posicaoDeComando = false;
     } else {
@@ -2635,13 +2593,11 @@ function analisarComandoSimples(
   temMudancaDir: boolean,
   aninhado: ContextoAninhado = { profundidade: 0 },
   ambienteGit: AmbienteGit = novoAmbienteGit(),
-  doPipe = false,
-  heredocsDoPipe: string[] = []
+  doPipe = false
 ): Decisao {
   const comentarios = cmdTokens.filter(token => token.comentario).map(token => token.texto);
   cmdTokens = cmdTokens.filter(token => !token.comentario);
   let entradaRedirecionada = false;
-  let corpoHeredocDoComando: string | undefined;
   // 1. Extrai redirecionamentos e tokens sem operadores de redireção
   const alvosRedir: string[] = [];
   const tokensSemRedir: Token[] = [];
@@ -2656,22 +2612,10 @@ function analisarComandoSimples(
       // `>&N`, `>&-`, `<&N` e `<&-` duplicam/fecham descritores; `>&arquivo` grava em arquivo.
       if (redirecionamentoDescritor[1] === ">&" && !/^(?:\d+|-)$/.test(proximo.texto)) alvosRedir.push(proximo.texto);
       i++;
-    } else if (token.operador && /^(?:(\d+))?(?:<|<<|<<<|<>|<&)$/.test(token.texto)) {
-      const redirecionamentoEntrada = /^(?:(\d+))?(?:<|<<|<<<|<>|<&)$/.exec(token.texto)!;
-      const descritor = redirecionamentoEntrada[1];
-      const ehStdin = descritor === undefined || /^0+$/.test(descritor);
+    } else if (token.operador && token.texto === "<") {
+      entradaRedirecionada = true;
       const proximo = cmdTokens[i + 1];
-      if (!proximo || proximo.operador) {
-        return { acao: "bloquear", motivo: "redirecionamento sem destino ou delimitador (falha fechada)" };
-      }
-      if (ehStdin) {
-        entradaRedirecionada = true;
-        // Shell redirections are applied left to right: only the last fd 0
-        // redirection supplies stdin and its associated heredoc body.
-        corpoHeredocDoComando = proximo.heredocBody;
-      }
-      if (token.texto.endsWith("<>")) alvosRedir.push(proximo.texto);
-      i++;
+      if (proximo && !proximo.operador) i++;
     } else if (token.operador && (/^(?:\d+)?(?:>{1,2}|>\||<>)$/.test(token.texto) || token.texto === "&>" || token.texto === "&>>")) {
       const proximo = cmdTokens[i + 1];
       if (!proximo || proximo.operador) {
@@ -2773,19 +2717,6 @@ function analisarComandoSimples(
   }
 
   const cmdArgs = palavras.slice(1);
-  if (verbo && lePeloStdin(verbo, cmdArgs)) {
-    for (const corpo of [...(corpoHeredocDoComando === undefined ? [] : [corpoHeredocDoComando]), ...heredocsDoPipe]) {
-      if (!corpo.trim()) continue;
-      if (aninhado.profundidade >= TETO_ANINHAMENTO) {
-        return { acao: "bloquear", motivo: "comandos aninhados demais (falha fechada)" };
-      }
-      const programa = decidirTerminalVerified(corpo, false, base, raiz, ambiente, {
-        ...aninhado,
-        profundidade: aninhado.profundidade + 1,
-      }, temMudancaDir, ambienteGit, false);
-      if (programa.acao === "bloquear") return programa;
-    }
-  }
   // Verbo aninhado que só existe em tempo de execução ($1, {}, glob) não se classifica: falha fechada.
   if (aninhado.profundidade > 0 && /[$`{}*?\[\]]|^~/.test(palavras[0]!)) {
     return { acao: "bloquear", motivo: "comando aninhado com verbo não literal (falha fechada)" };
@@ -3085,8 +3016,7 @@ function analisarComandoSimples(
   }
 
   // 5.4a Shell ou interpretador que recebe pipe e não tem programa próprio lê os comandos da entrada padrão (`echo cmd | sh`, `| env sh`).
-  const entradaConhecida = corpoHeredocDoComando !== undefined || heredocsDoPipe.length > 0;
-  if ((doPipe || entradaRedirecionada) && !entradaConhecida && lePeloStdin(verbo, cmdArgs)) {
+  if ((doPipe || entradaRedirecionada) && lePeloStdin(verbo, cmdArgs)) {
     return { acao: "bloquear", motivo: "o comando que recebe o pipe lê o programa da entrada padrão (falha fechada)" };
   }
 
@@ -3258,9 +3188,9 @@ function decidirTerminalVerified(
   // A entrada padrão de todos os comandos do texto vem de um pipe (ele é compartilhado, e o 2º comando também lê o que sobrou).
   primeiroDoPipe = false
 ): Decisao {
-  if (/__ANVILORE_HEREDOC_\d+__/.test(cmdTexto)) {
-    return { acao: "bloquear", motivo: "marcador reservado de heredoc no texto de entrada (falha fechada)" };
-  }
+  const gate = avaliarGateHeredoc(cmdTexto);
+  if (!gate.aceito) return { acao: "bloquear", motivo: "heredoc fora da lista de formatos permitidos" };
+  cmdTexto = gate.comando;
   if (!cmdTexto.trim()) {
     return { acao: "bloquear", motivo: "comando de terminal vazio citando verified ou aprovação (falha fechada)" };
   }
@@ -3268,12 +3198,10 @@ function decidirTerminalVerified(
   // Expansões de comando rodam pelo mesmo classificador; o valor produzido é texto opaco no comando externo.
   let comandoExterno = cmdTexto;
   let substituicoes: string[];
-  let heredocs: Array<{ inicio: number; texto: string }> = [];
   try {
     const extraidas = extrairSubstituicoesComando(cmdTexto);
     comandoExterno = extraidas.texto;
     substituicoes = extraidas.substituicoes;
-    heredocs = extraidas.heredocs;
   } catch (erro) {
     return { acao: "bloquear", motivo: `substituição de comando ilegível (falha fechada): ${(erro as Error).message}` };
   }
@@ -3282,7 +3210,7 @@ function decidirTerminalVerified(
   let tokens: Token[] = [];
   let erroTokenizacao: unknown;
   try {
-    tokens = tokenizar(comandoExterno, isWindows, new Map(heredocs.map(corpo => [corpo.inicio, corpo.texto])));
+    tokens = tokenizar(comandoExterno, isWindows);
   } catch (erro) {
     erroTokenizacao = erro;
   }
@@ -3325,17 +3253,14 @@ function decidirTerminalVerified(
     return { acao: "liberar", motivo: "comando permitido da CLI do kit" };
   }
 
-  let corposDoPipe: string[] = [];
-  for (const [indice, { tokens: cmdTokens, doPipe }] of comandosSimples.entries()) {
-    const corposHeredocDoComando = cmdTokens.flatMap(token => token.heredocBody === undefined ? [] : [token.heredocBody]);
+  for (const { tokens: cmdTokens, doPipe } of comandosSimples) {
     const decisao = analisarComandoSimples(
       cmdTokens, base, raiz, ambiente, temCdOuPushd, contexto, ambienteGit,
-      doPipe || primeiroDoPipe, doPipe ? corposDoPipe : []
+      doPipe || primeiroDoPipe
     );
     if (decisao.acao === "bloquear") {
       return decisao;
     }
-    corposDoPipe = corposHeredocDoComando;
   }
 
   return { acao: "liberar", motivo: "comando de terminal permitido" };

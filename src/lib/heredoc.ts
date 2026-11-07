@@ -1,321 +1,66 @@
-export type CorpoHeredoc = {
-  delimitador: string;
-  citado: boolean;
-  tabs: boolean;
-  texto: string;
-  inicioCorpo: number;
-  fimCorpo: number;
-  inicioOperador: number;
-  fimDelimitador: number;
-  inicioTermino: number;
-  fimTermino: number;
-  continuaDepois: boolean;
-};
+const DELIMITADOR = "([A-Za-z_][A-Za-z0-9_]*)";
+const OPACO = "__ANVILORE_MENSAGEM_HEREDOC__";
 
-export type ResultadoHeredocs = { original: string; semCorpos: string; corpos: CorpoHeredoc[] };
+export type ResultadoGateHeredoc = { aceito: true; comando: string } | { aceito: false };
 
-export function linhaSemComentarioShell(linha: string): string {
-  let aspas: "'" | '"' | null = null;
-  let palavraIniciada = false;
-  for (let i = 0; i < linha.length; i++) {
-    const c = linha[i]!;
-    if (c === "\\" && aspas !== "'") {
-      palavraIniciada = true;
-      i++;
-      continue;
-    }
-    if (aspas) {
-      if (c === aspas) aspas = null;
-      continue;
-    }
-    if (c === "'" || c === '"') {
-      aspas = c;
-      palavraIniciada = true;
-      continue;
-    }
-    if (c === "#" && !palavraIniciada) return linha.slice(0, i);
-    if (/\s/.test(c) || /[;|&(){}<>]/.test(c)) palavraIniciada = false;
-    else palavraIniciada = true;
-  }
-  return linha;
+function terminadorFinal(comando: string, palavra: string, fechamentoB = false): boolean {
+  const linhas = comando.split("\n");
+  const ocorrencias = linhas.filter(linha => linha === palavra).length;
+  if (ocorrencias !== 1) return false;
+  if (!fechamentoB) return linhas.at(-1) === palavra;
+  return linhas.length >= 3
+    && linhas.at(-2) === palavra
+    && (linhas.at(-1) === ")\"" || linhas.at(-1) === ")");
 }
 
-export function proximaLinhaDeComando(comando: string, inicio: number): string {
-  let cursor = inicio;
-  while (cursor <= comando.length) {
-    if (comando.startsWith("\r\n", cursor)) cursor += 2;
-    else if (comando[cursor] === "\n") cursor++;
-    const fim = comando.indexOf("\n", cursor);
-    const linha = comando.slice(cursor, fim < 0 ? comando.length : fim);
-    const texto = linhaSemComentarioShell(linha).trim();
-    if (texto) return texto;
-    if (fim < 0) return "";
-    cursor = fim + 1;
-  }
-  return "";
+function pathLiteral(path: string): boolean {
+  let literal = path;
+  const aspas = path[0];
+  if ((aspas === "'" || aspas === '"') && path.at(-1) === aspas) literal = path.slice(1, -1);
+  else if (/\s|['"]/.test(path)) return false;
+  return literal.length > 0 && !/['"]/.test(literal) && !/[\r\n\0$`*?\[\]~\\<>|&;(){}#]/.test(literal);
 }
 
-type Pendente = { inicioOperador: number; fimDelimitador: number; delimitador: string; citado: boolean; tabs: boolean };
+/**
+ * Positive allowlist for terminal heredocs. Returns a normalized command for the
+ * existing terminal analyzers, or a deny result. Commands without `<<` pass through.
+ */
+export function avaliarGateHeredoc(comando: string): ResultadoGateHeredoc {
+  if (!comando.includes("<<")) return { aceito: true, comando };
+  if (/[\r\0]/.test(comando) || (comando.match(/<</g)?.length ?? 0) !== 1) return { aceito: false };
 
-function decodificarAnsi(entrada: string): string {
-  let saida = "";
-  for (let i = 0; i < entrada.length; i++) {
-    const c = entrada[i]!;
-    if (c !== "\\") { saida += c; continue; }
-    const prox = entrada[++i];
-    if (prox === undefined) throw new Error("escape incompleto em delimitador ANSI-C");
-    const simples: Record<string, string> = { a: "\x07", b: "\b", e: "\x1b", E: "\x1b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "\\": "\\", "'": "'", '"': '"', "?": "?" };
-    if (prox in simples) { saida += simples[prox]!; continue; }
-    if (prox === "x") {
-      let hex = "";
-      while (hex.length < 2 && /[0-9a-f]/i.test(entrada[i + 1] ?? "")) hex += entrada[++i]!;
-      if (!hex) throw new Error("escape hexadecimal inválido em delimitador ANSI-C");
-      saida += String.fromCharCode(parseInt(hex, 16));
-      continue;
-    }
-    if (/[0-7]/.test(prox)) {
-      let octal = prox;
-      while (octal.length < 3 && /[0-7]/.test(entrada[i + 1] ?? "")) octal += entrada[++i]!;
-      saida += String.fromCharCode(parseInt(octal, 8));
-      continue;
-    }
-    throw new Error("escape ANSI-C não reconhecido no delimitador");
-  }
-  return saida;
-}
+  const quebra = comando.indexOf("\n");
+  if (quebra < 0) return { aceito: false };
+  const cabecalho = comando.slice(0, quebra);
 
-function lerDelimitador(comando: string, inicio: number): { delimitador: string; citado: boolean; fim: number } {
-  let i = inicio;
-  while (comando[i] === " " || comando[i] === "\t") i++;
-  let delimitador = "";
-  let citado = false;
-  let parte = false;
-  let aspas: "'" | '"' | null = null;
-  let ansi = false;
-  let ansiInicio = 0;
-  while (i < comando.length) {
-    const c = comando[i]!;
-    if (ansi) {
-      if (c === "'" && comando[i - 1] !== "\\") {
-        delimitador += decodificarAnsi(comando.slice(ansiInicio, i));
-        ansi = false;
-        parte = true;
-        i++;
-      } else i++;
-      continue;
-    }
-    if (aspas === "'") {
-      if (c === "'") aspas = null;
-      else delimitador += c;
-      i++;
-      continue;
-    }
-    if (aspas === '"') {
-      if (c === '"') { aspas = null; i++; continue; }
-      if (c === "\\" && i + 1 < comando.length) {
-        citado = true;
-        const seguinte = comando[i + 1]!;
-        if (/[\\"$`\n]/.test(seguinte)) { if (seguinte !== "\n") delimitador += seguinte; i += 2; }
-        else { delimitador += c; i++; }
-        continue;
-      }
-      delimitador += c;
-      i++;
-      continue;
-    }
-    if (c === "\\") {
-      if (i + 1 >= comando.length || comando[i + 1] === "\n") throw new Error("delimitador heredoc com escape incompleto");
-      citado = true;
-      delimitador += comando[i + 1]!;
-      parte = true;
-      i += 2;
-      continue;
-    }
-    if (c === "$" && comando[i + 1] === "'") {
-      citado = true;
-      ansi = true;
-      ansiInicio = i + 2;
-      i += 2;
-      continue;
-    }
-    if (c === "'" || c === '"') { aspas = c; citado = true; parte = true; i++; continue; }
-    if (/\s/.test(c) || c === ";" || c === "|" || c === "&" || c === "<" || c === ">" || c === "(" || c === ")") break;
-    delimitador += c;
-    parte = true;
-    i++;
+  const a = new RegExp(`^git commit(?:[ \\t]+[A-Za-z0-9_./:=+-]+)*[ \\t]+(?:-F[ \\t]+-|--file=-|--file[ \\t]+-)[ \\t]+<<(['\"])(?:${DELIMITADOR})\\1$`).exec(cabecalho);
+  if (a) {
+    const palavra = a[2]!;
+    if (!terminadorFinal(comando, palavra)) return { aceito: false };
+    return { aceito: true, comando: cabecalho.slice(0, cabecalho.lastIndexOf("<<")).trimEnd() };
   }
-  if (aspas || ansi) throw new Error("delimitador heredoc com aspas sem fechar");
-  if (!parte || !delimitador) throw new Error("delimitador heredoc vazio ou ilegível");
-  if (delimitador.includes("$") || delimitador.includes("`") || delimitador.includes("(")) throw new Error("delimitador heredoc contém expansão não interpretável");
-  return { delimitador, citado, fim: i };
-}
 
-function igualLinha(linha: string, delimitador: string, tabs: boolean): boolean {
-  let inicio = 0;
-  if (tabs) while (linha[inicio] === "\t") inicio++;
-  const conteudo = linha.slice(inicio);
-  const comparar = conteudo.endsWith("\r") ? conteudo.slice(0, -1) : conteudo;
-  return comparar === delimitador;
-}
+  const b = new RegExp(`^((?:git commit|git tag|gh pr (?:create|comment|edit|review)|gh issue (?:create|comment|edit))(?:[ \\t]+[A-Za-z0-9_./:=+-]+)*[ \\t]+)\"\\$\\(cat <<'${DELIMITADOR}'$`).exec(cabecalho);
+  if (b) {
+    const palavra = b[2]!;
+    if (!terminadorFinal(comando, palavra, true)) return { aceito: false };
+    return { aceito: true, comando: `${b[1]}\"${OPACO}\"` };
+  }
 
-export function analisarHeredocs(comando: string): ResultadoHeredocs {
-  const corpos: CorpoHeredoc[] = [];
-  const pendentes: Pendente[] = [];
-  const mudancas: Array<{ inicio: number; fim: number; texto: string }> = [];
-  let aspas: "'" | '"' | "ansi" | null = null;
-  let palavraIniciada = false;
-  const contextos: Array<{ tipo: "parenteses" | "crase"; profundidade: number; aspasPai: "'" | '"' | "ansi" | null; palavraPai: boolean }> = [];
-  let i = 0;
-  while (i < comando.length) {
-    const c = comando[i]!;
-    const prox = comando[i + 1] ?? "";
-    if (aspas === "ansi") {
-      if (c === "\\") i += 2;
-      else { if (c === "'") aspas = null; i++; }
-      continue;
-    }
-    if (aspas === "'") { if (c === "'") aspas = null; i++; continue; }
-    if (aspas === '"') {
-      if (c === "\\") i += Math.min(2, comando.length - i);
-      else if (c === "$" && prox === "(") {
-        contextos.push({ tipo: "parenteses", profundidade: 1, aspasPai: aspas, palavraPai: palavraIniciada });
-        aspas = null; palavraIniciada = true; i += 2;
-      } else if (c === "`") {
-        contextos.push({ tipo: "crase", profundidade: 0, aspasPai: aspas, palavraPai: palavraIniciada });
-        aspas = null; palavraIniciada = true; i++;
-      }
-      else { if (c === '"') aspas = null; i++; }
-      continue;
-    }
-    const contexto = contextos.at(-1);
-    if (contexto?.tipo === "crase" && c === "`") {
-      contextos.pop(); aspas = contexto.aspasPai; palavraIniciada = contexto.palavraPai; i++; continue;
-    }
-    if (contexto?.tipo === "parenteses") {
-      if (c === "(") contexto.profundidade++;
-      else if (c === ")") {
-        contexto.profundidade--;
-        if (contexto.profundidade === 0) { contextos.pop(); aspas = contexto.aspasPai; palavraIniciada = contexto.palavraPai; i++; continue; }
-      }
-    }
-    if (c === "\\") {
-      if (prox === "\n") { i += 2; continue; }
-      if (prox) { i += 2; palavraIniciada = true; continue; }
-      i++;
-      continue;
-    }
-    if (c === "$" && prox === "'") { aspas = "ansi"; i += 2; palavraIniciada = true; continue; }
-    if (c === "$" && prox === "(") {
-      contextos.push({ tipo: "parenteses", profundidade: 1, aspasPai: aspas, palavraPai: palavraIniciada });
-      palavraIniciada = true; i += 2; continue;
-    }
-    if ((c === "<" || c === ">") && prox === "(") {
-      contextos.push({ tipo: "parenteses", profundidade: 1, aspasPai: aspas, palavraPai: palavraIniciada });
-      palavraIniciada = true; i += 2; continue;
-    }
-    if (c === "`") {
-      contextos.push({ tipo: "crase", profundidade: 0, aspasPai: aspas, palavraPai: palavraIniciada });
-      palavraIniciada = true; i++; continue;
-    }
-    if (c === "'" || c === '"') { aspas = c; i++; palavraIniciada = true; continue; }
-    if (c === "#" && !palavraIniciada) {
-      while (i < comando.length && comando[i] !== "\n") i++;
-      continue;
-    }
-    if (c === "<" && prox === "<" && comando[i - 1] !== "<" && comando[i + 2] !== "<") {
-      const inicioOperador = i;
-      let j = i + 2;
-      let tabs = false;
-      if (comando[j] === "-") { tabs = true; j++; }
-      const token = lerDelimitador(comando, j);
-      if (token.fim <= j) throw new Error("delimitador heredoc vazio ou ilegível");
-      pendentes.push({ inicioOperador, fimDelimitador: token.fim, delimitador: token.delimitador, citado: token.citado, tabs });
-      mudancas.push({ inicio: inicioOperador, fim: token.fim, texto: "< /dev/null" });
-      i = token.fim;
-      palavraIniciada = true;
-      continue;
-    }
-    if (c === "\n") {
-      if (pendentes.length) {
-        let cursor = i + 1;
-        for (const pendente of pendentes.splice(0)) {
-          const inicioCorpo = cursor;
-          let inicioTermino = -1;
-          let fimTermino = -1;
-          while (cursor <= comando.length) {
-            const fimLinhaOriginal = comando.indexOf("\n", cursor);
-            const fimLinha = fimLinhaOriginal < 0 ? comando.length : fimLinhaOriginal;
-            const linha = comando.slice(cursor, fimLinha);
-            if (!pendente.citado && /\\\r?$/.test(linha)) {
-              throw new Error("terminador heredoc sem aspas dividido por continuação de linha");
-            }
-            if (igualLinha(linha, pendente.delimitador, pendente.tabs)) {
-              inicioTermino = cursor;
-              fimTermino = fimLinha;
-              cursor = fimLinhaOriginal < 0 ? comando.length : fimLinhaOriginal + 1;
-              break;
-            }
-            if (fimLinhaOriginal < 0) break;
-            cursor = fimLinhaOriginal + 1;
-          }
-          if (inicioTermino < 0) throw new Error("heredoc sem terminador");
-          const inicioLinhaOperador = comando.lastIndexOf("\n", pendente.inicioOperador - 1) + 1;
-          const fimLinhaOperador = comando.indexOf("\n", pendente.inicioOperador);
-          const textoLinhaOperador = comando.slice(inicioLinhaOperador, fimLinhaOperador < 0 ? comando.length : fimLinhaOperador);
-          corpos.push({
-            delimitador: pendente.delimitador,
-            citado: pendente.citado,
-            tabs: pendente.tabs,
-            texto: comando.slice(inicioCorpo, inicioTermino),
-            inicioCorpo,
-            fimCorpo: inicioTermino,
-            inicioOperador: pendente.inicioOperador,
-            fimDelimitador: pendente.fimDelimitador,
-            inicioTermino,
-            fimTermino,
-            continuaDepois: /\\\s*$/.test(textoLinhaOperador),
-          });
-          // Preserve the newline after the terminator; a marker backslash keeps an escaped
-          // continuation visible to the downstream shell command parsers.
-          mudancas.push({ inicio: inicioCorpo, fim: inicioTermino, texto: "" });
-          mudancas.push({ inicio: inicioTermino, fim: fimTermino, texto: corpos.at(-1)!.continuaDepois ? "\\" : "" });
-        }
-        i = cursor;
-        // The terminator consumes its trailing newline, so scanning resumes at a new line.
-        // A comment there must not be allowed to enqueue another heredoc.
-        palavraIniciada = false;
-        continue;
-      }
-      palavraIniciada = false;
-      i++;
-      continue;
-    }
-    if (/\s/.test(c)) { palavraIniciada = false; i++; continue; }
-    if (c === ";" || c === "|" || c === "&" || c === ">" || c === "(" || c === ")") { palavraIniciada = false; i++; continue; }
-    palavraIniciada = true;
-    i++;
+  const catHeredocPrimeiro = new RegExp(`^cat[ \\t]+<<'${DELIMITADOR}'[ \\t]+(>>?)[ \\t]+(.+)$`).exec(cabecalho);
+  if (catHeredocPrimeiro && pathLiteral(catHeredocPrimeiro[3]!) && terminadorFinal(comando, catHeredocPrimeiro[1]!)) {
+    return { aceito: true, comando: `cat ${catHeredocPrimeiro[2]} ${catHeredocPrimeiro[3]}` };
   }
-  if (aspas) throw new Error("aspas sem fechamento ao analisar heredoc");
-  if (contextos.length) throw new Error("substituição sem fechamento ao analisar heredoc");
-  if (pendentes.length) throw new Error("heredoc sem quebra de linha ou terminador");
-  let semCorpos = comando;
-  for (const mudanca of mudancas.sort((a, b) => b.inicio - a.inicio)) {
-    semCorpos = semCorpos.slice(0, mudanca.inicio) + mudanca.texto + semCorpos.slice(mudanca.fim);
-  }
-  return { original: comando, semCorpos, corpos };
-}
 
-export function textoHeredocParaAnalise(analise: ResultadoHeredocs, manterCorpo: (corpo: CorpoHeredoc) => boolean = () => false): string {
-  const mudancas: Array<{ inicio: number; fim: number; texto: string }> = [];
-  for (const corpo of analise.corpos) {
-    mudancas.push({ inicio: corpo.inicioOperador, fim: corpo.fimDelimitador, texto: "< /dev/null" });
-    if (!manterCorpo(corpo)) mudancas.push({ inicio: corpo.inicioCorpo, fim: corpo.fimCorpo, texto: "" });
-    // Keep the line break after the terminator marked for the shell command parser.
-    mudancas.push({ inicio: corpo.inicioTermino, fim: corpo.fimTermino, texto: corpo.continuaDepois ? "\\" : "" });
+  const catDestinoPrimeiro = new RegExp(`^cat[ \\t]+>[ \\t]+(.+)[ \\t]+<<'${DELIMITADOR}'$`).exec(cabecalho);
+  if (catDestinoPrimeiro && pathLiteral(catDestinoPrimeiro[1]!) && terminadorFinal(comando, catDestinoPrimeiro[2]!)) {
+    return { aceito: true, comando: `cat > ${catDestinoPrimeiro[1]}` };
   }
-  let texto = analise.original;
-  for (const mudanca of mudancas.sort((a, b) => b.inicio - a.inicio)) {
-    texto = texto.slice(0, mudanca.inicio) + mudanca.texto + texto.slice(mudanca.fim);
+
+  const tee = new RegExp(`^tee(?:[ \\t]+-a)?[ \\t]+(.+)[ \\t]+<<'${DELIMITADOR}'$`).exec(cabecalho);
+  if (tee && pathLiteral(tee[1]!) && terminadorFinal(comando, tee[2]!)) {
+    return { aceito: true, comando: cabecalho.slice(0, cabecalho.lastIndexOf("<<")).trimEnd() };
   }
-  return texto;
+
+  return { aceito: false };
 }

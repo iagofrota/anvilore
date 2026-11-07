@@ -42,24 +42,16 @@ contam como destino de arquivo; `&>arquivo` e `>&arquivo` continuam sendo julgad
 Substituições de comando em `$()`, crases e substituições de processo são negadas por padrão nos dois
 guardas. Só se aceitam comandos simples de leitura da lista curta (`date`, `pwd`, `basename`, `dirname`,
 `whoami`, `hostname`, `uname` e algumas consultas `git`), sem encadeamento, redirecionamento, atribuição,
-`cd`, alias, função ou substituição aninhada. A única forma composta liberada é `$(cat <<'EOF'…EOF)`
-com todo o delimitador entre aspas. O analisador lexical compartilhado reconhece aspas, escape e comentários;
-acompanha a fila de heredocs e fecha cada corpo na primeira linha igual ao delimitador. Ao remover o corpo,
-preserva a quebra de linha do terminador. Cada quebra separa comandos, inclusive dentro de blocos compostos; só pipe,
-`|&`, `&&`, `||` ou barra invertida no fim da linha continuam o comando. Numa continuação, linhas vazias e linhas só de comentário são puladas,
-e comentário no fim da linha do operador não cancela a continuação. Corpo sem delimitador citado não é analisado como comando; se contiver
-`$(`, crase ou `${`, bloqueia mesmo que esses caracteres estejam entre aspas simples. No delimitador
-sem aspas, uma linha do corpo que termina em barra invertida falha fechado, pois o shell pode juntá-la à linha seguinte
-ao comparar o terminador. Quando o comando simples analisado,
-já sem palavras reservadas e wrappers, recebe o corpo em um interpretador — diretamente pelo heredoc ou pelo pipe —,
-o corpo também é analisado como script. A associação entre corpo e redirecionamento usa a posição estrutural do
-token de origem, nunca o texto de uma palavra; a entrada que contém o prefixo reservado de marcador interno
-falha fechado (`src/lib/heredoc.ts`, `src/lib/trava-verified.ts` e
-`src/comandos/hook-proteger-raw.ts`). Depois de consumir o terminador, o lexer volta ao início da linha,
-então `<<` em comentário não abre outro corpo. Um descritor numérico colado ao operador pertence ao redirecionamento;
-só descritor 0 ou omitido fornece stdin, e o último redirecionamento de stdin prevalece (`src/lib/heredoc.ts`,
-`src/lib/trava-verified.ts`). O valor produzido por substituição aceita continua sendo tratado como caminho
-opaco no comando externo.
+`cd`, alias, função ou substituição aninhada. O gate de heredoc em `src/lib/heredoc.ts` é uma lista positiva
+compartilhada por `src/comandos/hook-proteger-raw.ts` e `src/lib/trava-verified.ts`: exige um único `<<`,
+delimitador citado formado por palavra ASCII, sem CR ou NUL, e terminador como última linha, único no texto.
+Aceita somente três formas: (A) `git commit` com `-F -`, `--file=-` ou `--file -`; (B) mensagem opaca de
+`$(cat <<'PALAVRA'...)` para `git commit`, `git tag`, `gh pr create|comment|edit|review` ou
+`gh issue create|comment|edit`; e (C) `cat` ou `tee` com redirecionamento para caminho literal. No formato B,
+o conteúdo é substituído por texto opaco antes da análise externa. No formato C, o destino passa pelas regras
+normais de escrita: `raw/` é bloqueado e `wiki/` continua sujeito à trava de `verified`. Qualquer outro heredoc,
+inclusive delimitador sem aspas, múltiplos operadores, linha extra, pipe ou interpretador, falha fechado.
+O valor produzido por substituições de leitura permitidas continua opaco no comando externo.
 O hook `proteger-raw` reconhece os caminhos dos cabeçalhos
 `diff --git`, `---`/`+++` e `rename from`/`rename to` em `apply_patch` (`src/lib/trava-verified.ts`,
 funções `tokenizar` e `decidirTerminalVerified`; `src/comandos/hook-proteger-raw.ts`, função
