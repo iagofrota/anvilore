@@ -417,7 +417,7 @@ instalar_pacotes() {
 }
 
 passo_git_e_bun() {
-  local bun_versao precisa_baixar_bun=0 atual faltam
+  local bun_versao precisa_baixar_bun=0 atual faltam bun_caminho
   PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"; export PATH
   bun_versao=$(manifesto_campo bun - versao)
   if tem bun; then
@@ -454,6 +454,30 @@ passo_git_e_bun() {
     if [ ! -e "$HOME/.local/bin/bun" ] && mkdir -p "$HOME/.local/bin" 2>/dev/null; then
       ln -s "$HOME/.bun/bin/bun" "$HOME/.local/bin/bun" 2>/dev/null && registrar "bun: atalho em ~/.local/bin/bun"
     fi
+  fi
+
+  bun_caminho="$(command -v bun 2>/dev/null || true)"
+  if [[ "$bun_caminho" = /* && -x "$bun_caminho" ]]; then
+    registrar_bun_para_lancador "$bun_caminho"
+  fi
+}
+
+registrar_bun_para_lancador() {
+  local bun_caminho="$1" diretorio arquivo_temporario
+  diretorio="${XDG_CONFIG_HOME:-$HOME/.config}/anvilore"
+  if ! mkdir -p "$diretorio" 2>/dev/null; then
+    registrar "bun: não consegui criar $diretorio para registrar o caminho do lançador"
+    return 0
+  fi
+  arquivo_temporario="$(mktemp "$diretorio/.bun-path.XXXXXX" 2>/dev/null)" || {
+    registrar "bun: não consegui criar o registro do caminho para o lançador"
+    return 0
+  }
+  if (umask 077; printf '%s\n' "$bun_caminho" >"$arquivo_temporario") && chmod 600 "$arquivo_temporario" && mv -f -- "$arquivo_temporario" "$diretorio/bun-path"; then
+    registrar "bun: caminho para o lançador registrado em $diretorio/bun-path"
+  else
+    rm -f -- "$arquivo_temporario"
+    registrar "bun: não consegui salvar o caminho para o lançador"
   fi
 }
 

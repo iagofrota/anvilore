@@ -42,8 +42,37 @@ if ! instalacao_valida "$PASTA"; then
 fi
 
 export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
+
+encontrar_bun() {
+  local candidato registro shell_login
+  candidato="$(command -v bun 2>/dev/null || true)"
+  if [[ "$candidato" != /* && -n "$candidato" ]]; then candidato="$(readlink -f -- "$candidato" 2>/dev/null || true)"; fi
+  if [[ "$candidato" = /* && -x "$candidato" ]]; then BUN_BIN="$candidato"; return 0; fi
+
+  candidato="$HOME/.bun/bin/bun"
+  if [ -x "$candidato" ]; then BUN_BIN="$candidato"; return 0; fi
+
+  registro="${XDG_CONFIG_HOME:-$HOME/.config}/anvilore/bun-path"
+  if [ -f "$registro" ] && [ ! -L "$registro" ] && [ -O "$registro" ]; then
+    IFS= read -r candidato <"$registro" || candidato=""
+    if [[ "$candidato" = /* && -x "$candidato" && -O "$candidato" ]]; then BUN_BIN="$candidato"; return 0; fi
+  fi
+
+  shell_login="${SHELL:-}"
+  if [[ "$shell_login" = /* && -x "$shell_login" ]] && command -v timeout >/dev/null 2>&1; then
+    candidato="$(timeout 3 "$shell_login" -lic 'command -v bun' 2>/dev/null || true)"
+    if [[ "$candidato" = /* && -x "$candidato" ]]; then BUN_BIN="$candidato"; return 0; fi
+  fi
+  return 1
+}
+
+if ! encontrar_bun; then
+  mostrar_erro_e_esperar "Bun não encontrado. Instale com 'npm install -g bun' ou siga https://bun.sh e abra o Anvilore novamente."
+  exit 2
+fi
+
 cd -- "$PASTA" || { mostrar_erro_e_esperar "Não consegui abrir a pasta $PASTA."; exit 1; }
-ANVILORE_DESTINO="$PASTA" bun src/cli.ts ui
+ANVILORE_DESTINO="$PASTA" "$BUN_BIN" src/cli.ts ui
 CODIGO=$?
 if [ "$CODIGO" -ne 0 ]; then
   mostrar_erro_e_esperar "" "A interface do Anvilore fechou com erro (código $CODIGO). Confira a mensagem acima."
