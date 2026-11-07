@@ -246,3 +246,64 @@ test("Dado uma ingestão rodando Quando o painel monta Então mostra os 7 passos
   expect(html).toContain("grande (custa mais)");
   expect(renderToStaticMarkup(<PainelDaIngestao conversa={null} />)).not.toContain("Fonte</h2>");
 });
+
+// ── Andamento só com `rodando` ────────────────────────────────────────────
+
+const ATIVIDADE_EM_ANDAMENTO = [{ id: "w9", papel: "escritor" as const, verbo: "Escrevendo", alvo: "wiki/pessoal/concepts/rag.md", estado: "andamento" as const }];
+const AJUSTE = { tipo: "ajuste" as const, pagina: "pessoal/concepts/rag.md", fonte: "wiki/pessoal/concepts/rag.md", pedido: "Mudar a frase." };
+
+const temIndicadorDeAndamento = (arvore: No) => achar(arvore, e => e.props.className === "pulse").length > 0;
+
+test("Dado a ingestão interrompida no fechamento Quando a tela monta Então mostra o erro da conversa e não o Rodando anvilore fechar", () => {
+  const { html, arvore } = montar(conversa({
+    passo: "fechamento", situacao: "interrompida", erro: "A interface foi fechada durante esta etapa.", relatorio: relatorioValido() as never,
+    escolha: { takeaways: [0], paginas: [0], comentario: "" },
+  }));
+  expect(html).toContain("A interface foi fechada durante esta etapa.");
+  expect(html).not.toContain("Rodando");
+  expect(temIndicadorDeAndamento(arvore)).toBe(false);
+  expect(achar(arvore, e => e.props.role === "alert").length).toBe(1);
+});
+
+test("Dado o ajuste interrompido no fechamento Quando a tela monta Então mostra o erro da conversa e não o Rodando anvilore fechar", () => {
+  const { html, arvore } = montar(conversa({ ...AJUSTE, passo: "fechamento", situacao: "interrompida", erro: "A interface foi fechada durante esta etapa." }));
+  expect(html).toContain("A interface foi fechada durante esta etapa.");
+  expect(html).not.toContain("Rodando");
+  expect(temIndicadorDeAndamento(arvore)).toBe(false);
+});
+
+test("Dado o fechamento que falhou antes de terminar Quando a tela monta Então mostra o erro e não o Rodando anvilore fechar", () => {
+  const { html } = montar(conversa({ ...AJUSTE, passo: "fechamento", situacao: "erro", erro: "Falha inesperada: fechar quebrou" }));
+  expect(html).toContain("Falha inesperada: fechar quebrou");
+  expect(html).not.toContain("Rodando");
+});
+
+test("Dado o fechamento rodando Quando a tela monta Então mostra o Rodando anvilore fechar com indicador de andamento", () => {
+  for (const extra of [{}, AJUSTE]) {
+    const { html, arvore } = montar(conversa({ ...extra, passo: "fechamento", situacao: "rodando", agora: "Rodando anvilore fechar", relatorio: relatorioValido() as never, escolha: { takeaways: [0], paginas: [0], comentario: "" } }));
+    expect(html).toContain("Rodando <code>anvilore fechar</code>");
+    expect(temIndicadorDeAndamento(arvore)).toBe(true);
+  }
+});
+
+test("Dado a escrita interrompida com atividade ainda em andamento no disco Quando a tela monta Então não diz que está escrevendo", () => {
+  for (const extra of [{}, AJUSTE]) {
+    const { html, arvore } = montar(conversa({ ...extra, passo: "escrita", situacao: "interrompida", erro: "A interface foi fechada durante esta etapa.", atividade: ATIVIDADE_EM_ANDAMENTO, relatorio: relatorioValido() as never, escolha: { takeaways: [0], paginas: [0], comentario: "" } }));
+    expect(html).not.toContain("escrevendo…");
+    expect(html).toContain("interrompido");
+    expect(achar(arvore, e => typeof e.props.className === "string" && e.props.className.includes("andamento")).length).toBe(0);
+    expect(temIndicadorDeAndamento(arvore)).toBe(false);
+  }
+});
+
+test("Dado qualquer passo com a situação já terminada Quando a tela e o painel montam Então nenhum indicador de andamento aparece", () => {
+  const passos = ["fonte", "leitura", "parada", "escrita", "fechamento", "revisao"] as const;
+  const situacoes = ["pronta", "esperando", "concluida", "erro", "cancelada", "interrompida"] as const;
+  for (const extra of [{}, AJUSTE]) for (const passo of passos) for (const situacao of situacoes) {
+    const c = conversa({ ...extra, passo, situacao, erro: situacao === "erro" || situacao === "interrompida" ? "Parou." : undefined, agora: "Trabalhando", atividade: ATIVIDADE_EM_ANDAMENTO, relatorio: relatorioValido() as never, escolha: { takeaways: [0], paginas: [0], comentario: "" } });
+    const { html, arvore } = montar(c);
+    const rotulo = `${"tipo" in extra ? "ajuste" : "ingestao"}/${passo}/${situacao}`;
+    expect({ rotulo, pulso: temIndicadorDeAndamento(arvore), rodando: html.includes("Rodando"), escrevendo: html.includes("escrevendo…") }).toEqual({ rotulo, pulso: false, rodando: false, escrevendo: false });
+    expect({ rotulo, painel: temIndicadorDeAndamento(expandir(<PainelDaIngestao conversa={c} />)) }).toEqual({ rotulo, painel: false });
+  }
+});
