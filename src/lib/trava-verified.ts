@@ -207,22 +207,8 @@ export function buscarAncestralVault(inicio: string): string | undefined {
   return undefined;
 }
 
-export function resolverAncestralRealComResto(caminhoAbsoluto: string): string {
-  let atual = caminhoAbsoluto;
-  const cauda: string[] = [];
-  while (true) {
-    try {
-      const real = realpathSync.native(atual);
-      return cauda.length ? join(real, ...cauda.reverse()) : real;
-    } catch {
-      const pai = dirname(atual);
-      if (pai === atual) {
-        return caminhoAbsoluto;
-      }
-      cauda.push(basename(atual));
-      atual = pai;
-    }
-  }
+export function resolverAncestralRealComResto(caminho: string, base?: string): string {
+  return caminhoReal(caminho, base);
 }
 
 export function encontrarRaizVault(
@@ -286,7 +272,9 @@ export function estaSobWiki(
 ): boolean {
   const cwdEfetivo = cwd ?? (typeof process !== "undefined" ? process.cwd() : raizPadrao);
   const abs = isAbsolute(caminhoAlvo) ? resolve(caminhoAlvo) : resolve(cwdEfetivo, caminhoAlvo);
-  const real = resolverAncestralRealComResto(abs);
+  // Classifique as duas interpretações: texto lexical e percurso físico do sistema.
+  // No POSIX, caminhoReal precisa receber o texto original para respeitar symlink/../.
+  const real = resolverAncestralRealComResto(caminhoAlvo, cwdEfetivo);
 
   if (ambiente.ANVILORE_WIKI) {
     const wikiEnv = resolve(ambiente.ANVILORE_WIKI);
@@ -763,13 +751,13 @@ function destinoEhSeguro(
   if (limpo === "/dev/null" || limpo.toLowerCase() === "nul" || limpo === "&1" || limpo === "&2") return true;
 
   // 1. Resolve o destino (normaliza .., realpath do pai existente) e classifica com estaSobWiki ANTES de qualquer isenção
-  if (estaSobWiki(limpo, raiz, ambiente, base)) {
+  if (estaSobWiki(limpo, raiz, ambiente, base) || estaSobWiki(limpo, raiz, ambiente, raiz)) {
     return false;
   }
 
   // 2. A isenção de /tmp só vale para destino resolvido que NÃO está sob a wiki
   const abs = isAbsolute(limpo) ? resolve(limpo) : resolve(base, limpo);
-  const real = resolverAncestralRealComResto(abs);
+  const real = resolverAncestralRealComResto(limpo, base);
   if (estaSobTmp(abs, real)) {
     return true;
   }

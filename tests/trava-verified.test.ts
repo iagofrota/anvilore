@@ -2040,5 +2040,61 @@ describe("trava de verified nos quatro agentes", () => {
         expect(codigo).toBe(0);
       }
     });
+
+    test("Achado P2 do bot (rodada 4): resolução física antes de colapsar segmentos pai (..)", async () => {
+      const subDir = join(wikiDir, "sub");
+      mkdirSync(subDir, { recursive: true });
+      const alias = join(temporario, "alias");
+      symlinkSync(subDir, alias, "dir");
+
+      const pastaFora = mkdtempSync(join(tmpdir(), "anvilore-fora-"));
+      const alias2 = join(temporario, "alias2");
+      symlinkSync(pastaFora, alias2, "dir");
+
+      try {
+        // 1. Falham na base 78cf186 (exit 0) e passam a dar exit 2:
+        // - alias -> wiki/sub e cp /tmp/page.md <vault>/alias/../a.md
+        // - o mesmo com mv
+        // - redirecionamento printf 'verified: …' > <vault>/alias/../a.md
+        // - relativo a partir do cofre cp /tmp/p.md alias/../a.md
+        const ataques = [
+          `cp /tmp/page.md ${alias}/../a.md`,
+          `mv /tmp/page.md ${alias}/../a.md`,
+          `printf 'verified: human' > ${alias}/../a.md`,
+          `cp /tmp/p.md alias/../a.md`,
+        ];
+
+        for (const cmd of ataques) {
+          const codigo = await executarProtecao(JSON.stringify({
+            cwd: temporario,
+            tool_name: "Bash",
+            tool_input: { command: cmd },
+          }));
+          expect(codigo).toBe(2);
+        }
+
+        // 2. Regressões com exit 0:
+        // - cp /tmp/a.md /tmp/b.md
+        // - alias2 -> /tmp/fora e cp /tmp/p.md <vault>/alias2/../x.md quando o destino físico fica fora da wiki (e não é raw/)
+        // - leitura cat wiki/a.md
+        const regressoes = [
+          `cp /tmp/a.md /tmp/b.md`,
+          `cp /tmp/p.md ${alias2}/../x.md`,
+          `cp /tmp/p.md alias2/../x.md`,
+          `cat wiki/a.md`,
+        ];
+
+        for (const cmd of regressoes) {
+          const codigo = await executarProtecao(JSON.stringify({
+            cwd: temporario,
+            tool_name: "Bash",
+            tool_input: { command: cmd },
+          }));
+          expect(codigo).toBe(0);
+        }
+      } finally {
+        rmSync(pastaFora, { recursive: true, force: true });
+      }
+    });
   });
 });
