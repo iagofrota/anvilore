@@ -708,6 +708,9 @@ export class IngestaoNaInterface {
     if (conversa?.id !== id) return undefined;
     // Rodando no disco e sem processo nesta interface: a fase morreu com a interface anterior.
     if (conversa.situacao === "rodando") {
+      if (conversa.tipo === "ajuste" && conversa.pagina && conversa.versaoEsperada) {
+        await this.tentarInvalidarAprovacaoSemMascarar(conversa);
+      }
       Object.assign(conversa, { situacao: "interrompida", erro: "A interface foi fechada durante esta etapa." });
       delete conversa.agora;
       await this.salvar(conversa);

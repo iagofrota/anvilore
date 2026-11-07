@@ -5,6 +5,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { caminhoDaCopia } from "../src/lib/ui-fila";
+import { listarFilaRascunhos } from "../src/lib/ui-fila";
+import { estadoAprovacaoHumana } from "../src/lib/okf";
+import { lerFrontmatter } from "../src/lib/frontmatter";
 import type { FimDaFase, PonteDeAgente } from "../src/lib/ponte-agente";
 import { FONTE, relatorioValido, SESSAO } from "./apoio/ingestao-exemplo";
 import { PonteFalsa, type Roteiro } from "./apoio/ponte-falsa";
@@ -463,6 +466,52 @@ test("Dado a interface fechada no meio de uma fase Quando volto Então a convers
   expect(await outra.obter(conversa.id)).toMatchObject({ passo: "leitura", situacao: "interrompida", erro: "A interface foi fechada durante esta etapa." });
   await ingestao.cancelar(conversa.id);
   await ingestao.esperar(conversa.id);
+});
+
+test("Dado ajuste persistido rodando com página alterada e aprovada Quando recupero a conversa Então invalido a aprovação e a página entra na Revisão", async () => {
+  const conteudoAprovado = "---\ntype: concept\nslug: segundo-cerebro\ntitle: Segundo cérebro\ngenerated:\n  by: agente/teste\n  at: 2026-10-27T10:00:00Z\nverified:\n  by: human:iago\n  at: 2026-10-27T11:00:00Z\n---\nTexto alterado durante ajuste.\n";
+  const versaoOriginal = "---\ntype: concept\nslug: segundo-cerebro\ntitle: Segundo cérebro\ngenerated:\n  by: agente/teste\n  at: 2026-10-27T10:00:00Z\nverified:\n  by: human:iago\n  at: 2026-10-27T11:00:00Z\n---\nTexto original.\n";
+  const caminho = "pessoal/concepts/segundo-cerebro.md";
+  const arquivo = join(wiki, caminho);
+  writeFileSync(arquivo, conteudoAprovado);
+  const id = "20261106-230000123-a1b2c3";
+  mkdirSync(join(raiz, ".anvilore/ui/conversas"), { recursive: true });
+  writeFileSync(join(raiz, ".anvilore/ui/conversas", `${id}.json`), JSON.stringify({
+    versao: 1, id, criadaEm: "2026-11-06T23:00:00.123Z", atualizadaEm: "2026-11-06T23:00:00.123Z",
+    tipo: "ajuste", pagina: caminho, versaoEsperada: createHash("sha256").update(versaoOriginal).digest("hex"),
+    pedido: "Ajustar", area: "pessoal", fonte: `wiki/${caminho}`, nome: "segundo-cerebro.md", bytes: 10,
+    passo: "escrita", situacao: "rodando", atividade: [], avisos: [], recusas: [],
+    geracao: { by: "agente/teste", at: "2026-11-06T23:00:00.123Z" },
+  }));
+
+  const recuperada = await servico(new PonteFalsa()).obter(id);
+
+  expect(recuperada?.situacao).toBe("interrompida");
+  expect(estadoAprovacaoHumana(lerFrontmatter(readFileSync(arquivo, "utf8")) ?? {})).not.toBe("vigente");
+  expect(await listarFilaRascunhos(raiz)).toMatchObject([
+    { caminho, status: "atualizada" },
+  ]);
+});
+
+test("Dado ajuste persistido rodando com página inalterada Quando recupero a conversa Então preservo a aprovação e os bytes da página", async () => {
+  const conteudo = "---\ntype: concept\nslug: segundo-cerebro\ntitle: Segundo cérebro\ngenerated:\n  by: agente/teste\n  at: 2026-10-27T10:00:00Z\nverified:\n  by: human:iago\n  at: 2026-10-27T11:00:00Z\n---\nTexto original.\n";
+  const caminho = "pessoal/concepts/segundo-cerebro.md";
+  const arquivo = join(wiki, caminho);
+  writeFileSync(arquivo, conteudo);
+  const id = "20261106-230000124-a1b2c4";
+  mkdirSync(join(raiz, ".anvilore/ui/conversas"), { recursive: true });
+  writeFileSync(join(raiz, ".anvilore/ui/conversas", `${id}.json`), JSON.stringify({
+    versao: 1, id, criadaEm: "2026-11-06T23:00:00.124Z", atualizadaEm: "2026-11-06T23:00:00.124Z",
+    tipo: "ajuste", pagina: caminho, versaoEsperada: createHash("sha256").update(conteudo).digest("hex"),
+    pedido: "Ajustar", area: "pessoal", fonte: `wiki/${caminho}`, nome: "segundo-cerebro.md", bytes: 10,
+    passo: "escrita", situacao: "rodando", atividade: [], avisos: [], recusas: [],
+    geracao: { by: "agente/teste", at: "2026-11-06T23:00:00.124Z" },
+  }));
+
+  await servico(new PonteFalsa()).obter(id);
+
+  expect(readFileSync(arquivo)).toEqual(Buffer.from(conteudo));
+  expect(estadoAprovacaoHumana(lerFrontmatter(readFileSync(arquivo, "utf8")) ?? {})).toBe("vigente");
 });
 
 test("[C25.a–d] Dado ids inválidos, arquivos estranhos ou ausentes Quando leio as conversas Então ignoro sem lançar", async () => {

@@ -27,6 +27,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
+- Ao recuperar um ajuste interrompido, a interface confere a página antes de encerrar a conversa e tira da aprovação vigente qualquer conteúdo que tenha mudado.
 - Ajustes que cancelam ou falham depois de uma escrita parcial invalidam a aprovação anterior antes de encerrar a conversa e mantêm o desfecho original visível.
 
 ## [0.3.1] - 2026-10-31
