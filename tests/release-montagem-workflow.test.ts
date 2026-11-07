@@ -88,7 +88,11 @@ test("Dado job de release que lê a tag local, Quando carrego o workflow, Então
 test("Dado checkout inicial, Quando preparo a execução, Então revogação roda na âncora antes dos imports e do install da candidata", async () => {
   const w = await carregar("release.yml");
   const steps = w.jobs.assinatura?.steps ?? [];
-  expect(steps[0]?.with?.ref).toBe("19578a1e6f3570975137488cd03ea0537e8c6a0e");
+  expect(steps[0]?.with?.ref).toBe("13805c3f524a4c62e63a00c231ffaddceb98bfe5");
+  const workflow = await Bun.file(resolve(import.meta.dir, "../.github/workflows/release.yml")).text();
+  expect(workflow).toContain("TAG_ANTERIOR: v0.3.1");
+  expect(workflow).toContain("OBJETO_ANTERIOR: 8d027bfc367a8a17f7a30225b5ecc4d2afe7b8d0");
+  expect(workflow).toContain("COMMIT_ANTERIOR: 13805c3f524a4c62e63a00c231ffaddceb98bfe5");
   const revogacao = steps.findIndex(s => s.run?.includes("assinantes-ativos"));
   const candidato = steps.findIndex(s => s.run?.includes("scripts/verificar-tag-release.ts"));
   const install = steps.findIndex(s => s.run?.includes("bun install"));
