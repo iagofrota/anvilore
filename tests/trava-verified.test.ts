@@ -588,12 +588,15 @@ describe("trava de verified nos quatro agentes", () => {
     const pagina = join(wikiDir, "pessoal/concepts/a.md");
     writeFileSync(pagina, "---\ntitle: A\n---\n");
 
-    // C1: A=aprovar; bun src/cli.ts $A wiki/pessoal/concepts/a.md (caminho oficial desarmado)
+    // C1: A=aprovar; bun src/cli.ts $A wiki/pessoal/concepts/a.md. O `aprovar` da CLI está desarmado (só abre a Revisão), mas aqui
+    // o subcomando é uma variável e o `src/cli.ts` é o do cwd, que o guarda não prova ser o do kit: padrão negado da rodada 15
+    // (verbo fora da lista de leitura com argumento da wiki), então bloqueia. Falso positivo aceito; o caminho oficial
+    // `bun src/cli.ts aprovar <página>` sozinho continua isento (ehComandoSimplesCli).
     expect(await executarProtecao(JSON.stringify({
       cwd: temporario,
       tool_name: "Bash",
       tool_input: { command: "A=aprovar; bun src/cli.ts $A wiki/pessoal/concepts/a.md" },
-    }))).toBe(0);
+    }))).toBe(2);
 
     // C2: V=verified; echo "$V: human:x" >> wiki/a.md
     expect(await executarProtecao(JSON.stringify({
@@ -3109,6 +3112,93 @@ describe("trava de verified nos quatro agentes", () => {
           `vim -es -c '%m0' -c wq ${fora}/p.md`,
         ];
         await esperar(regressoes, 0, cofre);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Achado P2 do bot (rodada 15): verbo desconhecido que recebe caminho da wiki é negado por padrão", async () => {
+      const { fora, cofre, esperar, wikiA } = prepararRodada11();
+      writeFileSync(join(fora, "s.py"), "print(1)\n");
+      const url = `file://${fora}/p.md`;
+      try {
+        // Dado o cwd no cofre, Quando um verbo fora da lista de leitura recebe um argumento que toca a wiki, Então bloqueia
+        const ataques = [
+          `curl --output wiki/a.md ${url}`,
+          `curl -o wiki/a.md ${url}`,
+          `curl -owiki/a.md ${url}`,
+          `curl --output=wiki/a.md ${url}`,
+          `curl --output ${wikiA} ${url}`,
+          `curl --output-dir wiki -O ${url}`,
+          `curl -o ${wikiA} https://example.com/a`,
+          `wget -O wiki/a.md ${url}`,
+          `wget -Owiki/a.md ${url}`,
+          `wget --output-document=wiki/a.md ${url}`,
+          `wget -P wiki ${url}`,
+          `aria2c -d wiki -o a.md ${url}`,
+          `scp ${fora}/p.md wiki/a.md`,
+          `pandoc ${fora}/p.md -o wiki/a.md`,
+          `pandoc ${fora}/p.md --output=wiki/a.md`,
+          `openssl enc -in ${fora}/p.md -out wiki/a.md`,
+          `base64 -d ${fora}/p.md -o wiki/a.md`,
+          `ferramenta-inventada --out=wiki/a.md`,
+          `ferramenta-inventada out=wiki/a.md`,
+          `ferramenta-inventada -owiki/a.md`,
+          `ferramenta-inventada ${wikiA}`,
+          `touch wiki/a.md`,
+          `rm wiki/a.md`,
+          `mkdir wiki/novo`,
+          `sort -o wiki/a.md ${fora}/p.md`,
+          `sort -owiki/a.md ${fora}/p.md`,
+          `uniq ${fora}/p.md wiki/a.md`,
+          `xxd -r ${fora}/p.md wiki/a.md`,
+          `tree -o wiki/a.md ${fora}`,
+          `split ${fora}/p.md wiki/parte-`,
+          `zip wiki/a.zip ${fora}/p.md`,
+          `sqlite3 ${fora}/db ".output wiki/a.md"`,
+          `xargs curl -o wiki/a.md ${url}`,
+          `env FOO=1 curl -o wiki/a.md ${url}`,
+          `nice -n 5 curl -o wiki/a.md ${url}`,
+          `python3 ${fora}/s.py wiki/a.md`,
+          `perl -ne print wiki/a.md`,
+          `pandoc wiki/a.md -o ${fora}/a.html`,
+          // ancestral da wiki: o verbo desconhecido pode criar descendentes nela
+          `ferramenta-inventada --dest=${cofre}`,
+          `ferramenta-inventada ${cofre}`,
+          `ferramenta-inventada --dest=$DIR`,
+          `ferramenta-inventada ~/x`,
+          `ferramenta-inventada *`,
+        ];
+        await esperar(ataques, 2, cofre);
+
+        // Regressões (exit 0): nada toca a wiki, ou o verbo é de leitura, ou tem ramo próprio que já julgou
+        const regressoes = [
+          `curl -o ${fora}/x https://example.com/a`,
+          `curl https://example.com`,
+          `curl 'https://example.com/?a=b&c=d' -o ${fora}/x`,
+          `wget -O ${fora}/x https://example.com/a`,
+          `cat wiki/a.md`,
+          `grep -r x wiki`,
+          `rg x wiki`,
+          `ls wiki`,
+          `bun test`,
+          `npm run build`,
+          `git apply ${fora}/patch.diff`,
+          `jq . wiki/a.md`,
+          `cp wiki/a.md ${fora}/x`,
+          `sed -n 1p wiki/a.md`,
+          `awk '{print $1}' wiki/a.md`,
+          `find wiki -name '*.md'`,
+          `export GIT_WORK_TREE=${cofre}`,
+          `for f in wiki/*.md; do cat $f; done`,
+          `[[ -f wiki/a.md ]]`,
+          `ferramenta-inventada ${fora}/x`,
+          `ferramenta-inventada --out=${fora}/x`,
+        ];
+        await esperar(regressoes, 0, cofre);
+
+        // Expansão que pode apontar para a wiki só bloqueia quando o cwd é o cofre ou a wiki
+        await esperar([`ferramenta-inventada --dest=$DIR`, `ferramenta-inventada *`, `ferramenta-inventada ~/x`], 0, fora);
       } finally {
         rmSync(fora, { recursive: true, force: true });
       }

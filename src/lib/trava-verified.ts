@@ -26,6 +26,19 @@ const LEITURAS_TERMINAL = new Set([
   "cut", "du", "sha256sum", "md5sum", "shasum", "basename", "dirname", "realpath", "readlink",
   "nl", "tac", "od", "strings", "test", "[", "true", "false", "pdfinfo",
   "get-content", "gc", "type", "dir", "get-childitem", "gci", "select-string", "sls", "get-item", "gi", "get-filehash",
+  // Leitores puros, sem opção que escolha um arquivo de saída (sort -o, uniq ENTRADA SAÍDA, tree -o, xxd -r e less -o ficam de fora).
+  "jq", "egrep", "fgrep", "zcat", "zgrep", "fold", "rev", "paste", "comm", "cmp", "column", "hexdump", "sha1sum", "sha224sum",
+  "sha384sum", "sha512sum", "b2sum", "cksum", "date", "seq", "uname", "whoami", "id", "hostname", "which", "[[",
+]);
+
+// Verbos com ramo próprio que já julga destinos (e deixa ler a wiki: `cp wiki/a.md /tmp/x`, `sed -n 1p wiki/a.md`): ficam fora da rede
+// de padrão negado, que vale para todo o resto. Também entram aqui os builtins que só carregam estado do shell ou texto de laço.
+const VERBOS_COM_RAMO_PROPRIO = new Set([
+  "cp", "mv", "ln", "install", "rsync", "tee", "dd", "sed", "gsed", "awk", "gawk", "mawk", "nawk",
+  "ed", "red", "ex", "vi", "vim", "nvim", "view", "rvim", "rview", "vimdiff",
+  "tar", "bsdtar", "gtar", "make", "find", "unzip", "7z", "7za", "7zr", "7zz", "git", "eval", "source", ".",
+  "cd", "pushd", "popd", "export", "declare", "typeset", "readonly", "local", "unset", "set", "alias",
+  "for", "case", "select", "function", "fi", "done", "esac", "do", "then", "else", "elif", "in",
 ]);
 
 const GIT_LEITURA = new Set([
@@ -2029,6 +2042,49 @@ function cortarEntradasParallel(args: string[]): string[] {
   return indice < 0 ? args : args.slice(0, indice);
 }
 
+// Padrão negado: o fim da função liberava QUALQUER verbo não reconhecido (curl -o wiki/a.md, wget -O, scp, pandoc -o, touch, rm...).
+// Verbo fora da lista de leitura e sem ramo próprio, com argumento que toca a wiki (ou é ela ou um ancestral dela), bloqueia, mesmo
+// quando é só leitura (`pandoc wiki/a.md -o /tmp/a.html`): prefere-se bloquear a adivinhar qual argumento é a saída.
+function candidatosDeCaminho(arg: string): string[] {
+  const limpo = arg.replace(/^["']|["']$/g, "").trim();
+  if (!limpo) return [];
+  const candidatos = new Set<string>([limpo]);
+  // --opt=valor e opt=valor (dd-like): o valor depois do 1º `=`.
+  const igual = limpo.indexOf("=");
+  if (igual >= 0) candidatos.add(limpo.slice(igual + 1));
+  // Opção curta com valor colado, para qualquer letra: -oVALOR → VALOR.
+  if (/^-[A-Za-z][^-]/.test(limpo)) candidatos.add(limpo.slice(2));
+  // Argumento com espaços (".output wiki/a.md" do sqlite3, comando entre aspas): cada palavra também.
+  for (const palavra of limpo.split(/\s+/)) if (palavra) candidatos.add(palavra);
+  // file:///caminho: o caminho depois do esquema.
+  for (const candidato of [...candidatos]) {
+    const arquivo = /^file:\/\/(\/.*)$/i.exec(candidato);
+    if (arquivo) candidatos.add(arquivo[1]!);
+  }
+  return [...candidatos].filter(c => c && !c.startsWith("-") && !/^[a-z][a-z0-9+.-]*:\/\/(?!\/)/i.test(c));
+}
+
+function verboDesconhecidoTocaWiki(
+  args: string[],
+  base: string,
+  raiz: string,
+  ambiente: Record<string, string | undefined>
+): boolean {
+  let cwdPerigoso: boolean | undefined;
+  const cwdEhCofreOuWiki = () => (cwdPerigoso ??= ehDestinoPerigoso(".", base, raiz, ambiente));
+  for (const arg of args) {
+    for (const candidato of candidatosDeCaminho(arg)) {
+      // Expansão de shell que pode apontar para a wiki: só bloqueia se o cwd já é o cofre, um ancestral ou a wiki.
+      if (EXPANSAO_DE_SHELL.test(candidato) || candidato.startsWith("~")) {
+        if (cwdEhCofreOuWiki()) return true;
+        continue;
+      }
+      if (caminhoTocaWiki(candidato, base, raiz, ambiente) || ehDestinoPerigoso(candidato, base, raiz, ambiente)) return true;
+    }
+  }
+  return false;
+}
+
 function analisarComandoSimples(
   cmdTokens: Token[],
   base: string,
@@ -2461,6 +2517,12 @@ function analisarComandoSimples(
     if (!LEITURAS_TERMINAL.has(verbo) && !tarListOnly && (verbo !== "git" || !GIT_LEITURA.has(analisarGit(cmdArgs).subcomando ?? ""))) {
       return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
     }
+  }
+
+  // 5.10 Padrão negado para o verbo que nenhum ramo acima reconheceu
+  if (!LEITURAS_TERMINAL.has(verbo) && !VERBOS_COM_RAMO_PROPRIO.has(verbo) && !ehShell(verbo)
+    && verboDesconhecidoTocaWiki(cmdArgs, base, raiz, ambiente)) {
+    return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
   }
 
   return { acao: "liberar", motivo: "comando simples permitido" };
