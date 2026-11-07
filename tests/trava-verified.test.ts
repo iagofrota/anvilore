@@ -2479,5 +2479,137 @@ describe("trava de verified nos quatro agentes", () => {
         rmSync(fora, { recursive: true, force: true });
       }
     });
+
+    test("Rodada 10 (a): GIT_WORK_TREE e GIT_DIR atribuídos num comando simples anterior valem para o git seguinte", async () => {
+      const { fora, cofre, julgar, todos } = prepararRodada8();
+      const longe = join(fora, "y");
+      try {
+        // Dado o cwd fora do cofre, Quando um comando anterior fixa a árvore de trabalho no cofre, Então o git que grava bloqueia
+        const ataques = [
+          `export GIT_WORK_TREE=${cofre}; git checkout .`,
+          `export GIT_WORK_TREE=${cofre} && git restore .`,
+          `GIT_WORK_TREE=${cofre}; git checkout .`,
+          `declare -x GIT_WORK_TREE=${cofre}; git pull`,
+          `export FOO=1; export GIT_WORK_TREE=${cofre}; echo ok; git checkout .`,
+          `export GIT_DIR=${cofre}/.git; git checkout .`,
+          `git --git-dir=${cofre}/.git checkout .`,
+          `git --git-dir ${cofre}/.git checkout .`,
+          `export GIT_WORK_TREE=$DIR; git checkout .`,
+          `sh -c "export GIT_WORK_TREE=${cofre}; git checkout ."`,
+        ];
+        expect(await julgar(ataques, longe)).toEqual(todos(ataques, 2));
+
+        const regressoes = [
+          `export GIT_WORK_TREE=${longe}; git checkout .`,
+          `export GIT_WORK_TREE=${cofre}; git log`,
+          `export FOO=1; git -C ${cofre} log`,
+          `git checkout .; export GIT_WORK_TREE=${cofre}`,
+          `GIT_WORK_TREE=${cofre} true; git checkout .`,
+          `GIT_DIR=${longe}/.git git log`,
+          `git checkout .`,
+        ];
+        expect(await julgar(regressoes, longe)).toEqual(todos(regressoes, 0));
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Rodada 10 (b): git config core.worktree para a wiki ou ancestral bloqueia, e --config-env", async () => {
+      const { fora, cofre, julgar, todos } = prepararRodada8();
+      const longe = join(fora, "y");
+      try {
+        const ataques = [
+          `git config core.worktree ${cofre}`,
+          `git config --global core.worktree ${cofre}`,
+          `git config --add core.worktree ${cofre}`,
+          `git config --file ${fora}/cfg core.worktree ${cofre}`,
+          `git config set core.worktree ${cofre}`,
+          `git config Core.WorkTree ${cofre}`,
+          `git config core.worktree ${cofre}/wiki`,
+          `git config core.worktree $DIR`,
+          `git --config-env=core.worktree=WT checkout .`,
+          `git --config-env core.worktree=WT checkout .`,
+          `git -c core.worktree=${cofre}/wiki checkout .`,
+          `fish --command "cp -R ${cofre}/../x ${cofre}/"`,
+        ];
+        expect(await julgar(ataques, longe)).toEqual(todos(ataques, 2));
+
+        const regressoes = [
+          `git config core.worktree`,
+          `git config --get core.worktree`,
+          `git config user.name x`,
+          `git config core.worktree ${longe}`,
+          `git --config-env=user.name=NAME log`,
+          `git -c user.name=x log`,
+        ];
+        expect(await julgar(regressoes, longe)).toEqual(todos(regressoes, 0));
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Rodada 10 (c): find -fprint, -fprint0, -fprintf e -fls escrevem no arquivo informado", async () => {
+      const { fora, cofre, julgar, todos } = prepararRodada8();
+      const longe = join(fora, "y");
+      try {
+        const ataques = [
+          `find ${fora} -fprint ${cofre}/wiki/a.md`,
+          `find ${fora} -fprint0 ${cofre}/wiki/a.md`,
+          `find ${fora} -fprintf ${cofre}/wiki/a.md '%p\\n'`,
+          `find ${fora} -fls ${cofre}/wiki/a.md`,
+          `find . -fprint wiki/a.md`,
+          `find ${fora} -name x -fprint`,
+          `sh -c "find ${fora} -fprint ${cofre}/wiki/a.md"`,
+          `find ${fora} -fprint $OUT`,
+        ];
+        expect(await julgar(ataques, cofre)).toEqual(todos(ataques, 2));
+
+        const regressoes = [
+          `find ${fora} -fprint ${longe}/lista.txt`,
+          `find ${fora} -fprint0 ${longe}/lista.txt`,
+          `find ${fora} -fprintf ${longe}/lista.txt '%p\\n'`,
+          `find ${fora} -fls ${longe}/lista.txt`,
+          `find ${cofre}/wiki -name '*.md' -fprint ${longe}/saida.txt`,
+          `find ${cofre}/wiki -name x -fprint /dev/null`,
+          `find ${cofre}/wiki -name '*.md'`,
+        ];
+        expect(await julgar(regressoes, cofre)).toEqual(todos(regressoes, 0));
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Rodada 10 (extras da revisão automática da rodada 9): verbo aninhado não literal, parallel sem comando, shells por padrão, fish e GIT_CONFIG_*", async () => {
+      const { fora, stage, cofre, julgar, todos } = prepararRodada8();
+      const longe = join(fora, "y");
+      try {
+        const ataques = [
+          `bash -c '$1 -R "$2" ${cofre}/' _ cp ${stage}`,
+          `find ${stage} -exec {} \\;`,
+          `parallel ::: 'cp -R ${stage}/. ${cofre}/'`,
+          `mksh -c "cp -R ${stage}/. ${cofre}/"`,
+          `rbash -c "cp -R ${stage}/. ${cofre}/"`,
+          `fish -C "cp -R ${stage}/. ${cofre}/" -c true`,
+          `fish --command="cp -R ${stage}/. ${cofre}/"`,
+          `fish --command "cp -R ${stage}/. ${cofre}/"`,
+          `GIT_CONFIG_KEY_0=core.worktree GIT_CONFIG_VALUE_0=${cofre} git checkout .`,
+          `export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.worktree GIT_CONFIG_VALUE_0=${cofre}; git checkout .`,
+          `GIT_CONFIG_PARAMETERS="'core.worktree'='${cofre}'" git checkout .`,
+        ];
+        expect(await julgar(ataques, longe)).toEqual(todos(ataques, 2));
+
+        const regressoes = [
+          `bash -c 'cp "$1" ${longe}/' _ ${fora}/a.md`,
+          `sh -c 'echo $1' _ x`,
+          `fish --command="echo ok"`,
+          `parallel echo {} ::: a b`,
+          `GIT_CONFIG_KEY_0=user.name git log`,
+          `GIT_CONFIG_KEY_0=core.worktree git log`,
+        ];
+        expect(await julgar(regressoes, longe)).toEqual(todos(regressoes, 0));
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
   });
 });

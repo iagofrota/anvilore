@@ -1154,10 +1154,17 @@ const GIT_CLONE_COM_VALOR = new Set([
   "--server-option", "--bundle-uri", "--revision", "--ref-format",
 ]);
 
-function analisarGitArvore(args: string[]): { subcomando?: string; resto: string[]; arvores: string[] } {
+function analisarGitArvore(args: string[]): { subcomando?: string; resto: string[]; arvores: string[]; configWorktree: boolean } {
   const arvores: string[] = [];
+  let configWorktree = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
+    // --config-env=core.worktree=VAR lê o valor de uma variável de ambiente: o valor não se prova, só a chave.
+    if (arg.startsWith("--") && opcaoLongaGnu(arg, "--config-env", "--config-e")) {
+      const valor = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[++i];
+      if (/^core\.worktree=/i.test(valor ?? "")) configWorktree = true;
+      continue;
+    }
     if (arg === "-c" && /^core\.worktree=/i.test(args[i + 1] ?? "")) arvores.push(args[i + 1]!.slice(args[i + 1]!.indexOf("=") + 1));
     if (arg === "-C" || arg === "-c") { i++; continue; }
     if (arg.startsWith("--") && opcaoLongaGnu(arg, "--work-tree", "--wo")) {
@@ -1165,11 +1172,16 @@ function analisarGitArvore(args: string[]): { subcomando?: string; resto: string
       else if (args[i + 1] !== undefined) arvores.push(args[++i]!);
       continue;
     }
-    if (arg.startsWith("--") && (opcaoLongaGnu(arg, "--git-dir", "--gi") || opcaoLongaGnu(arg, "--namespace", "--na")) && !arg.includes("=")) { i++; continue; }
+    if (arg.startsWith("--") && opcaoLongaGnu(arg, "--git-dir", "--gi")) {
+      const valor = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[++i];
+      if (valor !== undefined) arvores.push(valor, `${valor}/..`);
+      continue;
+    }
+    if (arg.startsWith("--") && opcaoLongaGnu(arg, "--namespace", "--na") && !arg.includes("=")) { i++; continue; }
     if (arg.startsWith("-")) continue;
-    return { subcomando: arg.toLowerCase(), resto: args.slice(i + 1), arvores };
+    return { subcomando: arg.toLowerCase(), resto: args.slice(i + 1), arvores, configWorktree };
   }
-  return { resto: [], arvores };
+  return { resto: [], arvores, configWorktree };
 }
 
 function posicionaisGit(resto: string[]): string[] {
@@ -1190,15 +1202,38 @@ function posicionaisGit(resto: string[]): string[] {
 function gitNoAncestral(
   args: string[],
   arvoresDoAmbiente: string[],
+  configWorktreeNoAmbiente: boolean,
   base: string,
   raiz: string,
   ambiente: Record<string, string | undefined>
 ): string | undefined {
-  const { subcomando, resto, arvores } = analisarGitArvore(args);
+  const { subcomando, resto, arvores, configWorktree } = analisarGitArvore(args);
   if (!subcomando) return undefined;
   const motivo = "git que grava a árvore de trabalho na wiki ou num ancestral dela (falha fechada)";
-  const perigoso = (dir: string) => ehDestinoPerigoso(dir, base, raiz, ambiente);
+  // Valor que só existe em tempo de execução ($DIR, ~) não se classifica: falha fechada.
+  const perigoso = (dir: string) => EXPANSAO_DE_SHELL.test(dir) || dir.startsWith("~") || ehDestinoPerigoso(dir, base, raiz, ambiente);
   const posicionais = posicionaisGit(resto);
+
+  // core.worktree gravado na configuração fixa a árvore de trabalho dos próximos comandos: vale como o --work-tree.
+  if (subcomando === "config" && !resto.some(arg => /^--(?:get|unset|list|remove|rename)/.test(arg) || arg === "-l")) {
+    const valoresDeOpcao = new Set(["-f", "--file", "--blob", "--type", "-t", "--default", "--comment"]);
+    const livres: string[] = [];
+    for (let i = 0; i < resto.length; i++) {
+      if (resto[i] === "--") { livres.push(...resto.slice(i + 1)); break; }
+      if (resto[i]!.startsWith("-")) { if (valoresDeOpcao.has(resto[i]!)) i++; continue; }
+      livres.push(resto[i]!);
+    }
+    if (livres[0] === "set") livres.shift();
+    const valor = livres[1];
+    if (livres[0]?.toLowerCase() === "core.worktree" && valor !== undefined) {
+      // O valor relativo é lido a partir do diretório do repositório (.git).
+      if (perigoso(valor) || (!isAbsolute(valor) && perigoso(join(".git", valor)))) return motivo;
+    }
+  }
+  if (configWorktree || configWorktreeNoAmbiente) {
+    const gravaArvore = !(GIT_SEM_ARVORE.has(subcomando) || subcomando === "apply" || (subcomando === "worktree" && posicionais[0] === "list"));
+    if (gravaArvore) return motivo;
+  }
 
   if (subcomando === "clone") {
     const destino = posicionais.length >= 2 ? posicionais[posicionais.length - 1]! : ".";
@@ -1213,31 +1248,62 @@ function gitNoAncestral(
 
 // Comando executado por outro comando (sh -c, find -exec, eval) volta ao mesmo classificador; acima do teto, bloqueia.
 type ContextoAninhado = { profundidade: number };
+// Ambiente que um comando simples deixa para os seguintes da mesma invocação (export, atribuição isolada).
+type AmbienteGit = { arvores: string[]; configWorktree: boolean };
+function novoAmbienteGit(): AmbienteGit {
+  return { arvores: [], configWorktree: false };
+}
+function registrarAmbienteGit(palavra: string, alvo: AmbienteGit): void {
+  const arvore = /^GIT_WORK_TREE=(.*)$/.exec(palavra);
+  if (arvore) alvo.arvores.push(arvore[1]!);
+  // GIT_DIR sozinho não muda a árvore, mas o repositório pode apontar para o cofre: o dir e o pai dele entram.
+  const gitDir = /^GIT_DIR=(.*)$/.exec(palavra);
+  if (gitDir) alvo.arvores.push(gitDir[1]!, `${gitDir[1]}/..`);
+  // O mesmo core.worktree por GIT_CONFIG_KEY_n / GIT_CONFIG_PARAMETERS: o valor não é conferido, só a chave.
+  if (/^GIT_CONFIG_KEY_\d+=core\.worktree$/i.test(palavra)) alvo.configWorktree = true;
+  if (/^GIT_CONFIG_PARAMETERS=.*core\.worktree/i.test(palavra)) alvo.configWorktree = true;
+}
+const VERBOS_QUE_EXPORTAM = new Set(["export", "declare", "typeset", "readonly", "local"]);
 const TETO_ANINHAMENTO = 5;
-const SHELLS_COM_C = new Set(["sh", "bash", "zsh", "dash", "ksh", "ash", "mksh", "csh", "tcsh", "fish"]);
+// Qualquer verbo terminado em `sh` é tratado como shell (bash, zsh, fish, mksh, rbash...): falha fechada.
+function ehShell(verbo: string): boolean {
+  return /^(?:[a-z]*sh|yash|hush)$/.test(verbo);
+}
 
 // `-c <texto>` de um shell, inclusive em grupo curto (-ec, -lc), depois de opções como -o pipefail ou --rcfile arq.
-function textoDeShellC(args: string[]): { temC: boolean; texto?: string } {
+function textoDeShellC(args: string[]): { temC: boolean; texto?: string; extras: string[] } {
   let temC = false;
+  const extras: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
-    if (arg === "--") { i++; return temC ? { temC, texto: args[i] } : { temC }; }
+    if (arg === "--") { i++; return temC ? { temC, texto: args[i], extras } : { temC, extras }; }
     if (arg.startsWith("--")) {
+      // fish: --command e --init-command executam texto; bash: --rcfile e --init-file recebem um arquivo.
+      const comando = /^--(?:command|init-command)(?:=(.*))?$/.exec(arg);
+      if (comando) {
+        const valor = comando[1] ?? args[++i];
+        if (valor === undefined) return { temC: true, extras };
+        if (arg.startsWith("--command")) return { temC: true, texto: valor, extras };
+        extras.push(valor);
+        continue;
+      }
       if (/^--(?:rcfile|init-file)$/.test(arg)) i++;
       continue;
     }
-    if (!/^[-+][^-+]/.test(arg)) return temC ? { temC, texto: arg } : { temC };
+    if (!/^[-+][^-+]/.test(arg)) return temC ? { temC, texto: arg, extras } : { temC, extras };
     const grupo = arg.slice(1);
     for (let j = 0; j < grupo.length; j++) {
       const letra = grupo[j]!;
       if (letra === "c" && arg.startsWith("-")) temC = true;
+      // fish -C <texto> executa antes do -c; nos outros shells -C é opção sem valor e o texto extra só é lido.
+      if (letra === "C" && arg.startsWith("-") && j === grupo.length - 1 && args[i + 1] !== undefined) extras.push(args[++i]!);
       if (letra === "o" || letra === "O") {
         if (j === grupo.length - 1) i++;
         break;
       }
     }
   }
-  return { temC };
+  return { temC, extras };
 }
 
 // O comando de `find -exec|-ok` até o terminador `;` ou `+` (sem terminador, vai até o fim).
@@ -1264,7 +1330,8 @@ function analisarComandoSimples(
   raiz: string,
   ambiente: Record<string, string | undefined>,
   temMudancaDir: boolean,
-  aninhado: ContextoAninhado = { profundidade: 0 }
+  aninhado: ContextoAninhado = { profundidade: 0 },
+  ambienteGit: AmbienteGit = novoAmbienteGit()
 ): Decisao {
   // 1. Extrai redirecionamentos e tokens sem operadores de redireção
   const alvosRedir: string[] = [];
@@ -1305,16 +1372,16 @@ function analisarComandoSimples(
 
   // 2. Extrai palavras do comando (ignora atribuições VAR=val e palavras de controle de bloco)
   let palavras = tokensSemRedir.map(t => t.texto);
-  const arvoresDoAmbiente: string[] = [];
-  const guardarArvore = (palavra: string) => {
-    const achado = /^GIT_WORK_TREE=(.*)$/.exec(palavra);
-    if (achado) arvoresDoAmbiente.push(achado[1]!);
-  };
+  const doComando = novoAmbienteGit();
+  const guardarArvore = (palavra: string) => registrarAmbienteGit(palavra, doComando);
   while (palavras.length > 0 && (/^[A-Za-z_]\w*=/.test(palavras[0]!) || /^(?:do|then|else|elif|\{|\}|!|while|until|if)$/.test(palavras[0]!))) {
     guardarArvore(palavras[0]!);
     palavras = palavras.slice(1);
   }
   if (!palavras.length) {
+    // Atribuição isolada (`GIT_WORK_TREE=x`) fica para os comandos seguintes.
+    ambienteGit.arvores.push(...doComando.arvores);
+    ambienteGit.configWorktree ||= doComando.configWorktree;
     return { acao: "liberar", motivo: "comando simples vazio ou sem verbo" };
   }
 
@@ -1359,6 +1426,9 @@ function analisarComandoSimples(
         }
       }
     }
+    if (verbo === "parallel" && resto[0]?.startsWith(":::")) {
+      return { acao: "bloquear", motivo: "parallel sem comando antes de ::: (falha fechada)" };
+    }
     palavras = verbo === "parallel" ? cortarEntradasParallel(resto) : resto;
     if (!palavras.length) break;
     verbo = verboNormalizado(palavras[0]!);
@@ -1369,6 +1439,11 @@ function analisarComandoSimples(
   }
 
   const cmdArgs = palavras.slice(1);
+  // Verbo aninhado que só existe em tempo de execução ($1, {}, glob) não se classifica: falha fechada.
+  if (aninhado.profundidade > 0 && /[$`{}*?\[\]]|^~/.test(palavras[0]!)) {
+    return { acao: "bloquear", motivo: "comando aninhado com verbo não literal (falha fechada)" };
+  }
+  if (VERBOS_QUE_EXPORTAM.has(verbo)) cmdArgs.forEach(arg => registrarAmbienteGit(arg, ambienteGit));
   const cmdTextoSimples = cmdTokens.map(t => t.texto).join(" ");
 
   if (verbo === "git") {
@@ -1414,28 +1489,41 @@ function analisarComandoSimples(
     return { acao: "bloquear", motivo: "find com execução em diretório variável (falha fechada)" };
   }
 
+  // 3a. find -fprint/-fprint0/-fprintf/-fls escrevem no arquivo que vem a seguir: ele é destino de escrita.
+  if (verbo === "find") {
+    for (let i = 0; i < cmdArgs.length; i++) {
+      if (!["-fprint", "-fprint0", "-fprintf", "-fls"].includes(cmdArgs[i]!)) continue;
+      const alvo = cmdArgs[i + 1];
+      if (alvo === undefined || caminhoTocaWiki(alvo, base, raiz, ambiente) || !destinoEhSeguro(alvo, base, raiz, ambiente) || temMudancaDir) {
+        return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+      }
+    }
+  }
+
   // 3b. Comando executado por outro comando: sh -c, find -exec/-ok e eval passam pelo mesmo classificador.
-  if (SHELLS_COM_C.has(verbo) || verbo === "find" || verbo === "eval") {
+  if (ehShell(verbo) || verbo === "find" || verbo === "eval") {
     if (aninhado.profundidade >= TETO_ANINHAMENTO) {
       return { acao: "bloquear", motivo: "comandos aninhados demais (falha fechada)" };
     }
     const proximo = { profundidade: aninhado.profundidade + 1 };
-    if (SHELLS_COM_C.has(verbo)) {
-      const { temC, texto } = textoDeShellC(cmdArgs);
+    if (ehShell(verbo)) {
+      const { temC, texto, extras } = textoDeShellC(cmdArgs);
       if (temC) {
         if (texto === undefined) return { acao: "bloquear", motivo: `${verbo} -c sem texto de comando (falha fechada)` };
-        const interno = decidirTerminalVerified(texto, false, base, raiz, ambiente, proximo, temMudancaDir);
-        if (interno.acao === "bloquear") return interno;
+        for (const trecho of [...extras, texto]) {
+          const interno = decidirTerminalVerified(trecho, false, base, raiz, ambiente, proximo, temMudancaDir, ambienteGit);
+          if (interno.acao === "bloquear") return interno;
+        }
       }
     } else if (verbo === "eval") {
       if (cmdArgs.length) {
-        const interno = decidirTerminalVerified(cmdArgs.join(" "), false, base, raiz, ambiente, proximo, temMudancaDir);
+        const interno = decidirTerminalVerified(cmdArgs.join(" "), false, base, raiz, ambiente, proximo, temMudancaDir, ambienteGit);
         if (interno.acao === "bloquear") return interno;
       }
     } else {
       for (const interno of comandosDoFind(cmdArgs)) {
         if (!interno.length) return { acao: "bloquear", motivo: "find -exec sem comando (falha fechada)" };
-        const decisao = analisarComandoSimples(interno.map(texto => ({ texto, operador: false })), base, raiz, ambiente, temMudancaDir, proximo);
+        const decisao = analisarComandoSimples(interno.map(texto => ({ texto, operador: false })), base, raiz, ambiente, temMudancaDir, proximo, ambienteGit);
         if (decisao.acao === "bloquear") return decisao;
       }
     }
@@ -1631,7 +1719,9 @@ function analisarComandoSimples(
 
   // 5.7b git que grava a árvore de trabalho num ancestral da wiki
   if (verbo === "git") {
-    const emMassa = gitNoAncestral(cmdArgs, arvoresDoAmbiente, base, raiz, ambiente);
+    const emMassa = gitNoAncestral(
+      cmdArgs, [...ambienteGit.arvores, ...doComando.arvores], ambienteGit.configWorktree || doComando.configWorktree, base, raiz, ambiente
+    );
     if (emMassa) return { acao: "bloquear", motivo: emMassa };
   }
 
@@ -1713,7 +1803,8 @@ function decidirTerminalVerified(
   raiz: string,
   ambiente: Record<string, string | undefined>,
   aninhado: ContextoAninhado = { profundidade: 0 },
-  mudancaDirHerdada = false
+  mudancaDirHerdada = false,
+  ambienteGit: AmbienteGit = novoAmbienteGit()
 ): Decisao {
   if (!cmdTexto.trim()) {
     return { acao: "bloquear", motivo: "comando de terminal vazio citando verified ou aprovação (falha fechada)" };
@@ -1749,7 +1840,7 @@ function decidirTerminalVerified(
   const temCdOuPushd = mudancaDirHerdada || tokens.some(t => !t.operador && /^(?:cd|pushd)$/i.test(t.texto)) || /\b(?:cd|pushd)\b/i.test(cmdTexto);
 
   for (const cmdTokens of comandosSimples) {
-    const decisao = analisarComandoSimples(cmdTokens, base, raiz, ambiente, temCdOuPushd, aninhado);
+    const decisao = analisarComandoSimples(cmdTokens, base, raiz, ambiente, temCdOuPushd, aninhado, ambienteGit);
     if (decisao.acao === "bloquear") {
       return decisao;
     }
