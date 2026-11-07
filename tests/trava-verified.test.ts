@@ -2611,5 +2611,39 @@ describe("trava de verified nos quatro agentes", () => {
         rmSync(fora, { recursive: true, force: true });
       }
     });
+
+    test("Rodada 10 (revisão automática 3): fish com várias opções de comando, -C só no fish e git config com opção abreviada", async () => {
+      const { fora, stage, cofre, julgar, todos } = prepararRodada8();
+      const longe = join(fora, "y");
+      const atacar = `cp -R ${stage}/. ${cofre}/`;
+      try {
+        const ataques = [
+          `fish --command true --init-command "${atacar}"`,
+          `fish --command "true" -C "${atacar}"`,
+          `fish --init-command "${atacar}"`,
+          `fish -C "${atacar}"`,
+          `fish "-C${atacar}" -c true`,
+          `fish -c true -C "${atacar}"`,
+          `fish --comm "${atacar}"`,
+          `fish --init-c "${atacar}"`,
+          `bash -C -c "${atacar}"`,
+          `git config --fi ${fora}/cfg core.worktree ${cofre}`,
+          `git config --typ bool core.worktree ${cofre}`,
+          `git config --def x core.worktree ${cofre}`,
+        ];
+        expect(await julgar(ataques, longe)).toEqual(todos(ataques, 2));
+
+        const regressoes = [
+          `fish -c "echo ok"`,
+          `fish --command "echo ok" --init-command "echo ok"`,
+          `bash -C -c "echo ok"`,
+          `git config --file ${fora}/cfg core.worktree ${longe}`,
+          `git config --fi ${fora}/cfg user.name x`,
+        ];
+        expect(await julgar(regressoes, longe)).toEqual(todos(regressoes, 0));
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
   });
 });

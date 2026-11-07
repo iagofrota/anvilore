@@ -1216,16 +1216,11 @@ function gitNoAncestral(
 
   // core.worktree gravado na configuração fixa a árvore de trabalho dos próximos comandos: vale como o --work-tree.
   if (subcomando === "config" && !resto.some(arg => /^--(?:get|unset|list|remove|rename)/.test(arg) || arg === "-l")) {
-    const valoresDeOpcao = new Set(["-f", "--file", "--blob", "--type", "-t", "--default", "--comment"]);
-    const livres: string[] = [];
-    for (let i = 0; i < resto.length; i++) {
-      if (resto[i] === "--") { livres.push(...resto.slice(i + 1)); break; }
-      if (resto[i]!.startsWith("-")) { if (valoresDeOpcao.has(resto[i]!)) i++; continue; }
-      livres.push(resto[i]!);
-    }
-    if (livres[0] === "set") livres.shift();
-    const valor = livres[1];
-    if (livres[0]?.toLowerCase() === "core.worktree" && valor !== undefined) {
+    // Sem lista de opções com valor (as abreviações --fi, --typ mudam o que é valor): acha a chave onde ela estiver.
+    const livres = resto.filter(arg => !arg.startsWith("-"));
+    const indiceChave = livres.findIndex(arg => arg.toLowerCase() === "core.worktree");
+    const valor = indiceChave >= 0 ? livres[indiceChave + 1] : undefined;
+    if (valor !== undefined) {
       // O valor relativo é lido a partir do diretório do repositório (.git).
       if (perigoso(valor) || (!isAbsolute(valor) && perigoso(join(".git", valor)))) return motivo;
     }
@@ -1270,40 +1265,59 @@ function ehShell(verbo: string): boolean {
   return /^(?:[a-z]*sh|yash|hush)$/.test(verbo);
 }
 
-// `-c <texto>` de um shell, inclusive em grupo curto (-ec, -lc), depois de opções como -o pipefail ou --rcfile arq.
-function textoDeShellC(args: string[]): { temC: boolean; texto?: string; extras: string[] } {
+// Textos de comando de um shell. bash/sh/zsh: `-c <texto>` (inclusive em grupo curto: -ec, -lc), com o texto no primeiro
+// argumento que não é opção, depois de -o/-O valor e --rcfile arq. fish: `-c`, `--command`, `-C` e `--init-command` recebem o
+// texto como valor, em qualquer posição (o fish aceita opções depois do texto) e sem exigir -c. Todo texto colhido é analisado.
+function textosDeShell(verbo: string, args: string[]): { textos: string[]; semTexto: boolean } {
+  const fish = verbo === "fish";
+  const textos: string[] = [];
   let temC = false;
-  const extras: string[] = [];
+  let positional: string | undefined;
+  let semTexto = false;
+  const valorDe = (inline: string | undefined, indice: number): [string | undefined, number] =>
+    inline !== undefined ? [inline, indice] : [args[indice + 1], indice + 1];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
-    if (arg === "--") { i++; return temC ? { temC, texto: args[i], extras } : { temC, extras }; }
+    if (arg === "--") {
+      if (positional === undefined && !fish) positional = args[i + 1];
+      break;
+    }
     if (arg.startsWith("--")) {
-      // fish: --command e --init-command executam texto; bash: --rcfile e --init-file recebem um arquivo.
-      const comando = /^--(?:command|init-command)(?:=(.*))?$/.exec(arg);
-      if (comando) {
-        const valor = comando[1] ?? args[++i];
-        if (valor === undefined) return { temC: true, extras };
-        if (arg.startsWith("--command")) return { temC: true, texto: valor, extras };
-        extras.push(valor);
-        continue;
+      // Abreviações por prefixo valem (fail closed): --comm, --init-c.
+      const explicita = opcaoLongaGnu(arg, "--command", "--c") || opcaoLongaGnu(arg, "--init-command", "--i");
+      if (explicita) {
+        const [valor, proximo] = valorDe(arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : undefined, i);
+        if (valor === undefined) semTexto = true; else textos.push(valor);
+        i = proximo;
+      } else if (/^--(?:rcfile|init-file)$/.test(arg)) {
+        i++;
       }
-      if (/^--(?:rcfile|init-file)$/.test(arg)) i++;
       continue;
     }
-    if (!/^[-+][^-+]/.test(arg)) return temC ? { temC, texto: arg, extras } : { temC, extras };
+    if (!/^[-+][^-+]/.test(arg)) {
+      if (!fish) { positional ??= arg; break; }
+      continue;
+    }
     const grupo = arg.slice(1);
     for (let j = 0; j < grupo.length; j++) {
       const letra = grupo[j]!;
-      if (letra === "c" && arg.startsWith("-")) temC = true;
-      // fish -C <texto> executa antes do -c; nos outros shells -C é opção sem valor e o texto extra só é lido.
-      if (letra === "C" && arg.startsWith("-") && j === grupo.length - 1 && args[i + 1] !== undefined) extras.push(args[++i]!);
-      if (letra === "o" || letra === "O") {
+      if (fish && arg.startsWith("-") && (letra === "c" || letra === "C")) {
+        const [valor, proximo] = valorDe(grupo.slice(j + 1) || undefined, i);
+        if (valor === undefined) semTexto = true; else textos.push(valor);
+        i = proximo;
+        break;
+      }
+      if (!fish && letra === "c" && arg.startsWith("-")) temC = true;
+      if (!fish && (letra === "o" || letra === "O")) {
         if (j === grupo.length - 1) i++;
         break;
       }
     }
   }
-  return { temC, extras };
+  if (temC) {
+    if (positional === undefined) semTexto = true; else textos.push(positional);
+  }
+  return { textos, semTexto };
 }
 
 // O comando de `find -exec|-ok` até o terminador `;` ou `+` (sem terminador, vai até o fim).
@@ -1507,13 +1521,11 @@ function analisarComandoSimples(
     }
     const proximo = { profundidade: aninhado.profundidade + 1 };
     if (ehShell(verbo)) {
-      const { temC, texto, extras } = textoDeShellC(cmdArgs);
-      if (temC) {
-        if (texto === undefined) return { acao: "bloquear", motivo: `${verbo} -c sem texto de comando (falha fechada)` };
-        for (const trecho of [...extras, texto]) {
-          const interno = decidirTerminalVerified(trecho, false, base, raiz, ambiente, proximo, temMudancaDir, ambienteGit);
-          if (interno.acao === "bloquear") return interno;
-        }
+      const { textos, semTexto } = textosDeShell(verbo, cmdArgs);
+      if (semTexto) return { acao: "bloquear", motivo: `${verbo} com opção de comando sem texto (falha fechada)` };
+      for (const trecho of textos) {
+        const interno = decidirTerminalVerified(trecho, false, base, raiz, ambiente, proximo, temMudancaDir, ambienteGit);
+        if (interno.acao === "bloquear") return interno;
       }
     } else if (verbo === "eval") {
       if (cmdArgs.length) {
