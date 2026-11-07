@@ -41,6 +41,8 @@ if ! instalacao_valida "$PASTA"; then
   fi
 fi
 
+export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
+
 encontrar_bun() {
   local candidato registro shell_login
   candidato="$(command -v bun 2>/dev/null || true)"
@@ -69,7 +71,6 @@ if ! encontrar_bun; then
   exit 2
 fi
 
-export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
 cd -- "$PASTA" || { mostrar_erro_e_esperar "Não consegui abrir a pasta $PASTA."; exit 1; }
 ANVILORE_DESTINO="$PASTA" "$BUN_BIN" src/cli.ts ui
 CODIGO=$?

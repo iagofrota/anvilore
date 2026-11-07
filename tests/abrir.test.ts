@@ -291,6 +291,36 @@ test("Dado Bun em ~/.bun e outro caminho registrado, Quando abro sem Bun no PATH
   } finally { await rm(base, { recursive: true, force: true }); }
 });
 
+test("Dado Bun só em ~/.local/bin e PATH sem ele, Quando abro no Linux, Então preservo a busca pelo PATH local do lançador", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-bun-localbin-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(home, ".local/bin");
+    const chamadas = join(base, "chamadas");
+    const login = join(base, "login-shell");
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh\nprintf '%s\\n' "$*" >>"$ANVILORE_TEST_CHAMADAS"\n`);
+    await chmod(bun, 0o755);
+    await writeFile(login, "#!/bin/sh\nexit 1\n");
+    await chmod(login, 0o755);
+    const proc = Bun.spawnSync(["bash", join(raiz, "instalador/anvilore-abrir")], {
+      cwd: base,
+      env: { ...process.env, HOME: home, PATH: "/usr/bin:/bin", SHELL: login, ANVILORE_PASTA: pasta, ANVILORE_TEST_CHAMADAS: chamadas },
+      stdout: "pipe", stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await readFile(chamadas, "utf8")).toContain("src/cli.ts ui");
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
 test("Dado o instalador com Bun em nvm, Quando registra o caminho para o lançador, Então grava em configuração do usuário com permissão privada", async () => {
   if (process.platform !== "linux") return;
   const base = await mkdtemp(join(tmpdir(), "anvilore-registra-bun-"));
