@@ -1449,4 +1449,40 @@ describe("Auditoria run-1 (S1) — Delta 5b21337 (QA 2)", () => {
   });
 });
 
+test("Dado apply_patch no formato git Quando o caminho é identificável Então protege raw e libera wiki", () => {
+  const patchWiki = [
+    "diff --git a/wiki/a.md b/wiki/a.md",
+    "--- a/wiki/a.md",
+    "+++ b/wiki/a.md",
+    "@@ -1 +1 @@",
+    "-antigo",
+    "+novo",
+  ].join("\n");
+  const patchRaw = [
+    "diff --git a/raw/a.md b/raw/a.md",
+    "--- a/raw/a.md",
+    "+++ b/raw/a.md",
+    "@@ -1 +1 @@",
+    "-antigo",
+    "+novo",
+  ].join("\n");
+  const patchRenameRaw = [
+    "diff --git a/wiki/a.md b/raw/a.md",
+    "rename from wiki/a.md",
+    "rename to raw/a.md",
+  ].join("\n");
+  const patchAddWiki = [
+    "diff --git a/dev/null b/wiki/novo.md",
+    "--- /dev/null",
+    "+++ b/wiki/novo.md",
+    "@@ -0,0 +1 @@",
+    "+novo",
+  ].join("\n");
+
+  expect(decidir(JSON.stringify({ tool_name: "apply_patch", tool_input: { patch: patchWiki } })).acao).toBe("liberar");
+  expect(decidir(JSON.stringify({ tool_name: "apply_patch", tool_input: { patch: patchAddWiki } })).acao).toBe("liberar");
+  expect(decidir(JSON.stringify({ tool_name: "apply_patch", tool_input: { patch: patchRaw } })).acao).toBe("bloquear");
+  expect(decidir(JSON.stringify({ tool_name: "apply_patch", tool_input: { patch: patchRenameRaw } })).acao).toBe("bloquear");
+});
+
 

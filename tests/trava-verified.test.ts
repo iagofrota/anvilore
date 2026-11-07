@@ -64,6 +64,33 @@ describe("trava de verified nos quatro agentes", () => {
     }
   });
 
+  test("Dado descritores e substituições de comando Quando o terminal é julgado Então reconhece redirecionamentos e classifica o comando interno", async () => {
+    await esperarCodigos([
+      "cat raw/a.md 2>&1",
+      "cat raw/a.md >/dev/null 2>&1",
+      "cat raw/a.md 2>&1 | tee /tmp/x",
+      "cat raw/a.md >&2",
+      "cat raw/a.md 1>&2",
+      "cat raw/a.md 2>&-",
+      "cat raw/a.md <&0",
+      "cat raw/a.md >&3",
+      "cat raw/a.md 3<&0",
+      "cat raw/a.md 2>& 1",
+      "cat raw/a.md 1 >& 2",
+      "cat raw/a.md 3 <& 0",
+      "git commit -m \"$(cat <<'EOF'\nmsg\nEOF\n)\"",
+      "git commit -m \"$(date)\"",
+      "git commit -m `git rev-parse HEAD`",
+    ], 0, temporario);
+    await esperarCodigos([
+      "cat raw/a.md &>wiki/a.md",
+      "cat raw/a.md &>>wiki/a.md",
+      "cat raw/a.md >&wiki/a.md",
+      "echo \"$(cp p wiki/a.md)\"",
+      "x=$(sh -c 'cp p wiki/a.md')",
+    ], 2, temporario);
+  });
+
   test("Dado comando de escrita com diretório trocado Quando o terminal é julgado Então bloqueia se o diretório efetivo é a wiki", async () => {
     const ataques = [
       "env -C wiki sed -i s/a/b/ a.md",
@@ -966,7 +993,7 @@ describe("trava de verified nos quatro agentes", () => {
       cwd: temporario,
       tool_name: "apply_patch",
       tool_input: { patch: "patch sem formato outro" },
-    }))).toBe(0);
+    }))).toBe(2);
 
     // 5. MultiEdit
     expect(await executarProtecao(JSON.stringify({
@@ -1016,7 +1043,7 @@ describe("trava de verified nos quatro agentes", () => {
       cwd: temporario,
       tool_name: "Bash",
       tool_input: { command: 'echo "`cat wiki/a.md`" # verified' },
-    }))).toBe(2);
+    }))).toBe(0);
 
     expect(await executarProtecao(JSON.stringify({
       cwd: temporario,
@@ -1119,7 +1146,7 @@ describe("trava de verified nos quatro agentes", () => {
       cwd: temporario,
       tool_name: "Bash",
       tool_input: { command: 'echo "$(cat wiki/a.md)" # verified' },
-    }))).toBe(2);
+    }))).toBe(0);
 
     expect(await executarProtecao(JSON.stringify({
       cwd: temporario,

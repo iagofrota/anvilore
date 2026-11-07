@@ -808,7 +808,9 @@ function tokenizar(comando: string, windows = false): Token[] {
       throw new Error("heredoc não interpretável");
     } else if (/[;|&<>\n]/.test(caractere)) {
       guardar();
-      const operador = caractere === "\n" ? ";" : caractere + (seguinte === caractere ? comando[++i] : "");
+      let operador = caractere === "\n" ? ";" : caractere;
+      if ((caractere === ">" || caractere === "<") && seguinte === "&") { operador += "&"; i++; }
+      else if (seguinte === caractere) { operador += comando[++i]; }
       tokens.push({ texto: operador, operador: true });
     } else if (/\s/.test(caractere)) {
       guardar();
@@ -820,6 +822,116 @@ function tokenizar(comando: string, windows = false): Token[] {
   guardar();
   if (!tokens.length) throw new Error("comando de terminal vazio");
   return tokens;
+}
+
+// Encontra $(...) e crases sem executar o shell. O conteúdo do heredoc não participa do balanceamento
+// dos parênteses: `)` dentro do texto literal não fecha a substituição.
+function encontrarFimSubstituicao(comando: string, inicio: number, crase: boolean): number {
+  let aspas = "";
+  let profundidade = crase ? 0 : 1;
+  const heredocs: string[] = [];
+  for (let i = inicio; i < comando.length; i++) {
+    const c = comando[i]!;
+    const prox = comando[i + 1] ?? "";
+    if (c === "\n" && heredocs.length) {
+      i++;
+      while (i <= comando.length) {
+        const fimLinha = comando.indexOf("\n", i);
+        const fim = fimLinha < 0 ? comando.length : fimLinha;
+        const linha = comando.slice(i, fim).replace(/^\t+/, "");
+        if (linha === heredocs[0]) heredocs.shift();
+        if (heredocs.length === 0) {
+          i = fim;
+          break;
+        }
+        if (fimLinha < 0) return -1;
+        i = fimLinha + 1;
+      }
+      continue;
+    }
+    if (aspas) {
+      if (c === "\\" && aspas === '"') { i++; continue; }
+      if (c === aspas) aspas = "";
+      else if (crase && c === "`") return i;
+      continue;
+    }
+    if (c === "\\" && !crase) { i++; continue; }
+    if (c === "'" || c === '"') { aspas = c; continue; }
+    if (c === "<" && prox === "<") {
+      let j = i + 2;
+      if (comando[j] === "-") j++;
+      while (/[ \t]/.test(comando[j] ?? "")) j++;
+      let delimitador = "";
+      let quote = "";
+      while (j < comando.length && comando[j] !== "\n" && !/[ \t;]/.test(comando[j]!)) {
+        const parte = comando[j]!;
+        if (quote) { if (parte === quote) quote = ""; else delimitador += parte; }
+        else if (parte === "'" || parte === '"') quote = parte;
+        else if (parte === "\\" && j + 1 < comando.length) delimitador += comando[++j]!;
+        else delimitador += parte;
+        j++;
+      }
+      if (delimitador) heredocs.push(delimitador);
+      i = j - 1;
+      continue;
+    }
+    if (crase) {
+      if (c === "`") return i;
+      continue;
+    }
+    if (c === "(") profundidade++;
+    else if (c === ")") {
+      profundidade--;
+      if (profundidade === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function extrairSubstituicoesComando(comando: string): { texto: string; substituicoes: string[] } {
+  let texto = "";
+  const substituicoes: string[] = [];
+  let aspas = "";
+  for (let i = 0; i < comando.length; i++) {
+    const c = comando[i]!;
+    const prox = comando[i + 1] ?? "";
+    if (aspas === "'") {
+      texto += c;
+      if (c === "'") aspas = "";
+      continue;
+    }
+    if (c === "\\" && aspas !== "'") { texto += c + prox; i++; continue; }
+    if (c === "'" || c === '"') {
+      if (!aspas) aspas = c;
+      else if (aspas === c) aspas = "";
+      texto += c;
+      continue;
+    }
+    if ((c === "$" && prox === "(" && comando[i + 2] !== "(") || (c === "`" && aspas !== "'")) {
+      const crase = c === "`";
+      const inicio = i + (crase ? 1 : 2);
+      const fim = encontrarFimSubstituicao(comando, inicio, crase);
+      if (fim < 0) throw new Error("substituição de comando sem fechamento");
+      substituicoes.push(comando.slice(inicio, fim));
+      texto += "$ANVILORE_EXPANSAO";
+      i = fim;
+      continue;
+    }
+    texto += c;
+  }
+  return { texto, substituicoes };
+}
+
+function simplificarHeredocDeDados(comando: string): string {
+  const linhas = comando.split("\n");
+  const linhaComando = linhas[0] ?? "";
+  if (!/^\s*(?:(?:[A-Za-z_]\w*=\S*)\s+)*cat(?:\s|$)/.test(linhaComando)) return comando;
+  const marcador = /<<-?\s*(['"]?)([^\s'";|]+)\1/.exec(linhaComando);
+  if (!marcador) return comando;
+  const fim = linhas.findIndex((linha, indice) => indice > 0 && (marcador[0]!.startsWith("<<-") ? linha.replace(/^\t+/, "") : linha) === marcador[2]);
+  if (fim < 0) throw new Error("heredoc sem delimitador de fechamento");
+  const semEntrada = linhaComando.replace(marcador[0]!, "< /dev/null");
+  return [semEntrada, ...linhas.slice(fim + 1)].join("\n").trimEnd();
 }
 
 function verboNormalizado(palavra: string): string {
@@ -2452,14 +2564,23 @@ function analisarComandoSimples(
   const tokensSemRedir: Token[] = [];
   for (let i = 0; i < cmdTokens.length; i++) {
     const token = cmdTokens[i]!;
-    if (token.operador && (token.texto === ">" || token.texto === ">>" || token.texto === ">|" || token.texto === "&>")) {
+    const redirecionamentoDescritor = token.operador ? /^(?:\d+)?([<>]&)$/.exec(token.texto) : null;
+    if (redirecionamentoDescritor) {
+      const proximo = cmdTokens[i + 1];
+      if (!proximo || proximo.operador) {
+        return { acao: "bloquear", motivo: "redirecionamento sem descritor ou destino (falha fechada)" };
+      }
+      // `>&N`, `>&-`, `<&N` e `<&-` duplicam/fecham descritores; `>&arquivo` grava em arquivo.
+      if (redirecionamentoDescritor[1] === ">&" && !/^(?:\d+|-)$/.test(proximo.texto)) alvosRedir.push(proximo.texto);
+      i++;
+    } else if (token.operador && (token.texto === ">" || token.texto === ">>" || token.texto === ">|" || token.texto === "&>" || token.texto === "&>>")) {
       const proximo = cmdTokens[i + 1];
       if (!proximo || proximo.operador) {
         return { acao: "bloquear", motivo: "redirecionamento sem destino (falha fechada)" };
       }
       alvosRedir.push(proximo.texto);
       i++;
-    } else if (!token.operador && /^\d+$/.test(token.texto) && cmdTokens[i + 1]?.operador && (cmdTokens[i + 1]!.texto === ">" || cmdTokens[i + 1]!.texto === ">>")) {
+    } else if (!token.operador && /^\d+$/.test(token.texto) && cmdTokens[i + 1]?.operador && (cmdTokens[i + 1]!.texto === ">" || cmdTokens[i + 1]!.texto === ">>" || cmdTokens[i + 1]!.texto === ">|")) {
       const proximo = cmdTokens[i + 2];
       if (!proximo || proximo.operador) {
         return { acao: "bloquear", motivo: "redirecionamento sem destino (falha fechada)" };
@@ -2778,6 +2899,10 @@ function analisarComandoSimples(
         }
       }
     }
+    const fontesCopiadas = destinoExplicito ? operandos : operandos.slice(0, -1);
+    if (verbo === "cp" && fontesCopiadas.some(fonte => fonte.includes("$ANVILORE_EXPANSAO") && expansaoPerigosa(fonte, base, raiz, ambiente))) {
+      return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+    }
     if (destinos.length === 0) {
       if (verbo === "ln" && operandos.length === 1) {
         destinos.push(".");
@@ -3035,10 +3160,21 @@ function decidirTerminalVerified(
     return { acao: "bloquear", motivo: "chamada direta a rotinas internas de aprovação" };
   }
 
+  // Expansões de comando rodam pelo mesmo classificador; o valor produzido é texto opaco no comando externo.
+  let comandoExterno = cmdTexto;
+  let substituicoes: string[];
+  try {
+    const extraidas = extrairSubstituicoesComando(cmdTexto);
+    comandoExterno = simplificarHeredocDeDados(extraidas.texto);
+    substituicoes = extraidas.substituicoes;
+  } catch (erro) {
+    return { acao: "bloquear", motivo: `substituição de comando ilegível (falha fechada): ${(erro as Error).message}` };
+  }
+
   // 1. Tokenização e divisão em comandos simples antes de qualquer isenção.
   let tokens: Token[];
   try {
-    tokens = tokenizar(cmdTexto, isWindows);
+    tokens = tokenizar(comandoExterno, isWindows);
   } catch (erro) {
     const citaVerified = /verified/i.test(cmdTexto) || /\bby\s*:\s*human:/i.test(cmdTexto);
     const motivo = citaVerified
@@ -3061,6 +3197,16 @@ function decidirTerminalVerified(
 
   // A contagem da linha de fora não se perde no aninhamento: vale o maior entre ela e a destes comandos.
   const contexto: ContextoAninhado = { ...aninhado, comandosNaLinha: Math.max(aninhado.comandosNaLinha ?? 1, comandosSimples.length) };
+  if (substituicoes.length) {
+    if (contexto.profundidade >= TETO_ANINHAMENTO) {
+      return { acao: "bloquear", motivo: "comandos aninhados demais (falha fechada)" };
+    }
+    const proximo: ContextoAninhado = { ...contexto, profundidade: contexto.profundidade + 1 };
+    for (const interno of substituicoes) {
+      const decisao = decidirTerminalVerified(interno, false, base, raiz, ambiente, proximo, temCdOuPushd, ambienteGit, primeiroDoPipe);
+      if (decisao.acao === "bloquear") return decisao;
+    }
+  }
   for (const [indice, { tokens: cmdTokens, doPipe }] of comandosSimples.entries()) {
     const decisao = analisarComandoSimples(cmdTokens, base, raiz, ambiente, temCdOuPushd, contexto, ambienteGit, doPipe || primeiroDoPipe);
     if (decisao.acao === "bloquear") {

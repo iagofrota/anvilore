@@ -149,14 +149,44 @@ function caminhosDe(valor: unknown): string[] {
 }
 
 function caminhosDoPatch(texto: string): string[] {
-  const caminhos: string[] = [];
+  const caminhos = new Set<string>();
+  const adicionar = (bruto: string, prefixoGit = false) => {
+    let caminho = bruto.trim();
+    if (!caminho || caminho === "/dev/null") return;
+    if (caminho.startsWith('"') && caminho.endsWith('"')) {
+      caminho = caminho.slice(1, -1).replace(/\\([\\"])/g, "$1");
+    }
+    if (prefixoGit) caminho = caminho.replace(/^[ab]\//, "");
+    if (caminho && caminho !== "/dev/null") caminhos.add(caminho);
+  };
+  const campo = (linha: string, prefixo: string): string | undefined => {
+    if (!linha.startsWith(prefixo)) return undefined;
+    const valor = linha.slice(prefixo.length).trim();
+    if (valor.startsWith('"')) {
+      const fim = valor.slice(1).search(/(?<!\\)"/);
+      return fim < 0 ? undefined : valor.slice(0, fim + 2);
+    }
+    return valor.split("\t", 1)[0];
+  };
   const regex = /^\s*\*\*\*\s*(?:Add File|Update File|Delete File|Move to|Move from):\s*(\S.*?)\s*$/gmi;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(texto)) !== null) {
     const limpo = match[1]?.trim().replace(/^["'](.*)["']$/, "$1");
-    if (limpo) caminhos.push(limpo);
+    if (limpo) adicionar(limpo);
   }
-  return caminhos;
+  for (const linha of texto.split(/\r?\n/)) {
+    const git = /^diff --git\s+("(?:\\.|[^"])*"|\S+)\s+("(?:\\.|[^"])*"|\S+)/.exec(linha);
+    if (git) { adicionar(git[1]!, true); adicionar(git[2]!, true); }
+    const origem = campo(linha, "--- ");
+    const destino = campo(linha, "+++ ");
+    const renomeiaOrigem = campo(linha, "rename from ");
+    const renomeiaDestino = campo(linha, "rename to ");
+    if (origem !== undefined) adicionar(origem, true);
+    if (destino !== undefined) adicionar(destino, true);
+    if (renomeiaOrigem !== undefined) adicionar(renomeiaOrigem);
+    if (renomeiaDestino !== undefined) adicionar(renomeiaDestino);
+  }
+  return [...caminhos];
 }
 
 function extrairTextoPatch(entrada: Mapa, dados: Mapa): string {
