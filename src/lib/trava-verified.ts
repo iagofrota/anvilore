@@ -1140,6 +1140,20 @@ function tarGravaArquivo(args: string[]): boolean {
   return false;
 }
 
+// -T/--files-from (também no grupo curto e na letra T da forma antiga): as fontes estão num arquivo.
+function tarLeListaDeArquivos(args: string[]): boolean {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--") break;
+    if (arg.startsWith("--")) {
+      if (opcaoLongaGnu(arg, "--files-from", "--files-f") || opcaoLongaGnu(arg, "--exclude-from", "--exclude-f")) return true;
+    } else if (/^-[^-]/.test(arg)) {
+      if (/[TX]/.test(arg.slice(1))) return true;
+    }
+  }
+  return tarOpcoesAntigasLetras(args).some(letra => letra === "T" || letra === "X");
+}
+
 // Alvos de -f/--file e --index-file: grupo curto (-cf X, -cfX), forma antiga (cf X) e longas com = ou valor separado.
 function tarArquivosDeSaida(args: string[]): string[] {
   const alvos: string[] = [];
@@ -1158,11 +1172,32 @@ function tarArquivosDeSaida(args: string[]): string[] {
         const valor = colado || args[++i];
         if (valor !== undefined) alvos.push(valor);
       }
-    } else if (i === 0 && /^[A-Za-z]+$/.test(arg) && arg.includes("f") && args[1] !== undefined) {
-      alvos.push(args[1]);
     }
   }
+  alvos.push(...tarOpcoesAntigas(args).f);
   return alvos;
+}
+
+// Forma antiga (sem traço): cada letra que leva valor (b, f, C, F, g, H, I, K, L, N, T, V, X) consome o operando seguinte, NA ORDEM
+// das letras (`tar bfc 20 x.tar .`: o 20 é do b e o x.tar é do f).
+function tarOpcoesAntigasLetras(args: string[]): string[] {
+  const primeiro = args[0];
+  return primeiro && /^[A-Za-z]+$/.test(primeiro) ? [...primeiro] : [];
+}
+
+function tarOpcoesAntigas(args: string[]): { f: string[]; C: string[] } {
+  const r = { f: [] as string[], C: [] as string[] };
+  const primeiro = args[0];
+  if (!primeiro || !/^[A-Za-z]+$/.test(primeiro)) return r;
+  let indice = 1;
+  for (const letra of primeiro) {
+    if (!"bfCFgHIKLNTVX".includes(letra)) continue;
+    const valor = args[indice++];
+    if (valor === undefined) continue;
+    if (letra === "f") r.f.push(valor);
+    if (letra === "C") r.C.push(valor);
+  }
+  return r;
 }
 
 function tarCaminhosAbsolutos(args: string[]): boolean {
@@ -1195,6 +1230,18 @@ function extratorNoAncestral(
       const arquivo = operandos7z[1];
       if (arquivo !== undefined && (caminhoTocaWiki(arquivo, base, raiz, ambiente) || ehDestinoPerigoso(arquivo, base, raiz, ambiente))) {
         return `${verbo} grava um arquivo na wiki ou num ancestral dela (falha fechada)`;
+      }
+      // -sdel apaga as fontes depois de adicioná-las.
+      if (args.some(arg => /^-sdel/i.test(arg))) {
+        // @lista e os filtros -i/-ir/-x/-xr escolhem os arquivos por fora dos operandos: não se prova o que vai ser apagado.
+        if (args.some(arg => arg.startsWith("@") || /^-(?:i|ir|x|xr)(?![a-z])/i.test(arg))) {
+          return `${verbo} -sdel com lista ou filtro de arquivos (falha fechada)`;
+        }
+        for (const fonte of operandos7z.slice(2)) {
+          if (caminhoTocaWiki(fonte, base, raiz, ambiente) || ehDestinoPerigoso(fonte, base, raiz, ambiente)) {
+            return `${verbo} -sdel apaga fontes na wiki ou num ancestral dela (falha fechada)`;
+          }
+        }
       }
     }
     if (comando !== "x" && comando !== "e") return undefined;
@@ -1331,10 +1378,31 @@ function analisarScriptSed(script: string): EscritaDeScript & { dinamico: boolea
   const r: EscritaDeScript & { dinamico: boolean; posicoes: number } = { destinos: [], comandos: [], dinamico: false, posicoes: 0 };
   const n = script.length;
   const fimDeLinha = (de: number) => { const k = script.indexOf("\n", de); return k < 0 ? n : k; };
-  const delimitado = (de: number, delimitador: string): number => {
+  // Fim de um trecho delimitado. No regex (colchetes = true) o GNU sed trata `[...]` como expressão de colchetes, onde o delimitador é
+  // literal (por isso `s/[^/]*$//` funciona): `[`, `^` opcional, `]` inicial opcional, classes `[:x:]`, `[.x.]`, `[=x=]` até o `]`.
+  // Colchete que não fecha não se prova (-1). Na substituição e no `y` o `[` é literal.
+  const delimitado = (de: number, delimitador: string, colchetes = false): number => {
     for (let k = de; k < n; k++) {
-      if (script[k] === "\\") { k++; continue; }
-      if (script[k] === delimitador) return k + 1;
+      const c = script[k]!;
+      if (c === "\\") { k++; continue; }
+      if (colchetes && c === "[" && delimitador !== "[") {
+        let j = k + 1;
+        if (script[j] === "^") j++;
+        if (script[j] === "]") j++;
+        while (j < n && script[j] !== "]") {
+          if (script[j] === "[" && /[:.=]/.test(script[j + 1] ?? "")) {
+            const fecho = script.indexOf(`${script[j + 1]}]`, j + 2);
+            if (fecho < 0) return -1;
+            j = fecho + 2;
+            continue;
+          }
+          j++;
+        }
+        if (j >= n) return -1;
+        k = j;
+        continue;
+      }
+      if (c === delimitador) return k + 1;
     }
     return -1;
   };
@@ -1346,7 +1414,7 @@ function analisarScriptSed(script: string): EscritaDeScript & { dinamico: boolea
     if (c === "#") { i = fimDeLinha(i); continue; }
     if (c === "/" || c === "\\") {
       const delimitador = c === "/" ? "/" : script[i + 1];
-      const fim = delimitador ? delimitado(c === "/" ? i + 1 : i + 2, delimitador) : -1;
+      const fim = delimitador ? delimitado(c === "/" ? i + 1 : i + 2, delimitador, true) : -1;
       if (fim < 0) { desconhecido(); return r; }
       i = fim;
       while (i < n && /[IM]/.test(script[i]!)) i++;
@@ -1355,7 +1423,7 @@ function analisarScriptSed(script: string): EscritaDeScript & { dinamico: boolea
     if (c === "s" || c === "y") {
       const delimitador = script[i + 1];
       if (!delimitador || delimitador === "\n" || delimitador === "\\") { desconhecido(); return r; }
-      const meio = delimitado(i + 2, delimitador);
+      const meio = delimitado(i + 2, delimitador, c === "s");
       const fim = meio < 0 ? -1 : delimitado(meio, delimitador);
       if (fim < 0) { desconhecido(); return r; }
       i = fim;
@@ -1421,7 +1489,7 @@ function analisarScriptSed(script: string): EscritaDeScript & { dinamico: boolea
 // linha, com um ou dois endereços opcionais: número, `$`, `/re/`, `\cREc`, `+N`, `~N`) e sem exigir separador depois da letra
 // (`wwiki/a.md` vale). Roda SEMPRE: se vê mais posições do que o parser registrou, algo foi pulado.
 function posicoesDaRedeSed(script: string): number {
-  const endereco = (n: number) => `(?:\\d+(?:~\\d+)?|\\$|[+~]\\d+|\\/(?:\\\\.|[^/\\n])*\\/[IM]*|\\\\([^\\n\\\\])(?:\\\\.|(?!\\${n})[^\\n])*\\${n}[IM]*)`;
+  const endereco = (n: number) => `(?:\\d+(?:~\\d+)?|\\$|[+~]\\d+|\\/(?:\\\\.|\\[\\^?\\]?(?:\\[:[a-z]+:\\]|[^\\]\\n])*\\]|[^/\\n])*\\/[IM]*|\\\\([^\\n\\\\])(?:\\\\.|(?!\\${n})[^\\n])*\\${n}[IM]*)`;
   const rede = new RegExp(`(?:^|[;{}\\n])[ \\t]*(?:${endereco(1)}[ \\t]*(?:,[ \\t]*${endereco(2)}[ \\t]*)?)?!*[ \\t]*[wWe]`, "g");
   return [...script.matchAll(rede)].length;
 }
@@ -1745,11 +1813,14 @@ function lePeloStdin(verbo: string, args: string[]): boolean {
   const stdin = (operando: string | undefined) => operando === undefined || operando === "-" || operando === "/dev/stdin"
     || /^\/(?:dev|proc\/self)\/fd\//.test(operando);
   if (ehShell(verbo)) {
-    const { textos, operando } = textosDeShell(verbo, args);
-    return textos.length === 0 && (stdin(operando) || args.includes("-s"));
+    const { temComando, operando } = textosDeShell(verbo, args);
+    return !temComando && (stdin(operando) || args.includes("-s"));
   }
   if (/^(?:python[\d.]*|perl|ruby|node|bun|deno|php)$/.test(verbo)) {
-    return args.includes("-") || args.every(arg => arg.startsWith("-") && !/^-[a-zA-Z]*[ce]/.test(arg));
+    // O 1º operando que não é opção é o programa; `/dev/stdin`, `/dev/fd/N` e `/proc/self/fd/N` são a própria entrada.
+    // Em qualquer posição (as opções com valor, como `-W ignore`, mudam qual operando é o programa).
+    return args.includes("-") || args.some(arg => !arg.startsWith("-") && stdin(arg))
+      || args.every(arg => arg.startsWith("-") && !/^-[a-zA-Z]*[ce]/.test(arg));
   }
   return false;
 }
@@ -1984,8 +2055,8 @@ function analisarFerramentaDeTexto(
     if (letras.has("s") && !(verbo === "ed" || verbo === "red" || verbo === "ex" || letras.has("e") || letras.has("E"))) {
       return bloquear(`${verbo} -s com arquivo de teclas (não se prova; falha fechada)`);
     }
-    const modoScript = verbo === "ed" || verbo === "red" || verbo === "ex" || letras.has("s") || letras.has("e") || letras.has("E");
-    if (modoScript && (entrada.redirecionada || entrada.dePipe)) {
+    // Editor que recebe pipe ou `<` lê comandos/teclas da entrada padrão (o vim avisa "Input is not from a terminal" e executa), com ou sem -s.
+    if (entrada.redirecionada || entrada.dePipe) {
       return bloquear(`${verbo} com script vindo da entrada padrão (não se prova; falha fechada)`);
     }
     const achados: EscritaDeScript = { destinos: [...destinos], comandos: [] };
@@ -2033,12 +2104,14 @@ function ehShell(verbo: string): boolean {
 // Textos de comando de um shell. bash/sh/zsh: `-c <texto>` (inclusive em grupo curto: -ec, -lc), com o texto no primeiro
 // argumento que não é opção, depois de -o/-O valor e --rcfile arq. fish: `-c`, `--command`, `-C` e `--init-command` recebem o
 // texto como valor, em qualquer posição (o fish aceita opções depois do texto) e sem exigir -c. Todo texto colhido é analisado.
-function textosDeShell(verbo: string, args: string[]): { textos: string[]; semTexto: boolean; operando?: string } {
+function textosDeShell(verbo: string, args: string[]): { textos: string[]; semTexto: boolean; temComando: boolean; operando?: string } {
   const fish = verbo === "fish";
   const textos: string[] = [];
   let temC = false;
   let positional: string | undefined;
   let semTexto = false;
+  // Só -c (e --command no fish) são o programa do shell; -C e --init-command rodam antes dele e o shell ainda lê a entrada.
+  let temComando = false;
   const valorDe = (inline: string | undefined, indice: number): [string | undefined, number] =>
     inline !== undefined ? [inline, indice] : [args[indice + 1], indice + 1];
   for (let i = 0; i < args.length; i++) {
@@ -2053,6 +2126,7 @@ function textosDeShell(verbo: string, args: string[]): { textos: string[]; semTe
       if (explicita) {
         const [valor, proximo] = valorDe(arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : undefined, i);
         if (valor === undefined) semTexto = true; else textos.push(valor);
+        if (opcaoLongaGnu(arg, "--command", "--c")) temComando = true;
         i = proximo;
       } else if (/^--(?:rcfile|init-file)$/.test(arg)) {
         i++;
@@ -2070,6 +2144,7 @@ function textosDeShell(verbo: string, args: string[]): { textos: string[]; semTe
       if (fish && arg.startsWith("-") && (letra === "c" || letra === "C")) {
         const [valor, proximo] = valorDe(grupo.slice(j + 1) || undefined, i);
         if (valor === undefined) semTexto = true; else textos.push(valor);
+        if (letra === "c") temComando = true;
         i = proximo;
         break;
       }
@@ -2084,7 +2159,7 @@ function textosDeShell(verbo: string, args: string[]): { textos: string[]; semTe
   if (temC) {
     if (positional === undefined) semTexto = true; else textos.push(positional);
   }
-  return { textos, semTexto, ...(!temC && positional !== undefined ? { operando: positional } : {}) };
+  return { textos, semTexto, temComando: temComando || temC, ...(!temC && positional !== undefined ? { operando: positional } : {}) };
 }
 
 // O comando de `find -exec|-ok` até o terminador `;` ou `+` (sem terminador, vai até o fim).
@@ -2108,6 +2183,7 @@ function cortarEntradasParallel(args: string[]): string[] {
 // Padrão negado: o fim da função liberava QUALQUER verbo não reconhecido (curl -o wiki/a.md, wget -O, scp, pandoc -o, touch, rm...).
 // Verbo fora da lista de leitura e sem ramo próprio, com argumento que toca a wiki (ou é ela ou um ancestral dela), bloqueia, mesmo
 // quando é só leitura (`pandoc wiki/a.md -o /tmp/a.html`): prefere-se bloquear a adivinhar qual argumento é a saída.
+const CANDIDATO_INVALIDO = "\u0000";
 export function candidatosDeCaminho(arg: string): string[] {
   const limpo = arg.replace(/^["']|["']$/g, "").trim();
   if (!limpo) return [];
@@ -2119,14 +2195,19 @@ export function candidatosDeCaminho(arg: string): string[] {
   if (/^-[A-Za-z]/.test(limpo)) for (let k = 2; k < limpo.length; k++) candidatos.add(limpo.slice(k));
   // Argumento com espaços (".output wiki/a.md" do sqlite3, comando entre aspas): cada palavra também.
   for (const palavra of limpo.split(/\s+/)) if (palavra) candidatos.add(palavra);
-  // file://QUALQUER-HOST/caminho → /caminho; file:///C:/x → C:/x (Windows). O curl -T em file: grava.
+  // file:///c, file://QUALQUER-HOST/c, file:/c e file:c → o caminho c, com %XX decodificado como o curl faz (%77iki é wiki);
+  // file:///C:/x → C:/x (Windows). Decodificação inválida ou com NUL não se julga: o marcador faz o verbo bloquear. O curl -T em file: grava.
   for (const candidato of [...candidatos]) {
-    const arquivo = /^file:\/\/[^/]*(\/.*)$/i.exec(candidato);
-    if (arquivo) {
-      candidatos.add(arquivo[1]!);
-      const unidade = /^\/([A-Za-z]:\/.*)$/.exec(arquivo[1]!);
-      if (unidade) candidatos.add(unidade[1]!);
-    }
+    const arquivo = /^file:(?:\/\/[^/]*)?(.+)$/i.exec(candidato);
+    if (!arquivo) continue;
+    // O texto cru de uma URL file: nunca é um caminho local (o `%` dele não é expansão de shell): vale só o caminho derivado.
+    candidatos.delete(candidato);
+    let caminho = arquivo[1]!;
+    try { caminho = decodeURIComponent(caminho); } catch { candidatos.add(CANDIDATO_INVALIDO); continue; }
+    if (caminho.includes("\u0000")) { candidatos.add(CANDIDATO_INVALIDO); continue; }
+    candidatos.add(caminho);
+    const unidade = /^\/([A-Za-z]:\/.*)$/.exec(caminho);
+    if (unidade) candidatos.add(unidade[1]!);
   }
   // Só esquema de rede é ignorado; `file:` nunca.
   return [...candidatos].filter(c => c && !c.startsWith("-") && !/^(?!file:)[a-z][a-z0-9+.-]*:\/\//i.test(c));
@@ -2142,6 +2223,7 @@ function verboDesconhecidoTocaWiki(
   const cwdEhCofreOuWiki = () => (cwdPerigoso ??= ehDestinoPerigoso(".", base, raiz, ambiente));
   for (const arg of args) {
     for (const candidato of candidatosDeCaminho(arg)) {
+      if (candidato === CANDIDATO_INVALIDO) return true;
       // Expansão de shell que pode apontar para a wiki: só bloqueia se o cwd já é o cofre, um ancestral ou a wiki.
       if (EXPANSAO_DE_SHELL.test(candidato) || candidato.startsWith("~")) {
         if (cwdEhCofreOuWiki()) return true;
@@ -2292,7 +2374,9 @@ function analisarComandoSimples(
   if (verbo === "make" || ehTar) {
     const dirs = extrairDiretoriosC(cmdArgs);
     if (dirs.malformado) return { acao: "bloquear", motivo: `${verbo} -C sem diretório literal (falha fechada)` };
+    if (ehTar) dirs.diretorios.push(...tarOpcoesAntigas(cmdArgs).C);
     let tarDirTocaWiki = false;
+    const baseInicial = base;
     const efetivos: string[] = [];
     for (const diretorio of dirs.diretorios) {
       const efetivo = resolverDiretorioEfetivo(base, diretorio);
@@ -2301,11 +2385,29 @@ function analisarComandoSimples(
       base = efetivo;
       efetivos.push(efetivo);
     }
+    // --remove-files apaga os arquivos depois de arquivá-los: os operandos (relativos ao último -C) não podem ser a wiki nem um ancestral.
+    if (ehTar && tarGravaArquivo(cmdArgs) && opcaoLongaPresente(cmdArgs, "--remove-files", "--rem")) {
+      // A lista de fontes vem de arquivo (-T, --files-from): não se prova o que vai ser apagado.
+      if (tarLeListaDeArquivos(cmdArgs)) return { acao: "bloquear", motivo: `${verbo} --remove-files com lista de arquivos (falha fechada)` };
+      const valoresDeOpcao = new Set([...tarArquivosDeSaida(cmdArgs), ...dirs.diretorios]);
+      const fontes = cmdArgs.filter((arg, indice) => !arg.startsWith("-") && !valoresDeOpcao.has(arg) && !(indice === 0 && /^[A-Za-z]+$/.test(arg)));
+      for (const fonte of fontes) {
+        // Cada fonte vale contra o diretório de antes dos -C, contra cada -C e contra o último: a posição dela entre os -C não se prova.
+        for (const dir of new Set([baseInicial, ...efetivos, base])) {
+          if (caminhoTocaWiki(fonte, dir, raiz, ambiente) || ehDestinoPerigoso(fonte, dir, raiz, ambiente)) {
+            return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+          }
+        }
+      }
+    }
     // Criar, acrescentar, atualizar ou apagar do arquivo grava o alvo de -f/--file (e o arquivo de índice): é destino.
     if (ehTar && tarGravaArquivo(cmdArgs)) {
       for (const alvo of tarArquivosDeSaida(cmdArgs)) {
-        if (caminhoTocaWiki(alvo, base, raiz, ambiente) || !destinoEhSeguro(alvo, base, raiz, ambiente) || temMudancaDir) {
-          return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+        // O arquivo é aberto no diretório de antes dos -C, e um nome relativo também poderia valer no último: vale o pior dos dois.
+        for (const dir of new Set([baseInicial, base])) {
+          if (caminhoTocaWiki(alvo, dir, raiz, ambiente) || !destinoEhSeguro(alvo, dir, raiz, ambiente) || temMudancaDir) {
+            return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+          }
         }
       }
     }
@@ -2327,8 +2429,25 @@ function analisarComandoSimples(
 
   // find -delete apaga o que casa: o ponto de partida (primeiros operandos, ou `.`) não pode ser a wiki nem um ancestral dela.
   if (verbo === "find" && cmdArgs.includes("-delete")) {
-    const fim = cmdArgs.findIndex(arg => arg.startsWith("-") || arg === "(" || arg === "!");
-    const inicios = (fim < 0 ? cmdArgs : cmdArgs.slice(0, fim));
+    // Opções iniciais do find (-H, -L, -P, -O<n>, -D <debug>) vêm antes do ponto de partida e não são expressão.
+    let primeiro = 0;
+    while (primeiro < cmdArgs.length) {
+      const opcao = cmdArgs[primeiro]!;
+      if (opcao === "-H" || opcao === "-L" || opcao === "-P" || /^-O\d*$/.test(opcao) || /^-D./.test(opcao)) primeiro++;
+      else if (opcao === "-D") primeiro += 2;
+      else if (opcao === "--") { primeiro++; break; }
+      else break;
+    }
+    const aposOpcoes = cmdArgs.slice(primeiro);
+    // Opção inicial que o guarda não conhece (`-X`) esconderia o ponto de partida: qualquer argumento sem traço conta também.
+    for (const arg of cmdArgs) {
+      if (!arg.startsWith("-") && arg !== "(" && arg !== ")" && arg !== "!" && arg !== ";" && arg !== "+" && arg !== "{}"
+        && (caminhoTocaWiki(arg, base, raiz, ambiente) || ehDestinoPerigoso(arg, base, raiz, ambiente))) {
+        return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+      }
+    }
+    const fim = aposOpcoes.findIndex(arg => arg.startsWith("-") || arg === "(" || arg === "!");
+    const inicios = (fim < 0 ? aposOpcoes : aposOpcoes.slice(0, fim));
     for (const inicio of inicios.length ? inicios : ["."]) {
       if (caminhoTocaWiki(inicio, base, raiz, ambiente) || ehDestinoPerigoso(inicio, base, raiz, ambiente) || temMudancaDir) {
         return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
@@ -2363,12 +2482,12 @@ function analisarComandoSimples(
       const { textos, semTexto } = textosDeShell(verbo, cmdArgs);
       if (semTexto) return { acao: "bloquear", motivo: `${verbo} com opção de comando sem texto (falha fechada)` };
       for (const trecho of textos) {
-        const interno = decidirTerminalVerified(trecho, false, base, raiz, ambiente, proximo, temMudancaDir, ambienteGit);
+        const interno = decidirTerminalVerified(trecho, false, base, raiz, ambiente, proximo, temMudancaDir, ambienteGit, doPipe);
         if (interno.acao === "bloquear") return interno;
       }
     } else if (verbo === "eval") {
       if (cmdArgs.length) {
-        const interno = decidirTerminalVerified(cmdArgs.join(" "), false, base, raiz, ambiente, proximo, temMudancaDir, ambienteGit);
+        const interno = decidirTerminalVerified(cmdArgs.join(" "), false, base, raiz, ambiente, proximo, temMudancaDir, ambienteGit, doPipe);
         if (interno.acao === "bloquear") return interno;
       }
     } else {
@@ -2377,7 +2496,7 @@ function analisarComandoSimples(
       const doFind: ContextoAninhado = { ...proximo, comandosNaLinha: (proximo.comandosNaLinha ?? 1) + Math.max(0, execucoes.length - 1) };
       for (const interno of execucoes) {
         if (!interno.length) return { acao: "bloquear", motivo: "find -exec sem comando (falha fechada)" };
-        const decisao = analisarComandoSimples(interno.map(texto => ({ texto, operador: false })), base, raiz, ambiente, temMudancaDir, doFind, ambienteGit);
+        const decisao = analisarComandoSimples(interno.map(texto => ({ texto, operador: false })), base, raiz, ambiente, temMudancaDir, doFind, ambienteGit, doPipe);
         if (decisao.acao === "bloquear") return decisao;
       }
     }
@@ -2461,6 +2580,14 @@ function analisarComandoSimples(
         return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
       }
     }
+    // --remove-source-files apaga as FONTES depois de enviar: uma fonte na wiki (ou a wiki inteira) seria apagada.
+    if (verbo === "rsync" && opcaoLongaPresente(cmdArgs, "--remove-source-files", "--remove-s")) {
+      for (const fonte of operandos.slice(0, -1)) {
+        if (caminhoTocaWiki(fonte, base, raiz, ambiente) || ehDestinoPerigoso(fonte, base, raiz, ambiente)) {
+          return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
+        }
+      }
+    }
     // Destino que é ancestral da wiki: escrever vários arquivos nele cria descendentes na wiki.
     const fontes = destinoExplicito ? operandos
       : (verbo === "ln" && operandos.length === 1 ? operandos : operandos.slice(0, -1));
@@ -2515,14 +2642,14 @@ function analisarComandoSimples(
   }
 
   // 5.4a Shell ou interpretador que recebe pipe e não tem programa próprio lê os comandos da entrada padrão (`echo cmd | sh`, `| env sh`).
-  if (doPipe && lePeloStdin(verbo, cmdArgs)) {
+  if ((doPipe || entradaRedirecionada) && lePeloStdin(verbo, cmdArgs)) {
     return { acao: "bloquear", motivo: "o comando que recebe o pipe lê o programa da entrada padrão (falha fechada)" };
   }
 
   // 5.4b Linguagem de script que grava ou executa: sed (w/W/e), awk (>, |, system) e ed/ex/vim (w, !, saveas)
   const executarAninhado = (texto: string, dePipe = false): Decisao => aninhado.profundidade >= TETO_ANINHAMENTO
     ? { acao: "bloquear", motivo: "comandos aninhados demais (falha fechada)" }
-    : decidirTerminalVerified(texto, false, base, raiz, ambiente, { profundidade: aninhado.profundidade + 1, comandosNaLinha: aninhado.comandosNaLinha }, temMudancaDir, ambienteGit, dePipe);
+    : decidirTerminalVerified(texto, false, base, raiz, ambiente, { profundidade: aninhado.profundidade + 1, comandosNaLinha: aninhado.comandosNaLinha }, temMudancaDir, ambienteGit, dePipe || doPipe);
   const ferramentaDeTexto = analisarFerramentaDeTexto(
     verbo, cmdArgs, base, raiz, ambiente, temMudancaDir, { redirecionada: entradaRedirecionada, dePipe: doPipe, unicoComando: (aninhado.comandosNaLinha ?? 1) <= 1 }, executarAninhado
   );
@@ -2614,7 +2741,7 @@ function analisarComandoSimples(
   // 5.10 Padrão negado para o verbo que nenhum ramo acima reconheceu
   if (!LEITURAS_TERMINAL.has(verbo)) {
     // Shell com -c segue o caminho recursivo; shell sem texto de comando (script em arquivo) recebe a rede como qualquer verbo.
-    const shellComTexto = ehShell(verbo) && textosDeShell(verbo, cmdArgs).textos.length > 0;
+    const shellComTexto = ehShell(verbo) && textosDeShell(verbo, cmdArgs).temComando;
     const argumentos = VERBOS_ISENTOS_SO_PARA_OPERANDOS.has(verbo) ? cmdArgs.filter(arg => arg.startsWith("-"))
       : VERBOS_COM_RAMO_PROPRIO.has(verbo) || shellComTexto ? [] : cmdArgs;
     if (argumentos.length && verboDesconhecidoTocaWiki(argumentos, base, raiz, ambiente)) {
@@ -2684,6 +2811,7 @@ function decidirTerminalVerified(
   aninhado: ContextoAninhado = { profundidade: 0 },
   mudancaDirHerdada = false,
   ambienteGit: AmbienteGit = novoAmbienteGit(),
+  // A entrada padrão de todos os comandos do texto vem de um pipe (ele é compartilhado, e o 2º comando também lê o que sobrou).
   primeiroDoPipe = false
 ): Decisao {
   if (!cmdTexto.trim()) {
@@ -2722,7 +2850,7 @@ function decidirTerminalVerified(
   // A contagem da linha de fora não se perde no aninhamento: vale o maior entre ela e a destes comandos.
   const contexto: ContextoAninhado = { ...aninhado, comandosNaLinha: Math.max(aninhado.comandosNaLinha ?? 1, comandosSimples.length) };
   for (const [indice, { tokens: cmdTokens, doPipe }] of comandosSimples.entries()) {
-    const decisao = analisarComandoSimples(cmdTokens, base, raiz, ambiente, temCdOuPushd, contexto, ambienteGit, doPipe || (indice === 0 && primeiroDoPipe));
+    const decisao = analisarComandoSimples(cmdTokens, base, raiz, ambiente, temCdOuPushd, contexto, ambienteGit, doPipe || primeiroDoPipe);
     if (decisao.acao === "bloquear") {
       return decisao;
     }

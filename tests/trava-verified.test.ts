@@ -3357,5 +3357,189 @@ describe("trava de verified nos quatro agentes", () => {
         rmSync(fora, { recursive: true, force: true });
       }
     });
+
+    test("Rodada 15c: as sete notas do plugin (find com opções iniciais, pipe atravessa o aninhamento, fish, tar antigo, file: codificado, apagar fontes, operando de stdin)", async () => {
+      const { fora, cofre, esperar, wikiA } = prepararRodada11();
+      writeFileSync(join(fora, "s.sh"), "echo ok\n");
+      writeFileSync(join(fora, "s.py"), "print(1)\n");
+      writeFileSync(join(fora, "s.fish"), "echo ok\n");
+      try {
+        const ataques = [
+          // 1. find: opções iniciais antes do ponto de partida
+          // 2. a flag de pipe atravessa sh -c, eval, find -exec e awk
+          `echo x | sh -c 'sh'`,
+          `cat ${fora}/s.sh | bash -c 'env sh'`,
+          `echo x | eval 'sh'`,
+          `echo x | sh -c "sh -c 'sh'"`,
+          `echo x | find ${fora}/p.md -exec sh \\;`,
+          `echo x | sh -c 'env FOO=1 python3 -'`,
+          `echo x | awk 'BEGIN{system("sh")}'`,
+          // 3. fish: só -c/--command são programa; -C e --init-command não
+          `echo x | fish -C 'true'`,
+          `echo x | fish --init-command true`,
+          `echo x | fish -C 'true' ${fora}/s.fish wiki/a.md`,
+          // 4. tar na forma antiga: letras de valor consomem operandos na ordem
+          // 5. file: com percent-encoding, uma barra e relativo
+          // 6. opções que apagam as fontes
+          `tar --remove-files -cf ${fora}/b.tar wiki`,
+          `tar --remove-files -cf ${fora}/b.tar -C ${cofre} .`,
+          `tar --remove-files -cf ${fora}/b.tar wiki/a.md`,
+          `tar --remove-f -cf ${fora}/b.tar wiki`,
+          `7z a -sdel ${fora}/x.7z wiki`,
+          `7z a ${fora}/x.7z wiki -sdel`,
+          `7z u -sdel ${fora}/x.7z ${cofre}`,
+          `rsync --remove-source-files wiki/ ${fora}/y/`,
+          `rsync -a --remove-source-files ${cofre}/ ${fora}/y/`,
+          // 7. operando que é o próprio stdin, e entrada redirecionada
+          `echo x | python3 /dev/stdin`,
+          `echo x | perl /dev/fd/0`,
+          `echo x | node /proc/self/fd/0`,
+          `python3 /dev/stdin < ${fora}/s.py`,
+          `bash < ${fora}/s.sh`,
+        ];
+        await esperar(ataques, 2, cofre);
+
+        const regressoes = [
+          `find -H ${fora} -delete`,
+          `find -L wiki -name x`,
+          `find -D tree ${fora} -delete`,
+          `sh -c 'sh'`,
+          `echo x | sh -c 'cat'`,
+          `echo x | find ${fora}/p.md -exec cat {} \\;`,
+          `echo x | sh -c 'sh ${fora}/s.sh'`,
+          `echo x | fish -c 'cat'`,
+          `echo x | fish --command=cat`,
+          `echo x | fish ${fora}/s.fish`,
+          `tar xfC ${fora}/x.tar ${fora}/y`,
+          `tar tf wiki/x.tar`,
+          `curl -T ${fora}/p.md file://${fora}/%78`,
+          `curl file:${fora}/p.md -o ${fora}/x`,
+          `curl https://example.com/%77iki`,
+          `tar --remove-files -cf ${fora}/b.tar ${fora}/p.md`,
+          `7z a -sdel ${fora}/x.7z ${fora}/p.md`,
+          `rsync --remove-source-files ${fora}/p.md ${fora}/y/`,
+          `echo x | python3 ${fora}/s.py`,
+          `python3 ${fora}/s.py`,
+          `echo x | python3 -c 'print(1)'`,
+        ];
+        await esperar(regressoes, 0, cofre);
+        // Percent-encoding inválido bloqueia e o esquema file: nunca é tratado como URL de rede
+        expect(candidatosDeCaminho("file:///tmp/%77iki/a.md")).toContain("/tmp/wiki/a.md");
+        expect(candidatosDeCaminho("file:/tmp/a")).toContain("/tmp/a");
+        expect(candidatosDeCaminho("file:///%zz")).toContain("\u0000");
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Rodada 15c: find com opções iniciais, tar antigo e file: codificado, com o cwd fora do cofre", async () => {
+      const { fora, cofre, esperar, wikiA } = prepararRodada11();
+      try {
+        // Com o cwd no cofre o `.` e o `%` já caíam na rede por acaso; aqui o cwd é outra pasta e os caminhos são absolutos.
+        const deFora = [
+          `find -H ${cofre}/wiki -delete`,
+          `find -L ${cofre} -delete`,
+          `find -P ${cofre}/wiki -delete`,
+          `find -O2 ${cofre}/wiki -delete`,
+          `find -D tree ${cofre}/wiki -delete`,
+          `find -H -L ${cofre}/wiki -delete`,
+          `tar bfc 20 ${cofre}/wiki/x.tar ${fora}/p.md`,
+          `tar fbc ${cofre}/wiki/x.tar 20 ${fora}/p.md`,
+          `tar cfb ${cofre}/wiki/x.tar 20 ${fora}/p.md`,
+          `tar cfN ${cofre}/wiki/x.tar 2020-01-01 ${fora}/p.md`,
+          `tar xfC ${fora}/x.tar ${cofre}`,
+          `tar xCf ${cofre} ${fora}/x.tar`,
+          `curl -T ${fora}/p.md file://${cofre}/%77iki/a.md`,
+          `curl -T ${fora}/p.md file://localhost${cofre}/%57iki/a.md`,
+          `curl -T ${fora}/p.md file:${wikiA}`,
+          `curl -T ${fora}/p.md file:${cofre}/%2e/wiki/a.md`,
+          `curl -T ${fora}/p.md file:${cofre}/wiki%2Fa.md`,
+          `curl -T ${fora}/p.md file:///%zz`,
+        ];
+        await esperar(deFora, 2, fora);
+        // Editor que recebe pipe ou `<` lê comandos da entrada, com ou sem -s; o arquivo do tar é aberto antes dos -C
+        await esperar([
+          `echo ':w ${cofre}/wiki/a.md' | vim ${fora}/p.md`,
+          `echo ':w ${cofre}/wiki/a.md' | nvim ${fora}/p.md`,
+          `vim ${fora}/p.md < ${fora}/p.md`,
+          `echo x | ex ${fora}/p.md`,
+          `tar -C ${fora}/y -cf ${cofre}/wiki/x.tar ${fora}/p.md`,
+          `tar -C ${fora}/y -cf ${cofre}/wiki/x.tar .`,
+        ], 2, fora);
+        await esperar([`vim ${fora}/p.md`, `tar -C ${fora}/y -cf ${fora}/b.tar .`, `tar -C ${fora}/y -cf b.tar ${fora}/p.md`], 0, fora);
+        // E com o cwd no cofre, as formas relativas
+        await esperar([`find -H wiki -delete`, `find -L . -delete`, `curl -T ${fora}/p.md file:wiki/a.md`, `tar bfc 20 wiki/x.tar ${fora}/p.md`], 2, cofre);
+
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Rodada 15c: o sed lê [...] como expressão de colchetes (o delimitador é literal ali), no parser e na rede", async () => {
+      const { fora, cofre, esperar } = prepararRodada11();
+      try {
+        const ataques = [
+          `sed -n '/[/]/w wiki/a.md' ${fora}/p.md`,
+          `sed -n 's/[/]/x/;w wiki/a.md' ${fora}/p.md`,
+          `sed -n '/[^/]/w wiki/a.md' ${fora}/p.md`,
+          `sed -n '/[]/]/w wiki/a.md' ${fora}/p.md`,
+          `sed -n '/[[:alpha:]/]/w wiki/a.md' ${fora}/p.md`,
+          `sed -n 'w /dev/stdout\n/[/]/,/[/]/w wiki/a.md' ${fora}/p.md`,
+          `sed -n 's/[/]/x/;e cp ${fora}/p.md wiki/a.md' ${fora}/p.md`,
+          `sed -n '/[/w wiki/a.md' ${fora}/p.md`,
+        ];
+        await esperar(ataques, 2, cofre);
+        const regressoes = [
+          `sed 's/[^/]*$//' ${fora}/p.md`,
+          `sed -n 's/[/]/x/;w /dev/stdout' ${fora}/p.md`,
+          `sed -n '/[/]/p' ${fora}/p.md`,
+          `sed -n '/[^/]\\+/w /dev/stdout' ${fora}/p.md`,
+          `sed -n '/[[:alpha:]/]/p' ${fora}/p.md`,
+          `sed 's/a/[/]/' ${fora}/p.md`,
+        ];
+        await esperar(regressoes, 0, cofre);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Rodada 15c (revisão do commit): vários -C no --remove-files, fontes por lista, qualquer operando de stdin e find com -- ou opção desconhecida", async () => {
+      const { fora, cofre, esperar } = prepararRodada11();
+      try {
+        const deFora = [
+          // 1. as fontes valem contra todos os -C, e a lista de fontes (-T, @lista, -i, -x) não se prova
+          `tar --remove-files -cf ${fora}/b.tar -C ${cofre} -C ${fora}/y wiki`,
+          `tar --remove-files -C ${cofre} -cf ${fora}/b.tar wiki -C ${fora}/y`,
+          `tar --remove-files -cf ${fora}/b.tar -T ${fora}/lista`,
+          `tar --remove-files -cf ${fora}/b.tar --files-from=${fora}/lista`,
+          `7z a -sdel ${fora}/x.7z @${fora}/lista`,
+          `7z a -sdel ${fora}/x.7z -ir!wiki ${fora}/y`,
+          `7z a -sdel ${fora}/x.7z ${fora}/y -x!p.md`,
+          // 3. qualquer argumento que seja o stdin, em qualquer posição
+          `echo x | python3 -u /dev/stdin`,
+          `echo x | python3 -W ignore /dev/stdin`,
+          `echo x | node --no-warnings /proc/self/fd/0`,
+          `echo x | perl -w /dev/fd/0`,
+          // 4. find: -- e opção que o guarda não conhece antes do ponto de partida
+          `find -- ${cofre}/wiki -delete`,
+          `find -X ${cofre}/wiki -delete`,
+          `find ${fora} ${cofre}/wiki -delete`,
+          `find ${cofre}/wiki -name x -delete`,
+        ];
+        await esperar(deFora, 2, fora);
+        const regressoes = [
+          `tar --remove-files -cf ${fora}/b.tar -C ${fora}/y .`,
+          `tar --remove-files -cf ${fora}/b.tar ${fora}/p.md`,
+          `7z a -sdel ${fora}/x.7z ${fora}/p.md`,
+          `echo x | python3 -u ${fora}/s.py`,
+          `echo x | python3 -W ignore ${fora}/s.py`,
+          // `find -- <dir> -delete` a trava de verified libera, mas a proteção de raw/ do mesmo hook é conservadora com `--` e responde 2.
+          `find ${fora}/y -name x -delete`,
+        ];
+        await esperar(regressoes, 0, fora);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
   });
 });
