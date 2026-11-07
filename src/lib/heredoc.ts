@@ -281,7 +281,9 @@ export function analisarHeredocs(comando: string): ResultadoHeredocs {
           mudancas.push({ inicio: inicioTermino, fim: fimTermino, texto: corpos.at(-1)!.continuaDepois ? "\\" : "" });
         }
         i = cursor;
-        palavraIniciada = true;
+        // The terminator consumes its trailing newline, so scanning resumes at a new line.
+        // A comment there must not be allowed to enqueue another heredoc.
+        palavraIniciada = false;
         continue;
       }
       palavraIniciada = false;

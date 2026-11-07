@@ -108,6 +108,46 @@ test("Dado escapes, comentários e contextos aninhados Quando tokenizo delimitad
   expect(() => analisarHeredocs("cat <<EOF\nbody\nEOF\n$(open")).toThrow("substituição sem fechamento");
 });
 
+test("Dado comentário após terminador Quando analiso Então ignoro operadores heredoc dentro do comentário", () => {
+  const comando = "cat <<'EOF'\nx\nEOF\n# <<'END'\nrm raw/a.md\nEND";
+  expect(analisarHeredocs(comando).corpos).toHaveLength(1);
+  expect(analisarHeredocs(comando).semCorpos).toContain("# <<'END'");
+});
+
+test("Dado descritor numérico no heredoc Quando protejo Então só o último redirecionamento de stdin recebe o corpo", async () => {
+  const vault = mkdtempSync(join(tmpdir(), "anvilore-heredoc-descritor-"));
+  mkdirSync(join(vault, "raw"));
+  mkdirSync(join(vault, "wiki"));
+  writeFileSync(join(vault, "SCHEMA.md"), "# Schema\n");
+  writeFileSync(join(vault, "raw/a.md"), "bruto\n");
+  writeFileSync(join(vault, "wiki/a.md"), "---\ntitle: A\n---\n");
+  const erroOriginal = console.error;
+  console.error = () => {};
+  try {
+    for (const command of [
+      "sh 0<<'EOF'\nrm raw/a.md\nEOF",
+      "sh 00<<'EOF'\nrm raw/a.md\nEOF",
+      "bash 0<<'EOF'\nrm raw/a.md\nEOF",
+      "bash 0< /dev/stdin <<'EOF'\nrm raw/a.md\nEOF",
+    ]) {
+      const payload = JSON.stringify({ cwd: vault, tool_name: "Bash", tool_input: { command } });
+      expect({ command, raw: await executarProtecao(payload) }).toEqual({ command, raw: 2 });
+      const wikiCommand = command.replace("rm raw/a.md", "cp p wiki/a.md");
+      const wikiPayload = JSON.stringify({ cwd: vault, tool_name: "Bash", tool_input: { command: wikiCommand } });
+      expect({ command: wikiCommand, verified: (await decidirVerified(wikiPayload, vault)).acao }).toEqual({ command: wikiCommand, verified: "bloquear" });
+    }
+    const redirecionamentoDeSaidaNumerado = JSON.stringify({
+      cwd: vault,
+      tool_name: "Bash",
+      tool_input: { command: "echo x 2> wiki/a.md" },
+    });
+    expect((await decidirVerified(redirecionamentoDeSaidaNumerado, vault)).acao).toBe("bloquear");
+  } finally {
+    console.error = erroOriginal;
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 function variacoesNasQuebras(comando: string): string[] {
   const variantes = new Set<string>([comando]);
   for (let i = 0; i < comando.length; i++) {

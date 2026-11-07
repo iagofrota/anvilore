@@ -17,6 +17,7 @@ const ops = ["", " |", " | ", " |&", " &&", " ||", " ;", " # c", " | # c", " \\"
 const consumidoresBase = ["sh", "bash", "wc -l", "cat", "true", MARCADOR, `sh < ${MARCADOR}`, `bash ${MARCADOR}`, `cat ${MARCADOR} | sh`, "", "# c"];
 const interpretadores = ["sh", "bash", "dash", "zsh", "fish", "python", "python2", "python3", "python3.11", "node", "bun", "perl", "ruby", "php", "osascript"];
 const palavrasReservadas = ["if", "then", "do", "while", "until", "case", "else", "elif", "in", "select", "{"];
+const descritoresHeredoc = ["", "0", "00", "3", "9", "10"];
 setDefaultTimeout(60_000);
 
 function gerador(seedInicial: number, carga: string): () => string {
@@ -58,15 +59,17 @@ function gerador(seedInicial: number, carga: string): () => string {
     const tab = minus && rnd(2) ? "\t" : "";
     const prefixo = pick(prefixos);
     const comando = pick(comandos);
+    const descritor = pick(descritoresHeredoc);
     const operador = pick(ops);
     const bloco = pick(blocos);
     const argumentoReservado = rnd(4) === 0 ? `echo ${pick(palavrasReservadas)}\n` : "";
-    let script = `${bloco.antes}${argumentoReservado}${prefixo.antes}${comando} <<${minus ? "-" : ""}${dd}${operador}\n`;
+    let script = `${bloco.antes}${argumentoReservado}${prefixo.antes}${comando} ${descritor}<<${minus ? "-" : ""}${dd}${operador}\n`;
     const linhas = rnd(3) + 1;
     for (let i = 0; i < linhas; i++) script += tab + (rnd(5) === 0 ? `${corpo()}\\\n` : corpo()) + "\n";
     const dividirTerminador = !dd.includes("'") && !dd.includes('"') && !dd.includes("\\") && rnd(4) === 0;
     const terminador = dividirTerminador ? `${tab}${term.slice(0, -1)}\\\n${term.slice(-1)}` : `${tab}${term}`;
-    script += terminador + prefixo.depois + separador() + pick(consumidores) + bloco.depois;
+    const comentarioPosHeredoc = pick(["", "\n# <<'FALSO'\ntrue\nFALSO\n", "\n  # <<FALSO\ntrue\nFALSO\n"]);
+    script += terminador + prefixo.depois + comentarioPosHeredoc + separador() + pick(consumidores) + bloco.depois;
     return script;
   };
 }
@@ -179,11 +182,14 @@ test.skipIf(!bashDisponivel)("Dado fuzz fixo de heredocs Quando comparo a execuÃ
           rmSync(bashDir, { recursive: true, force: true });
         }
 
-        const protegido = await executarProtecao(JSON.stringify({
+        const payload = JSON.stringify({
           cwd: vault,
           tool_name: "Bash",
           tool_input: { command: comando },
-        }));
+        });
+        const protegido = mode === "raw"
+          ? await executarProtecao(payload)
+          : (await decidirVerified(payload, vault)).acao === "bloquear" ? 2 : 0;
         if (protegido !== 2) furos.push(`mode=${mode} seed=${seed} caso=${i} guarda=${protegido} comando=${JSON.stringify(comando)}`);
       }
     }

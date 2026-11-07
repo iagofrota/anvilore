@@ -55,7 +55,10 @@ já sem palavras reservadas e wrappers, recebe o corpo em um interpretador — d
 o corpo também é analisado como script. A associação entre corpo e redirecionamento usa a posição estrutural do
 token de origem, nunca o texto de uma palavra; a entrada que contém o prefixo reservado de marcador interno
 falha fechado (`src/lib/heredoc.ts`, `src/lib/trava-verified.ts` e
-`src/comandos/hook-proteger-raw.ts`). O valor produzido por substituição aceita continua sendo tratado como caminho
+`src/comandos/hook-proteger-raw.ts`). Depois de consumir o terminador, o lexer volta ao início da linha,
+então `<<` em comentário não abre outro corpo. Um descritor numérico colado ao operador pertence ao redirecionamento;
+só descritor 0 ou omitido fornece stdin, e o último redirecionamento de stdin prevalece (`src/lib/heredoc.ts`,
+`src/lib/trava-verified.ts`). O valor produzido por substituição aceita continua sendo tratado como caminho
 opaco no comando externo.
 O hook `proteger-raw` reconhece os caminhos dos cabeçalhos
 `diff --git`, `---`/`+++` e `rename from`/`rename to` em `apply_patch` (`src/lib/trava-verified.ts`,

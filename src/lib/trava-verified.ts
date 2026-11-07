@@ -825,12 +825,18 @@ function tokenizar(comando: string, windows = false, heredocBodies = new Map<num
     } else if (caractere === "<" && seguinte === "<") {
       throw new Error("heredoc não interpretável");
     } else if (/[;|&<>\n]/.test(caractere)) {
-      guardar();
+      // A file descriptor adjacent to a redirection operator belongs to the operator
+      // (`0<<`), not to argv. Keep it attached so command analysis can tell whether
+      // the redirection feeds stdin.
+      const fd = (caractere === "<" || caractere === ">") && !windows && /^\d+$/.test(palavra)
+        && i > 0 && /\d/.test(comando[i - 1]!) ? palavra : "";
+      if (fd) { palavra = ""; palavraIniciada = false; inicioPalavra = undefined; }
+      else guardar();
       let operador = caractere === "\n" ? "\n" : caractere;
       if ((caractere === ">" || caractere === "<") && seguinte === "&") { operador += "&"; i++; }
       else if (caractere === "|" && seguinte === "&") { operador += comando[++i]; }
       else if (caractere !== "\n" && seguinte === caractere) { operador += comando[++i]; }
-      tokens.push({ texto: operador, operador: true });
+      tokens.push({ texto: `${fd}${operador}`, operador: true });
     } else if (/\s/.test(caractere)) {
       guardar();
     } else {
@@ -2635,7 +2641,7 @@ function analisarComandoSimples(
   const comentarios = cmdTokens.filter(token => token.comentario).map(token => token.texto);
   cmdTokens = cmdTokens.filter(token => !token.comentario);
   let entradaRedirecionada = false;
-  const corposHeredocDoComando: string[] = [];
+  let corpoHeredocDoComando: string | undefined;
   // 1. Extrai redirecionamentos e tokens sem operadores de redireção
   const alvosRedir: string[] = [];
   const tokensSemRedir: Token[] = [];
@@ -2650,7 +2656,23 @@ function analisarComandoSimples(
       // `>&N`, `>&-`, `<&N` e `<&-` duplicam/fecham descritores; `>&arquivo` grava em arquivo.
       if (redirecionamentoDescritor[1] === ">&" && !/^(?:\d+|-)$/.test(proximo.texto)) alvosRedir.push(proximo.texto);
       i++;
-    } else if (token.operador && (token.texto === ">" || token.texto === ">>" || token.texto === ">|" || token.texto === "&>" || token.texto === "&>>")) {
+    } else if (token.operador && /^(?:(\d+))?(?:<|<<|<<<|<>|<&)$/.test(token.texto)) {
+      const redirecionamentoEntrada = /^(?:(\d+))?(?:<|<<|<<<|<>|<&)$/.exec(token.texto)!;
+      const descritor = redirecionamentoEntrada[1];
+      const ehStdin = descritor === undefined || /^0+$/.test(descritor);
+      const proximo = cmdTokens[i + 1];
+      if (!proximo || proximo.operador) {
+        return { acao: "bloquear", motivo: "redirecionamento sem destino ou delimitador (falha fechada)" };
+      }
+      if (ehStdin) {
+        entradaRedirecionada = true;
+        // Shell redirections are applied left to right: only the last fd 0
+        // redirection supplies stdin and its associated heredoc body.
+        corpoHeredocDoComando = proximo.heredocBody;
+      }
+      if (token.texto.endsWith("<>")) alvosRedir.push(proximo.texto);
+      i++;
+    } else if (token.operador && (/^(?:\d+)?(?:>{1,2}|>\||<>)$/.test(token.texto) || token.texto === "&>" || token.texto === "&>>")) {
       const proximo = cmdTokens[i + 1];
       if (!proximo || proximo.operador) {
         return { acao: "bloquear", motivo: "redirecionamento sem destino (falha fechada)" };
@@ -2664,13 +2686,6 @@ function analisarComandoSimples(
       }
       alvosRedir.push(proximo.texto);
       i += 2;
-    } else if (token.operador && token.texto === "<") {
-      entradaRedirecionada = true;
-      const proximo = cmdTokens[i + 1];
-      if (proximo && !proximo.operador) {
-        if (proximo.heredocBody !== undefined) corposHeredocDoComando.push(proximo.heredocBody);
-        i++;
-      }
     } else {
       tokensSemRedir.push(token);
     }
@@ -2759,7 +2774,7 @@ function analisarComandoSimples(
 
   const cmdArgs = palavras.slice(1);
   if (verbo && lePeloStdin(verbo, cmdArgs)) {
-    for (const corpo of [...corposHeredocDoComando, ...heredocsDoPipe]) {
+    for (const corpo of [...(corpoHeredocDoComando === undefined ? [] : [corpoHeredocDoComando]), ...heredocsDoPipe]) {
       if (!corpo.trim()) continue;
       if (aninhado.profundidade >= TETO_ANINHAMENTO) {
         return { acao: "bloquear", motivo: "comandos aninhados demais (falha fechada)" };
@@ -3070,7 +3085,7 @@ function analisarComandoSimples(
   }
 
   // 5.4a Shell ou interpretador que recebe pipe e não tem programa próprio lê os comandos da entrada padrão (`echo cmd | sh`, `| env sh`).
-  const entradaConhecida = corposHeredocDoComando.length > 0 || heredocsDoPipe.length > 0;
+  const entradaConhecida = corpoHeredocDoComando !== undefined || heredocsDoPipe.length > 0;
   if ((doPipe || entradaRedirecionada) && !entradaConhecida && lePeloStdin(verbo, cmdArgs)) {
     return { acao: "bloquear", motivo: "o comando que recebe o pipe lê o programa da entrada padrão (falha fechada)" };
   }
