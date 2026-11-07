@@ -160,9 +160,11 @@ export async function indexarCopias(raiz: string): Promise<Map<string, string>> 
       const atual = candidatos.get(pagina);
       const carimboAtual = atual ? carimboDaSessao(atual.sessao) : undefined;
       const carimboNovo = carimboDaSessao(sessao);
-      const sessaoMaisNova = carimboAtual && carimboNovo && carimboAtual !== carimboNovo
-        ? carimboAtual < carimboNovo
-        : atual && (atual.data < data || (atual.data === data && atual.sessao < sessao));
+      const desempateDeterministico = atual && atual.data === data && (
+        (carimboAtual ?? "") < (carimboNovo ?? "") ||
+        ((carimboAtual ?? "") === (carimboNovo ?? "") && atual.sessao < sessao)
+      );
+      const sessaoMaisNova = atual && (atual.data < data || desempateDeterministico);
       if (!atual || sessaoMaisNova) candidatos.set(pagina, { caminho, data, sessao });
     } catch { /* cópia removida durante a indexação */ }
   }));

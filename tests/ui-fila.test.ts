@@ -88,6 +88,21 @@ test("Dado cópias da página em sessões diferentes Quando procuro a cópia Ent
   expect(await caminhoDaCopia(raiz, "pessoal/concepts/alvo.md")).toBe(recente);
 });
 
+test("Dado ingestão criada antes do ajuste mas seguida depois Quando escolho a cópia-base Então vence a captura tardia da ingestão", async () => {
+  const ajuste = join(raiz, ".anvilore/ui/copias/20261106-220000001-ajuste/pessoal/concepts/alvo.md");
+  const ingestao = join(raiz, ".anvilore/ui/copias/20261106-210000001-ingestao/pessoal/concepts/alvo.md");
+  mkdirSync(join(ajuste, ".."), { recursive: true });
+  mkdirSync(join(ingestao, ".."), { recursive: true });
+  writeFileSync(ajuste, "base antes da edição\n");
+  writeFileSync(ingestao, "base capturada depois\n");
+  const capturadaNoAjuste = new Date("2026-11-06T22:00:00Z");
+  const capturadaNaIngestao = new Date("2026-11-06T23:00:00Z");
+  utimesSync(ajuste, capturadaNoAjuste, capturadaNoAjuste);
+  utimesSync(ingestao, capturadaNaIngestao, capturadaNaIngestao);
+
+  expect(await caminhoDaCopia(raiz, "pessoal/concepts/alvo.md")).toBe(ingestao);
+});
+
 test("Dado cópias com mtime igual Quando indexo Então desempato pelo nome da pasta da sessão", async () => {
   const primeira = join(raiz, ".anvilore/ui/copias/20261106-230000001-a/pessoal/concepts/alvo.md");
   const segunda = join(raiz, ".anvilore/ui/copias/20261106-230000002-b/pessoal/concepts/alvo.md");
