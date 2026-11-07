@@ -220,3 +220,16 @@ export function estadoAprovacaoHumana(frontmatter: Mapa): "ausente" | "antiga" |
   if (verificacoes.humanas.some(data => data !== null && compararInstantes(data, generated.data) >= 0)) return "vigente";
   return verificacoes.humanas.length ? "antiga" : "ausente";
 }
+
+export type SituacaoDeRevisao = "sem-geracao" | "pendente" | "vigente" | "invalida";
+
+// O predicado único de "esta página espera revisão?", usado pela fila de Revisão, pela Biblioteca e pela
+// reconciliação dos ajustes: `pendente` é `generated` válido (mapa com `at` legível) e mais novo que toda
+// verificação humana. Sem frontmatter legível ou com `generated` quebrado, a página é `invalida`.
+export function situacaoDeRevisao(frontmatter: Mapa | null): SituacaoDeRevisao {
+  if (!frontmatter) return "invalida";
+  if (frontmatter.generated === undefined) return "sem-geracao";
+  const estado = estadoAprovacaoHumana(frontmatter);
+  if (estado === "invalida") return "invalida";
+  return estado === "vigente" ? "vigente" : "pendente";
+}

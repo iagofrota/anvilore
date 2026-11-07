@@ -5,7 +5,7 @@ import { basename, join, relative, resolve, sep } from "node:path";
 import { lerFrontmatter } from "./frontmatter";
 import { caminhoWiki } from "./wiki-repo";
 import { validarWiki, type ResultadoValidacao } from "../comandos/validar";
-import { estadoAprovacaoHumana, timestampValido } from "./okf";
+import { estadoAprovacaoHumana, situacaoDeRevisao } from "./okf";
 import { caminhoTemCaractereEspecialDeAjuste, MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE } from "./ponte-claude-code";
 
 export type Rascunho = {
@@ -82,14 +82,14 @@ export async function listarFilaRascunhos(raiz: string, ambiente: Record<string,
       });
       continue;
     }
-    if (!frontmatter || frontmatter.generated === undefined) continue;
+    if (!frontmatter) continue;
+    const situacao = situacaoDeRevisao(frontmatter);
+    if (situacao === "sem-geracao") continue;
     const generated = frontmatter.generated;
-    const geradaEm = ehMapa(generated) && timestampValido(generated.at);
-    const estadoAprovacao = estadoAprovacaoHumana(frontmatter);
     const diagnosticos = erroDoValidador(validacao.erros, caminho).filter(erro => !erro.startsWith(`página gerada sem aprovação humana: ${caminho}`));
     const erros = diagnosticos.filter(erro => !erroGlobal(erro));
     const avisos = diagnosticos.filter(erroGlobal);
-    if (!geradaEm || estadoAprovacao === "invalida") {
+    if (situacao === "invalida") {
       fila.push({
         caminho,
         titulo: String(frontmatter.title ?? basename(caminho, ".md")),
@@ -104,8 +104,8 @@ export async function listarFilaRascunhos(raiz: string, ambiente: Record<string,
       });
       continue;
     }
-    if (estadoAprovacao === "vigente") continue;
-    const atualizada = estadoAprovacao === "antiga";
+    if (situacao === "vigente") continue;
+    const atualizada = estadoAprovacaoHumana(frontmatter) === "antiga";
     const geracao = ehMapa(generated) ? generated : {};
     const fontes = Array.isArray(frontmatter.sources) ? frontmatter.sources : [];
     const primeiraFonte = fontes.find(ehMapa);

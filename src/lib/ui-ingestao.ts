@@ -17,7 +17,7 @@ import { fontesCitadas } from "./ui-inicio";
 import { caminhoDaCopia } from "./ui-fila";
 import { caminhoWiki } from "./wiki-repo";
 import { lerFrontmatter } from "./frontmatter";
-import { estadoAprovacaoHumana, lerVerificacoes } from "./okf";
+import { estadoAprovacaoHumana, lerVerificacoes, situacaoDeRevisao } from "./okf";
 import { gravarArquivoWiki, validarEscritaNaWiki } from "./escrita-segura";
 
 function carimboLocalComMilissegundos(data: Date): string {
@@ -900,7 +900,10 @@ export class IngestaoNaInterface {
     Object.assign(conversa, { relatorio, avisos: conferencia.mensagens.filter(m => m.startsWith("AVISO")), passo: "parada", situacao: "esperando" });
   }
 
-  private async assegurarAprovacaoInvalidaSeMudou(conversa: Conversa): Promise<void> {
+  // Regra: bytes finais diferentes de `versaoEsperada` => a página tem de terminar pendente de revisão, conferida
+  // pelo mesmo predicado da fila e da Biblioteca (`situacaoDeRevisao`). `generated` ausente, quebrado ou mais velho
+  // que a aprovação humana é refeito pelo invalidador; se ele não conseguir, quem chama restaura ou põe em quarentena.
+  private async assegurarPaginaPendenteSeMudou(conversa: Conversa): Promise<void> {
     if (!conversa.pagina || !conversa.versaoEsperada) return;
     this.validarCaminhoDaPagina(conversa.pagina);
     let bytesFinais: Buffer;
@@ -916,10 +919,17 @@ export class IngestaoNaInterface {
     try { frontmatter = lerFrontmatter(conteudoFinal); }
     catch (erro) { throw new Error("o frontmatter da página alterada não pôde ser conferido", { cause: erro }); }
     if (!frontmatter) throw new Error("a página alterada não tem frontmatter válido");
-    if (estadoAprovacaoHumana(frontmatter) === "vigente") {
+    if (situacaoDeRevisao(frontmatter) !== "pendente") {
       const novoConteudo = invalidarAprovacaoVigente(conteudoFinal, conversa.geracao?.by ?? conversa.autor ?? "escritor", this.agora());
       await gravarArquivoWiki(this.wiki(), conversa.pagina, novoConteudo);
     }
+    await this.conferirPaginaPendente(conversa.pagina);
+  }
+
+  private async conferirPaginaPendente(pagina: string): Promise<void> {
+    let frontmatter: Record<string, unknown> | null = null;
+    try { frontmatter = lerFrontmatter(await readFile(resolve(this.wiki(), pagina), "utf8")); } catch { /* ilegível não é pendente */ }
+    if (situacaoDeRevisao(frontmatter) !== "pendente") throw new Error("a página alterada não ficou pendente de revisão");
   }
 
   private validarCaminhoDaPagina(pagina: string, validarAlvo = true): void {
@@ -1041,7 +1051,7 @@ export class IngestaoNaInterface {
 
   private async tentarInvalidarAprovacaoSemMascarar(conversa: Conversa): Promise<boolean> {
     try {
-      await this.assegurarAprovacaoInvalidaSeMudou(conversa);
+      await this.assegurarPaginaPendenteSeMudou(conversa);
       return true;
     } catch (erro) {
       const detalhe = erro instanceof Error ? erro.message : String(erro);
