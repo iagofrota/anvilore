@@ -165,14 +165,19 @@ function abrirNavegador(url: string): void {
   try { Bun.spawn(comando, { stdin: "ignore", stdout: "ignore", stderr: "ignore" }); } catch { /* UI permanece acessível pela URL mostrada */ }
 }
 
+async function criarIngestao(raiz: string, opcoes: OpcoesServidor): Promise<IngestaoNaInterface> {
+  const ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
+  await ingestao.recuperarInterrompidas();
+  return ingestao;
+}
+
 export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServidor = {}) {
   const ambiente = opcoes.ambiente ?? process.env;
   let raiz = resolve(raizInicial);
   let wiki = caminhoWiki(raiz, ambiente);
   const token = opcoes.token ?? randomBytes(32).toString("base64url");
   const portaInicial = opcoes.portaInicial ?? 4173;
-  let ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
-  await ingestao.recuperarInterrompidas();
+  let ingestao = await criarIngestao(raiz, opcoes);
   let servidor: Servidor | undefined;
   let ultimoErro: unknown;
 
@@ -293,7 +298,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
                 await ingestao.encerrar();
                 raiz = novaRaiz;
                 wiki = caminhoWiki(raiz, ambiente);
-                ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
+                ingestao = await criarIngestao(raiz, opcoes);
               }
               const inspecao = await inspecionarPasta(raiz, ambiente);
               const caminhoOnboarding = join(raiz, ".anvilore", "onboarding.json");
