@@ -518,6 +518,21 @@ abrir_navegador() {
   fi
 }
 
+obter_inicio_processo() {
+  local pid="$1"
+  if [ -f "/proc/$pid/stat" ]; then
+    local stat_str
+    stat_str="$(cat "/proc/$pid/stat" 2>/dev/null || true)"
+    local pos_p="${stat_str##*)}"
+    if [ -n "$pos_p" ]; then
+      local -a campos=($pos_p)
+      printf '%s' "${campos[19]:-}"
+      return 0
+    fi
+  fi
+  return 1
+}
+
 verificar_instancia_existente() {
   local arquivo_estado
   arquivo_estado="$(obter_caminho_estado)"
@@ -531,19 +546,29 @@ verificar_instancia_existente() {
       const fs = require("node:fs");
       const est = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
       if (typeof est.pid === "number" && typeof est.porta === "number" && typeof est.token === "string" && typeof est.pasta === "string") {
-        console.log(`${est.pid}:${est.porta}:${est.token}:${est.pasta}`);
+        console.log(`${est.pid}:${est.porta}:${est.token}:${est.pasta}:${est.inicio || ""}`);
       }
     } catch {}
   ' "$arquivo_estado" 2>/dev/null || true)"
 
   [ -n "$info" ] || { rm -f -- "$arquivo_estado"; return 1; }
 
-  local est_pid est_porta est_token est_pasta
-  IFS=: read -r est_pid est_porta est_token est_pasta <<<"$info"
+  local est_pid est_porta est_token est_pasta est_inicio
+  IFS=: read -r est_pid est_porta est_token est_pasta est_inicio <<<"$info"
 
   if ! kill -0 "$est_pid" 2>/dev/null; then
     rm -f -- "$arquivo_estado"
     return 1
+  fi
+
+  # P2-C: validação da hora de início (campo 22 de /proc/PID/stat) contra PID reaproveitado
+  if [ -n "$est_inicio" ]; then
+    local inicio_atual
+    inicio_atual="$(obter_inicio_processo "$est_pid" || true)"
+    if [ -z "$inicio_atual" ] || [ "$inicio_atual" != "$est_inicio" ]; then
+      rm -f -- "$arquivo_estado"
+      return 1
+    fi
   fi
 
   local pasta_canonica pasta_est_canonica
@@ -554,22 +579,37 @@ verificar_instancia_existente() {
   fi
 
   local url="http://127.0.0.1:$est_porta/?token=$est_token"
-  local status_http
-  status_http="$("$BUN_BIN" -e '
+  local resultado_http
+  resultado_http="$("$BUN_BIN" -e '
     fetch(process.argv[1], { signal: AbortSignal.timeout(2000) })
-      .then(r => console.log(r.status))
-      .catch(() => console.log(0));
-  ' "$url" 2>/dev/null || echo 0)"
+      .then(r => console.log(r.status === 200 ? "OK" : "STATUS_" + r.status))
+      .catch((err) => {
+        if (err && (err.name === "TimeoutError" || err.name === "AbortError")) {
+          console.log("TIMEOUT");
+        } else {
+          console.log("ERRO");
+        }
+      });
+  ' "$url" 2>/dev/null || echo ERRO)"
 
-  if [ "$status_http" = "200" ]; then
+  if [ "$resultado_http" = "OK" ]; then
     URL_EXISTENTE="$url"
     return 0
   fi
 
-  # P3-7: se o PID ainda está vivo, preserva o estado e reabre mesmo com timeout do fetch
-  if kill -0 "$est_pid" 2>/dev/null; then
-    URL_EXISTENTE="$url"
-    return 0
+  # P2-C / P3-7: se foi estritamente TIMEOUT e o processo ainda é o mesmo e está vivo, preserva e reabre
+  if [ "$resultado_http" = "TIMEOUT" ] && kill -0 "$est_pid" 2>/dev/null; then
+    if [ -n "$est_inicio" ]; then
+      local inicio_atual
+      inicio_atual="$(obter_inicio_processo "$est_pid" || true)"
+      if [ -n "$inicio_atual" ] && [ "$inicio_atual" = "$est_inicio" ]; then
+        URL_EXISTENTE="$url"
+        return 0
+      fi
+    else
+      URL_EXISTENTE="$url"
+      return 0
+    fi
   fi
 
   rm -f -- "$arquivo_estado"

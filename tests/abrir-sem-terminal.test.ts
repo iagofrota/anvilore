@@ -1118,3 +1118,79 @@ test("Dado arquivo de trava que é um symlink, Quando o lançador executa, Entã
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test("Dado estado com PID vivo de outro processo e porta morta, Quando lançador executa, Então remove estado e sobe novo servidor (P2-C)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-pid-reaproveitado-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "bin");
+    const xdgRuntime = join(base, "run");
+    const chamadas = join(base, "chamadas");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await mkdir(xdgRuntime, { recursive: true });
+
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    const procAlheio = Bun.spawn(["sleep", "60"]);
+
+    try {
+      const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+      await writeFile(estadoFile, JSON.stringify({
+        pid: procAlheio.pid,
+        porta: 45998,
+        token: "tokX",
+        pasta,
+      }, null, 2), { mode: 0o600 });
+
+      const bun = join(bin, "bun");
+      await writeFile(bun, `#!/bin/sh
+if [ "$1" = "-e" ]; then
+  exec "${process.execPath}" "$@"
+fi
+if [ "$1" = "src/cli.ts" ] && [ "$2" = "ui" ]; then
+  echo "start $$" >>"${chamadas}"
+  cat <<EOF >"${estadoFile}"
+{
+  "pid": $$,
+  "porta": 45999,
+  "token": "tokNovo",
+  "pasta": "${pasta}"
+}
+EOF
+  sleep 15 &
+  wait $!
+  exit 0
+fi
+exit 0
+`);
+      await chmod(bun, 0o755);
+
+      const env = {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:/usr/bin:/bin`,
+        ANVILORE_PASTA: pasta,
+        XDG_RUNTIME_DIR: xdgRuntime,
+        ANVILORE_SEM_DIALOGO: "1",
+      };
+
+      const proc = Bun.spawnSync(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+      expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+
+      const starts = (await readFile(chamadas, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
+      expect(starts.length).toBe(1);
+    } finally {
+      procAlheio.kill();
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+}, 20000);

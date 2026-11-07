@@ -8,7 +8,20 @@ export type EstadoUi = {
   porta: number;
   token: string;
   pasta: string;
+  inicio?: string;
 };
+
+export async function obterInicioProcesso(pid: number): Promise<string | undefined> {
+  try {
+    const statStr = await readFile(`/proc/${pid}/stat`, "utf8");
+    const posParenteses = statStr.lastIndexOf(")");
+    if (posParenteses === -1) return undefined;
+    const campos = statStr.slice(posParenteses + 2).trim().split(/\s+/);
+    return campos[19];
+  } catch {
+    return undefined;
+  }
+}
 
 export function caminhoEstadoUi(ambiente: Record<string, string | undefined> = process.env): string {
   if (ambiente.XDG_RUNTIME_DIR) {
@@ -43,6 +56,7 @@ export async function obterEstadoUi(ambiente: Record<string, string | undefined>
         porta: dados.porta,
         token: dados.token,
         pasta: dados.pasta,
+        inicio: typeof dados.inicio === "string" ? dados.inicio : undefined,
       };
     }
     return null;
@@ -54,6 +68,10 @@ export async function obterEstadoUi(ambiente: Record<string, string | undefined>
 export async function gravarEstadoUi(estado: EstadoUi, ambiente: Record<string, string | undefined> = process.env): Promise<void> {
   const caminho = caminhoEstadoUi(ambiente);
   const pasta = dirname(caminho);
+
+  if (!estado.inicio && typeof estado.pid === "number") {
+    estado.inicio = await obterInicioProcesso(estado.pid);
+  }
 
   await mkdir(pasta, { recursive: true, mode: 0o700 });
   const pastaInfo = await lstat(pasta);
@@ -101,17 +119,36 @@ export async function verificarInstanciaExistente(
     return { ativa: false };
   }
 
+  // P2-C: validação de início do processo contra PID reaproveitado
+  if (estado.inicio) {
+    const inicioAtual = await obterInicioProcesso(estado.pid);
+    if (!inicioAtual || inicioAtual !== estado.inicio) {
+      await removerEstadoUi(undefined, ambiente);
+      return { ativa: false };
+    }
+  }
+
   const url = `http://127.0.0.1:${estado.porta}/?token=${encodeURIComponent(estado.token)}`;
   try {
     const resposta = await fetch(url, { signal: AbortSignal.timeout(2000) });
     if (resposta.status === 200) {
       return { ativa: true, estado, url };
     }
-  } catch {
-    try {
-      process.kill(estado.pid, 0);
-      return { ativa: true, estado, url };
-    } catch {}
+  } catch (err: any) {
+    const ehTimeout = err?.name === "TimeoutError" || err?.name === "AbortError";
+    if (ehTimeout) {
+      try {
+        process.kill(estado.pid, 0);
+        if (estado.inicio) {
+          const inicioAtual = await obterInicioProcesso(estado.pid);
+          if (inicioAtual && inicioAtual === estado.inicio) {
+            return { ativa: true, estado, url };
+          }
+        } else {
+          return { ativa: true, estado, url };
+        }
+      } catch {}
+    }
   }
 
   await removerEstadoUi(undefined, ambiente);

@@ -109,3 +109,26 @@ test("Dado servidor com processo vivo porém com resposta HTTP lenta, Quando a v
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test("Dado estado com PID vivo de outro processo e porta morta, Quando verifico instância existente, Então remove o estado e retorna inativa (P2-C)", async () => {
+  const base = await mkdtemp(join(tmpdir(), "anvilore-pid-reaproveitado-unit-"));
+  const procAlheio = Bun.spawn(["sleep", "60"]);
+  try {
+    const estado = {
+      pid: procAlheio.pid,
+      porta: 45998,
+      token: "tokX",
+      pasta: base,
+    };
+    await gravarEstadoUi(estado, { XDG_STATE_HOME: base });
+
+    const resultado = await verificarInstanciaExistente(base, { XDG_STATE_HOME: base });
+    expect(resultado.ativa).toBe(false);
+
+    const estadoApos = await obterEstadoUi({ XDG_STATE_HOME: base });
+    expect(estadoApos).toBeNull();
+  } finally {
+    procAlheio.kill();
+    await rm(base, { recursive: true, force: true });
+  }
+});
