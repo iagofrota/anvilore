@@ -15,6 +15,7 @@ async function criarCenarioAtualizacaoPacote(opcoes: { versaoPacote?: string; js
   const pacote = join(base, "usr/lib/anvilore");
   const bin = join(base, "bin");
   const atualizador = join(base, "atualizador-chamado");
+  const versaoRecebida = join(base, "versao-recebida");
   const ui = join(base, "ui-chamada");
   await mkdir(join(pasta, ".git"), { recursive: true });
   await mkdir(join(pasta, "src"), { recursive: true });
@@ -31,6 +32,7 @@ async function criarCenarioAtualizacaoPacote(opcoes: { versaoPacote?: string; js
   await writeFile(join(pacote, "instalar.sh"), [
     "#!/bin/sh",
     'printf chamado >"$ANV_TEST_ATUALIZADOR"',
+    'printf \'%s\' "${ANVILORE_VERSAO:-}" >"$ANV_TEST_VERSAO_RECEBIDA"',
     'if [ "${ANV_TEST_CODIGO_ATUALIZADOR:-0}" -eq 0 ] && [ "${ANV_TEST_PULAR_ATUALIZACAO:-0}" != 1 ]; then sed "s/0[.]9[.]0/${ANV_TEST_VERSAO_PACOTE}/" "$ANVILORE_PASTA/package.json" >"$ANVILORE_PASTA/package.json.tmp"; mv "$ANVILORE_PASTA/package.json.tmp" "$ANVILORE_PASTA/package.json"; fi',
     'exit "${ANV_TEST_CODIGO_ATUALIZADOR:-0}"',
   ].join("\n"));
@@ -43,13 +45,14 @@ async function criarCenarioAtualizacaoPacote(opcoes: { versaoPacote?: string; js
     PATH: `${bin}:/usr/bin:/bin`,
     ANVILORE_PASTA: pasta,
     ANV_TEST_ATUALIZADOR: atualizador,
+    ANV_TEST_VERSAO_RECEBIDA: versaoRecebida,
     ANV_TEST_CODIGO_ATUALIZADOR: String(opcoes.codigoAtualizador ?? 0),
     ANV_TEST_PULAR_ATUALIZACAO: opcoes.pularAtualizacao ? "1" : "0",
     ANV_TEST_VERSAO_PACOTE: opcoes.versaoPacote ?? "",
     ANV_TEST_UI: ui,
   };
   const executar = () => Bun.spawnSync(["bash", lancador], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
-  return { base, pasta, atualizador, ui, executar };
+  return { base, pasta, atualizador, versaoRecebida, ui, executar };
 }
 
 test("Dado o pacote 0.10.0 e a pasta 0.9.0, Quando abro o atalho do pacote, Ent√£o atualizo numericamente antes de abrir a UI", async () => {
@@ -61,6 +64,7 @@ test("Dado o pacote 0.10.0 e a pasta 0.9.0, Quando abro o atalho do pacote, Ent√
     expect(proc.exitCode, saida).toBe(0);
     expect(saida).toContain("Atualizando o Anvilore de 0.9.0 para 0.10.0");
     expect(await Bun.file(c.atualizador).exists()).toBe(true);
+    expect(await readFile(c.versaoRecebida, "utf8")).toBe("0.10.0");
     expect(JSON.parse(await readFile(join(c.pasta, "package.json"), "utf8")).version).toBe("0.10.0");
     expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
   } finally { await rm(c.base, { recursive: true, force: true }); }
