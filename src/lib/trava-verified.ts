@@ -1124,6 +1124,7 @@ function dividirEmComandosSimples(tokens: Token[]): Array<{ tokens: Token[]; doP
   let continuaNaQuebra = false;
   let profundidadeComposta = 0;
   let emComandoComposto = false;
+  let posicaoDeComando = true;
   for (const token of tokens) {
     if (token.comentario) {
       atual.push(token);
@@ -1131,19 +1132,24 @@ function dividirEmComandosSimples(tokens: Token[]): Array<{ tokens: Token[]; doP
     }
     if (token.operador && token.texto === "\n") {
       const terminouHeredoc = atual.some(item => item.heredocBody !== undefined);
-      if (continuaNaQuebra || (profundidadeComposta > 0 || emComandoComposto) && !terminouHeredoc) continue;
+      if (continuaNaQuebra || (profundidadeComposta > 0 || emComandoComposto) && !terminouHeredoc) {
+        posicaoDeComando = true;
+        continue;
+      }
       if (atual.some(token => !token.comentario)) {
         comandos.push({ tokens: atual, doPipe: recebePipe });
         atual = [];
       }
       recebePipe = false;
+      posicaoDeComando = true;
       continue;
     }
-    if (!token.operador && limitesDeClausula.has(token.texto) && atual.some(item => !item.comentario)) {
+    if (!token.operador && posicaoDeComando && limitesDeClausula.has(token.texto) && atual.some(item => !item.comentario)) {
       comandos.push({ tokens: atual, doPipe: recebePipe });
       atual = [];
       recebePipe = false;
       continuaNaQuebra = false;
+      posicaoDeComando = true;
     }
     if (token.operador && /^(?:[;&|]+|\|&)$/.test(token.texto)) {
       if (atual.length > 0) {
@@ -1153,13 +1159,20 @@ function dividirEmComandosSimples(tokens: Token[]): Array<{ tokens: Token[]; doP
       // Só `|` simples alimenta o comando seguinte pela entrada padrão (`||` e `&&` não).
       recebePipe = token.texto === "|" || token.texto === "|&";
       continuaNaQuebra = ["|", "|&", "||", "&&"].includes(token.texto);
+      posicaoDeComando = true;
+    } else if (token.operador && /^(?:\d+)?(?:>{1,2}|>\||>&|<{1,3}|<&|<>|&>{1,2})$/.test(token.texto)) {
+      atual.push(token);
+      posicaoDeComando = false;
     } else {
       atual.push(token);
       continuaNaQuebra = false;
-      if (!token.operador && token.texto === "{") profundidadeComposta++;
-      else if (!token.operador && token.texto === "}" && profundidadeComposta > 0) profundidadeComposta--;
-      if (!token.operador && /^(?:if|then|else|elif|while|until|for|select|do|case|in)$/.test(token.texto)) emComandoComposto = true;
-      else if (!token.operador && /^(?:fi|done|esac)$/.test(token.texto)) emComandoComposto = false;
+      if (!token.operador && posicaoDeComando) {
+        if (token.texto === "{") { profundidadeComposta++; emComandoComposto = true; }
+        else if (token.texto === "}" && profundidadeComposta > 0) { profundidadeComposta--; emComandoComposto = false; }
+        if (/^(?:if|then|else|elif|while|until|for|select|do|case|in)$/.test(token.texto)) emComandoComposto = true;
+        else if (/^(?:fi|done|esac)$/.test(token.texto)) emComandoComposto = false;
+      }
+      if (!token.operador) posicaoDeComando = false;
     }
   }
   if (atual.some(token => !token.comentario)) comandos.push({ tokens: atual, doPipe: recebePipe });

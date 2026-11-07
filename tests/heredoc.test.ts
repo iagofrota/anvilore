@@ -2,10 +2,14 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test, expect, setDefaultTimeout } from "bun:test";
-import { analisarHeredocs } from "../src/lib/heredoc";
+import { analisarHeredocs, linhaSemComentarioShell, proximaLinhaDeComando, textoHeredocParaAnalise } from "../src/lib/heredoc";
 import { executarProtecao } from "../src/comandos/hook-proteger-raw";
+import { decidirVerified } from "../src/lib/trava-verified";
 
 const heredoctsDisponiveis = process.platform !== "win32" && Bun.which("bash") !== null;
+const bashMajor = heredoctsDisponiveis
+  ? Number(Bun.spawnSync(["bash", "-c", "printf '%s' \"${BASH_VERSINFO[0]}\""]).stdout.toString())
+  : 0;
 setDefaultTimeout(60_000);
 
 function comandoDoBash(comando: string, pasta: string): void {
@@ -18,6 +22,91 @@ async function executarProtecaoSemLog(payload: string): Promise<number> {
   try { return await executarProtecao(payload); }
   finally { console.error = erroOriginal; }
 }
+
+test("Dado um terminador dividido por barra e quebra em heredoc sem aspas Quando analiso Então falho fechado e preservo a regra citada", () => {
+  for (const comando of [
+    "cat <<EOF\nEO\\\nF\nrm raw/a.md\nEOF",
+    "cat <<EOF\nE\\\nO\\\nF\nrm raw/a.md\nEOF",
+    "cat <<-EOF\n\tEO\\\nF\nrm raw/a.md\nEOF",
+    "cat <<EOF >/dev/null\nEO\\\nF\nrm raw/a.md\nEOF",
+  ]) expect(() => analisarHeredocs(comando)).toThrow();
+
+  const citado = analisarHeredocs("cat <<'EOF'\nEO\\\nF\nEOF");
+  expect(citado.corpos[0]?.texto).toBe("EO\\\nF\n");
+  expect(citado.corpos[0]?.delimitador).toBe("EOF");
+});
+
+test("Dado palavras reservadas como argumentos Quando classifico quebras Então os dois guardas julgam a próxima linha", async () => {
+  const vault = mkdtempSync(join(tmpdir(), "anvilore-heredoc-reservada-"));
+  mkdirSync(join(vault, "raw"));
+  mkdirSync(join(vault, "wiki"));
+  writeFileSync(join(vault, "SCHEMA.md"), "# Schema\n");
+  writeFileSync(join(vault, "raw/a.md"), "bruto\n");
+  writeFileSync(join(vault, "wiki/a.md"), "---\ntitle: A\n---\n");
+  const palavras = ["if", "then", "do", "while", "until", "case", "else", "elif", "in", "select", "{"];
+  const comandos = [
+    ...palavras.map(palavra => `echo ${palavra}\nrm raw/a.md`),
+    "echo x if\nrm raw/a.md",
+    "echo > if\nrm raw/a.md",
+    "> if echo x\nrm raw/a.md",
+    "printf '%s' while\nrm raw/a.md",
+    "ls do;\nrm raw/a.md",
+  ];
+  const erroOriginal = console.error;
+  console.error = () => {};
+  try {
+    for (const command of comandos) {
+      const payload = JSON.stringify({ cwd: vault, tool_name: "Bash", tool_input: { command } });
+      expect({ command, raw: await executarProtecao(payload) }).toEqual({ command, raw: 2 });
+      const commandVerified = command.replace("rm raw/a.md", "cp p wiki/a.md");
+      const payloadVerified = JSON.stringify({ cwd: vault, tool_name: "Bash", tool_input: { command: commandVerified } });
+      expect({ command: commandVerified, verified: (await decidirVerified(payloadVerified, vault)).acao }).toEqual({ command: commandVerified, verified: "bloquear" });
+    }
+  } finally {
+    console.error = erroOriginal;
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
+test("Dado entradas léxicas variadas Quando analiso heredocs sem Bash Então valido caminhos e erros do módulo", () => {
+  expect(analisarHeredocs("echo sem heredoc").corpos).toEqual([]);
+  expect(analisarHeredocs("cat <<EOF\nok\nEOF\n").corpos[0]?.texto).toBe("ok\n");
+  expect(analisarHeredocs("cat <<-EOF\n\tok\n\tEOF\n").corpos[0]?.tabs).toBe(true);
+  expect(analisarHeredocs("cat <<$'E\\x4fF'\nok\nEOF\n").corpos[0]?.delimitador).toBe("EOF");
+  expect(analisarHeredocs("cat <<EOF <<END\nok\nEOF\nbye\nEND\n").corpos).toHaveLength(2);
+  expect(analisarHeredocs("cat <<EOF\nok\nEOF\ncat").semCorpos).toContain("cat < /dev/null");
+  expect(() => analisarHeredocs("cat <<EOF\nok\n")).toThrow("heredoc sem terminador");
+  expect(() => analisarHeredocs("cat <<'EOF\nok\nEOF")).toThrow("delimitador heredoc");
+  expect(() => analisarHeredocs("echo $(cat <<EOF\nok\nEOF\n")).toThrow("substituição sem fechamento");
+});
+
+test("Dado helpers léxicos do heredoc Quando encontro comentários e corpo removido Então preservo o comando", () => {
+  expect(linhaSemComentarioShell("  # comentário")).toBe("  ");
+  expect(linhaSemComentarioShell("echo '# literal' # comentário")).toBe("echo '# literal' ");
+  expect(linhaSemComentarioShell("echo \\# literal")).toBe("echo \\# literal");
+  expect(proximaLinhaDeComando("\n\n  # c\n  true\n", 0)).toBe("true");
+  expect(proximaLinhaDeComando("\n # c", 0)).toBe("");
+
+  const analisado = analisarHeredocs("cat <<EOF\nbody\nEOF\nsh");
+  expect(textoHeredocParaAnalise(analisado)).toBe("cat < /dev/null\n\nsh");
+  expect(textoHeredocParaAnalise(analisado, () => true)).toBe("cat < /dev/null\nbody\n\nsh");
+});
+
+test("Dado escapes, comentários e contextos aninhados Quando tokenizo delimitadores Então mantenho só heredocs reais", () => {
+  const escapeAnsi = "\\a\\b\\e\\f\\r\\t\\v\\\\\\'\\\"\\?\\x41\\101";
+  const delimitadorAnsi = "\x07\b\x1b\f\r\t\v\\'\"?AA";
+  expect(analisarHeredocs(`cat <<$'${escapeAnsi}'\nbody\n${delimitadorAnsi}\n`).corpos[0]?.delimitador).toBe(delimitadorAnsi);
+  expect(() => analisarHeredocs("cat <<$'\\n'\nbody\n\n")).toThrow("heredoc sem terminador");
+  expect(() => analisarHeredocs("cat <<$'\\q'\nbody\nq\n")).toThrow("ANSI-C");
+  expect(() => analisarHeredocs("cat <<$'\\x'\nbody\n\n")).toThrow("hexadecimal");
+  expect(analisarHeredocs("cat # <<EOF\n# <<END\ncat '<<EOF'\ncat \"<<END\"\n").corpos).toHaveLength(0);
+  expect(analisarHeredocs("echo \\\ncat <<EOF\nbody\nEOF\n").corpos).toHaveLength(1);
+  expect(analisarHeredocs("echo \"$(cat <<'EOF'\nbody\nEOF\n)\"\n").corpos).toHaveLength(1);
+  expect(analisarHeredocs("echo `cat <<'EOF'\nbody\nEOF\n`\n").corpos).toHaveLength(1);
+  expect(analisarHeredocs("cat <(cat <<'EOF'\nbody\nEOF\n)\n").corpos).toHaveLength(1);
+  expect(() => analisarHeredocs("cat <<EOF\nbody\nEOF\n'open")).toThrow("aspas sem fechamento");
+  expect(() => analisarHeredocs("cat <<EOF\nbody\nEOF\n$(open")).toThrow("substituição sem fechamento");
+});
 
 function variacoesNasQuebras(comando: string): string[] {
   const variantes = new Set<string>([comando]);
@@ -89,7 +178,10 @@ test.skipIf(!heredoctsDisponiveis)("Dado corpus gerado de heredocs Quando compar
       for (const marcador of marcadores) {
         const bashExecutou = existsSync(join(pasta, "raw", marcador.nome));
         const analisadorDizCorpo = analise!.corpos.some(corpo => marcador.inicio >= corpo.inicioCorpo && marcador.inicio < corpo.fimCorpo);
-        if (analisadorDizCorpo !== !bashExecutou) throw new Error(`Bash/analisador divergem; bashExecutou=${bashExecutou}, body=${analisadorDizCorpo}, linha=${marcador.nome}, comando=${JSON.stringify(comando)}`);
+        const soDirecaoDeSeguranca = bashMajor < 4 && comando.includes("|&");
+        if (bashExecutou && analisadorDizCorpo || !soDirecaoDeSeguranca && analisadorDizCorpo !== !bashExecutou) {
+          throw new Error(`Bash/analisador divergem; bashExecutou=${bashExecutou}, body=${analisadorDizCorpo}, linha=${marcador.nome}, comando=${JSON.stringify(comando)}`);
+        }
       }
 
       // Ponta a ponta: troca cada linha marcada que Bash executou, uma por vez, por cada
@@ -166,7 +258,10 @@ test.skipIf(!heredoctsDisponiveis)("Dado corpus gerado de heredocs Quando compar
         : !existsSync(join(pasta, "raw/a.md"));
       const codigoEsperado = bashExecutouCarga ? 2 : 0;
       const codigo = await executarProtecaoSemLog(JSON.stringify({ cwd: pasta, tool_name: "Bash", tool_input: { command: script } }));
-      if (codigo !== codigoEsperado) throw new Error(JSON.stringify({ cabecalho, consumidor, carga, bashExecutouCarga, codigo, codigoEsperado, script }));
+      const bash32SemPipeEComercial = bashMajor < 4 && script.includes("|&") && !bashExecutouCarga;
+      if (bashExecutouCarga && codigo !== 2 || bashMajor >= 4 && codigo !== codigoEsperado || bash32SemPipeEComercial && ![0, 2].includes(codigo)) {
+        throw new Error(JSON.stringify({ cabecalho, consumidor, carga, bashExecutouCarga, codigo, codigoEsperado, script }));
+      }
     } finally {
       rmSync(pasta, { recursive: true, force: true });
     }

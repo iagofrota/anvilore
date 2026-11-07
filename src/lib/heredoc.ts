@@ -246,6 +246,9 @@ export function analisarHeredocs(comando: string): ResultadoHeredocs {
             const fimLinhaOriginal = comando.indexOf("\n", cursor);
             const fimLinha = fimLinhaOriginal < 0 ? comando.length : fimLinhaOriginal;
             const linha = comando.slice(cursor, fimLinha);
+            if (!pendente.citado && /\\\r?$/.test(linha)) {
+              throw new Error("terminador heredoc sem aspas dividido por continuação de linha");
+            }
             if (igualLinha(linha, pendente.delimitador, pendente.tabs)) {
               inicioTermino = cursor;
               fimTermino = fimLinha;

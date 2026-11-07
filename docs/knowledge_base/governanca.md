@@ -48,7 +48,10 @@ acompanha a fila de heredocs e fecha cada corpo na primeira linha igual ao delim
 preserva a quebra de linha do terminador e deixa os parsers decidir se ela separa comandos ou continua o comando
 por pipe, `&&`, `||`, escape ou bloco composto. Numa continuação, linhas vazias e linhas só de comentário são puladas,
 e comentário no fim da linha do operador não cancela a continuação. Corpo sem delimitador citado não é analisado como comando; se contiver
-`$(`, crase ou `${`, bloqueia mesmo que esses caracteres estejam entre aspas simples. Quando o comando simples analisado,
+`$(`, crase ou `${`, bloqueia mesmo que esses caracteres estejam entre aspas simples. Palavra reservada só mantém uma
+lista composta quando aparece na posição de comando; como argumento, a quebra seguinte separa comandos. No delimitador
+sem aspas, uma linha do corpo que termina em barra invertida falha fechado, pois o shell pode juntá-la à linha seguinte
+ao comparar o terminador. Quando o comando simples analisado,
 já sem palavras reservadas e wrappers, recebe o corpo em um interpretador — diretamente pelo heredoc ou pelo pipe —,
 o corpo também é analisado como script. A associação entre corpo e redirecionamento usa a posição estrutural do
 token de origem, nunca o texto de uma palavra; a entrada que contém o prefixo reservado de marcador interno

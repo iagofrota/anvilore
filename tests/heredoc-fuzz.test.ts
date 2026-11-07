@@ -15,6 +15,7 @@ const delims = ["'EOF'", "\"EOF\"", "\\EOF", "EOF", "E'O'F", "'E O'", "EOF''", "
 const ops = ["", " |", " | ", " |&", " &&", " ||", " ;", " # c", " | # c", " \\"];
 const consumidores = ["sh", "bash", "wc -l", "cat", "true", CARGA, `echo \"$(${CARGA})\"`, MARCADOR, `sh < ${MARCADOR}`, `bash ${MARCADOR}`, `cat ${MARCADOR} | sh`, "", "# c"];
 const interpretadores = ["sh", "bash", "dash", "zsh", "fish", "python", "python2", "python3", "python3.11", "node", "bun", "perl", "ruby", "php", "osascript"];
+const palavrasReservadas = ["if", "then", "do", "while", "until", "case", "else", "elif", "in", "select", "{"];
 const prefixos = [
   { antes: "", depois: "" },
   { antes: "", depois: "" },
@@ -48,10 +49,13 @@ function gerador(seedInicial: number): () => string {
     const prefixo = pick(prefixos);
     const comando = pick(comandos);
     const operador = pick(ops);
-    let script = `${prefixo.antes}${comando} <<${minus ? "-" : ""}${dd}${operador}\n`;
+    const argumentoReservado = rnd(4) === 0 ? `echo ${pick(palavrasReservadas)}\n` : "";
+    let script = `${argumentoReservado}${prefixo.antes}${comando} <<${minus ? "-" : ""}${dd}${operador}\n`;
     const linhas = rnd(3) + 1;
-    for (let i = 0; i < linhas; i++) script += tab + corpo() + "\n";
-    script += tab + term + prefixo.depois + separador() + pick(consumidores);
+    for (let i = 0; i < linhas; i++) script += tab + (rnd(5) === 0 ? `${corpo()}\\\n` : corpo()) + "\n";
+    const dividirTerminador = !dd.includes("'") && !dd.includes('"') && !dd.includes("\\") && rnd(4) === 0;
+    const terminador = dividirTerminador ? `${tab}${term.slice(0, -1)}\\\n${term.slice(-1)}` : `${tab}${term}`;
+    script += terminador + prefixo.depois + separador() + pick(consumidores);
     return script;
   };
 }
