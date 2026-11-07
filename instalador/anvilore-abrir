@@ -51,7 +51,7 @@ montar_mensagem_erro_servidor() {
     ultimas_linhas="$(tail -n 10 "$log_file" 2>/dev/null | sed -E 's/token=[a-zA-Z0-9_-]+/token=[REDUZIDO]/g')"
   fi
 
-  local corpo="Não foi possível iniciar a interface do Anvilore (código $codigo)."
+  local corpo="A interface do Anvilore fechou com erro (código $codigo)."
   if [ -n "$ultimas_linhas" ]; then
     corpo="$corpo"$'\n\n'"Últimas linhas do erro:"$'\n'"$ultimas_linhas"
   fi
@@ -462,7 +462,7 @@ travar_instancia() {
 liberar_trava_instancia() {
   if command -v flock >/dev/null 2>&1; then
     flock -u 9 2>/dev/null || true
-    exec 9>&- 2>/dev/null || true
+    exec 9>&-
   fi
 }
 

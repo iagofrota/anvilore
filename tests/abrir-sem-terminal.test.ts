@@ -936,3 +936,54 @@ test("Dado lançamento desacoplado, Quando o processo é iniciado, Então utiliz
   expect(conteudo).toContain("setsid");
   expect(conteudo).toContain("nohup");
 });
+
+test("Dado o lançador liberando a trava de inicialização, Quando uma mensagem é emitida para stderr após a liberação, Então a mensagem continua visível em stderr e não é silenciada (P2-A)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-stderr-mudo-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "bin");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh
+if [ "$1" = "src/cli.ts" ] && [ "$2" = "ui" ]; then
+  echo "falha critica na ui" >&2
+  exit 7
+fi
+exit 0
+`);
+    await chmod(bun, 0o755);
+
+    const env = {
+      ...process.env,
+      HOME: home,
+      PATH: `${bin}:/usr/bin:/bin`,
+      ANVILORE_PASTA: pasta,
+      ANVILORE_SEM_DIALOGO: "1",
+    };
+
+    const proc = Bun.spawnSync(["bash", lancadorOriginal], {
+      cwd: base,
+      env,
+      stdin: new TextEncoder().encode("\n"),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const stderr = proc.stderr.toString();
+    expect(proc.exitCode).toBe(7);
+    expect(stderr).toContain("falha critica na ui");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
