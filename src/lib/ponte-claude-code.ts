@@ -90,11 +90,31 @@ export function interpretarLinha(bruta: string): { eventos: EventoDoAgente[]; re
 // claude real). No Windows a forma `//C:/…` não foi provada.
 function regraDeCaminho(ferramenta: "Edit" | "Read", caminhoAbsoluto: string): string {
   const normalizado = caminhoAbsoluto.replaceAll("\\", "/").replace(/\/+$/, "").replace(/^\/+/, "");
+  if (normalizado.endsWith(".md")) return `${ferramenta}(//${normalizado})`;
   return `${ferramenta}(//${normalizado}/**)`;
 }
 
 export function regraDeEdicao(caminhoAbsoluto: string): string {
   return regraDeCaminho("Edit", caminhoAbsoluto);
+}
+
+export const CARACTERES_ESPECIAIS_DE_AJUSTE = /[*?[\]{}!\\]/;
+export const MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE =
+  "Não dá para pedir ajuste nesta página porque o nome dela ou da pasta do vault tem um caractere especial (* ? [ ] { } ! \\). Renomeie para usar o ajuste.";
+
+export function caminhoTemCaractereEspecialDeAjuste(caminhoAbsoluto: string): boolean {
+  if (caminhoAbsoluto.includes(":\\") || caminhoAbsoluto.includes(":/") || (process.platform === "win32" && !caminhoAbsoluto.startsWith("/"))) {
+    const segmentos = caminhoAbsoluto.split(/[/\\]/);
+    return segmentos.some(seg => /[*?[\]{}!]/.test(seg));
+  }
+  return /[*?[\]{}!\\]/.test(caminhoAbsoluto);
+}
+
+export function regraDeEdicaoDeAjuste(caminhoAbsoluto: string): string {
+  if (caminhoTemCaractereEspecialDeAjuste(caminhoAbsoluto)) {
+    throw new Error(MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE);
+  }
+  return regraDeEdicao(caminhoAbsoluto);
 }
 
 // Leitura só no vault e na wiki (que pode morar fora dele): uma fonte com instrução escondida não leva o
@@ -114,9 +134,10 @@ function esquemaParaOClaude(): Record<string, unknown> {
 
 export function argumentosDoPapel(pedido: PedidoDeFase): string[] {
   const { papel } = pedido;
-  if (papel === "escritor" && !pedido.sessao) throw new Error("o escritor precisa da sessão do leitor");
+  if (papel === "escritor" && !pedido.sessao && !pedido.pagina) throw new Error("o escritor precisa da sessão do leitor");
   const leitura = regrasDeLeitura(pedido.raiz, pedido.wiki);
-  const permitidas = papel === "leitor" ? leitura : [...leitura, regraDeEdicao(pedido.wiki)];
+  const edicao = pedido.pagina ? [regraDeEdicaoDeAjuste(join(pedido.wiki, pedido.pagina))] : [regraDeEdicao(pedido.wiki)];
+  const permitidas = papel === "leitor" ? leitura : [...leitura, ...edicao];
   return [
     "-p", pedido.mensagem,
     "--output-format", "stream-json",

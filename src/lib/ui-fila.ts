@@ -5,7 +5,8 @@ import { basename, join, relative, resolve, sep } from "node:path";
 import { lerFrontmatter } from "./frontmatter";
 import { caminhoWiki } from "./wiki-repo";
 import { validarWiki, type ResultadoValidacao } from "../comandos/validar";
-import { estadoAprovacaoHumana, timestampValido } from "./okf";
+import { estadoAprovacaoHumana, situacaoDeRevisao } from "./okf";
+import { caminhoTemCaractereEspecialDeAjuste, MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE } from "./ponte-claude-code";
 
 export type Rascunho = {
   caminho: string;
@@ -16,11 +17,14 @@ export type Rascunho = {
   fonte?: string;
   status: "nova" | "atualizada" | "erro";
   aprovavel: boolean;
+  motivoNaoAprovavel?: string;
   aprovacaoAnterior?: "deixa de valer";
   erros?: string[];
   avisos?: string[];
   conteudo: string;
   versao: string;
+  ajustavel: boolean;
+  motivoNaoAjustavel?: string;
 };
 
 async function listarMarkdown(diretorio: string, prefixo = ""): Promise<string[]> {
@@ -56,26 +60,52 @@ export async function listarFilaRascunhos(raiz: string, ambiente: Record<string,
   const fila: Rascunho[] = [];
   for (const caminho of arquivos) {
     if (basename(caminho) === "index.md" || caminho === "log.md" || caminho.startsWith("log/") || caminho.startsWith("_meta/")) continue;
-    const conteudo = await readFile(join(wiki, caminho), "utf8");
+    const arquivoAbsoluto = join(wiki, caminho);
+    const especial = caminho.includes("\\") || caminhoTemCaractereEspecialDeAjuste(arquivoAbsoluto);
+    const ajustavel = !especial;
+    const motivoNaoAjustavel = especial ? MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE : undefined;
+    const conteudo = await readFile(arquivoAbsoluto, "utf8");
     let frontmatter: Record<string, unknown> | null;
     try { frontmatter = lerFrontmatter(conteudo); }
     catch {
-      fila.push({ caminho, titulo: basename(caminho, ".md"), tipo: "", status: "erro", aprovavel: false, erros: erroDoValidador(validacao.erros, caminho), conteudo, versao: createHash("sha256").update(conteudo).digest("hex") });
+      fila.push({
+        caminho,
+        titulo: basename(caminho, ".md"),
+        tipo: "",
+        status: "erro",
+        aprovavel: false,
+        ajustavel,
+        ...(motivoNaoAjustavel ? { motivoNaoAjustavel } : {}),
+        erros: erroDoValidador(validacao.erros, caminho),
+        conteudo,
+        versao: createHash("sha256").update(conteudo).digest("hex"),
+      });
       continue;
     }
-    if (!frontmatter || frontmatter.generated === undefined) continue;
+    if (!frontmatter) continue;
+    const situacao = situacaoDeRevisao(frontmatter);
+    if (situacao === "sem-geracao") continue;
     const generated = frontmatter.generated;
-    const geradaEm = ehMapa(generated) && timestampValido(generated.at);
-    const estadoAprovacao = estadoAprovacaoHumana(frontmatter);
     const diagnosticos = erroDoValidador(validacao.erros, caminho).filter(erro => !erro.startsWith(`página gerada sem aprovação humana: ${caminho}`));
     const erros = diagnosticos.filter(erro => !erroGlobal(erro));
     const avisos = diagnosticos.filter(erroGlobal);
-    if (!geradaEm || estadoAprovacao === "invalida") {
-      fila.push({ caminho, titulo: String(frontmatter.title ?? basename(caminho, ".md")), tipo: String(frontmatter.type ?? ""), status: "erro", aprovavel: false, erros, conteudo, versao: createHash("sha256").update(conteudo).digest("hex") });
+    if (situacao === "invalida") {
+      fila.push({
+        caminho,
+        titulo: String(frontmatter.title ?? basename(caminho, ".md")),
+        tipo: String(frontmatter.type ?? ""),
+        status: "erro",
+        aprovavel: false,
+        ajustavel,
+        ...(motivoNaoAjustavel ? { motivoNaoAjustavel } : {}),
+        erros,
+        conteudo,
+        versao: createHash("sha256").update(conteudo).digest("hex"),
+      });
       continue;
     }
-    if (estadoAprovacao === "vigente") continue;
-    const atualizada = estadoAprovacao === "antiga";
+    if (situacao === "vigente") continue;
+    const atualizada = estadoAprovacaoHumana(frontmatter) === "antiga";
     const geracao = ehMapa(generated) ? generated : {};
     const fontes = Array.isArray(frontmatter.sources) ? frontmatter.sources : [];
     const primeiraFonte = fontes.find(ehMapa);
@@ -88,6 +118,8 @@ export async function listarFilaRascunhos(raiz: string, ambiente: Record<string,
       fonte: primeiraFonte && typeof primeiraFonte.resource === "string" ? primeiraFonte.resource : undefined,
       status: erros.length ? "erro" : atualizada ? "atualizada" : "nova",
       aprovavel: erros.length === 0,
+      ajustavel,
+      ...(motivoNaoAjustavel ? { motivoNaoAjustavel } : {}),
       ...(atualizada ? { aprovacaoAnterior: "deixa de valer" as const } : {}),
       ...(erros.length ? { erros } : {}),
       ...(avisos.length ? { avisos } : {}),
@@ -112,7 +144,11 @@ export async function indexarCopias(raiz: string): Promise<Map<string, string>> 
     }));
   };
   await visitar(pasta);
-  const candidatos = new Map<string, { caminho: string; data: number }>();
+  const candidatos = new Map<string, { caminho: string; data: number; sessao: string }>();
+  const carimboDaSessao = (sessao: string): string | undefined => {
+    const partes = /^(\d{8})-(\d{6})(\d{3})?/.exec(sessao);
+    return partes ? `${partes[1]}${partes[2]}${partes[3] ?? "000"}` : undefined;
+  };
   await Promise.all(arquivos.map(async caminho => {
     const relativo = relative(pasta, caminho).split(sep).join("/");
     const separador = relativo.indexOf("/");
@@ -120,7 +156,16 @@ export async function indexarCopias(raiz: string): Promise<Map<string, string>> 
     const pagina = relativo.slice(separador + 1);
     try {
       const data = (await stat(caminho)).mtimeMs;
-      if (!candidatos.has(pagina) || candidatos.get(pagina)!.data < data) candidatos.set(pagina, { caminho, data });
+      const sessao = relativo.slice(0, separador);
+      const atual = candidatos.get(pagina);
+      const carimboAtual = atual ? carimboDaSessao(atual.sessao) : undefined;
+      const carimboNovo = carimboDaSessao(sessao);
+      const desempateDeterministico = atual && atual.data === data && (
+        (carimboAtual ?? "") < (carimboNovo ?? "") ||
+        ((carimboAtual ?? "") === (carimboNovo ?? "") && atual.sessao < sessao)
+      );
+      const sessaoMaisNova = atual && (atual.data < data || desempateDeterministico);
+      if (!atual || sessaoMaisNova) candidatos.set(pagina, { caminho, data, sessao });
     } catch { /* cópia removida durante a indexação */ }
   }));
   return new Map([...candidatos].map(([pagina, item]) => [pagina, item.caminho]));

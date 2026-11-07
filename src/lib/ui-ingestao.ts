@@ -1,18 +1,29 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, readlink, realpath, rename, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { conferirArquivoDeLeitura } from "../comandos/conferir-leitura";
-import { caminhoReal, dentroDe } from "./caminhos";
+import { caminhoReal, dentroDe, estaEmRaw } from "./caminhos";
 import { isoComOffset } from "./hora";
 import { caminhoDeRawIngerivelPeloBotao, caminhoTemMetacaracteres } from "./caminho-raw";
 export { caminhoDeRawIngerivelPeloBotao, caminhoTemMetacaracteres } from "./caminho-raw";
 import { rotaDaIngestao, type Papel } from "./papeis-ingestao";
+import { caminhoTemCaractereEspecialDeAjuste, MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE } from "./ponte-claude-code";
 import type { EventoDoAgente, ExecucaoDeFase, FimDaFase, PedidoDeFase, PonteDeAgente, Recusa } from "./ponte-agente";
 import { extrairJson, type RelatorioLeitor } from "./relatorio-leitor";
 import { areasDaWiki, ErroDeFonte, salvarFonte } from "./ui-fonte";
 import { fontesCitadas } from "./ui-inicio";
+import { caminhoDaCopia } from "./ui-fila";
 import { caminhoWiki } from "./wiki-repo";
+import { lerFrontmatter } from "./frontmatter";
+import { estadoAprovacaoHumana, lerVerificacoes, situacaoDeRevisao } from "./okf";
+import { gravarArquivoWiki, validarEscritaNaWiki } from "./escrita-segura";
+
+function carimboLocalComMilissegundos(data: Date): string {
+  const local = isoComOffset(data).slice(0, 19);
+  return `${local}${String(data.getMilliseconds()).padStart(3, "0")}`.replace(/[-:]/g, "").replace("T", "-");
+}
 
 // A ingestão pela interface, sem HTTP: o servidor orquestra o que a skill faz numa conversa.
 // Fonte em raw/ (ação da pessoa) → leitor → parada única (takeaways e páginas) → escritor →
@@ -31,6 +42,10 @@ export type Conversa = {
   id: string;
   criadaEm: string;
   atualizadaEm: string;
+  tipo?: "ingestao" | "ajuste";
+  pagina?: string;
+  versaoEsperada?: string;
+  pedido?: string;
   area: string;
   fonte: string;
   nome: string;
@@ -52,7 +67,7 @@ export type Conversa = {
   fechamento?: Fechamento;
 };
 
-export type ResumoDeConversa = Pick<Conversa, "id" | "nome" | "fonte" | "passo" | "situacao" | "criadaEm">;
+export type ResumoDeConversa = Pick<Conversa, "id" | "nome" | "fonte" | "passo" | "situacao" | "criadaEm" | "tipo">;
 
 export class ErroDeIngestao extends Error {
   constructor(message: string, readonly status: number) { super(message); }
@@ -111,6 +126,91 @@ export function mensagemDoEscritor(conversa: Pick<Conversa, "fonte" | "relatorio
     JSON.stringify(aprovado, null, 2),
     "```",
   ].join("\n");
+}
+
+export function mensagemDoAjuste(conversa: Pick<Conversa, "pagina" | "pedido" | "geracao">, wiki: string): string {
+  const caminhoCompleto = join(wiki, conversa.pagina!);
+  return [
+    "Você é o escritor fazendo um ajuste pontual numa página da wiki.",
+    "",
+    `Página a ajustar: ${conversa.pagina}`,
+    `Caminho completo: ${caminhoCompleto}`,
+    `Wiki: ${wiki}`,
+    `by: ${conversa.geracao!.by}`,
+    `at: ${conversa.geracao!.at}`,
+    "",
+    "Você só tem permissão para editar ESTA página. Não tente editar nenhuma outra página nem criar arquivos novos.",
+    "Leia a página inteira antes de mexer nela.",
+    "",
+    "Pedido de ajuste da pessoa:",
+    conversa.pedido!,
+    "",
+    "Regras:",
+    "- Aplique o ajuste solicitado no corpo ou frontmatter da página conforme o pedido.",
+    "- Atualize o bloco `generated` com o `by` e o `at` informados acima.",
+    "- Se a página já tiver o campo `verified`, mantenha-o como está: a aprovação antiga deixa de valer automaticamente.",
+    "- Nunca invente nem altere o campo `verified`.",
+  ].join("\n");
+}
+
+export function invalidarAprovacaoVigente(conteudo: string, autor: string, agora: Date = new Date()): string {
+  const quebra = conteudo.includes("\r\n") ? "\r\n" : "\n";
+  const linhas = conteudo.split(/\r?\n/);
+  const fim = linhas.indexOf("---", 1);
+  if (fim < 0) throw new Error("Não foi possível invalidar a aprovação: frontmatter sem fechamento.");
+
+  const fm = lerFrontmatter(conteudo);
+  if (!fm) throw new Error("Não foi possível invalidar a aprovação: frontmatter ausente.");
+
+  let maiorData = agora.getTime();
+  if (fm.verified != null) {
+    const verificacoes = lerVerificacoes(fm.verified, "pagina");
+    for (const humana of verificacoes.humanas) {
+      if (humana !== null) {
+        const proximoSegundo = (humana.segundos + 1) * 1000;
+        if (proximoSegundo > maiorData) maiorData = proximoSegundo;
+      }
+    }
+  }
+
+  const novaData = isoComOffset(new Date(maiorData));
+  const secaoGenerated = [
+    "generated:",
+    `  by: ${autor}`,
+    `  at: ${novaData}`,
+  ];
+
+  const linhaGenerated = /^(?:generated|"generated"|'generated')\s*:/;
+  const indicesGenerated = linhas.flatMap((linha, indice) => indice > 0 && indice < fim && linhaGenerated.test(linha) ? [indice] : []);
+  if (indicesGenerated.length > 1) throw new Error("Não foi possível invalidar a aprovação: chave generated duplicada.");
+  const indiceGenerated = indicesGenerated[0] ?? -1;
+  if (indiceGenerated >= 0) {
+    let fimGenerated = fim;
+    for (let i = indiceGenerated + 1; i < fim; i++) {
+      const linha = linhas[i]!;
+      if (linha.length > 0 && !/^\s/.test(linha) && !linha.startsWith("#") && !linha.startsWith("- ")) { fimGenerated = i; break; }
+    }
+    linhas.splice(indiceGenerated, fimGenerated - indiceGenerated, ...secaoGenerated);
+  } else {
+    if (Object.hasOwn(fm, "generated")) throw new Error("Não foi possível localizar a chave generated sem alterar o frontmatter.");
+    linhas.splice(fim, 0, ...secaoGenerated);
+  }
+
+  const novoConteudo = linhas.join(quebra);
+  let novoFm: Record<string, unknown> | null;
+  try { novoFm = lerFrontmatter(novoConteudo); }
+  catch { throw new Error("Não foi possível invalidar a aprovação sem alterar outros campos do frontmatter."); }
+  if (!novoFm) throw new Error("Não foi possível invalidar a aprovação sem alterar outros campos do frontmatter.");
+
+  const { generated: _generatedOriginal, ...camposOriginais } = fm;
+  const { generated: novoGenerated, ...camposNovos } = novoFm;
+  const geracao = novoGenerated as Record<string, unknown> | null;
+  const instanteGerado = geracao?.at instanceof Date ? geracao.at.getTime() : Date.parse(String(geracao?.at ?? ""));
+  if (!isDeepStrictEqual(camposNovos, camposOriginais) || !geracao || Array.isArray(geracao) ||
+      Object.keys(geracao).sort().join(",") !== "at,by" || geracao.by !== autor || instanteGerado !== new Date(novaData).getTime()) {
+    throw new Error("Não foi possível invalidar a aprovação sem alterar outros campos do frontmatter.");
+  }
+  return novoConteudo;
 }
 
 // "N rascunhos esperam você" só quando o único erro do fechamento é a falta de aprovação humana,
@@ -181,6 +281,7 @@ export class IngestaoNaInterface {
   private readonly gravacoes = new Map<string, Promise<void>>();
   private readonly fases = new Map<string, Promise<void>>();
   private ativa: { id: string; execucao: ExecucaoDeFase } | undefined;
+  private ajusteEmPreparacao?: string;
   private reservada = false;
   private encerrando = false;
   private preparacao: Promise<void> | undefined;
@@ -203,11 +304,28 @@ export class IngestaoNaInterface {
 
   get ocupada(): boolean { return Boolean(this.ativa || this.reservada); }
 
+  ajusteAtivoPara(caminho: string): boolean {
+    if (this.ajusteEmPreparacao === caminho) return true;
+    for (const c of this.conversas.values()) {
+      if (c.tipo === "ajuste" && c.pagina === caminho && c.situacao === "rodando") return true;
+    }
+    return false;
+  }
+
+  paginasEmAjuste(): Set<string> {
+    const conjunto = new Set<string>();
+    if (this.ajusteEmPreparacao) conjunto.add(this.ajusteEmPreparacao);
+    for (const c of this.conversas.values()) {
+      if (c.tipo === "ajuste" && c.pagina && c.situacao === "rodando") conjunto.add(c.pagina);
+    }
+    return conjunto;
+  }
+
   private wiki(): string { return caminhoWiki(this.raiz, this.ambiente); }
 
   private async iniciarConversa(fonte: string, area: string, bytes: number): Promise<Conversa> {
     const agora = this.agora();
-    const carimbo = isoComOffset(agora).slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
+    const carimbo = carimboLocalComMilissegundos(agora);
     const conversa: Conversa = {
       versao: 1, id: `${carimbo}-${randomBytes(3).toString("hex")}`, criadaEm: agora.toISOString(), atualizadaEm: agora.toISOString(),
       area, fonte, nome: basename(fonte), bytes,
@@ -311,9 +429,23 @@ export class IngestaoNaInterface {
     for (const nome of nomes) {
       if (!nome.endsWith(".json")) continue;
       const conversa = await this.obter(nome.slice(0, -5));
-      if (conversa) resumos.push({ id: conversa.id, nome: conversa.nome, fonte: conversa.fonte, passo: conversa.passo, situacao: conversa.situacao, criadaEm: conversa.criadaEm });
+      if (conversa) resumos.push({ id: conversa.id, nome: conversa.nome, fonte: conversa.fonte, passo: conversa.passo, situacao: conversa.situacao, criadaEm: conversa.criadaEm, tipo: conversa.tipo });
     }
     return resumos.sort((a, b) => b.criadaEm.localeCompare(a.criadaEm) || b.id.localeCompare(a.id));
+  }
+
+  async recuperarInterrompidas(): Promise<void> {
+    let nomes: string[];
+    try { nomes = await readdir(this.pasta); } catch { return; }
+    for (const nome of nomes) {
+      if (!nome.endsWith(".json")) continue;
+      const id = nome.slice(0, -5);
+      if (!ID_VALIDO.test(id)) continue;
+      try {
+        const conversa = JSON.parse(await readFile(join(this.pasta, nome), "utf8")) as Conversa;
+        if (conversa?.id === id && conversa.situacao === "rodando") await this.carregar(id);
+      } catch { /* uma conversa inválida ou sem permissão não impede recuperar as outras */ }
+    }
   }
 
   async obter(id: string): Promise<Conversa | undefined> {
@@ -411,6 +543,155 @@ export class IngestaoNaInterface {
     } finally { this.liberarReserva(); }
   }
 
+  async ajustar(dados: { caminho: string; versao: string; pedido: string }): Promise<Conversa> {
+    const pedidoTexto = typeof dados?.pedido === "string" ? dados.pedido.trim() : "";
+    if (!pedidoTexto) throw new ErroDeIngestao("O pedido de ajuste não pode ser vazio.", 400);
+    if (pedidoTexto.length > LIMITE_DO_COMENTARIO) throw new ErroDeIngestao(`O comentário passa de ${LIMITE_DO_COMENTARIO} caracteres.`, 400);
+
+    if (typeof dados?.caminho !== "string" || !dados.caminho.endsWith(".md") || isAbsolute(dados.caminho)) {
+      throw new ErroDeIngestao("Página inválida.", 400);
+    }
+    const partes = dados.caminho.split("/");
+    if (partes.some(p => !p || p === "." || p === "..")) {
+      throw new ErroDeIngestao("Caminho inválido.", 400);
+    }
+    if (typeof dados?.versao !== "string" || !/^[a-f0-9]{64}$/.test(dados.versao)) {
+      throw new ErroDeIngestao("Versão inválida.", 400);
+    }
+
+    const wiki = this.wiki();
+    const arquivoPagina = resolve(wiki, dados.caminho);
+    if (dentro(arquivoPagina, wiki) === undefined) {
+      throw new ErroDeIngestao("Página fora da wiki.", 400);
+    }
+    if (dados.caminho.includes("\\") || caminhoTemCaractereEspecialDeAjuste(arquivoPagina)) {
+      throw new ErroDeIngestao(MENSAGEM_ERRO_CARACTERE_ESPECIAL_AJUSTE, 400);
+    }
+
+    // Validação de caminho real e symlinks (P2)
+    let cursor = wiki;
+    for (const segmento of partes) {
+      cursor = join(cursor, segmento);
+      try {
+        const stSegmento = await lstat(cursor);
+        if (stSegmento.isSymbolicLink()) {
+          throw new ErroDeIngestao("Caminho não pode conter links simbólicos.", 400);
+        }
+      } catch (erro) {
+        if (erro instanceof ErroDeIngestao) throw erro;
+        const codigo = (erro as NodeJS.ErrnoException).code;
+        if (codigo === "ENOENT") throw new ErroDeIngestao("Página não encontrada na wiki.", 404);
+        throw erro;
+      }
+    }
+
+    let wikiReal: string;
+    let caminhoReal: string;
+    try {
+      [wikiReal, caminhoReal] = await Promise.all([
+        realpath(wiki),
+        realpath(arquivoPagina),
+      ]);
+    } catch (erro) {
+      const codigo = (erro as NodeJS.ErrnoException).code;
+      if (codigo === "ENOENT") throw new ErroDeIngestao("Página não encontrada na wiki.", 404);
+      throw erro;
+    }
+
+    const relReal = relative(wikiReal, caminhoReal).split(sep).join("/");
+    if (relReal === ".." || relReal.startsWith("../") || isAbsolute(relReal) || relReal !== dados.caminho) {
+      throw new ErroDeIngestao("Página fora da wiki ou inválida.", 400);
+    }
+
+    let conteudo: string;
+    try {
+      conteudo = await readFile(arquivoPagina, "utf8");
+    } catch {
+      throw new ErroDeIngestao("Página não encontrada na wiki.", 404);
+    }
+
+    const versaoAtual = createHash("sha256").update(conteudo).digest("hex");
+    if (versaoAtual !== dados.versao) {
+      throw new ErroDeIngestao("A página mudou desde que você abriu. Recarregue a página.", 409);
+    }
+
+    this.reservar();
+    this.ajusteEmPreparacao = dados.caminho;
+    try {
+      if (this.encerrando) throw new ErroDeIngestao("A interface está encerrando.", 409);
+      await this.exigirAgente();
+      if (this.encerrando) throw new ErroDeIngestao("A interface está encerrando.", 409);
+
+      const agora = this.agora();
+      const carimbo = carimboLocalComMilissegundos(agora);
+      const id = `${carimbo}-${randomBytes(3).toString("hex")}`;
+
+      // A linha de base da aba Mudanças: preserva a cópia original da página fora do git antes da primeira escrita
+      const copiaExistente = await caminhoDaCopia(this.raiz, dados.caminho);
+      let aprovacaoVigente = false;
+      try {
+        aprovacaoVigente = estadoAprovacaoHumana(lerFrontmatter(conteudo) ?? {}) === "vigente";
+      } catch { /* frontmatter malformado é revisão pendente, não impede abrir o ajuste */ }
+      if (!copiaExistente || aprovacaoVigente) {
+        const copia = join(this.raiz, ".anvilore/ui/copias", id, dados.caminho);
+        await mkdir(dirname(copia), { recursive: true });
+        await writeFile(copia, conteudo);
+      }
+
+      const conversa: Conversa = {
+        versao: 1,
+        id,
+        criadaEm: agora.toISOString(),
+        atualizadaEm: agora.toISOString(),
+        tipo: "ajuste",
+        area: partes.length > 1 ? partes[0]! : "",
+        fonte: `wiki/${dados.caminho}`,
+        nome: basename(dados.caminho),
+        bytes: Buffer.byteLength(conteudo, "utf8"),
+        pagina: dados.caminho,
+        versaoEsperada: dados.versao,
+        pedido: pedidoTexto,
+        passo: "escrita",
+        situacao: "rodando",
+        agora: `Começando ajuste em ${basename(dados.caminho)}`,
+        atividade: [],
+        avisos: [],
+        recusas: [],
+        geracao: {
+          by: `${this.ponte.nome.toLowerCase().replace(/[^a-z0-9_-]/g, "-")}/desconhecida`,
+          at: isoComOffset(this.agora()),
+        },
+      };
+
+      this.conversas.set(conversa.id, conversa);
+      await this.salvar(conversa);
+
+      if (this.encerrando) {
+        Object.assign(conversa, { situacao: "cancelada", erro: "A interface foi encerrada antes do início desta etapa." });
+        delete conversa.agora;
+        await this.salvar(conversa);
+        throw new ErroDeIngestao("A interface está encerrando.", 409);
+      }
+
+      const existentes = new Set<string>();
+      if (existsSync(wiki)) for await (const arquivo of new Bun.Glob("**/*").scan({ cwd: wiki, onlyFiles: true })) existentes.add(porBarra(arquivo));
+
+      const pedidoDeFase: PedidoDeFase = {
+        papel: "escritor",
+        mensagem: mensagemDoAjuste(conversa, wiki),
+        raiz: this.raiz,
+        wiki,
+        pagina: dados.caminho,
+      };
+
+      this.iniciar(conversa, pedidoDeFase, existentes, fim => this.terminarEscrita(conversa, fim));
+      return (await this.obter(id))!;
+    } finally {
+      this.ajusteEmPreparacao = undefined;
+      this.liberarReserva();
+    }
+  }
+
   async encerrar(): Promise<void> {
     this.encerrando = true;
     await this.preparacao;
@@ -464,7 +745,10 @@ export class IngestaoNaInterface {
     if (conversa?.id !== id) return undefined;
     // Rodando no disco e sem processo nesta interface: a fase morreu com a interface anterior.
     if (conversa.situacao === "rodando") {
-      Object.assign(conversa, { situacao: "interrompida", erro: "A interface foi fechada durante esta etapa." });
+      if (conversa.tipo === "ajuste" && conversa.pagina && conversa.versaoEsperada) {
+        await this.tentarInvalidarAprovacaoSemMascarar(conversa);
+      }
+      Object.assign(conversa, { situacao: "interrompida", erro: conversa.erro ?? "A interface foi fechada durante esta etapa." });
       delete conversa.agora;
       await this.salvar(conversa);
     } else {
@@ -509,8 +793,12 @@ export class IngestaoNaInterface {
         delete conversa.agora;
         await terminar(fim);
       })
-      .catch((erro: unknown) => {
-        Object.assign(conversa, { situacao: "erro", erro: `Falha inesperada: ${(erro as Error).message}` });
+      .catch(async (erro: unknown) => {
+        const mensagemOriginal = `Falha inesperada: ${(erro as Error).message}`;
+        if (conversa.tipo === "ajuste" && conversa.pagina) {
+          await this.tentarInvalidarAprovacaoSemMascarar(conversa);
+        }
+        Object.assign(conversa, { situacao: "erro", erro: conversa.erro ?? mensagemOriginal });
       })
       .finally(async () => {
         this.ativa = undefined;
@@ -538,7 +826,8 @@ export class IngestaoNaInterface {
     const { papel } = fase;
     if (evento.tipo === "inicio") {
       if (evento.sessao) conversa.sessao = evento.sessao;
-      if (papel === "leitor") conversa.autor = evento.autor;
+      if (papel === "leitor" || conversa.tipo === "ajuste") conversa.autor = evento.autor;
+      if (conversa.tipo === "ajuste" && conversa.geracao && evento.autor) conversa.geracao.by = evento.autor;
       return;
     }
     if (evento.tipo === "ferramenta") {
@@ -611,7 +900,190 @@ export class IngestaoNaInterface {
     Object.assign(conversa, { relatorio, avisos: conferencia.mensagens.filter(m => m.startsWith("AVISO")), passo: "parada", situacao: "esperando" });
   }
 
+  // Regra: bytes finais diferentes de `versaoEsperada` => a página tem de terminar pendente de revisão, conferida
+  // pelo mesmo predicado da fila e da Biblioteca (`situacaoDeRevisao`). `generated` ausente, quebrado ou mais velho
+  // que a aprovação humana é refeito pelo invalidador; se ele não conseguir, quem chama restaura ou põe em quarentena.
+  private async assegurarPaginaPendenteSeMudou(conversa: Conversa): Promise<void> {
+    if (!conversa.pagina || !conversa.versaoEsperada) return;
+    this.validarCaminhoDaPagina(conversa.pagina);
+    let bytesFinais: Buffer;
+    try { bytesFinais = await readFile(resolve(this.wiki(), conversa.pagina)); }
+    catch (erro) {
+      if ((erro as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw erro;
+    }
+    const conteudoFinal = bytesFinais.toString("utf8");
+    const versaoFinal = createHash("sha256").update(bytesFinais).digest("hex");
+    if (versaoFinal === conversa.versaoEsperada) return;
+    let frontmatter: Record<string, unknown> | null;
+    try { frontmatter = lerFrontmatter(conteudoFinal); }
+    catch (erro) { throw new Error("o frontmatter da página alterada não pôde ser conferido", { cause: erro }); }
+    if (!frontmatter) throw new Error("a página alterada não tem frontmatter válido");
+    if (situacaoDeRevisao(frontmatter) !== "pendente") {
+      const novoConteudo = invalidarAprovacaoVigente(conteudoFinal, conversa.geracao?.by ?? conversa.autor ?? "escritor", this.agora());
+      await gravarArquivoWiki(this.wiki(), conversa.pagina, novoConteudo);
+    }
+    await this.conferirPaginaPendente(conversa.pagina);
+  }
+
+  private async conferirPaginaPendente(pagina: string): Promise<void> {
+    let frontmatter: Record<string, unknown> | null = null;
+    try { frontmatter = lerFrontmatter(await readFile(resolve(this.wiki(), pagina), "utf8")); } catch { /* ilegível não é pendente */ }
+    if (situacaoDeRevisao(frontmatter) !== "pendente") throw new Error("a página alterada não ficou pendente de revisão");
+  }
+
+  private validarCaminhoDaPagina(pagina: string, validarAlvo = true): void {
+    if (typeof pagina !== "string" || isAbsolute(pagina) || pagina.includes("\\") || pagina.includes("\0") || !pagina.endsWith(".md")) {
+      throw new Error("o caminho da página do ajuste não é seguro");
+    }
+    const partes = pagina.split("/");
+    if (partes.some(parte => !parte || parte === "." || parte === "..")) throw new Error("o caminho da página do ajuste não é seguro");
+    if (validarAlvo) validarEscritaNaWiki(this.wiki(), pagina);
+  }
+
+  private async restaurarOuQuarentenarPagina(conversa: Conversa): Promise<"restaurada" | "quarentenada" | "ausente"> {
+    const pagina = conversa.pagina;
+    if (!pagina || !conversa.versaoEsperada || !ID_VALIDO.test(conversa.id)) throw new Error("não há identidade segura para proteger a página do ajuste");
+    this.validarCaminhoDaPagina(pagina, false);
+
+    const arquivoCopia = join(this.raiz, ".anvilore/ui/copias", conversa.id, pagina);
+    try {
+      const raizReal = await realpath(this.raiz);
+      const anvilore = join(raizReal, ".anvilore");
+      const infoAnvilore = await lstat(anvilore);
+      if (!infoAnvilore.isDirectory() || infoAnvilore.isSymbolicLink()) throw new Error(".anvilore não é um diretório seguro");
+      const anviloreReal = await realpath(anvilore);
+      const pastaCopias = await realpath(join(anviloreReal, "ui/copias"));
+      if (dentro(pastaCopias, anviloreReal) === undefined) throw new Error("a pasta de cópias saiu de .anvilore");
+      const infoCopia = await lstat(arquivoCopia);
+      if (!infoCopia.isFile() || infoCopia.isSymbolicLink()) throw new Error("a cópia-base não é um arquivo regular");
+      const caminhoCopiaReal = await realpath(arquivoCopia);
+      if (dentro(caminhoCopiaReal, pastaCopias) === undefined) throw new Error("a cópia-base saiu da pasta de cópias");
+      const copia = await readFile(caminhoCopiaReal);
+      if (createHash("sha256").update(copia).digest("hex") === conversa.versaoEsperada) {
+        let frontmatter: Record<string, unknown> | null;
+        try { frontmatter = lerFrontmatter(copia.toString("utf8")); } catch { frontmatter = null; }
+        if (frontmatter && estadoAprovacaoHumana(frontmatter) === "vigente") {
+          try {
+            await gravarArquivoWiki(this.wiki(), pagina, copia);
+            return "restaurada";
+          } catch { /* se o alvo não puder ser substituído com segurança, retire-o da wiki */ }
+        }
+      }
+    } catch { /* uma cópia ausente, inacessível ou com hash inválido não pode ser base de restauração */ }
+
+    const wikiReal = await realpath(this.wiki());
+    if (estaEmRaw(wikiReal)) throw new Error("a wiki está dentro de raw/ e não pode ser movida para quarentena");
+    const origemParaMover = resolve(wikiReal, pagina);
+    let pastaOrigem = wikiReal;
+    for (const parte of pagina.split("/").slice(0, -1)) {
+      pastaOrigem = join(pastaOrigem, parte);
+      const info = await lstat(pastaOrigem);
+      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("a origem da página atravessa um link simbólico");
+    }
+    let paginaAtual: Buffer | undefined;
+    let origemInfo: Awaited<ReturnType<typeof lstat>>;
+    try {
+      origemInfo = await lstat(origemParaMover);
+      if (!origemInfo.isSymbolicLink()) {
+        if (!origemInfo.isFile()) throw new Error("a página não é um arquivo regular");
+        paginaAtual = await readFile(origemParaMover);
+      }
+    }
+    catch (erro) {
+      if ((erro as NodeJS.ErrnoException).code === "ENOENT") return "ausente";
+      throw erro;
+    }
+    // Validar também a origem real: a quarentena nunca pode retirar um arquivo de raw/ ou seguir links.
+    const origemReal = origemInfo.isSymbolicLink() ? origemParaMover : await realpath(origemParaMover);
+    if (dentro(origemReal, wikiReal) === undefined) {
+      throw new Error("a página não está dentro da wiki");
+    }
+
+    const raizReal = await realpath(this.raiz);
+    const pastaAnvilore = join(raizReal, ".anvilore");
+    await mkdir(pastaAnvilore, { recursive: true });
+    const infoAnvilore = await lstat(pastaAnvilore);
+    if (!infoAnvilore.isDirectory() || infoAnvilore.isSymbolicLink()) throw new Error("o diretório .anvilore não é seguro para quarentena");
+    const anviloreReal = await realpath(pastaAnvilore);
+    if (dentro(anviloreReal, raizReal) === undefined) throw new Error("o diretório de quarentena saiu da raiz do projeto");
+    const destino = resolve(anviloreReal, "ui", "quarentena", conversa.id, pagina);
+    const relDestino = relative(anviloreReal, destino);
+    if (!relDestino || relDestino === ".." || relDestino.startsWith(`..${sep}`) || isAbsolute(relDestino)) {
+      throw new Error("o destino de quarentena saiu de .anvilore");
+    }
+    await mkdir(dirname(destino), { recursive: true });
+    const paiReal = await realpath(dirname(destino));
+    if (dentro(paiReal, anviloreReal) === undefined) throw new Error("o diretório pai da quarentena saiu de .anvilore");
+    let atual = anviloreReal;
+    for (const parte of relative(anviloreReal, paiReal).split(sep).filter(Boolean)) {
+      atual = join(atual, parte);
+      const info = await lstat(atual);
+      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("o destino da quarentena atravessa um link simbólico");
+    }
+    try { await lstat(destino); throw new Error("o destino da quarentena já existe"); }
+    catch (erro) { if ((erro as NodeJS.ErrnoException).code !== "ENOENT") throw erro; }
+
+    try {
+      await rename(origemParaMover, destino);
+    } catch (erro) {
+      if ((erro as NodeJS.ErrnoException).code !== "EXDEV") throw erro;
+      const temporario = `${destino}.${randomBytes(8).toString("hex")}.tmp`;
+      try {
+        if (!paginaAtual) {
+          await symlink(await readlink(origemParaMover), temporario);
+          await rename(temporario, destino);
+          await unlink(origemParaMover);
+          return "quarentenada";
+        }
+        await writeFile(temporario, paginaAtual, { flag: "wx" });
+        await rename(temporario, destino);
+        const bytesAntesDeRemover = await readFile(origemParaMover);
+        if (!bytesAntesDeRemover.equals(paginaAtual)) throw new Error("a página mudou durante a quarentena");
+        await unlink(origemParaMover);
+      } catch (erroDeCopia) {
+        try { await unlink(temporario); } catch {}
+        throw erroDeCopia;
+      }
+    }
+    return "quarentenada";
+  }
+
+  private async tentarInvalidarAprovacaoSemMascarar(conversa: Conversa): Promise<boolean> {
+    try {
+      await this.assegurarPaginaPendenteSeMudou(conversa);
+      return true;
+    } catch (erro) {
+      const detalhe = erro instanceof Error ? erro.message : String(erro);
+      conversa.mensagens ??= [];
+      try {
+        const destino = await this.restaurarOuQuarentenarPagina(conversa);
+        if (destino === "restaurada") {
+          conversa.mensagens.push("A edição não revisada foi descartada; a página aprovada foi restaurada da cópia-base.");
+          conversa.erro = "A edição não revisada foi descartada e a página aprovada foi restaurada.";
+        } else if (destino === "quarentenada") {
+          conversa.mensagens.push("A edição não revisada foi descartada; sem cópia-base íntegra, a página foi movida para .anvilore/ui/quarentena.");
+          conversa.erro = "A edição não revisada foi descartada e a página foi movida para quarentena.";
+        } else {
+          conversa.mensagens.push("A página já não está na wiki; não havia conteúdo aprovado para restaurar ou mover.");
+          conversa.erro = "A página já não está na wiki; a aprovação anterior não pôde ser conferida.";
+        }
+      } catch (protecao) {
+        const detalheProtecao = protecao instanceof Error ? protecao.message : String(protecao);
+        conversa.mensagens.push(`Não foi possível invalidar a aprovação após a escrita: ${detalhe}. Também não foi possível restaurar ou mover a página para quarentena: ${detalheProtecao}`);
+        conversa.erro = "Não foi possível proteger a página alterada; é necessária revisão manual imediata.";
+      }
+      return false;
+    }
+  }
+
   private async terminarEscrita(conversa: Conversa, fim: FimDaFase): Promise<void> {
+    if (conversa.tipo === "ajuste" && conversa.pagina) {
+      if (!(await this.tentarInvalidarAprovacaoSemMascarar(conversa))) {
+        Object.assign(conversa, { situacao: "erro", erro: conversa.erro ?? "Não foi possível conferir a aprovação anterior; a página precisa de revisão manual." });
+        return;
+      }
+    }
     if (fim.situacao === "cancelada") { conversa.situacao = "cancelada"; return; }
     if (fim.situacao === "falhou") { Object.assign(conversa, { situacao: "erro", erro: fim.erro }); return; }
     // O servidor roda o fechamento e mostra a saída real: o "rodou" do agente não vale.

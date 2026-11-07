@@ -5,6 +5,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { iniciarServidorUi } from "../src/ui/servidor/servidor";
+import { estadoAprovacaoHumana } from "../src/lib/okf";
+import { lerFrontmatter } from "../src/lib/frontmatter";
 import { FONTE, relatorioValido, SESSAO } from "./apoio/ingestao-exemplo";
 import { PonteFalsa } from "./apoio/ponte-falsa";
 
@@ -28,6 +30,22 @@ async function servidor(ponte = new PonteFalsa()) {
   return { app, base, chamar, postar };
 }
 
+function salvarAjusteInterrompido(corpo: string, id: string) {
+  const caminho = "pessoal/concepts/segundo-cerebro.md";
+  const original = "---\ntype: concept\nslug: segundo-cerebro\ntitle: Segundo cérebro\ngenerated:\n  by: agente/teste\n  at: 2026-10-27T10:00:00Z\nverified:\n  by: human:iago\n  at: 2026-10-27T11:00:00Z\n---\nTexto original.\n";
+  const pagina = original.replace("Texto original.\n", `${corpo}\n`);
+  writeFileSync(join(raiz, "wiki", caminho), pagina);
+  mkdirSync(join(raiz, ".anvilore/ui/conversas"), { recursive: true });
+  writeFileSync(join(raiz, ".anvilore/ui/conversas", `${id}.json`), JSON.stringify({
+    versao: 1, id, criadaEm: "2026-11-06T23:00:00.123Z", atualizadaEm: "2026-11-06T23:00:00.123Z",
+    tipo: "ajuste", pagina: caminho, versaoEsperada: createHash("sha256").update(original).digest("hex"),
+    pedido: "Ajustar", area: "pessoal", fonte: `wiki/${caminho}`, nome: "segundo-cerebro.md", bytes: 10,
+    passo: "escrita", situacao: "rodando", atividade: [], avisos: [], recusas: [],
+    geracao: { by: "agente/teste", at: "2026-11-06T23:00:00.123Z" },
+  }));
+  return { caminho, arquivo: join(raiz, "wiki", caminho) };
+}
+
 function formulario(campos: Record<string, string | Blob>, nome?: string): FormData {
   const dados = new FormData();
   for (const [chave, valor] of Object.entries(campos)) {
@@ -36,6 +54,29 @@ function formulario(campos: Record<string, string | Blob>, nome?: string): FormD
   }
   return dados;
 }
+
+test("Dado ajuste persistido rodando e página alterada Quando o servidor inicia Então o primeiro GET da Revisão encontra a página", async () => {
+  const { caminho } = salvarAjusteInterrompido("Texto alterado durante o ajuste.", "20261106-230000123-a1b2c3");
+  const { chamar } = await servidor();
+
+  const resposta = await chamar("/api/rascunhos");
+
+  expect(resposta.status).toBe(200);
+  expect(await resposta.json()).toMatchObject([{ caminho, status: "atualizada" }]);
+});
+
+test("Dado ajuste persistido rodando e página inalterada Quando o servidor inicia Então o primeiro GET da Revisão preserva bytes e aprovação", async () => {
+  const { arquivo } = salvarAjusteInterrompido("Texto original.", "20261106-230000124-a1b2c4");
+  const bytesAntes = readFileSync(arquivo);
+  const { chamar } = await servidor();
+
+  const resposta = await chamar("/api/rascunhos");
+
+  expect(resposta.status).toBe(200);
+  expect(await resposta.json()).toEqual([]);
+  expect(readFileSync(arquivo)).toEqual(bytesAntes);
+  expect(estadoAprovacaoHumana(lerFrontmatter(readFileSync(arquivo, "utf8")) ?? {})).toBe("vigente");
+});
 
 test("Dado que a gravação da parada falha Quando a UI consulta Então a API responde erro explícito em vez de rodando", async () => {
   const liberar = Promise.withResolvers<void>();

@@ -14,13 +14,24 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - O Início traz botão "Ingerir" para arquivos já presentes em `raw/` que ainda não foram ingeridos, abrindo a conversa correspondente no chat sem copiar, mover nem alterar o arquivo bruto existente.
 - Telas de primeiros passos na interface web (Onboarding 1–4): confirmação do vault e inspeção de pastas, verificação do Claude Code via `doctor` sem chave de API, configuração inicial de áreas via `init` com identidade automática do revisor e primeira ingestão guiada.
 
+- A tela de Revisão permite pedir ajustes em rascunhos com a tecla `R` ou pelo botão "Pedir ajuste", abrindo conversa de ajuste onde o agente escritor atua com permissão restrita à página selecionada, e na conclusão o fechamento devolve uma nova versão com hash recalculado para revisão.
+
 ### Fixed
 
 - A remoção da área de exemplo no onboarding recusa links que apontem para `raw/`, preserva áreas com nomes que apenas começam por `exemplo` e protege o estado salvo do onboarding contra links simbólicos.
 
 ### Security
 
+- A rota `/api/ajuste` e a tela de Revisão recusam e desabilitam o pedido de ajuste em páginas cujo caminho absoluto contenha metacaracteres (`* ? [ ] { } ! \`), prevenindo expansão indevida de regras de edição no Claude Code, com aviso visível e mantendo leitura e ingestão funcionando normalmente em pastas do vault com esses caracteres.
 - O `anvilore migrar-rastreio --puxar` aplica guarda de transporte no `git pull`: só aceita o protocolo do endereço do remoto (https, ssh ou pasta local) e recusa protocolos como `ext::` e trocas por `insteadOf`, com `credential.helper` e prompt de terminal desabilitados.
+
+### Fixed
+
+- A invalidação e o registro de aprovação preservam chaves YAML entre aspas; falhas em frontmatter que não pode ser reescrito com segurança são registradas como erro visível.
+- Cópias usadas como base em Mudanças agora são escolhidas pelo momento em que foram capturadas.
+- Ao iniciar a interface, o servidor recupera ajustes interrompidos antes de abrir as rotas; se a página mudou, remove a aprovação vigente antes de responder.
+- Ajustes que cancelam ou falham depois de uma escrita parcial invalidam a aprovação anterior antes de encerrar a conversa e mantêm o desfecho original visível.
+- Se a aprovação não puder ser invalidada com segurança, o ajuste restaura atomicamente a cópia-base aprovada ou move a página para `.anvilore/ui/quarentena` quando não consegue restaurá-la; a conversa informa o descarte da edição não revisada.
 
 ## [0.3.1] - 2026-10-31
 

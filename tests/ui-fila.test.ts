@@ -88,9 +88,58 @@ test("Dado cópias da página em sessões diferentes Quando procuro a cópia Ent
   expect(await caminhoDaCopia(raiz, "pessoal/concepts/alvo.md")).toBe(recente);
 });
 
+test("Dado ingestão criada antes do ajuste mas seguida depois Quando escolho a cópia-base Então vence a captura tardia da ingestão", async () => {
+  const ajuste = join(raiz, ".anvilore/ui/copias/20261106-220000001-ajuste/pessoal/concepts/alvo.md");
+  const ingestao = join(raiz, ".anvilore/ui/copias/20261106-210000001-ingestao/pessoal/concepts/alvo.md");
+  mkdirSync(join(ajuste, ".."), { recursive: true });
+  mkdirSync(join(ingestao, ".."), { recursive: true });
+  writeFileSync(ajuste, "base antes da edição\n");
+  writeFileSync(ingestao, "base capturada depois\n");
+  const capturadaNoAjuste = new Date("2026-11-06T22:00:00Z");
+  const capturadaNaIngestao = new Date("2026-11-06T23:00:00Z");
+  utimesSync(ajuste, capturadaNoAjuste, capturadaNoAjuste);
+  utimesSync(ingestao, capturadaNaIngestao, capturadaNaIngestao);
+
+  expect(await caminhoDaCopia(raiz, "pessoal/concepts/alvo.md")).toBe(ingestao);
+});
+
+test("Dado cópias com mtime igual Quando indexo Então desempato pelo nome da pasta da sessão", async () => {
+  const primeira = join(raiz, ".anvilore/ui/copias/20261106-230000001-a/pessoal/concepts/alvo.md");
+  const segunda = join(raiz, ".anvilore/ui/copias/20261106-230000002-b/pessoal/concepts/alvo.md");
+  mkdirSync(join(primeira, ".."), { recursive: true }); mkdirSync(join(segunda, ".."), { recursive: true });
+  writeFileSync(primeira, "base antiga\n"); writeFileSync(segunda, "base nova\n");
+  const instante = new Date("2026-11-06T23:00:00Z");
+  utimesSync(primeira, instante, instante); utimesSync(segunda, instante, instante);
+  expect(await caminhoDaCopia(raiz, "pessoal/concepts/alvo.md")).toBe(segunda);
+});
+
 test("Dado caminho de cópia com sufixo semelhante Quando procuro Então ignoro a pasta que não é a página", async () => {
   const falso = join(raiz, ".anvilore/ui/copias/seed/pessoal/concepts/alvo.md");
   mkdirSync(join(falso, ".."), { recursive: true });
   writeFileSync(falso, "cópia de outra página");
   expect(await caminhoDaCopia(raiz, "concepts/alvo.md")).toBeUndefined();
+});
+
+test("Dado páginas com caracteres especiais no nome ou em vault especial Quando listo a fila Então marca ajustavel: false com explicação", async () => {
+  pagina("nota-comum", "2026-10-27T10:00:00Z");
+  pagina("nota!", "2026-10-27T10:00:00Z");
+  const fila = await listarFilaRascunhos(raiz);
+  const comum = fila.find(item => item.caminho === "pessoal/concepts/nota-comum.md");
+  const especial = fila.find(item => item.caminho === "pessoal/concepts/nota!.md");
+  expect(comum?.ajustavel).toBe(true);
+  expect(comum?.motivoNaoAjustavel).toBeUndefined();
+  expect(especial?.ajustavel).toBe(false);
+  expect(especial?.motivoNaoAjustavel).toContain("caractere especial");
+
+  // Vault com raiz especial
+  const raizEspecial = mkdtempSync(join(tmpdir(), "anvilore-vault-[2026]!-"));
+  try {
+    mkdirSync(join(raizEspecial, "wiki/pessoal/concepts"), { recursive: true });
+    writeFileSync(join(raizEspecial, "wiki/pessoal/concepts/segura.md"), "---\ntype: concept\nslug: segura\ntitle: Segura\ngenerated:\n  by: teste\n  at: 2026-10-27T10:00:00Z\n---\nCorpo\n");
+    const filaEspecial = await listarFilaRascunhos(raizEspecial);
+    expect(filaEspecial[0]?.ajustavel).toBe(false);
+    expect(filaEspecial[0]?.motivoNaoAjustavel).toContain("caractere especial");
+  } finally {
+    rmSync(raizEspecial, { recursive: true, force: true });
+  }
 });

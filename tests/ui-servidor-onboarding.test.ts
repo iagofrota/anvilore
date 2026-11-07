@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -47,6 +48,36 @@ async function servidor() {
         },
       }),
   };
+}
+
+function prepararAjusteInterrompido(pasta: string, id: string, conteudoAprovado: string, conteudoAtual: string): void {
+  const caminho = "pessoal/minha-pagina.md";
+  const pastaConversa = join(pasta, ".anvilore/ui/conversas");
+  const pastaCopia = join(pasta, ".anvilore/ui/copias", id, "pessoal");
+  mkdirSync(pastaConversa, { recursive: true });
+  mkdirSync(pastaCopia, { recursive: true });
+  writeFileSync(join(pasta, "wiki", caminho), conteudoAtual);
+  writeFileSync(join(pastaCopia, "minha-pagina.md"), conteudoAprovado);
+  writeFileSync(join(pastaConversa, `${id}.json`), JSON.stringify({
+    versao: 1,
+    id,
+    criadaEm: "2026-11-06T20:00:00.000Z",
+    atualizadaEm: "2026-11-06T20:00:00.000Z",
+    tipo: "ajuste",
+    pagina: caminho,
+    versaoEsperada: createHash("sha256").update(conteudoAprovado).digest("hex"),
+    pedido: "Ajustar a página",
+    geracao: { by: "claude-haiku/2.1.311", at: "2026-11-06T20:00:00.000Z" },
+    area: "pessoal",
+    fonte: `wiki/${caminho}`,
+    nome: "minha-pagina.md",
+    bytes: Buffer.byteLength(conteudoAprovado),
+    passo: "escrita",
+    situacao: "rodando",
+    atividade: [],
+    avisos: [],
+    recusas: [],
+  }));
 }
 
 test("Dado uma requisição para /api/onboarding sem token Quando chega ao servidor Então recebe 403", async () => {
@@ -245,6 +276,72 @@ Conteúdo para revisão.
     expect(existsSync(join(raiz, "wiki/pessoal/minha-pagina.md"))).toBe(false);
   } finally {
     rmSync(outraPasta, { recursive: true, force: true });
+  }
+});
+
+test("Dado um ajuste interrompido no cofre escolhido em O1 Quando peço a fila pela primeira vez Então a página alterada já aparece como rascunho", async () => {
+  const outroVault = mkdtempSync(join(homedir(), "anvilore-vault-ajuste-interrompido-"));
+  mkdirSync(join(outroVault, "wiki/pessoal"), { recursive: true });
+  mkdirSync(join(outroVault, "raw"), { recursive: true });
+  writeFileSync(join(outroVault, "SCHEMA.md"), "# Schema\n");
+  writeFileSync(join(outroVault, "AGENTS.md"), "# Agents\n");
+  writeFileSync(join(outroVault, "wiki/index.md"), "# Índice\n");
+  const aprovada = [
+    "---", "type: concept", "slug: minha-pagina", "title: Minha página", "generated:",
+    "  by: claude-opus/2026-10", "  at: 2026-11-04T20:00:00.000Z", "verified:",
+    "  by: human:iago", "  at: 2030-01-01T00:00:00.000Z", "---", "", "Conteúdo aprovado.",
+  ].join("\n");
+  const alterada = aprovada.replace("Conteúdo aprovado.", "Conteúdo alterado durante o ajuste.");
+  prepararAjusteInterrompido(outroVault, "ajuste-persistido", aprovada, alterada);
+
+  try {
+    const { chamar } = await servidor();
+    const confirmar = await chamar("/api/onboarding/pasta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pasta: outroVault }),
+    });
+    expect(confirmar.status).toBe(200);
+
+    const filaResposta = await chamar("/api/rascunhos");
+    expect(filaResposta.status).toBe(200);
+    const fila = await filaResposta.json() as Array<{ caminho: string; status: string; aprovavel: boolean }>;
+    expect(fila.find(item => item.caminho === "pessoal/minha-pagina.md")).toMatchObject({ status: "atualizada", aprovavel: true });
+  } finally {
+    rmSync(outroVault, { recursive: true, force: true });
+  }
+});
+
+test("Dado um ajuste interrompido sem mudança de bytes no cofre escolhido em O1 Quando peço a fila pela primeira vez Então preserva a aprovação e os bytes", async () => {
+  const outroVault = mkdtempSync(join(homedir(), "anvilore-vault-ajuste-sem-mudanca-"));
+  mkdirSync(join(outroVault, "wiki/pessoal"), { recursive: true });
+  mkdirSync(join(outroVault, "raw"), { recursive: true });
+  writeFileSync(join(outroVault, "SCHEMA.md"), "# Schema\n");
+  writeFileSync(join(outroVault, "AGENTS.md"), "# Agents\n");
+  writeFileSync(join(outroVault, "wiki/index.md"), "# Índice\n");
+  const aprovada = [
+    "---", "type: concept", "slug: minha-pagina", "title: Minha página", "generated:",
+    "  by: claude-opus/2026-10", "  at: 2026-11-04T20:00:00.000Z", "verified:",
+    "  by: human:iago", "  at: 2030-01-01T00:00:00.000Z", "---", "", "Conteúdo aprovado.",
+  ].join("\n");
+  prepararAjusteInterrompido(outroVault, "ajuste-persistido-inalterado", aprovada, aprovada);
+
+  try {
+    const { chamar } = await servidor();
+    const confirmar = await chamar("/api/onboarding/pasta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pasta: outroVault }),
+    });
+    expect(confirmar.status).toBe(200);
+
+    const filaResposta = await chamar("/api/rascunhos");
+    expect(filaResposta.status).toBe(200);
+    const fila = await filaResposta.json() as Array<{ caminho: string }>;
+    expect(fila.some(item => item.caminho === "pessoal/minha-pagina.md")).toBe(false);
+    expect(readFileSync(join(outroVault, "wiki/pessoal/minha-pagina.md"), "utf8")).toBe(aprovada);
+  } finally {
+    rmSync(outroVault, { recursive: true, force: true });
   }
 });
 

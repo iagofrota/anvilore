@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
 import { lerFrontmatter } from "./frontmatter";
-import { estadoAprovacaoHumana } from "./okf";
+import { situacaoDeRevisao } from "./okf";
 import { caminhoWiki } from "./wiki-repo";
 
 export type StatusDaPagina = "rascunho" | "aprovada" | "erro";
@@ -100,14 +100,9 @@ function contarWikilinks(conteudo: string): number {
 }
 
 function determinarStatus(frontmatter: Record<string, unknown> | null): StatusDaPagina {
-  if (!frontmatter) return "erro";
-  if (frontmatter.generated !== undefined) {
-    const estado = estadoAprovacaoHumana(frontmatter);
-    if (estado === "invalida") return "erro";
-    if (estado === "vigente") return "aprovada";
-    return "rascunho";
-  }
-  return "aprovada";
+  const situacao = situacaoDeRevisao(frontmatter);
+  if (situacao === "invalida") return "erro";
+  return situacao === "pendente" ? "rascunho" : "aprovada";
 }
 
 function extrairData(frontmatter: Record<string, unknown>): string {

@@ -165,13 +165,19 @@ function abrirNavegador(url: string): void {
   try { Bun.spawn(comando, { stdin: "ignore", stdout: "ignore", stderr: "ignore" }); } catch { /* UI permanece acessível pela URL mostrada */ }
 }
 
+async function criarIngestao(raiz: string, opcoes: OpcoesServidor): Promise<IngestaoNaInterface> {
+  const ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
+  await ingestao.recuperarInterrompidas();
+  return ingestao;
+}
+
 export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServidor = {}) {
   const ambiente = opcoes.ambiente ?? process.env;
   let raiz = resolve(raizInicial);
   let wiki = caminhoWiki(raiz, ambiente);
   const token = opcoes.token ?? randomBytes(32).toString("base64url");
   const portaInicial = opcoes.portaInicial ?? 4173;
-  let ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
+  let ingestao = await criarIngestao(raiz, opcoes);
   let servidor: Servidor | undefined;
   let ultimoErro: unknown;
 
@@ -195,7 +201,17 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
               const copia = copias.get(item.caminho);
               let anterior: string | undefined;
               if (copia) { try { anterior = await readFile(copia, "utf8"); } catch { /* cópia removida durante a leitura */ } }
-              return { ...item, anterior };
+              const emAjuste = ingestao.ajusteAtivoPara(item.caminho);
+              const aprovavel = item.aprovavel && !emAjuste;
+              const motivoNaoAprovavel = emAjuste
+                ? "Esta página está em ajuste; aprove depois que o ajuste terminar."
+                : item.motivoNaoAprovavel;
+              return {
+                ...item,
+                anterior,
+                aprovavel,
+                ...(motivoNaoAprovavel ? { motivoNaoAprovavel } : {}),
+              };
             })));
           }
           if (url.pathname === "/api/aprovar" && request.method === "POST") {
@@ -203,11 +219,27 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             try { corpo = await request.json() as { caminho?: unknown }; } catch { return json({ codigo: 2, mensagens: ["Pedido inválido."] }, 400); }
             if (typeof corpo.caminho !== "string") return json({ codigo: 2, mensagens: ["Página inválida."] }, 400);
             if (typeof corpo.versao !== "string" || !/^[a-f0-9]{64}$/.test(corpo.versao)) return json({ codigo: 2, mensagens: ["Versão inválida."] }, 400);
+            if (ingestao.ajusteAtivoPara(corpo.caminho)) {
+              return json({ codigo: 3, mensagens: ["Esta página está em ajuste; aprove depois que o ajuste terminar."] }, 409);
+            }
             const fila = await listarFilaRascunhos(raiz);
             const item = fila.find(rascunho => rascunho.caminho === corpo.caminho && rascunho.aprovavel);
             if (!item) return json({ codigo: 1, mensagens: ["Aprovação recusada: página ausente da fila ou inválida."] }, 409);
             const resultado = await aprovarPaginas(raiz, [join(wiki, item.caminho)], process.env, corpo.versao);
             return json(resultado, resultado.codigo === 0 ? 200 : 409);
+          }
+          if (url.pathname === "/api/ajuste" && request.method === "POST") {
+            let corpo: { caminho?: unknown; versao?: unknown; pedido?: unknown };
+            try { corpo = await request.json() as { caminho?: unknown; versao?: unknown; pedido?: unknown }; } catch { return json({ mensagens: ["Pedido inválido."] }, 400); }
+            if (typeof corpo.caminho !== "string") return json({ mensagens: ["Página inválida."] }, 400);
+            if (typeof corpo.versao !== "string" || !/^[a-f0-9]{64}$/.test(corpo.versao)) return json({ mensagens: ["Versão inválida."] }, 400);
+            if (typeof corpo.pedido !== "string" || !corpo.pedido.trim()) return json({ mensagens: ["O pedido de ajuste não pode ser vazio."] }, 400);
+            try {
+              const conversa = await ingestao.ajustar({ caminho: corpo.caminho, versao: corpo.versao, pedido: corpo.pedido });
+              return json(conversa, 201);
+            } catch (erro) {
+              return erroDaIngestao(erro);
+            }
           }
           if (url.pathname === "/api/validar" && request.method === "POST") return json(await validar(raiz, wiki));
           if (url.pathname === "/api/inicio" && request.method === "GET") {
@@ -230,7 +262,12 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             try {
               const nota = await obterNota(raiz, caminho);
               if (!nota) return json({ mensagens: ["Página não encontrada."] }, 404);
-              return json(nota);
+              const emAjuste = ingestao.ajusteAtivoPara(caminho);
+              return json({
+                ...nota,
+                aprovavel: nota.aprovavel && !emAjuste,
+                ...(emAjuste ? { motivoNaoAprovavel: "Esta página está em ajuste; aprove depois que o ajuste terminar." } : {}),
+              });
             } catch (erro) {
               if (erro instanceof ErroDeCaminhoInvalido) return json({ mensagens: [erro.message] }, erro.status);
               throw erro;
@@ -261,7 +298,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
                 await ingestao.encerrar();
                 raiz = novaRaiz;
                 wiki = caminhoWiki(raiz, ambiente);
-                ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
+                ingestao = await criarIngestao(raiz, opcoes);
               }
               const inspecao = await inspecionarPasta(raiz, ambiente);
               const caminhoOnboarding = join(raiz, ".anvilore", "onboarding.json");

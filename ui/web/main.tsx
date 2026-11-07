@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import type { Rascunho } from "../../src/lib/ui-fila";
 import { api } from "./api";
 import { Biblioteca } from "./biblioteca";
+import { CaixaDeAjuste } from "./caixa-ajuste";
 import { Chat, type EstadoDaIngestao } from "./chat";
 import { Inicio } from "./inicio";
 import { Onboarding } from "./onboarding";
@@ -147,6 +148,9 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
   const [validacao, setValidacao] = useState<ResultadoValidacao | null>(null);
   const [validando, setValidando] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [ajusteAberto, setAjusteAberto] = useState(false);
+  const [textoAjuste, setTextoAjuste] = useState("");
+  const [enviandoAjuste, setEnviandoAjuste] = useState(false);
 
   const carregar = useCallback(async (selecionarPrimeiro = false) => {
     try {
@@ -173,6 +177,11 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
   const filtrados = useMemo(() => (itens ?? []).filter(item => filtro === "Todas" || (filtro === "Novas" ? item.status === "nova" : item.status === "atualizada")), [itens, filtro]);
   const item = filtrados.find(candidato => candidato.caminho === selecionado) ?? filtrados[0];
 
+  useEffect(() => {
+    setAjusteAberto(false);
+    setTextoAjuste("");
+  }, [item?.caminho]);
+
   const aprovar = useCallback(async () => {
     if (!item?.aprovavel || salvando) return;
     setSalvando(true);
@@ -188,13 +197,35 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
     finally { setSalvando(false); }
   }, [item, salvando, carregar]);
 
+  const enviarAjuste = useCallback(async () => {
+    if (!item || !item.ajustavel || !textoAjuste.trim() || enviandoAjuste) return;
+    setEnviandoAjuste(true);
+    try {
+      const criada = await api<{ id: string }>("/api/ajuste", "POST", {
+        caminho: item.caminho,
+        versao: item.versao,
+        pedido: textoAjuste.trim(),
+      });
+      setAjusteAberto(false);
+      setTextoAjuste("");
+      window.location.hash = `#/chat/${criada.id}`;
+    } catch (motivo) {
+      const mensagem = motivo instanceof Error ? motivo.message : "Não foi possível pedir ajuste.";
+      await carregar();
+      setErro(mensagem);
+    } finally {
+      setEnviandoAjuste(false);
+    }
+  }, [item, textoAjuste, enviandoAjuste, carregar]);
+
   useEffect(() => {
     const teclado = (evento: KeyboardEvent) => {
       if (evento.altKey || evento.ctrlKey || evento.metaKey || evento.target instanceof HTMLInputElement || evento.target instanceof HTMLTextAreaElement) return;
       const atual = filtrados.findIndex(candidato => candidato.caminho === selecionado);
-      if (evento.key.toLowerCase() === "j") { evento.preventDefault(); const proximo = indiceVizinho(atual, 1, filtrados.length); if (proximo >= 0) setSelecionado(filtrados[proximo]!.caminho); }
-      if (evento.key.toLowerCase() === "k") { evento.preventDefault(); const anterior = indiceVizinho(atual, -1, filtrados.length); if (anterior >= 0) setSelecionado(filtrados[anterior]!.caminho); }
+      if (evento.key.toLowerCase() === "j") { evento.preventDefault(); const proximo = indiceVizinho(atual, 1, filtrados.length); if (proximo >= 0) { setSelecionado(filtrados[proximo]!.caminho); setAjusteAberto(false); setTextoAjuste(""); } }
+      if (evento.key.toLowerCase() === "k") { evento.preventDefault(); const anterior = indiceVizinho(atual, -1, filtrados.length); if (anterior >= 0) { setSelecionado(filtrados[anterior]!.caminho); setAjusteAberto(false); setTextoAjuste(""); } }
       if (evento.key.toLowerCase() === "a" && item?.aprovavel) { evento.preventDefault(); void aprovar(); }
+      if (evento.key.toLowerCase() === "r" && item?.ajustavel) { evento.preventDefault(); setAjusteAberto(atual => !atual); }
     };
     window.addEventListener("keydown", teclado);
     return () => window.removeEventListener("keydown", teclado);
@@ -208,7 +239,7 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
         <div><h1>Revisão</h1><span className="subhead">{pendentes ? `${pendentes} aguardando você` : itens === null ? "Lendo a wiki…" : "nada pendente"}</span></div>
         <div className="top-actions">
           <div className="segmented" role="group" aria-label="Filtrar rascunhos">
-            {(["Todas", "Novas", "Atualizadas"] as Filtro[]).map(opcao => <button key={opcao} className={filtro === opcao ? "selected" : ""} aria-pressed={filtro === opcao} onClick={() => setFiltro(opcao)}>{opcao}</button>)}
+            {(["Todas", "Novas", "Atualizadas"] as Filtro[]).map(opcao => <button key={opcao} className={filtro === opcao ? "selected" : ""} aria-pressed={filtro === opcao} onClick={() => { setFiltro(opcao); setAjusteAberto(false); setTextoAjuste(""); }}>{opcao}</button>)}
           </div>
           <button className="icon-button" title="Alternar tema" aria-label="Alternar tema claro ou escuro" onClick={alternarTema}>{tema === "claro" ? "◐" : "☼"}</button>
         </div>
@@ -223,7 +254,7 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
         <section className="queue" aria-label="Rascunhos">
           <div className="queue-title"><span>▤</span> Fila de revisão <span className="count">{filtrados.length}</span></div>
           <div className="queue-items" role="listbox" aria-label="Páginas pendentes">
-            {filtrados.map(candidato => <button key={candidato.caminho} className={`queue-item ${selecionado === candidato.caminho ? "active" : ""}`} role="option" aria-selected={selecionado === candidato.caminho} onClick={() => { setSelecionado(candidato.caminho); setAba("visual"); }}>
+            {filtrados.map(candidato => <button key={candidato.caminho} className={`queue-item ${selecionado === candidato.caminho ? "active" : ""}`} role="option" aria-selected={selecionado === candidato.caminho} onClick={() => { setSelecionado(candidato.caminho); setAba("visual"); setAjusteAberto(false); setTextoAjuste(""); }}>
               <span className={`queue-status ${candidato.status}`} aria-hidden="true">{candidato.status === "erro" ? "!" : candidato.status === "atualizada" ? "↻" : "·"}</span>
               <span className="queue-copy"><strong>{candidato.titulo}</strong><span>{candidato.tipo || "Página"} · {candidato.status === "nova" ? "nova" : candidato.status === "atualizada" ? "atualizada" : "erro"}</span></span>
             </button>)}
@@ -249,11 +280,22 @@ function Revisao({ tema, alternarTema }: { tema: Tema; alternarTema: () => void 
                 <button role="tab" aria-selected={aba === "markdown"} onClick={() => setAba("markdown")}>Markdown</button>
               </div>
               {aba === "markdown" ? <pre className="markdown-view">{item.conteudo}</pre> : item.anterior !== undefined ? <div className="diff-view">{linhas.map((linha, indice) => <div className={`diff-line ${linha.tipo}`} key={`${indice}-${linha.tipo}`}><span>{linha.tipo === "adicionada" ? "+" : linha.tipo === "removida" ? "−" : " "}</span><pre>{linha.texto || " "}</pre></div>)}</div> : <article className="new-page"><MarkdownSeguro texto={item.conteudo} /></article>}
+              <CaixaDeAjuste
+                aberto={ajusteAberto}
+                texto={textoAjuste}
+                enviando={enviandoAjuste}
+                aoMudarTexto={setTextoAjuste}
+                aoCancelar={() => { setAjusteAberto(false); setTextoAjuste(""); }}
+                aoEnviar={() => void enviarAjuste()}
+              />
             </div>
           </div>
           <footer className="review-actions">
-            <button className="approve-button" disabled={!item.aprovavel || salvando} onClick={() => void aprovar()}><span>✓</span>{salvando ? "Aprovando…" : "Aprovar"}<kbd>A</kbd></button>
+            <button className="approve-button" disabled={!item.aprovavel || salvando} title={item.motivoNaoAprovavel} onClick={() => void aprovar()}><span>✓</span>{salvando ? "Aprovando…" : "Aprovar"}<kbd>A</kbd></button>
+            <button type="button" className="secondary-button" disabled={!item.ajustavel} title={item.motivoNaoAjustavel} onClick={() => setAjusteAberto(atual => !atual)}>Pedir ajuste<kbd>R</kbd></button>
             <span className="approval-note">A aprovação registra <code>verified: human:…</code></span>
+            {item.motivoNaoAprovavel && <span className="approval-disabled-note" role="note">{item.motivoNaoAprovavel}</span>}
+            {item.motivoNaoAjustavel && <span className="adjustment-disabled-note" role="note">{item.motivoNaoAjustavel}</span>}
           </footer>
         </section>}
       </div>}
@@ -272,4 +314,5 @@ function MarkdownSeguro({ texto }: { texto: string }) {
   })}</div>;
 }
 
-createRoot(document.getElementById("root")!).render(<React.StrictMode><Aplicacao /></React.StrictMode>);
+const elementoRaiz = typeof document !== "undefined" ? document.getElementById("root") : null;
+if (elementoRaiz) createRoot(elementoRaiz).render(<React.StrictMode><Aplicacao /></React.StrictMode>);

@@ -38,6 +38,22 @@ export function ConversaDaIngestao({
   areas = [],
   areaEscolhida = areas[0] ?? "",
 }: PropriedadesDaConversa) {
+  if (conversa.tipo === "ajuste") {
+    return <>
+      <Mensagem autor="Você">
+        <p>Ajuste na página <code>{conversa.pagina ?? conversa.nome}</code>:</p>
+        <p className="comment">{conversa.pedido}</p>
+      </Mensagem>
+      <div className="system-note"><span aria-hidden="true">🔒</span> Ajuste restrito a <code>{conversa.fonte}</code>. O escritor só pode editar esta página.</div>
+      <Mensagem autor={agente} agente>
+        <Escritas conversa={conversa} />
+        {conversa.passo === "escrita" && <EstadoDaFase conversa={conversa} ocupado={ocupado} aoCancelar={acoes.aoCancelar} />}
+        {conversa.passo === "fechamento" && <EstadoDoFechamento conversa={conversa} ocupado={ocupado} aoCancelar={acoes.aoCancelar} />}
+        {conversa.fechamento && <Fechamento conversa={conversa} />}
+      </Mensagem>
+    </>;
+  }
+
   const naParada = conversa.passo === "parada" && conversa.situacao === "esperando";
   const precisaEscolherArea = conversa.passo === "fonte" && !conversa.area && areas.length > 0;
   return <>
@@ -61,7 +77,7 @@ export function ConversaDaIngestao({
       </button>
     </div>}
     {conversa.passo !== "fonte" && <Mensagem autor={agente} agente>
-      <Leituras itens={conversa.atividade.filter(a => a.papel === "leitor")} />
+      <Leituras conversa={conversa} itens={conversa.atividade.filter(a => a.papel === "leitor")} />
       {conversa.passo === "leitura" && <EstadoDaFase conversa={conversa} ocupado={ocupado} aoCancelar={acoes.aoCancelar} aoLerDeNovo={() => acoes.aoLer()} />}
       {conversa.relatorio && <>
         <p>Li a fonte inteira. Estes são os pontos principais, cada um com o trecho que o sustenta. {naParada ? "Desmarque o que não deve entrar na wiki:" : ""}</p>
@@ -106,7 +122,7 @@ export function ConversaDaIngestao({
     {["escrita", "fechamento", "revisao"].includes(conversa.passo) && <Mensagem autor={agente} agente>
       <Escritas conversa={conversa} />
       {conversa.passo === "escrita" && <EstadoDaFase conversa={conversa} ocupado={ocupado} aoCancelar={acoes.aoCancelar} />}
-      {conversa.passo === "fechamento" && <div className="now"><span className="pulse" /> Rodando <code>anvilore fechar</code>…</div>}
+      {conversa.passo === "fechamento" && <EstadoDoFechamento conversa={conversa} ocupado={ocupado} aoCancelar={acoes.aoCancelar} />}
       {conversa.fechamento && <Fechamento conversa={conversa} />}
     </Mensagem>}
   </>;
@@ -115,8 +131,9 @@ export function ConversaDaIngestao({
 export function PainelDaIngestao({ conversa }: { conversa: Conversa | null }) {
   const passos = passosDoPainel(conversa ?? undefined);
   const rodando = conversa?.situacao === "rodando";
+  const ehAjuste = conversa?.tipo === "ajuste";
   return <aside className="ingest-panel" aria-label="Progresso da ingestão">
-    <h2>Ingestão</h2>
+    <h2>{ehAjuste ? "Ajuste" : "Ingestão"}</h2>
     <ol className="steps">
       {passos.map(passo => <li key={passo.rotulo} className={passo.estado}>
         <span className="step-mark" aria-hidden="true">{passo.estado === "feito" ? "✓" : passo.estado === "parou" ? "!" : ""}</span>
@@ -126,13 +143,14 @@ export function PainelDaIngestao({ conversa }: { conversa: Conversa | null }) {
     </ol>
     {rodando && conversa?.agora && <div className="now panel-now"><span className="pulse" /> {conversa.agora}</div>}
     {conversa && <>
-      <h2>Fonte</h2>
+      <h2>{ehAjuste ? "Página" : "Fonte"}</h2>
       <code className="source-path">{conversa.fonte}</code>
       <dl className="facts"><dt>Tamanho</dt><dd>{tamanhoLegivel(conversa.bytes)}</dd>{conversa.rota && <><dt>Janela</dt><dd>{conversa.rota === "grande" ? "grande (custa mais)" : "padrão"}</dd></>}</dl>
     </>}
     <h2>Garantias</h2>
     <ul className="guarantees">
       <li><code>raw/</code> bloqueado pelo hook: o agente não grava lá.</li>
+      {ehAjuste && <li>Escrita restrita: o agente só pode editar esta página.</li>}
       <li>Toda página nasce rascunho, com <code>generated</code>.</li>
       <li>Só você grava <code>verified</code>, na tela de Revisão.</li>
     </ul>
@@ -146,28 +164,42 @@ function Mensagem({ autor, agente = false, children }: { autor: string; agente?:
   </div>;
 }
 
-function Leituras({ itens }: { itens: Atividade[] }) {
+// Andamento só existe com a conversa `rodando`: se ela parou (erro, cancelada, interrompida), o que ficou
+// "em andamento" no disco aparece como interrompido, nunca como se ainda estivesse escrevendo.
+function estadoVisivel(item: Atividade, conversa: Conversa): Atividade["estado"] {
+  return item.estado === "andamento" && conversa.situacao !== "rodando" ? "interrompido" : item.estado;
+}
+
+function Leituras({ conversa, itens }: { conversa: Conversa; itens: Atividade[] }) {
   if (!itens.length) return null;
   return <details className="activity" open>
     <summary><span>{itens.length} {itens.length === 1 ? "leitura" : "leituras"}</span><span className="muted">nada escrito</span></summary>
-    {itens.map(item => <div className={`activity-row ${item.estado}`} key={item.id}><span className="verb">{item.verbo}</span><code>{item.alvo}</code>{item.motivo && <span className="muted">{item.motivo}</span>}</div>)}
+    {itens.map(item => <div className={`activity-row ${estadoVisivel(item, conversa)}`} key={item.id}><span className="verb">{item.verbo}</span><code>{item.alvo}</code>{item.motivo && <span className="muted">{item.motivo}</span>}</div>)}
   </details>;
 }
 
 function Escritas({ conversa }: { conversa: Conversa }) {
   const itens = conversa.atividade.filter(a => a.papel === "escritor");
-  const meta = (item: Atividade) => item.estado === "andamento" ? "escrevendo…" : item.estado === "recusado" ? item.motivo ?? "recusado" : item.estado === "interrompido" ? "interrompido" : item.alvo.startsWith("wiki/") && !item.alvo.startsWith("wiki/log/") && item.alvo !== "wiki/index.md" ? "rascunho" : "";
+  const meta = (item: Atividade) => estadoVisivel(item, conversa) === "andamento" ? "escrevendo…" : item.estado === "recusado" ? item.motivo ?? "recusado" : estadoVisivel(item, conversa) === "interrompido" ? "interrompido" : item.alvo.startsWith("wiki/") && !item.alvo.startsWith("wiki/log/") && item.alvo !== "wiki/index.md" ? "rascunho" : "";
   return <div className="activity writes">
     <div className="activity-head"><span>{conversa.passo === "escrita" && conversa.situacao === "rodando" ? `Escrevendo · ${itens.length}` : `${itens.length} ${itens.length === 1 ? "escrita" : "escritas"}`}</span><span className="muted">só na wiki</span></div>
-    {itens.map(item => <div className={`activity-row ${item.estado}`} key={item.id}><span className="verb">{item.verbo}</span><code>{item.alvo}</code><span className="muted">{meta(item)}</span></div>)}
+    {itens.map(item => <div className={`activity-row ${estadoVisivel(item, conversa)}`} key={item.id}><span className="verb">{item.verbo}</span><code>{item.alvo}</code><span className="muted">{meta(item)}</span></div>)}
     {itens.length === 0 && <div className="activity-row"><span className="muted">Nada escrito ainda.</span></div>}
   </div>;
 }
 
+// O fechamento decide o que mostrar pela situação: o indicador de andamento é só de `rodando`; parada,
+// interrompida ou com erro mostra a mensagem terminal da conversa.
+function EstadoDoFechamento({ conversa, ocupado, aoCancelar }: { conversa: Conversa; ocupado: boolean; aoCancelar: () => void }) {
+  if (conversa.situacao === "rodando") return <div className="now"><span className="pulse" /> Rodando <code>anvilore fechar</code>…</div>;
+  return <EstadoDaFase conversa={conversa} ocupado={ocupado} aoCancelar={aoCancelar} />;
+}
+
 function EstadoDaFase({ conversa, ocupado, aoCancelar, aoLerDeNovo }: { conversa: Conversa; ocupado: boolean; aoCancelar: () => void; aoLerDeNovo?: () => void }) {
   const lerDeNovo = aoLerDeNovo && podeLerDeNovo(conversa) ? <button className="secondary-button" disabled={ocupado} onClick={aoLerDeNovo}>Ler de novo</button> : null;
-  if (conversa.situacao === "rodando") return <div className="now"><span className="pulse" /> {conversa.agora ?? "Trabalhando…"}<button className="link-button" disabled={ocupado} onClick={aoCancelar}>Cancelar ingestão</button></div>;
-  if (conversa.situacao === "cancelada") return <div className="system-note">Ingestão cancelada. {conversa.passo === "escrita" ? "O que já foi escrito ficou na wiki como rascunho." : "Nada foi escrito."} {lerDeNovo}</div>;
+  const ehAjuste = conversa.tipo === "ajuste";
+  if (conversa.situacao === "rodando") return <div className="now"><span className="pulse" /> {conversa.agora ?? "Trabalhando…"}<button className="link-button" disabled={ocupado} onClick={aoCancelar}>{ehAjuste ? "Cancelar ajuste" : "Cancelar ingestão"}</button></div>;
+  if (conversa.situacao === "cancelada") return <div className="system-note">{ehAjuste ? "Ajuste cancelado." : "Ingestão cancelada."} {conversa.passo === "leitura" ? "Nada foi escrito." : "O que já foi escrito ficou na wiki como rascunho."} {lerDeNovo}</div>;
   if (conversa.situacao === "erro" || conversa.situacao === "interrompida") return <div className="alert inline" role="alert">
     <p>{conversa.erro}</p>
     {conversa.mensagens && <pre className="validation-output">{conversa.mensagens.join("\n")}</pre>}

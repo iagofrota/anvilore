@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { aprovarPaginas, comandoAprovar } from "../src/comandos/aprovar";
+import { lerFrontmatter } from "../src/lib/frontmatter";
 
 let raiz: string;
 beforeEach(() => { raiz = mkdtempSync(join(tmpdir(), "anvilore-aprovar-")); mkdirSync(join(raiz, "wiki/pessoal"), { recursive: true }); });
@@ -101,6 +102,37 @@ test("Dado página aprovada antes da geração atual Quando aprovo Então acresc
   const texto = readFileSync(pagina, "utf8");
   expect(texto).toContain("- by: human:ana\n    at: 2026-10-27T11:00:00Z");
   expect(texto).toMatch(/- by: human:iago-avila\n    at: \d{4}-\d\d-\d\dT.*Z/);
+});
+
+test("Dado verified e campos irmãos entre aspas Quando aprovo Então preservo os outros valores do frontmatter", async () => {
+  const pagina = join(raiz, "wiki/pessoal/quoted-fields.md");
+  const original = [
+    "---",
+    "type: concept",
+    "slug: quoted-fields",
+    "generated:",
+    "  by: agente",
+    "  at: 2026-10-27T12:00:00Z",
+    '"verified":',
+    "  - by: human:ana",
+    "    at: 2026-10-27T11:00:00Z",
+    '"title": Quoted title',
+    "'tags': [uma, duas]",
+    "---",
+    "Corpo.",
+  ].join("\n");
+  writeFileSync(pagina, original);
+  const antes = lerFrontmatter(original)!;
+
+  expect(await aprovarPaginas(raiz, ["wiki/pessoal/quoted-fields.md"])).toMatchObject({ codigo: 0 });
+
+  const depois = lerFrontmatter(readFileSync(pagina, "utf8"))!;
+  expect(depois.type).toBe(antes.type);
+  expect(depois.slug).toBe(antes.slug);
+  expect(depois.generated).toEqual(antes.generated);
+  expect(depois.title).toBe(antes.title);
+  expect(depois.tags).toEqual(antes.tags);
+  expect(depois.verified).toHaveLength(2);
 });
 
 test("Dado página em CRLF Quando aprovo Então preservo os bytes do corpo e o fim de linha", async () => {
