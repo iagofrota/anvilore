@@ -9,6 +9,10 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Added
+
+- O lançador Linux abre a interface sem janela de terminal (`Terminal=false`), garante instância única por pasta reutilizando servidor ativo, exibe erros em diálogo gráfico (`zenity`/`kdialog`/`notify-send`) com log seguro em `abrir.log` (0600), e o servidor desacoplado encerra sozinho por inatividade após ~2 minutos sem batimentos da página web e sem ingestão em andamento.
+
 ### Fixed
 
 - O atualizador tolera o subprocesso encerrar antes de ler a entrada enviada ao stdin e continua usando o código de saída dele para avaliar a prova.
