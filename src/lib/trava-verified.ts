@@ -775,14 +775,20 @@ async function decidirPatch(
   return { acao: "liberar", motivo: "patch não altera verified em wiki/" };
 }
 
-function tokenizar(comando: string, windows = false, heredocBodies = new Map<string, string>()): Token[] {
+function tokenizar(comando: string, windows = false, heredocBodies = new Map<number, string>()): Token[] {
   const tokens: Token[] = [];
   let palavra = "", aspas = "";
   let palavraIniciada = false;
+  let inicioPalavra: number | undefined;
   function guardar() {
-    if (palavra) tokens.push({ texto: palavra, operador: false, heredocBody: heredocBodies.get(palavra) });
+    if (palavra) tokens.push({
+      texto: palavra,
+      operador: false,
+      heredocBody: inicioPalavra === undefined ? undefined : heredocBodies.get(inicioPalavra),
+    });
     palavra = "";
     palavraIniciada = false;
+    inicioPalavra = undefined;
   }
   for (let i = 0; i < comando.length; i++) {
     const caractere = comando[i]!;
@@ -801,11 +807,13 @@ function tokenizar(comando: string, windows = false, heredocBodies = new Map<str
       }
       palavraIniciada = true;
     } else if (caractere === "'" || caractere === '"') {
+      if (!palavraIniciada) inicioPalavra = i;
       aspas = caractere;
       palavraIniciada = true;
     } else if (!windows && caractere === "\\" && (seguinte === "\n" || (seguinte === "\r" && comando[i + 2] === "\n"))) {
       i += seguinte === "\r" ? 2 : 1;
     } else if (!windows && caractere === "\\" && seguinte && /[\s'";|&<>\\]/.test(seguinte)) {
+      if (!palavraIniciada) inicioPalavra = i;
       palavra += comando[++i];
       palavraIniciada = true;
     } else if (caractere === "#" && !palavraIniciada) {
@@ -826,6 +834,7 @@ function tokenizar(comando: string, windows = false, heredocBodies = new Map<str
     } else if (/\s/.test(caractere)) {
       guardar();
     } else {
+      if (!palavraIniciada) inicioPalavra = i;
       palavra += caractere;
       palavraIniciada = true;
     }
@@ -907,20 +916,19 @@ function encontrarFimSubstituicao(comando: string, inicio: number, crase: boolea
   return -1;
 }
 
-export function extrairSubstituicoesComando(comando: string): { texto: string; substituicoes: string[]; heredocs: Array<{ marcador: string; texto: string }> } {
+export function extrairSubstituicoesComando(comando: string): { texto: string; substituicoes: string[]; heredocs: Array<{ inicio: number; texto: string }> } {
   const analiseHeredoc = analisarHeredocs(comando);
   let texto = "";
   const substituicoes: string[] = [];
-  const heredocs: Array<{ marcador: string; texto: string }> = [];
+  const heredocs: Array<{ inicio: number; texto: string }> = [];
   let aspas = "";
   for (let i = 0; i < comando.length; i++) {
     const c = comando[i]!;
     const prox = comando[i + 1] ?? "";
     const heredocOperador = analiseHeredoc.corpos.find(item => item.inicioOperador === i);
     if (heredocOperador) {
-      const marcador = `__ANVILORE_HEREDOC_${heredocs.length}__`;
-      heredocs.push({ marcador, texto: heredocOperador.texto });
-      texto += `< ${marcador}`;
+      heredocs.push({ inicio: texto.length + 2, texto: heredocOperador.texto });
+      texto += "< /dev/null";
       i = heredocOperador.fimDelimitador - 1;
       continue;
     }
@@ -962,8 +970,7 @@ export function extrairSubstituicoesComando(comando: string): { texto: string; s
     }
     texto += c;
   }
-  const semCorpos = analisarHeredocs(texto).semCorpos;
-  return { texto: semCorpos, substituicoes, heredocs };
+  return { texto, substituicoes, heredocs };
 }
 
 function verboNormalizado(palavra: string): string {
@@ -3235,6 +3242,9 @@ function decidirTerminalVerified(
   // A entrada padrão de todos os comandos do texto vem de um pipe (ele é compartilhado, e o 2º comando também lê o que sobrou).
   primeiroDoPipe = false
 ): Decisao {
+  if (/__ANVILORE_HEREDOC_\d+__/.test(cmdTexto)) {
+    return { acao: "bloquear", motivo: "marcador reservado de heredoc no texto de entrada (falha fechada)" };
+  }
   if (!cmdTexto.trim()) {
     return { acao: "bloquear", motivo: "comando de terminal vazio citando verified ou aprovação (falha fechada)" };
   }
@@ -3242,7 +3252,7 @@ function decidirTerminalVerified(
   // Expansões de comando rodam pelo mesmo classificador; o valor produzido é texto opaco no comando externo.
   let comandoExterno = cmdTexto;
   let substituicoes: string[];
-  let heredocs: Array<{ marcador: string; texto: string }> = [];
+  let heredocs: Array<{ inicio: number; texto: string }> = [];
   try {
     const extraidas = extrairSubstituicoesComando(cmdTexto);
     comandoExterno = extraidas.texto;
@@ -3256,7 +3266,7 @@ function decidirTerminalVerified(
   let tokens: Token[] = [];
   let erroTokenizacao: unknown;
   try {
-    tokens = tokenizar(comandoExterno, isWindows, new Map(heredocs.map(corpo => [corpo.marcador, corpo.texto])));
+    tokens = tokenizar(comandoExterno, isWindows, new Map(heredocs.map(corpo => [corpo.inicio, corpo.texto])));
   } catch (erro) {
     erroTokenizacao = erro;
   }

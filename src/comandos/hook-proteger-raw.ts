@@ -681,8 +681,11 @@ function citaRawSegmento(palavras: string[], cwd: string): boolean {
 
 const REGEX_REDIRECAO = /^(?:\d+)?(?:>{1,2}|>\||>&|<{1,3}|<&|<>)|&(?:>{1,2})$/;
 const REGEX_REDIRECAO_SAIDA = /^(?:\d+)?(?:>{1,2}|>\||<>)|&(?:>{1,2})$/;
+const MARCADOR_HEREDOC_RESERVADO = /__ANVILORE_HEREDOC_\d+__/;
 
 function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cwdInicial, windows = false, profundidadeSubstituicao = 0): boolean {
+  const textoEntrada = typeof comando === "string" ? comando : Array.isArray(comando) ? comando.join(" ") : "";
+  if (MARCADOR_HEREDOC_RESERVADO.test(textoEntrada)) return true;
   windows ||= Array.isArray(comando) && /^(?:powershell|pwsh)(?:\.exe)?$/i.test(String(comando[0]));
   let citaRawSubstituicao = false;
   let cwd = cwdInicial;

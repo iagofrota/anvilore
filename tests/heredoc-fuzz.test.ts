@@ -3,15 +3,17 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test, expect, setDefaultTimeout } from "bun:test";
 import { executarProtecao } from "../src/comandos/hook-proteger-raw";
+import { decidirVerified, extrairSubstituicoesComando } from "../src/lib/trava-verified";
 
 const bashDisponivel = process.platform !== "win32" && Bun.which("bash") !== null;
 const N_POR_SEMENTE = 180;
-const SEMENTES = [12345, 24680, 8675309, 20261107];
+const SEMENTES = [12345, 777, 4242, 99991];
 const CARGA = "touch raw/MARCA";
+const MARCADOR = "__ANVILORE_HEREDOC_0__";
 
 const delims = ["'EOF'", "\"EOF\"", "\\EOF", "EOF", "E'O'F", "'E O'", "EOF''", "-'EOF'", "-EOF"];
 const ops = ["", " |", " | ", " |&", " &&", " ||", " ;", " # c", " | # c", " \\"];
-const consumidores = ["sh", "bash", "wc -l", "cat", "true", CARGA, `echo \"$(${CARGA})\"`, "", "# c"];
+const consumidores = ["sh", "bash", "wc -l", "cat", "true", CARGA, `echo \"$(${CARGA})\"`, MARCADOR, `sh < ${MARCADOR}`, `bash ${MARCADOR}`, `cat ${MARCADOR} | sh`, "", "# c"];
 const interpretadores = ["sh", "bash", "dash", "zsh", "fish", "python", "python2", "python3", "python3.11", "node", "bun", "perl", "ruby", "php", "osascript"];
 const prefixos = [
   { antes: "", depois: "" },
@@ -33,7 +35,7 @@ function gerador(seedInicial: number): () => string {
   const rnd = (n: number) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
   const pick = <T,>(opcoes: T[]) => opcoes[rnd(opcoes.length)]!;
   const corpo = () => pick([
-    CARGA, "ok", `$(${CARGA})`, `\`${CARGA}\``, "EOF", "\tEOF", " EOF", "", "# x",
+    CARGA, "ok", MARCADOR, `$(${CARGA})`, `\`${CARGA}\``, "EOF", "\tEOF", " EOF", "", "# x",
     `'$(${CARGA})'`, `\${x:-$(${CARGA})}`,
   ]);
   const separador = () => pick(["\n", "\n\n", "\n# c\n", "\n  # c\n", "\n\t\n"]);
@@ -61,10 +63,29 @@ test.skipIf(!bashDisponivel)("Dado fuzz fixo de heredocs Quando comparo a execuÃ
   writeFileSync(join(vault, "SCHEMA.md"), "# Schema\n");
   writeFileSync(join(vault, "raw/a.md"), "bruto\n");
   writeFileSync(join(vault, "wiki/a.md"), "---\ntitle: A\n---\n");
+  writeFileSync(join(vault, "__ANVILORE_HEREDOC_0__"), "rm raw/a.md\n");
   const furos: string[] = [];
   const erroOriginal = console.error;
   console.error = () => {};
   try {
+    const marcador = MARCADOR;
+    const ataquesComMarcador = [
+      `sh < ${marcador}`,
+      `cat <<'EOF' >/dev/null\nok\nEOF\nsh < ${marcador}`,
+      `cat <<'EOF' >/dev/null\nok\nEOF\nbash ${marcador}`,
+      `cat <<'EOF' >/dev/null\nok\nEOF\ncat ${marcador} | sh`,
+      `cat <<'EOF' >/dev/null\nok\nEOF\npython3 < ${marcador}`,
+      `cat <<'EOF' | sh\nok\nEOF\nsh < ${marcador}`,
+    ];
+    for (const command of ataquesComMarcador) {
+      const payload = JSON.stringify({ cwd: vault, tool_name: "Bash", tool_input: { command } });
+      expect({ command, raw: await executarProtecao(payload) }).toEqual({ command, raw: 2 });
+      expect({ command, verified: (await decidirVerified(payload, vault)).acao }).toEqual({ command, verified: "bloquear" });
+    }
+    const extraido = extrairSubstituicoesComando("cat <<'EOF'\nok\nEOF");
+    expect(extraido.texto).not.toContain("__ANVILORE_HEREDOC_");
+    expect(extraido.heredocs[0]?.inicio).toEqual(expect.any(Number));
+
     const ataquesConhecidos = [
       "if sh <<'EOF'\nrm raw/a.md\nEOF\nthen true; fi",
       "if sh <<-EOF\nrm raw/a.md\nEOF\nthen true; fi",

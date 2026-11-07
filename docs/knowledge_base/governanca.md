@@ -50,7 +50,9 @@ por pipe, `&&`, `||`, escape ou bloco composto. Numa continuação, linhas vazia
 e comentário no fim da linha do operador não cancela a continuação. Corpo sem delimitador citado não é analisado como comando; se contiver
 `$(`, crase ou `${`, bloqueia mesmo que esses caracteres estejam entre aspas simples. Quando o comando simples analisado,
 já sem palavras reservadas e wrappers, recebe o corpo em um interpretador — diretamente pelo heredoc ou pelo pipe —,
-o corpo também é analisado como script (`src/lib/heredoc.ts`, `src/lib/trava-verified.ts` e
+o corpo também é analisado como script. A associação entre corpo e redirecionamento usa a posição estrutural do
+token de origem, nunca o texto de uma palavra; a entrada que contém o prefixo reservado de marcador interno
+falha fechado (`src/lib/heredoc.ts`, `src/lib/trava-verified.ts` e
 `src/comandos/hook-proteger-raw.ts`). O valor produzido por substituição aceita continua sendo tratado como caminho
 opaco no comando externo.
 O hook `proteger-raw` reconhece os caminhos dos cabeçalhos
