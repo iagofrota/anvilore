@@ -24,6 +24,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 - A rota `/api/ajuste` e a tela de Revisão recusam e desabilitam o pedido de ajuste em páginas cujo caminho absoluto contenha metacaracteres (`* ? [ ] { } ! \`), prevenindo expansão indevida de regras de edição no Claude Code, com aviso visível e mantendo leitura e ingestão funcionando normalmente em pastas do vault com esses caracteres.
 - Aprovar páginas passa a ser só pelo clique na Revisão; os ganchos negam quando não conseguem ler o pedido; a trava de `verified` vale também para Codex, Gemini e Copilot.
+- A trava de `verified` no terminal passa a barrar a escrita em massa num destino que é a wiki ou a pasta acima dela (por exemplo `cp -R pasta/. <cofre>/`, `rsync`, `tar -x`, `unzip`, `7z x`, `mv` de pasta e `git checkout` na raiz do cofre), que criava páginas aprovadas na wiki sem citá-la; copiar um arquivo só para a raiz do cofre continua liberado.
 - O `anvilore migrar-rastreio --puxar` aplica guarda de transporte no `git pull`: só aceita o protocolo do endereço do remoto (https, ssh ou pasta local) e recusa protocolos como `ext::` e trocas por `insteadOf`, com `credential.helper` e prompt de terminal desabilitados.
 
 ### Fixed

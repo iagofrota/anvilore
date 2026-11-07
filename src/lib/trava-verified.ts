@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -951,6 +951,260 @@ function dividirEmComandosSimples(tokens: Token[]): Token[][] {
   return comandos;
 }
 
+// Escrita em massa: o destino que importa não é só a wiki, é também todo ANCESTRAL dela (a raiz do cofre, a pasta acima).
+// Quem escreve vários arquivos num ancestral cria descendentes na wiki (`cp -R stage/. <cofre>/` leva `stage/wiki/a.md`
+// para `<cofre>/wiki/a.md`) sem que o operando de destino cite a wiki. Aqui o destino é julgado pelo disco, não pelo
+// texto, e SEM a isenção de /tmp: o cofre de teste e o de muita gente moram sob /tmp.
+const EXPANSAO_DE_SHELL = /[$`%*?\[\]{}]/;
+
+function nomeEhWiki(nome: string): boolean {
+  return nome.replace(/[. ]+$/, "").toLowerCase() === "wiki";
+}
+
+function wikisConhecidas(
+  base: string,
+  raiz: string,
+  ambiente: Record<string, string | undefined>,
+  raizesExtras: string[]
+): Set<string> {
+  const wikis = new Set<string>();
+  const adicionar = (caminho: string) => {
+    wikis.add(resolve(caminho));
+    try { wikis.add(caminhoReal(caminho, base)); } catch { /* o destino é julgado por quem chama */ }
+  };
+  const raizes = new Set<string>([raiz, base, ...raizesExtras]);
+  const ancestralDoBase = buscarAncestralVault(base);
+  if (ancestralDoBase) raizes.add(ancestralDoBase);
+  if (ambiente.ANVILORE_DESTINO?.trim()) raizes.add(resolve(ambiente.ANVILORE_DESTINO.trim()));
+  if (ambiente.ANVILORE_WIKI?.trim()) {
+    const wikiEnv = resolve(ambiente.ANVILORE_WIKI.trim());
+    adicionar(wikiEnv);
+    raizes.add(dirname(wikiEnv));
+  }
+  for (const candidata of raizes) {
+    if (!temSchemaEWiki(candidata)) continue;
+    try {
+      for (const nome of readdirSync(candidata)) if (nomeEhWiki(nome)) adicionar(join(candidata, nome));
+    } catch { /* sem leitura: as outras leituras do mesmo cofre continuam valendo */ }
+  }
+  return wikis;
+}
+
+// O destino é a própria wiki ou um ancestral dela, pelo caminho lexical e pelo físico (links seguidos).
+// Falha fechada: destino que não se resolve é tratado como perigoso.
+function ehDestinoPerigoso(
+  destino: string,
+  base: string,
+  raiz: string,
+  ambiente: Record<string, string | undefined>
+): boolean {
+  const limpo = destino.replace(/^["']|["']$/g, "").trim();
+  if (!limpo) return true;
+  try {
+    const abs = resolve(base, limpo);
+    const real = caminhoReal(limpo, base);
+    const wikis = wikisConhecidas(base, raiz, ambiente, [abs, real]);
+    for (const wiki of wikis) if (dentroDe(wiki, abs) || dentroDe(wiki, real)) return true;
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function origemEhArquivoRegular(origem: string, base: string): boolean {
+  const limpo = origem.replace(/^["']|["']$/g, "").trim();
+  if (!limpo || limpo === "-" || EXPANSAO_DE_SHELL.test(limpo) || limpo.startsWith("~")) return false;
+  try {
+    return lstatSync(resolve(base, limpo)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function origemEhDiretorioOuIncerta(origem: string, base: string): boolean {
+  const limpo = origem.replace(/^["']|["']$/g, "").trim();
+  if (!limpo || EXPANSAO_DE_SHELL.test(limpo) || limpo.startsWith("~")) return true;
+  try {
+    return statSync(resolve(base, limpo)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+// Onde `cp`/`mv`/`ln`/`install` põem a origem quando o destino é um diretório: destino/nome-da-origem.
+function destinoFinal(origem: string, diretorio: string): string | undefined {
+  const nome = basename(origem.replace(/^["']|["']$/g, "").replace(/[\\/]+$/, ""));
+  if (!nome || nome === "." || nome === "..") return undefined;
+  return join(diretorio, nome);
+}
+
+function opcaoLongaPresente(args: string[], nomeCompleto: string, prefixoMinimo: string): boolean {
+  for (const arg of args) {
+    if (arg === "--") break;
+    if (arg.startsWith("--") && opcaoLongaGnu(arg, nomeCompleto, prefixoMinimo)) return true;
+  }
+  return false;
+}
+
+function copiaRecursiva(args: string[], letras: Set<string>): boolean {
+  return letras.has("r") || letras.has("R") || letras.has("a")
+    || opcaoLongaPresente(args, "--recursive", "--r")
+    || opcaoLongaPresente(args, "--archive", "--a")
+    || opcaoLongaPresente(args, "--parents", "--p");
+}
+
+// Motivo do bloqueio quando cp/mv/ln/install/rsync escrevem em massa num destino que é a wiki ou ancestral dela.
+function escritaEmMassaNoAncestral(
+  verbo: string,
+  args: string[],
+  letras: Set<string>,
+  fontes: string[],
+  destinos: string[],
+  base: string,
+  raiz: string,
+  ambiente: Record<string, string | undefined>
+): string | undefined {
+  const perigosos = destinos.filter(destino => ehDestinoPerigoso(destino, base, raiz, ambiente));
+  if (!perigosos.length) return undefined;
+  const alvo = `${verbo} com destino que é a wiki ou ancestral dela`;
+
+  if (verbo === "rsync") return `${alvo} (rsync é recursivo; falha fechada)`;
+  if (verbo === "cp" && copiaRecursiva(args, letras)) return `${alvo} (cópia recursiva cria descendentes na wiki; falha fechada)`;
+  if (verbo === "mv" && (letras.has("T") || opcaoLongaPresente(args, "--no-target-directory", "--no"))) {
+    return `${alvo} (mv -T; falha fechada)`;
+  }
+
+  for (const fonte of fontes) {
+    if (verbo === "mv" && !origemEhArquivoRegular(fonte, base)) {
+      return `${alvo} (origem não comprovada como arquivo regular; falha fechada)`;
+    }
+    if (verbo === "ln" && origemEhDiretorioOuIncerta(fonte, base)) {
+      return `${alvo} (ln de diretório ou origem não comprovada; falha fechada)`;
+    }
+    for (const destino of perigosos) {
+      const final = destinoFinal(fonte, resolve(base, destino));
+      if (!final || caminhoTocaWiki(final, base, raiz, ambiente) || ehDestinoPerigoso(final, base, raiz, ambiente)) {
+        return `${alvo} (o destino final cai na wiki; falha fechada)`;
+      }
+    }
+  }
+  return undefined;
+}
+
+function tarExtrai(args: string[]): boolean {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--") break;
+    if (arg.startsWith("--")) {
+      if (opcaoLongaGnu(arg, "--extract", "--ex") || opcaoLongaGnu(arg, "--get", "--ge")) return true;
+    } else if (/^-[^-]/.test(arg)) {
+      if (arg.slice(1).includes("x")) return true;
+    } else if (i === 0 && /^[A-Za-z]+$/.test(arg) && arg.includes("x")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function tarCaminhosAbsolutos(args: string[]): boolean {
+  return args.some(arg => (/^-[^-]/.test(arg) && arg.slice(1).includes("P")) || (arg.startsWith("--") && opcaoLongaGnu(arg, "--absolute-names", "--abs")));
+}
+
+// Extratores que gravam sob um diretório escolhido (ou o cwd): o conteúdo do pacote decide o que nasce lá.
+function extratorNoAncestral(
+  verbo: string,
+  args: string[],
+  base: string,
+  raiz: string,
+  ambiente: Record<string, string | undefined>
+): string | undefined {
+  let diretorios: string[] | undefined;
+  if (verbo === "unzip") {
+    const opcoes = analisarOpcoesCurtas(args, { d: { recebeValor: true, destino: true } });
+    if (opcoes.malformado) return "unzip com -d sem diretório (falha fechada)";
+    if (["l", "t", "p", "v", "Z"].some(letra => opcoes.letras.has(letra))) return undefined;
+    diretorios = opcoes.destinos.length ? opcoes.destinos : ["."];
+  } else if (/^7z[a-z]?$/.test(verbo)) {
+    const comando = args.find(arg => !arg.startsWith("-"));
+    if (comando !== "x" && comando !== "e") return undefined;
+    const saidas = args.filter(arg => /^-o./i.test(arg) && !arg.startsWith("--")).map(arg => arg.slice(2));
+    diretorios = saidas.length ? saidas : ["."];
+  }
+  if (!diretorios) return undefined;
+  for (const diretorio of diretorios) {
+    if (EXPANSAO_DE_SHELL.test(diretorio) || diretorio.startsWith("~") || ehDestinoPerigoso(diretorio, base, raiz, ambiente)) {
+      return `${verbo} extrai para a wiki ou para um ancestral dela (falha fechada)`;
+    }
+  }
+  return undefined;
+}
+
+const GIT_SEM_ARVORE = new Set([
+  ...GIT_LEITURA, "fetch", "push", "remote", "config", "ls-remote", "archive", "bundle", "format-patch",
+  "for-each-ref", "show-ref", "version", "help", "init",
+]);
+const GIT_CLONE_COM_VALOR = new Set([
+  "-b", "--branch", "-o", "--origin", "--depth", "-j", "--jobs", "--reference", "--reference-if-able", "--template",
+  "--separate-git-dir", "--filter", "--config", "-c", "-u", "--upload-pack", "--shallow-since", "--shallow-exclude",
+  "--server-option", "--bundle-uri", "--revision", "--ref-format",
+]);
+
+function analisarGitArvore(args: string[]): { subcomando?: string; resto: string[]; arvores: string[] } {
+  const arvores: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "-C" || arg === "-c") { i++; continue; }
+    if (arg.startsWith("--") && opcaoLongaGnu(arg, "--work-tree", "--wo")) {
+      if (arg.includes("=")) arvores.push(arg.slice(arg.indexOf("=") + 1));
+      else if (args[i + 1] !== undefined) arvores.push(args[++i]!);
+      continue;
+    }
+    if (arg.startsWith("--") && (opcaoLongaGnu(arg, "--git-dir", "--gi") || opcaoLongaGnu(arg, "--namespace", "--na")) && !arg.includes("=")) { i++; continue; }
+    if (arg.startsWith("-")) continue;
+    return { subcomando: arg.toLowerCase(), resto: args.slice(i + 1), arvores };
+  }
+  return { resto: [], arvores };
+}
+
+function posicionaisGit(resto: string[]): string[] {
+  const posicionais: string[] = [];
+  for (let i = 0; i < resto.length; i++) {
+    const arg = resto[i]!;
+    if (arg === "--") { posicionais.push(...resto.slice(i + 1)); break; }
+    if (arg.startsWith("-")) {
+      if (GIT_CLONE_COM_VALOR.has(arg)) i++;
+      continue;
+    }
+    posicionais.push(arg);
+  }
+  return posicionais;
+}
+
+// git que grava a árvore de trabalho num cwd/worktree que é a wiki ou ancestral dela (checkout, restore, pull, clone...).
+function gitNoAncestral(
+  args: string[],
+  arvoresDoAmbiente: string[],
+  base: string,
+  raiz: string,
+  ambiente: Record<string, string | undefined>
+): string | undefined {
+  const { subcomando, resto, arvores } = analisarGitArvore(args);
+  if (!subcomando) return undefined;
+  const motivo = "git que grava a árvore de trabalho na wiki ou num ancestral dela (falha fechada)";
+  const perigoso = (dir: string) => ehDestinoPerigoso(dir, base, raiz, ambiente);
+  const posicionais = posicionaisGit(resto);
+
+  if (subcomando === "clone") {
+    const destino = posicionais.length >= 2 ? posicionais[posicionais.length - 1]! : ".";
+    return perigoso(destino) ? motivo : undefined;
+  }
+  if (subcomando === "worktree" && posicionais[0] === "add" && posicionais.slice(1).some(perigoso)) return motivo;
+  // `git apply` fica de fora: é o risco residual C18, aceito de propósito pelo desenho (DESENHO-APROVACAO.md §1).
+  const somenteLeitura = GIT_SEM_ARVORE.has(subcomando) || subcomando === "apply" || (subcomando === "worktree" && posicionais[0] === "list");
+  if (somenteLeitura) return undefined;
+  return [".", ...arvores, ...arvoresDoAmbiente].some(perigoso) ? motivo : undefined;
+}
+
 function analisarComandoSimples(
   cmdTokens: Token[],
   base: string,
@@ -997,7 +1251,13 @@ function analisarComandoSimples(
 
   // 2. Extrai palavras do comando (ignora atribuições VAR=val e palavras de controle de bloco)
   let palavras = tokensSemRedir.map(t => t.texto);
+  const arvoresDoAmbiente: string[] = [];
+  const guardarArvore = (palavra: string) => {
+    const achado = /^GIT_WORK_TREE=(.*)$/.exec(palavra);
+    if (achado) arvoresDoAmbiente.push(achado[1]!);
+  };
   while (palavras.length > 0 && (/^[A-Za-z_]\w*=/.test(palavras[0]!) || /^(?:do|then|else|elif|\{|\}|!|while|until|if)$/.test(palavras[0]!))) {
+    guardarArvore(palavras[0]!);
     palavras = palavras.slice(1);
   }
   if (!palavras.length) {
@@ -1011,6 +1271,7 @@ function analisarComandoSimples(
     if (malformado) {
       return { acao: "bloquear", motivo: `${verbo} com grupo de opções sem valor (falha fechada)` };
     }
+    descartados.forEach(guardarArvore);
     for (const diretorio of diretorios) {
       const efetivo = resolverDiretorioEfetivo(base, diretorio);
       if (!efetivo) return { acao: "bloquear", motivo: `${verbo} com diretório não literal ou inválido (falha fechada)` };
@@ -1066,17 +1327,24 @@ function analisarComandoSimples(
     }
   }
 
-  if (verbo === "make" || verbo === "tar") {
+  const ehTar = verbo === "tar" || verbo === "bsdtar" || verbo === "gtar";
+  if (verbo === "make" || ehTar) {
     const dirs = extrairDiretoriosC(cmdArgs);
     if (dirs.malformado) return { acao: "bloquear", motivo: `${verbo} -C sem diretório literal (falha fechada)` };
     let tarDirTocaWiki = false;
     for (const diretorio of dirs.diretorios) {
       const efetivo = resolverDiretorioEfetivo(base, diretorio);
       if (!efetivo) return { acao: "bloquear", motivo: `${verbo} -C com diretório não literal ou inválido (falha fechada)` };
-      if (verbo === "tar" && estaSobWiki(efetivo, raiz, ambiente, base)) tarDirTocaWiki = true;
+      if (ehTar && estaSobWiki(efetivo, raiz, ambiente, base)) tarDirTocaWiki = true;
       base = efetivo;
     }
-    if (verbo === "tar" && tarDirTocaWiki) {
+    if (ehTar && tarExtrai(cmdArgs)) {
+      // Extrair grava o que o pacote tem sob o diretório efetivo (-C ou cwd); -P deixa o pacote escolher o caminho.
+      if (tarCaminhosAbsolutos(cmdArgs) || ehDestinoPerigoso(".", base, raiz, ambiente)) {
+        return { acao: "bloquear", motivo: `${verbo} extrai para a wiki ou para um ancestral dela (falha fechada)` };
+      }
+    }
+    if (ehTar && tarDirTocaWiki) {
       const lista = cmdArgs.some(arg => arg === "--list" || (/^-[^-]/.test(arg) && arg.slice(1).includes("t")));
       const grava = cmdArgs.some(arg => ["--extract", "--create", "--append", "--update"].includes(arg)
         || (/^-[^-]/.test(arg) && /[xcru]/.test(arg.slice(1))));
@@ -1136,16 +1404,22 @@ function analisarComandoSimples(
       return { acao: "bloquear", motivo: `${verbo} com grupo de opções sem valor (falha fechada)` };
     }
     destinos.push(...opcoesCurtas.destinos);
+    const operandos = [...opcoesCurtas.operandos];
+    let destinoExplicito = opcoesCurtas.destinos.length > 0;
     for (let i = 0; i < cmdArgs.length; i++) {
       const arg = cmdArgs[i]!;
       if (arg === "--") break;
       const gnuOpt = extrairDestinoOpcaoLongaGnu(arg, cmdArgs[i + 1], "--target-directory");
       if (gnuOpt.bateu) {
+        destinoExplicito = true;
         if (gnuOpt.valor !== undefined) destinos.push(gnuOpt.valor);
-        if (gnuOpt.consumiuProximo) i++;
+        if (gnuOpt.consumiuProximo) {
+          i++;
+          const indice = operandos.indexOf(gnuOpt.valor!);
+          if (indice >= 0) operandos.splice(indice, 1);
+        }
       }
     }
-    const operandos = opcoesCurtas.operandos;
     if (destinos.length === 0) {
       if (verbo === "ln" && operandos.length === 1) {
         destinos.push(".");
@@ -1160,7 +1434,18 @@ function analisarComandoSimples(
         return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
       }
     }
+    // Destino que é ancestral da wiki: escrever vários arquivos nele cria descendentes na wiki.
+    const fontes = destinoExplicito ? operandos
+      : (verbo === "ln" && operandos.length === 1 ? operandos : operandos.slice(0, -1));
+    // O destino do rsync pode vir depois de opções com valor (`--exclude x`): todo operando menos a origem é candidato.
+    const candidatos = verbo === "rsync" ? operandos.slice(1) : destinos;
+    const emMassa = escritaEmMassaNoAncestral(verbo, cmdArgs, opcoesCurtas.letras, fontes, candidatos, base, raiz, ambiente);
+    if (emMassa) return { acao: "bloquear", motivo: emMassa };
   }
+
+  // 5.1b Extratores (unzip, 7z) que gravam no diretório escolhido ou no cwd
+  const extracao = extratorNoAncestral(verbo, cmdArgs, base, raiz, ambiente);
+  if (extracao) return { acao: "bloquear", motivo: extracao };
 
   // 5.2 tee: cada operando não-flag é um arquivo de destino
   if (verbo === "tee") {
@@ -1259,6 +1544,12 @@ function analisarComandoSimples(
     }
   }
 
+  // 5.7b git que grava a árvore de trabalho num ancestral da wiki
+  if (verbo === "git") {
+    const emMassa = gitNoAncestral(cmdArgs, arvoresDoAmbiente, base, raiz, ambiente);
+    if (emMassa) return { acao: "bloquear", motivo: emMassa };
+  }
+
   // 5.8 eval, source, .
   if (verbo === "eval" || verbo === "source" || verbo === ".") {
     if (temMudancaDir || cmdArgs.some(arg => argumentoTocaWiki(arg, base, raiz, ambiente) || arg.includes("wiki/"))) {
@@ -1268,7 +1559,7 @@ function analisarComandoSimples(
 
   // 5.9 Se o próprio cwd de execução (base) está sob a wiki
   if (estaSobWiki(base, raiz, ambiente, base)) {
-    const tarListOnly = verbo === "tar"
+    const tarListOnly = ehTar
       && cmdArgs.some(arg => arg === "--list" || (/^-[^-]/.test(arg) && arg.slice(1).includes("t")))
       && !cmdArgs.some(arg => ["--extract", "--create", "--append", "--update"].includes(arg)
         || (/^-[^-]/.test(arg) && /[xcru]/.test(arg.slice(1))));

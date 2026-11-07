@@ -2283,5 +2283,115 @@ describe("trava de verified nos quatro agentes", () => {
         rmSync(pastaFora, { recursive: true, force: true });
       }
     });
+
+    // Dado um cofre com wiki/ e uma pasta de preparo fora dele com wiki/a.md de aprovação forjada
+    const prepararRodada8 = () => {
+      const fora = mkdtempSync(join(tmpdir(), "anvilore-stage-"));
+      const stage = join(fora, "stage");
+      mkdirSync(join(stage, "wiki"), { recursive: true });
+      writeFileSync(join(stage, "wiki/a.md"), "---\nverified:\n  by: human:x\n---\n");
+      writeFileSync(join(fora, "a.md"), "# a\n");
+      writeFileSync(join(fora, "c.md"), "# c\n");
+      mkdirSync(join(fora, "y"));
+      const cofre = temporario;
+
+      const julgar = async (comandos: string[], cwd = cofre) => {
+        const codigos = await Promise.all(comandos.map(command => executarProtecao(JSON.stringify({
+          cwd,
+          tool_name: "Bash",
+          tool_input: { command },
+        }))));
+        return Object.fromEntries(comandos.map((command, indice) => [command, codigos[indice]]));
+      };
+      const todos = (comandos: string[], codigo: number) => Object.fromEntries(comandos.map(command => [command, codigo]));
+      return { fora, stage, cofre, julgar, todos };
+    };
+
+    test("Achado P2 do bot (rodada 8): escrita em massa num destino que é ancestral da wiki cria descendentes nela", async () => {
+      const { fora, stage, cofre, julgar, todos } = prepararRodada8();
+      try {
+        // Falham na base 2372e20 (exit 0) e passam a dar exit 2
+        const ataques = [
+          `cp -R ${stage}/. ${cofre}/`,
+          `cp -a ${stage}/. ${cofre}`,
+          `cp -rT ${stage} ${cofre}`,
+          `cp --recursive ${stage}/. ${cofre}/`,
+          `cp --recur ${stage}/. ${cofre}/`,
+          `cp --archive ${stage}/. ${cofre}/`,
+          `cp -R ${stage}/. .`,
+          `cp -R ${stage}/. ..`,
+          `cp -rt ${cofre} ${stage}`,
+          `cp --target-directory=${cofre} -r ${stage}/wiki`,
+          `cp --parents wiki/a.md ${cofre}/`,
+          `mv ${stage}/wiki ${cofre}/`,
+          `mv -t ${cofre} ${stage}/wiki`,
+          `mv ${fora}/nao-existe.md ${cofre}/`,
+          `mv -T ${fora}/a.md ${cofre}`,
+          `rsync -a ${stage}/ ${cofre}/`,
+          `rsync -r ${stage}/ ${cofre}/`,
+          `rsync -a ${stage}/ ${cofre}/ --exclude x`,
+          `tar -C ${cofre} -xf ${fora}/x.tar`,
+          `tar xf ${fora}/x.tar -C ${cofre}`,
+          `tar --directory=${cofre} --extract -f ${fora}/x.tar`,
+          `tar -xf ${fora}/x.tar`,
+          `tar -xPf ${fora}/x.tar -C ${fora}/y`,
+          `env -C ${cofre} tar -xf ${fora}/x.tar`,
+          `unzip ${fora}/x.zip -d ${cofre}`,
+          `unzip -d ${cofre} ${fora}/x.zip`,
+          `unzip -o ${fora}/x.zip -d${cofre}`,
+          `unzip ${fora}/x.zip`,
+          `7z x ${fora}/x.7z -o${cofre}`,
+          `7z x ${fora}/x.7z`,
+          `git -C ${cofre} checkout .`,
+          `git -C ${cofre} restore .`,
+          `git -C ${cofre} pull`,
+          `git -C ${cofre} worktree add ${fora}/wt`,
+          `git clone ${fora}/repo ${cofre}`,
+          `git clone ${fora}/repo`,
+          `git --work-tree=${cofre} checkout .`,
+          `git --work-tree ${cofre} checkout .`,
+          `GIT_WORK_TREE=${cofre} git -C ${fora}/y checkout .`,
+          `env GIT_WORK_TREE=${cofre} git -C ${fora}/y checkout .`,
+          `bsdtar -xf ${fora}/x.tar -C ${cofre}`,
+          `ln -s ${stage}/wiki ${cofre}/`,
+          `ln -s ${stage} ${cofre}/`,
+        ];
+        expect(await julgar(ataques)).toEqual(todos(ataques, 2));
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Achado P2 do bot (rodada 8): escrita de um arquivo só, destino fora do cofre e leitura continuam liberados", async () => {
+      const { fora, stage, cofre, julgar, todos } = prepararRodada8();
+      try {
+        const regressoes = [
+          `cp ${fora}/a.md ${cofre}/a.md`,
+          `cp ${fora}/a.md ${cofre}/`,
+          `cp -t ${cofre} ${fora}/a.md`,
+          `cp -R ${stage} ${fora}/y/copia`,
+          `cp -R ${cofre}/wiki ${fora}/backup`,
+          `mv ${fora}/c.md ${cofre}/b.md`,
+          `mv ${fora}/c.md ${cofre}/`,
+          `rsync -a ${cofre}/ ${fora}/y/`,
+          `tar -cf ${fora}/b.tar -C ${cofre} .`,
+          `tar -xf ${fora}/x.tar -C ${fora}/y`,
+          `tar -tf ${fora}/x.tar`,
+          `unzip -l ${fora}/x.zip`,
+          `unzip ${fora}/x.zip -d ${fora}/y`,
+          `7z l ${fora}/x.7z`,
+          `git -C ${cofre} log`,
+          `git -C ${cofre} status`,
+          `git -C ${cofre} worktree list`,
+          `git -C ${cofre} fetch`,
+          `unzip -p ${fora}/x.zip`,
+          `git clone ${fora}/repo ${fora}/y/clone`,
+          `ln -s ${fora}/a.md ${cofre}/atalho.md`,
+        ];
+        expect(await julgar(regressoes)).toEqual(todos(regressoes, 0));
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
   });
 });
