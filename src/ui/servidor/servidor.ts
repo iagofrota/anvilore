@@ -1,5 +1,6 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { aprovarPaginas } from "../../comandos/aprovar";
 import { isoComOffset } from "../../lib/hora";
@@ -14,6 +15,15 @@ import { listarBiblioteca } from "../../lib/ui-biblioteca";
 import { ErroDeCaminhoInvalido, obterNota } from "../../lib/ui-nota";
 import { caminhoWiki } from "../../lib/wiki-repo";
 import { atualizar } from "../../lib/atualizacao";
+import { diagnosticar } from "../../comandos/doctor";
+import {
+  concluirOnboarding,
+  estadoOnboarding,
+  inicializarAreasOnboarding,
+  inspecionarPasta,
+  validarDestinoAnvilore,
+  validarPastaVault,
+} from "../../lib/ui-onboarding";
 
 type Servidor = ReturnType<typeof Bun.serve>;
 type OpcoesServidor = {
@@ -23,6 +33,7 @@ type OpcoesServidor = {
   abrir?: (url: string) => void;
   ponte?: PonteDeAgente;
   fechar?: (raiz: string, wiki: string) => Promise<{ codigo: number; saida: string }>;
+  ambiente?: Record<string, string | undefined>;
 };
 
 // Teto de uma fonte enviada pela tela. Acima da janela grande (~1,15 MB) a ingestão já pede para dividir;
@@ -154,11 +165,13 @@ function abrirNavegador(url: string): void {
   try { Bun.spawn(comando, { stdin: "ignore", stdout: "ignore", stderr: "ignore" }); } catch { /* UI permanece acessível pela URL mostrada */ }
 }
 
-export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {}) {
-  const wiki = caminhoWiki(raiz);
+export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServidor = {}) {
+  const ambiente = opcoes.ambiente ?? process.env;
+  let raiz = resolve(raizInicial);
+  let wiki = caminhoWiki(raiz, ambiente);
   const token = opcoes.token ?? randomBytes(32).toString("base64url");
   const portaInicial = opcoes.portaInicial ?? 4173;
-  const ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
+  let ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
   let servidor: Servidor | undefined;
   let ultimoErro: unknown;
 
@@ -227,6 +240,129 @@ export async function iniciarServidorUi(raiz: string, opcoes: OpcoesServidor = {
             try {
               return json({ agente: ingestao.nomeDoAgente, areas: await areasDaWiki(wiki), conversas: await ingestao.listar(), atualizador: await estadoAtualizador(raiz) });
             } catch (erro) { return erroDaIngestao(erro); }
+          }
+          if (url.pathname === "/api/onboarding" && request.method === "GET") {
+            const estado = await estadoOnboarding(raiz, ambiente);
+            return json(estado);
+          }
+          if (url.pathname === "/api/onboarding/pasta" && request.method === "POST") {
+            let corpo: { pasta?: unknown };
+            try { corpo = await request.json() as { pasta?: unknown }; } catch { return json({ erro: "Pedido inválido." }, 400); }
+            if (typeof corpo.pasta !== "string") return json({ erro: "Caminho da pasta obrigatório." }, 400);
+            try {
+              const pastaValida = validarPastaVault(corpo.pasta, ambiente);
+              const novaRaiz = resolve(pastaValida);
+              if (novaRaiz !== raiz) {
+                const conversas = await ingestao.listar();
+                const emAndamento = conversas.some(c => c.situacao === "rodando");
+                if (ingestao.ocupada || emAndamento) {
+                  return json({ erro: "Não é possível alterar a pasta enquanto houver uma ingestão em andamento." }, 409);
+                }
+                await ingestao.encerrar();
+                raiz = novaRaiz;
+                wiki = caminhoWiki(raiz, ambiente);
+                ingestao = new IngestaoNaInterface(raiz, { ponte: opcoes.ponte ?? new PonteClaudeCode(), ...(opcoes.fechar ? { fechar: opcoes.fechar } : {}) });
+              }
+              const inspecao = await inspecionarPasta(raiz, ambiente);
+              const caminhoOnboarding = join(raiz, ".anvilore", "onboarding.json");
+              validarDestinoAnvilore(raiz, caminhoOnboarding);
+              if (!inspecao.wikiPronta && !existsSync(caminhoOnboarding)) {
+                await mkdir(join(raiz, ".anvilore"), { recursive: true });
+                validarDestinoAnvilore(raiz, caminhoOnboarding);
+                await writeFile(caminhoOnboarding, JSON.stringify({ concluido: false }, null, 2), "utf8");
+              }
+              const estado = await estadoOnboarding(raiz, ambiente);
+              return json({
+                ok: true,
+                pasta: raiz,
+                inspecao,
+                precisaOnboarding: estado.precisaOnboarding,
+                concluido: estado.concluido,
+                etapa: estado.etapa,
+              });
+            } catch (erro) {
+              return json({ erro: (erro as Error).message }, 400);
+            }
+          }
+          if (url.pathname === "/api/onboarding/testar-agente" && request.method === "POST") {
+            try {
+              const ponte = opcoes.ponte ?? new PonteClaudeCode();
+              const disp = await ponte.disponibilidade();
+              if (disp.ok) {
+                if (!existsSync(join(raiz, "AGENTS.md"))) {
+                  return json({ ok: false, mensagem: "O Claude Code está conectado, mas AGENTS.md não foi encontrado no vault." });
+                }
+                return json({ ok: true, mensagem: "O Claude Code está disponível e conectado à sua conta." });
+              }
+              return json({ ok: false, mensagem: disp.motivo });
+            } catch (erro) {
+              return json({ ok: false, mensagem: (erro as Error).message });
+            }
+          }
+          if (url.pathname === "/api/onboarding/ingerir-exemplo" && request.method === "POST") {
+            let corpo: { area?: unknown } = {};
+            try {
+              if (request.headers.get("content-type")?.includes("application/json")) {
+                corpo = await request.json() as { area?: unknown };
+              }
+            } catch { /* corpo opcional */ }
+            const caminhoExemplo = join(raiz, "raw/exemplo/llm-wiki.md");
+            if (!existsSync(caminhoExemplo)) {
+              return json({ erro: "Arquivo de exemplo não encontrado." }, 404);
+            }
+            try {
+              const areasExistentes = await areasDaWiki(wiki);
+              let area = typeof corpo.area === "string" ? corpo.area.trim() : "";
+              if (areasExistentes.length > 0) {
+                if (!area || !areasExistentes.includes(area)) {
+                  area = areasExistentes[0]!;
+                }
+              } else {
+                area = "";
+              }
+              // Mesma operação do botão Ingerir do Início: a conversa cita o original em raw/ e nada novo é gravado lá.
+              const conversa = await ingestao.criarDeRaw("exemplo/llm-wiki.md", area);
+              try {
+                await ingestao.ler(conversa.id);
+              } catch (erro) {
+                return json({ erro: (erro as Error).message }, 400);
+              }
+              await concluirOnboarding(raiz);
+              return json({ ok: true, id: conversa.id }, 201);
+            } catch (erro) {
+              return erroDaIngestao(erro);
+            }
+          }
+          if (url.pathname === "/api/onboarding/areas" && request.method === "POST") {
+            let corpo: { areas?: unknown; removerExemplo?: unknown };
+            try { corpo = await request.json() as { areas?: unknown; removerExemplo?: unknown }; } catch { return json({ erro: "Pedido inválido." }, 400); }
+            if (!Array.isArray(corpo.areas) || corpo.areas.length === 0 || !corpo.areas.every(a => typeof a === "string")) {
+              return json({ erro: "Lista de áreas inválida." }, 400);
+            }
+            try {
+              const caminhoOnboardingJson = join(raiz, ".anvilore", "onboarding.json");
+              validarDestinoAnvilore(raiz, caminhoOnboardingJson);
+              const resultado = await inicializarAreasOnboarding(raiz, corpo.areas as string[], { removerExemplo: Boolean(corpo.removerExemplo) }, ambiente);
+              if (existsSync(caminhoOnboardingJson)) {
+                const conteudo = JSON.parse(await readFile(caminhoOnboardingJson, "utf8")) as Record<string, unknown>;
+                if (conteudo.concluido !== true) {
+                  conteudo.etapa = 4;
+                  validarDestinoAnvilore(raiz, caminhoOnboardingJson);
+                  await writeFile(caminhoOnboardingJson, JSON.stringify(conteudo, null, 2), "utf8");
+                }
+              }
+              return json({ ok: true, ...resultado });
+            } catch (erro) {
+              return json({ erro: (erro as Error).message }, 400);
+            }
+          }
+          if (url.pathname === "/api/onboarding/concluir" && request.method === "POST") {
+            try {
+              await concluirOnboarding(raiz);
+              return json({ ok: true });
+            } catch (erro) {
+              return json({ erro: (erro as Error).message }, 500);
+            }
           }
           if (url.pathname === "/api/atualizador" && request.method === "POST") {
             let corpo: { acao?: unknown };

@@ -30,12 +30,14 @@ export interface AmbienteInit {
   saida?: Writable;
 }
 
-const USO = `Uso: anvilore init [--areas a,b,c]
+const USO = `Uso: anvilore init [--areas a,b,c] [--onboarding-pendente]
 
 Cria wiki/<área>/{sources,entities,concepts} para cada área escolhida.
 Sem --areas, pergunta no terminal: aceitar as áreas padrão (${AREAS_PADRAO.join(", ")}), tirar
 algumas e adicionar outras. Sem terminal e sem --areas, reprova.
-Repetir o comando é seguro: o que já existe não é alterado.`;
+Repetir o comando é seguro: o que já existe não é alterado.
+--onboarding-pendente (do instalador, numa instalação nova): marca o onboarding da interface como não concluído,
+sem sobrescrever um .anvilore/onboarding.json que já exista.`;
 
 function motivo(erro: unknown): string {
   return erro instanceof Error ? erro.message : String(erro);
@@ -253,10 +255,11 @@ function proximoPasso(raiz: string): string {
 
 export async function comandoInit(args: string[], ambiente: AmbienteInit = {}): Promise<number> {
   let areasPedidas: string | undefined;
+  let onboardingPendente = false;
   try {
     const { values, positionals } = parseArgs({
       args,
-      options: { areas: { type: "string" }, help: { type: "boolean", short: "h" } },
+      options: { areas: { type: "string" }, "onboarding-pendente": { type: "boolean" }, help: { type: "boolean", short: "h" } },
       allowPositionals: true,
       strict: true,
     });
@@ -265,6 +268,7 @@ export async function comandoInit(args: string[], ambiente: AmbienteInit = {}): 
       return 2;
     }
     areasPedidas = values.areas;
+    onboardingPendente = values["onboarding-pendente"] === true;
   } catch (erro) {
     console.error(motivo(erro));
     console.error(USO);
@@ -294,6 +298,10 @@ export async function comandoInit(args: string[], ambiente: AmbienteInit = {}): 
     if (jaExistiam.length > 0) console.log(`Já existiam: ${jaExistiam.join(", ")}.`);
     console.log(criadas.length > 0 ? `Pronto: ${contar(criadas.length)} em wiki/ (${criadas.join(", ")}).` : "Pronto: nada novo a criar.");
     if (avisos.length > 0) console.warn(`Atenção: ${avisos.length} ${avisos.length === 1 ? "área não criada" : "áreas não criadas"}; veja os avisos acima.`);
+    if (onboardingPendente) {
+      const { marcarOnboardingPendente } = await import("../lib/ui-onboarding");
+      await marcarOnboardingPendente(raiz);
+    }
     console.log(proximoPasso(raiz));
     return 0;
   } catch (erro) {

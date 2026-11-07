@@ -29,7 +29,7 @@ test.skipIf(!linux)("Dado um HOME vazio e o Claude Code instalado, Quando rodo o
   expect(await readFile(join(c.pasta, "anvilore.toml"), "utf8")).toContain("auto_commit = true");
   expect(await readFile(join(c.pasta, "anvilore.toml"), "utf8")).not.toContain("github_backup");
   expect((await c.chamadas()).filter(l => l.startsWith("instalar"))[0]).toContain("--auto-commit");
-  expect(await c.chamadas()).toContain("init --areas pessoal,profissional,projetos-paralelos,saude");
+  expect(await c.chamadas()).toContain("init --areas pessoal,profissional,projetos-paralelos,saude --onboarding-pendente");
   expect((await c.chamadas()).some(l => l.startsWith("doctor"))).toBe(true);
   const sucesso = r.saida.slice(r.saida.indexOf("Pronto!"));
   expect(sucesso).toBe([

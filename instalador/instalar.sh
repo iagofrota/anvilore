@@ -933,10 +933,10 @@ passo_configurar() {
       *) falhar "achei o $agente, mas ele não ficou configurado. Rode o instalador de novo." ;;
     esac
   done
-  # Sem onboarding na interface ainda: a instalação NOVA cria as áreas padrão (dá para mudar depois). Numa instalação que
+  # A instalação NOVA cria as áreas padrão (dá para mudar no O3) e deixa o onboarding da interface pendente. Numa instalação que
   # já existe as áreas são da pessoa: não recria a que ela apagou. Falha aqui não impede o resto.
   [ "$INSTALACAO_NOVA" = "1" ] || return 0
-  if ! rodar bash -c 'cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts init --areas "$2"' _ "$PASTA" "$AREAS_PADRAO"; then
+  if ! rodar bash -c 'cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts init --areas "$2" --onboarding-pendente' _ "$PASTA" "$AREAS_PADRAO"; then
     avisar "não consegui criar as áreas padrão da wiki; você pode escolher as áreas depois."
   fi
 }

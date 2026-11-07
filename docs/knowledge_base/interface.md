@@ -1,6 +1,5 @@
 ---
-generated: 2026-10-29
-verified: 2026-11-01
+generated: 2026-11-06
 ---
 
 # Interface local (`anvilore ui`)
@@ -18,6 +17,7 @@ desta página. As decisões de fundo (servidor opcional, aprovação pelo servid
 | Nota | `#/nota/<caminho>` | Leitura estrita de uma página: metadados, corpo renderizado, callouts de lacunas com atalho para o chat, proveniência, backlinks e grafo local SVG. | `ui/web/nota.tsx`, `src/lib/ui-nota.ts` |
 | Chat de ingestão | `#/chat` e `#/chat/<id>` | Fonte, leitura, parada, escrita e fechamento. | `ui/web/chat.tsx`, `src/lib/ui-ingestao.ts` |
 | Revisão | `#/revisao` | Fila de rascunhos, mudanças e Aprovar. | `ui/web/main.tsx`, `src/lib/ui-fila.ts` |
+| Onboarding | `#/onboarding` e `#/onboarding/<1-4>` | Primeiros passos: confirmação do vault, checagem do agente sem pedir chaves, inicialização de áreas com identidade automática e primeira ingestão. | `ui/web/onboarding.tsx`, `src/lib/ui-onboarding.ts` |
 
 Endereço vazio ou desconhecido abre o Início (`lerRota` em `ui/web/navegacao.ts`).
 
@@ -71,6 +71,16 @@ A tela de Nota (`GET /api/nota?caminho=...`, `obterNota` em `src/lib/ui-nota.ts`
 - **Destaque de lacunas:** callouts `[!gap]` e `[!contradiction]` destacados com botão que leva ao Chat com a dúvida preenchida. A pessoa confirma antes do envio.
 - **Barra lateral contextual:** proveniência (fonte em `raw/`, modelo gerador, data e aprovação humana), lista de backlinks com trecho de contexto e grafo local em SVG com nós e arestas dos vizinhos imediatos. A lista de Relacionados usa a mesma resolução de slug para caminho.
 - **Segurança de caminho:** o endpoint valida e barra estritamente path traversal (`..`), caminhos absolutos e links simbólicos que apontem para fora de `wiki/`.
+
+## O que o Onboarding faz e como funciona
+
+O Onboarding conduz o primeiro uso em 4 etapas lineares (`GET /api/onboarding`, `src/lib/ui-onboarding.ts`):
+- **O1 · Vault:** confirmação do diretório do vault com contenção de caminho, sem sobrescrever pastas existentes que não pertençam ao Anvilore, inspecionando `wiki/`, `raw/`, `SCHEMA.md`, `AGENTS.md` e a presença do Bun no PATH (`POST /api/onboarding/pasta`).
+- **O2 · Agente:** verificação da conectividade com o Claude Code via `doctor` real (`POST /api/onboarding/testar-agente`). O Anvilore nunca pede nem guarda chaves de API, operando com a conta já configurada na máquina.
+- **O3 · Áreas:** escolha das áreas iniciais da wiki executando o `anvilore init` real de forma idempotente (`POST /api/onboarding/areas`). Não há campo de id: a identidade do revisor humano é derivada automaticamente do git (`git config user.name` normalizado ou `human:local`) e persistida em .anvilore/identidade. Há opção para remover a área de exemplo e limpar seus links do índice. A remoção recusa destinos simbólicos que saiam da wiki ou caiam em `raw/`, e só remove a seção cujo nome completo seja `exemplo`.
+- **O4 · Ingestão:** convite para a primeira ingestão com arquivo de exemplo (`POST /api/onboarding/ingerir-exemplo`) ou upload, levando ao Chat, com opção de pular direto para o Início. A conclusão é registrada em .anvilore/onboarding.json (`POST /api/onboarding/concluir`), com recusa de arquivos de estado ligados para fora do cofre ou para `raw/`.
+
+Se a wiki já estiver configurada ou o onboarding concluído, o acesso a `#/onboarding` redireciona automaticamente para o Início.
 
 ## Como acrescentar uma tela (Nota, Biblioteca, Onboarding)
 

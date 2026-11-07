@@ -12,6 +12,11 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 ### Added
 
 - O Início traz botão "Ingerir" para arquivos já presentes em `raw/` que ainda não foram ingeridos, abrindo a conversa correspondente no chat sem copiar, mover nem alterar o arquivo bruto existente.
+- Telas de primeiros passos na interface web (Onboarding 1–4): confirmação do vault e inspeção de pastas, verificação do Claude Code via `doctor` sem chave de API, configuração inicial de áreas via `init` com identidade automática do revisor e primeira ingestão guiada.
+
+### Fixed
+
+- A remoção da área de exemplo no onboarding recusa links que apontem para `raw/`, preserva áreas com nomes que apenas começam por `exemplo` e protege o estado salvo do onboarding contra links simbólicos.
 
 ### Security
 

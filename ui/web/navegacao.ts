@@ -4,8 +4,8 @@
 // 3. desenhe a tela em `main.tsx` (um `case` no `switch` de `Aplicacao`).
 // O endereço é o hash (`#/tela/id`): a interface é uma página só, servida pelo `anvilore ui`.
 
-export type Tela = "inicio" | "chat" | "biblioteca" | "nota" | "revisao";
-export type Rota = { tela: Tela; id?: string; lacuna?: string };
+export type Tela = "inicio" | "chat" | "biblioteca" | "nota" | "revisao" | "onboarding";
+export type Rota = { tela: Tela; id?: string; lacuna?: string; passo?: number };
 export type ItemDoMenu = { tela: Tela; rotulo: string; hash: string };
 
 export const MENU: ItemDoMenu[] = [
@@ -30,6 +30,11 @@ export function lerRota(hash: string): Rota {
 
   if (tela === "revisao") return { tela: "revisao" };
   if (tela === "biblioteca") return { tela: "biblioteca" };
+  if (tela === "onboarding") {
+    const passoNum = resto ? Number.parseInt(resto, 10) : 1;
+    const passo = Number.isNaN(passoNum) ? 1 : Math.max(1, Math.min(4, passoNum));
+    return { tela: "onboarding", passo };
+  }
   if (tela === "nota" && resto) return { tela: "nota", id: resto };
   if (tela === "chat") return {
     tela: "chat",
@@ -44,6 +49,7 @@ export function hashDaRota(rota: Rota): string {
     const caminho = rota.id ? `#/chat/${rota.id}` : "#/chat";
     return rota.lacuna === undefined ? caminho : `${caminho}?lacuna=${encodeURIComponent(rota.lacuna)}`;
   }
+  if (rota.tela === "onboarding") return `#/onboarding/${rota.passo ?? 1}`;
   if (rota.tela === "nota") return rota.id ? `#/nota/${rota.id}` : "#/biblioteca";
   return `#/${rota.tela}`;
 }

@@ -52,6 +52,10 @@ export function Chat({ id, lacuna, estado, recarregarEstado, abrir, tema, altern
     else setConversa(null);
   }, [id, carregar]);
 
+  useEffect(() => {
+    void recarregarEstado();
+  }, [recarregarEstado]);
+
   // Enquanto o agente roda, a tela relê o estado gravado em disco: recarregar a página volta ao mesmo ponto.
   useEffect(() => {
     if (!id || conversa?.situacao !== "rodando") return;
