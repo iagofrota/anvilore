@@ -145,6 +145,24 @@ describe("trava de verified nos quatro agentes", () => {
     ], 2, temporario);
   });
 
+  test("Dado comando depois do terminador de heredoc Quando o guarda roda ponta a ponta Então trata a quebra de linha como separador", async () => {
+    const pagina = join(wikiDir, "pessoal/concepts/a.md");
+    const raw = join(temporario, "raw/a.md");
+    mkdirSync(join(temporario, "raw"), { recursive: true });
+    writeFileSync(raw, "conteúdo bruto\n");
+    const ataques = [`cp p ${pagina}`, `rm ${raw}`, `sed -i s/a/b/ ${pagina}`];
+    for (const ataque of ataques) {
+      const command = `cat <<'EOF'\nmsg\nEOF\n${ataque}`;
+      const codigo = await executarProtecao(JSON.stringify({ cwd: temporario, tool_name: "Bash", tool_input: { command } }));
+      expect({ command, codigo }).toEqual({ command, codigo: 2 });
+    }
+
+    for (const carga of ataques) {
+      const command = `cat <<'EOF'\n${carga}\nEOF`;
+      expect(await executarProtecao(JSON.stringify({ cwd: temporario, tool_name: "Bash", tool_input: { command } }))).toBe(0);
+    }
+  });
+
   test("Dado comando de escrita com diretório trocado Quando o terminal é julgado Então bloqueia se o diretório efetivo é a wiki", async () => {
     const ataques = [
       "env -C wiki sed -i s/a/b/ a.md",

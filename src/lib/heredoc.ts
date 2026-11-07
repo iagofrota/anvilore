@@ -226,7 +226,10 @@ export function analisarHeredocs(comando: string): ResultadoHeredocs {
             inicioTermino,
             fimTermino,
           });
-          mudancas.push({ inicio: inicioCorpo, fim: fimTermino, texto: "" });
+          // The terminator ends the input, then the shell resumes parsing commands. Keep an
+          // explicit separator in the command-only view so tokenizers cannot join or drop the
+          // first word of the following line while the heredoc body is removed.
+          mudancas.push({ inicio: inicioCorpo, fim: fimTermino, texto: ";" });
         }
         i = cursor;
         palavraIniciada = true;
@@ -256,7 +259,8 @@ export function textoHeredocParaAnalise(analise: ResultadoHeredocs, manterCorpo:
   for (const corpo of analise.corpos) {
     mudancas.push({ inicio: corpo.inicioOperador, fim: corpo.fimDelimitador, texto: "< /dev/null" });
     if (!manterCorpo(corpo)) mudancas.push({ inicio: corpo.inicioCorpo, fim: corpo.fimCorpo, texto: "" });
-    mudancas.push({ inicio: corpo.inicioTermino, fim: corpo.fimTermino, texto: "" });
+    // The line break after the terminator separates the next shell command, just like `;`.
+    mudancas.push({ inicio: corpo.inicioTermino, fim: corpo.fimTermino, texto: ";" });
   }
   let texto = analise.original;
   for (const mudanca of mudancas.sort((a, b) => b.inicio - a.inicio)) {

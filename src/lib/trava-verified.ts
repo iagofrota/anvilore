@@ -830,7 +830,8 @@ function tokenizar(comando: string, windows = false): Token[] {
 export function substituicaoDeLeituraPermitida(comando: string): boolean {
   try {
     const heredoc = analisarHeredocs(comando);
-    if (heredoc.corpos.length === 1 && heredoc.corpos[0]!.citado && heredoc.semCorpos.trim() === "cat < /dev/null") return true;
+    const comandoSemTerminador = heredoc.semCorpos.trim().replace(/;$/, "").trim();
+    if (heredoc.corpos.length === 1 && heredoc.corpos[0]!.citado && comandoSemTerminador === "cat < /dev/null") return true;
   } catch {
     return false;
   }

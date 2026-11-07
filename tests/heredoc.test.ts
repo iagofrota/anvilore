@@ -1,16 +1,25 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { test, expect } from "bun:test";
+import { test, expect, setDefaultTimeout } from "bun:test";
 import { analisarHeredocs } from "../src/lib/heredoc";
+import { executarProtecao } from "../src/comandos/hook-proteger-raw";
 
 const heredoctsDisponiveis = process.platform !== "win32" && Bun.which("bash") !== null;
+setDefaultTimeout(60_000);
 
 function comandoDoBash(comando: string, pasta: string): void {
   Bun.spawnSync(["bash", "-c", comando], { cwd: pasta, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
 }
 
-test.skipIf(!heredoctsDisponiveis)("Dado corpus gerado de heredocs Quando comparo com Bash Então só as linhas consumidas como corpo são classificadas como corpo", () => {
+async function executarProtecaoSemLog(payload: string): Promise<number> {
+  const erroOriginal = console.error;
+  console.error = () => {};
+  try { return await executarProtecao(payload); }
+  finally { console.error = erroOriginal; }
+}
+
+test.skipIf(!heredoctsDisponiveis)("Dado corpus gerado de heredocs Quando comparo com Bash Então só as linhas consumidas como corpo são classificadas como corpo", async () => {
   const casos: string[] = [];
   const cabecalhos = [
     "cat <<EOF", "cat <<-EOF", "cat \\<<EOF", "cat \\<\\<EOF", "cat <\\<EOF",
@@ -49,6 +58,10 @@ test.skipIf(!heredoctsDisponiveis)("Dado corpus gerado de heredocs Quando compar
   for (const comando of casos) {
     const pasta = mkdtempSync(join(tmpdir(), "anvilore-heredoc-diff-"));
     mkdirSync(join(pasta, "raw"));
+    mkdirSync(join(pasta, "wiki"));
+    writeFileSync(join(pasta, "SCHEMA.md"), "# Schema\n");
+    writeFileSync(join(pasta, "raw/a.md"), "bruto\n");
+    writeFileSync(join(pasta, "wiki/a.md"), "---\ntitle: A\n---\n");
     try {
       comandoDoBash(comando, pasta);
       let analise: ReturnType<typeof analisarHeredocs> | undefined;
@@ -65,8 +78,50 @@ test.skipIf(!heredoctsDisponiveis)("Dado corpus gerado de heredocs Quando compar
         const analisadorDizCorpo = analise!.corpos.some(corpo => marcador.inicio >= corpo.inicioCorpo && marcador.inicio < corpo.fimCorpo);
         if (analisadorDizCorpo !== !bashExecutou) throw new Error(`Bash/analisador divergem; bashExecutou=${bashExecutou}, body=${analisadorDizCorpo}, linha=${marcador.nome}, comando=${JSON.stringify(comando)}`);
       }
+
+      // Ponta a ponta: troca cada linha marcada que Bash executou, uma por vez, por cada
+      // carga perigosa. As outras linhas marcadoras viram `true` para não mascararem o alvo.
+      const linhas = comando.split("\n");
+      for (const marcador of marcadores) {
+        if (!existsSync(join(pasta, "raw", marcador.nome))) continue;
+        const indiceLinha = comando.slice(0, marcador.inicio).split("\n").length - 1;
+        for (const carga of ["cp p wiki/a.md", "rm raw/a.md"]) {
+          const linhasDeAtaque = linhas.map(linha => linha.replace(/touch raw\/M\d+/g, "true"));
+          linhasDeAtaque[indiceLinha] = linhas[indiceLinha]!.replace(/touch raw\/M\d+/, carga);
+          const comandoDeAtaque = linhasDeAtaque.join("\n");
+          const codigo = await executarProtecaoSemLog(JSON.stringify({ cwd: pasta, tool_name: "Bash", tool_input: { command: comandoDeAtaque } }));
+          expect({ comando: comandoDeAtaque, carga, codigo }).toEqual({ comando: comandoDeAtaque, carga, codigo: 2 });
+        }
+      }
     } finally {
       rmSync(pasta, { recursive: true, force: true });
+    }
+  }
+
+  // Bash confirma que uma substituição no corpo só executa quando o delimitador não tem aspas.
+  for (const delimitador of ["EOF", "'EOF'", '"EOF"']) {
+    for (const carga of ["cp p wiki/a.md", "rm raw/a.md"]) {
+      const pasta = mkdtempSync(join(tmpdir(), "anvilore-heredoc-body-"));
+      mkdirSync(join(pasta, "raw"));
+      mkdirSync(join(pasta, "wiki"));
+      writeFileSync(join(pasta, "SCHEMA.md"), "# Schema\n");
+      writeFileSync(join(pasta, "raw/a.md"), "bruto\n");
+      writeFileSync(join(pasta, "wiki/a.md"), "---\ntitle: A\n---\n");
+      try {
+        const marcador = join(pasta, "raw/M0");
+        comandoDoBash(`cat <<${delimitador}\n$(touch raw/M0)\nEOF`, pasta);
+        const bashExecutou = existsSync(marcador);
+        const comando = `cat <<${delimitador}\n$(${carga})\nEOF`;
+        const codigo = await executarProtecaoSemLog(JSON.stringify({ cwd: pasta, tool_name: "Bash", tool_input: { command: comando } }));
+        expect({ delimitador, carga, bashExecutou, codigo }).toEqual({
+          delimitador,
+          carga,
+          bashExecutou: delimitador === "EOF",
+          codigo: delimitador === "EOF" ? 2 : 0,
+        });
+      } finally {
+        rmSync(pasta, { recursive: true, force: true });
+      }
     }
   }
 });
