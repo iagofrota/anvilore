@@ -227,7 +227,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
               const copia = copias.get(item.caminho);
               let anterior: string | undefined;
               if (copia) { try { anterior = await readFile(copia, "utf8"); } catch { /* cópia removida durante a leitura */ } }
-              const emAjuste = ingestao.ajusteAtivoPara(item.caminho);
+              const emAjuste = ingestao?.ajusteAtivoPara(item.caminho) ?? false;
               const aprovavel = item.aprovavel && !emAjuste;
               const motivoNaoAprovavel = emAjuste
                 ? "Esta página está em ajuste; aprove depois que o ajuste terminar."
@@ -245,7 +245,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             try { corpo = await request.json() as { caminho?: unknown }; } catch { return json({ codigo: 2, mensagens: ["Pedido inválido."] }, 400); }
             if (typeof corpo.caminho !== "string") return json({ codigo: 2, mensagens: ["Página inválida."] }, 400);
             if (typeof corpo.versao !== "string" || !/^[a-f0-9]{64}$/.test(corpo.versao)) return json({ codigo: 2, mensagens: ["Versão inválida."] }, 400);
-            if (ingestao.ajusteAtivoPara(corpo.caminho)) {
+            if (ingestao?.ajusteAtivoPara(corpo.caminho)) {
               return json({ codigo: 3, mensagens: ["Esta página está em ajuste; aprove depois que o ajuste terminar."] }, 409);
             }
             const fila = await listarFilaRascunhos(raiz);
@@ -255,6 +255,8 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             return json(resultado, resultado.codigo === 0 ? 200 : 409);
           }
           if (url.pathname === "/api/ajuste" && request.method === "POST") {
+            // Só-revisão não sobe a ponte com o agente: sem ingestão não há como pedir ajuste.
+            if (!ingestao) return respostaSegura("Não encontrado", { status: 404 });
             let corpo: { caminho?: unknown; versao?: unknown; pedido?: unknown };
             try { corpo = await request.json() as { caminho?: unknown; versao?: unknown; pedido?: unknown }; } catch { return json({ mensagens: ["Pedido inválido."] }, 400); }
             if (typeof corpo.caminho !== "string") return json({ mensagens: ["Página inválida."] }, 400);
@@ -288,7 +290,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             try {
               const nota = await obterNota(raiz, caminho);
               if (!nota) return json({ mensagens: ["Página não encontrada."] }, 404);
-              const emAjuste = ingestao.ajusteAtivoPara(caminho);
+              const emAjuste = ingestao?.ajusteAtivoPara(caminho) ?? false;
               return json({
                 ...nota,
                 aprovavel: nota.aprovavel && !emAjuste,

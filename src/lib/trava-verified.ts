@@ -1315,8 +1315,15 @@ function analisarScriptSed(script: string): EscritaDeScript & { dinamico: boolea
       i = fimDeLinha(i + 1);
       continue;
     }
-    if (c === "r" || c === "R" || c === ":" || c === "b" || c === "t" || c === "T" || c === "v") {
+    if (c === "r" || c === "R") {
       i = fimDeLinha(i + 1);
+      continue;
+    }
+    // Rótulo (`:a`, `b fim`, `t`, `T`) e `v` terminam em `;` ou nova linha (GNU sed): o que vem depois é outro comando.
+    if (c === ":" || c === "b" || c === "t" || c === "T" || c === "v") {
+      let k = i + 1;
+      while (k < n && script[k] !== ";" && script[k] !== "\n") k++;
+      i = k;
       continue;
     }
     if (c === "a" || c === "i" || c === "c") {
@@ -1342,6 +1349,8 @@ function analisarScriptAwk(script: string): EscritaDeScript {
   const r: EscritaDeScript = { destinos: [], comandos: [] };
   const n = script.length;
   const nao = (motivo: string) => { r.bloqueio ??= `${motivo} (falha fechada)`; };
+  // @include/@load carregam código que o guarda não lê (a extensão inplace grava arquivos).
+  if (/@(?:include|load|namespace)\b/.test(script) || /\binplace::/.test(script)) { nao("awk com @include, @load ou inplace::"); return r; }
   const lerString = (de: number): { texto: string; fim: number } | undefined => {
     let texto = "";
     for (let k = de + 1; k < n; k++) {
@@ -1352,16 +1361,41 @@ function analisarScriptAwk(script: string): EscritaDeScript {
     }
     return undefined;
   };
-  let ultimaString: { texto: string; fim: number } | undefined;
+  // `/regex/` onde se espera um operando (depois de ( , { ; ! ~ | & = < > ou no início); depois de um valor é divisão.
+  const lerRegex = (de: number): number => {
+    let colchete = false;
+    for (let k = de + 1; k < n; k++) {
+      const c = script[k]!;
+      if (c === "\\") { k++; continue; }
+      if (c === "\n") return -1;
+      if (c === "[") colchete = true;
+      else if (c === "]") colchete = false;
+      else if (c === "/" && !colchete) return k + 1;
+    }
+    return -1;
+  };
+  const esperaOperando = (anterior: string | undefined) => anterior === undefined || /[(,{;!~|&=<>+\-*%^?:\n]/.test(anterior);
+  // Depois do alvo literal só pode vir o fim da instrução: `"w" "iki"` concatena e o alvo real é outro.
+  const fimDeInstrucao = (de: number) => { const m = /^[ \t]*(?:$|[;}\n)#])/.exec(script.slice(de)); return m !== null; };
+  let ultimaString: { texto: string; inicio: number; fim: number } | undefined;
+  let anterior: string | undefined;
   let i = 0;
   while (i < n) {
     const c = script[i]!;
     if (c === "#") { while (i < n && script[i] !== "\n") i++; continue; }
+    if (c === "\n") { anterior = "\n"; i++; continue; }
+    if (/\s/.test(c)) { i++; continue; }
+    if (c === "/" && esperaOperando(anterior)) {
+      const fim = lerRegex(i);
+      if (fim < 0) { nao("regex do awk sem fechamento"); return r; }
+      i = fim; anterior = ")";
+      continue;
+    }
     if (c === '"') {
       const s1 = lerString(i);
       if (!s1) { nao("string do awk sem fechamento"); return r; }
-      ultimaString = s1;
-      i = s1.fim;
+      ultimaString = { ...s1, inicio: i };
+      i = s1.fim; anterior = '"';
       continue;
     }
     if (c === "|") {
@@ -1369,17 +1403,19 @@ function analisarScriptAwk(script: string): EscritaDeScript {
       if (script[k] === "&") k++;
       while (k < n && /\s/.test(script[k]!)) k++;
       if (script.startsWith("getline", k)) {
-        if (ultimaString && script.slice(ultimaString.fim, i).trim() === "") r.comandos.push(ultimaString.texto);
-        else nao("awk com comando não literal em getline");
+        const antes = ultimaString ? script.slice(0, ultimaString.inicio).trimEnd().slice(-1) : "";
+        const solta = ultimaString && script.slice(ultimaString.fim, i).trim() === "" && (antes === "" || /[;{}(=\n]/.test(antes));
+        if (solta) r.comandos.push(ultimaString!.texto);
+        else nao("awk com comando não literal ou concatenado em getline");
       }
-      i++;
+      anterior = "|"; i++;
       continue;
     }
     if (/[A-Za-z_]/.test(c)) {
       let k = i;
       while (k < n && /\w/.test(script[k]!)) k++;
       const palavra = script.slice(i, k);
-      i = k;
+      i = k; anterior = "a";
       if (palavra === "system") {
         let j = i;
         while (j < n && /\s/.test(script[j]!)) j++;
@@ -1392,33 +1428,46 @@ function analisarScriptAwk(script: string): EscritaDeScript {
         }
       } else if (palavra === "print" || palavra === "printf") {
         let profundidade = 0;
+        let ant: string | undefined = "{";
         while (i < n) {
           const d = script[i]!;
+          if (/\s/.test(d)) { i++; continue; }
+          if (d === "/" && esperaOperando(ant)) {
+            const fim = lerRegex(i);
+            if (fim < 0) { nao("regex do awk sem fechamento"); return r; }
+            i = fim; ant = ")";
+            continue;
+          }
           if (d === '"') {
             const s2 = lerString(i);
             if (!s2) { nao("string do awk sem fechamento"); return r; }
-            ultimaString = s2;
-            i = s2.fim;
+            ultimaString = { ...s2, inicio: i };
+            i = s2.fim; ant = '"';
             continue;
           }
           if (d === "(") profundidade++;
           else if (d === ")") profundidade--;
-          else if (profundidade <= 0 && (d === ";" || d === "\n" || d === "}")) break;
+          else if (profundidade <= 0 && (d === ";" || d === "}")) break;
           else if (profundidade <= 0 && (d === ">" || d === "|")) {
             let k2 = i + 1;
             if (script[k2] === ">" || script[k2] === "&") k2++;
-            while (k2 < n && /\s/.test(script[k2]!)) k2++;
+            while (k2 < n && /[ \t]/.test(script[k2]!)) k2++;
             const literal = script[k2] === '"' ? lerString(k2) : undefined;
-            if (!literal) nao(d === ">" ? "awk com destino de redirecionamento não literal" : "awk com comando de pipe não literal");
-            else (d === ">" ? r.destinos : r.comandos).push(literal.texto);
-            i = literal ? literal.fim : k2;
+            if (!literal) { nao(d === ">" ? "awk com destino de redirecionamento não literal" : "awk com comando de pipe não literal"); return r; }
+            if (!fimDeInstrucao(literal.fim)) { nao("awk com alvo de redirecionamento concatenado"); return r; }
+            (d === ">" ? r.destinos : r.comandos).push(literal.texto);
+            i = literal.fim; ant = '"';
             continue;
           }
+          if (d === "\n") { if (profundidade <= 0) break; i++; continue; }
+          ant = d;
           i++;
         }
+        anterior = ";";
       }
       continue;
     }
+    anterior = c;
     i++;
   }
   return r;
@@ -1427,7 +1476,9 @@ function analisarScriptAwk(script: string): EscritaDeScript {
 // Comandos ex/vim (de -c, +cmd, -S, --cmd): escrita (w, wq, x, saveas...), shell (!, r !) e comandos que podem tudo.
 function analisarComandosEx(texto: string): EscritaDeScript {
   const r: EscritaDeScript = { destinos: [], comandos: [] };
-  const IMPREVISIVEIS = /^(?:exe|exec|execute|norm|normal|py|python|python3|py3|pyx|lua|perl|ruby|rub|so|source|redir|mksession|mks|mkvimrc|mkv|mkview|mkvie|bufdo|windo|tabdo|argdo|cdo|ldo|wincmd|@|\*)$/i;
+  // Lista permitida: só comandos ex conhecidos como inofensivos passam; os demais (e, call, let, grep, term, normal, exe, py...)
+  // podem abrir outro arquivo, executar comando ou código, então bloqueiam (falha fechada).
+  const PERMITIDOS = /^(?:s|su|sub|subs|subst|substi|substit|substitu|substitut|substitute|&&?|~|d|de|del|dele|delet|delete|p|pr|pri|prin|print|nu|num|numb|numbe|number|l|li|lis|list|#|=|j|jo|joi|join|m|mo|mov|move|t|co|cop|copy|y|ya|yan|yank|pu|put|u|un|und|undo|red|redo|noh|nohl|nohls|nohlse|nohlsea|nohlsear|nohlsearc|nohlsearch|se|set|setl|setlo|setloc|setloca|setlocal|q|qu|qui|quit|qa|qal|qall|quita|quitall|cq|cquit|k|ma|mar|mark|sor|sort|le|lef|left|ri|rig|righ|right|ce|cen|cent|cente|center|ret|reta|retab|a|ap|app|appe|appen|append|i|in|ins|inse|inser|insert|c|ch|cha|chan|chang|change|>+|<+)$/;
   const ESCRITA = /^(?:w|wr|wri|writ|write|wq|x|xi|xit|exi|exit|up|upd|upda|updat|update|sav|save|savea|saveas|wn|wnext|wN|wNext|wp|wprevious|wa|wal|wall|wqa|wqall|xa|xall|f|fil|file)$/i;
   const GLOBAL = /^(?:g|gl|glo|glob|globa|global|v|vg|vgl|vglo|vglob|vgloba|vglobal)$/i;
   const MODIFICADORES = /^(?:sil|silent|keepa|keepalt|keepm|keepmarks|keepj|keepjumps|noa|noautocmd|loc|lockmarks|verb|verbose|uns|unsilent|keepp|keeppatterns|leftabove|aboveleft|rightbelow|belowright|botright|topleft|vert|vertical|tab|hid|hide)$/i;
@@ -1442,12 +1493,11 @@ function analisarComandosEx(texto: string): EscritaDeScript {
       if (seg === antes) break;
     }
     if (seg.startsWith("!")) { r.comandos.push(seg.slice(1)); return; }
-    const m = /^([A-Za-z]+|@|\*)(!?)\s*([\s\S]*)$/.exec(seg);
+    const m = /^([A-Za-z]+|@|\*|&&?|~|#|=|>+|<+)(!?)\s*([\s\S]*)$/.exec(seg);
     if (!m) { if (seg) r.bloqueio = "comando do editor que não se prova inofensivo (falha fechada)"; return; }
     const palavra = m[1]!;
     const resto = m[3]!;
     if (MODIFICADORES.test(palavra)) { analisar(resto, nivel + 1); return; }
-    if (IMPREVISIVEIS.test(palavra)) { r.bloqueio = `comando do editor imprevisível (${palavra}; falha fechada)`; return; }
     if (GLOBAL.test(palavra)) {
       const delimitador = resto[0];
       if (!delimitador || /\w/.test(delimitador)) { r.bloqueio = "global do editor sem padrão (falha fechada)"; return; }
@@ -1466,8 +1516,12 @@ function analisarComandosEx(texto: string): EscritaDeScript {
       const alvo = resto.replace(/^>>\s*/, "").trim();
       if (alvo.startsWith("!")) r.comandos.push(alvo.slice(1));
       else if (alvo && alvo !== "%" && alvo !== "#") r.destinos.push(alvo);
+      return;
     }
+    if (!PERMITIDOS.test(palavra)) r.bloqueio = `comando do editor fora da lista permitida (${palavra}; falha fechada)`;
   };
+  // `\=` no substitute avalia uma expressão (system(), por exemplo): não se prova.
+  if (texto.includes("\\=")) { r.bloqueio = "substitute com expressão (\\=) do editor (falha fechada)"; return r; }
   for (const linha of texto.split("\n")) {
     const trecho = linha.trim().replace(/^[:\s]+/, "");
     // `!cmd` e `r !cmd` levam o resto da linha, inclusive `|`; os demais comandos terminam em `|`.
@@ -1526,7 +1580,7 @@ function analisarFerramentaDeTexto(
       if (arg === "--") { operandos.push(...args.slice(i + 1)); break; }
       if (arg.startsWith("--")) {
         if (opcaoLongaGnu(arg, "--sandbox", "--sa")) sandbox = true;
-        else if (opcaoLongaGnu(arg, "--expression", "--ex")) {
+        else if (opcaoLongaGnu(arg, "--expression", "--e")) {
           const [valor, proximo] = valorDe(arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : undefined, i);
           if (valor === undefined) return bloquear("sed -e sem script (falha fechada)");
           scripts.push({ texto: valor }); i = proximo;
@@ -1577,27 +1631,34 @@ function analisarFerramentaDeTexto(
       if (arg.startsWith("--")) {
         const inline = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : undefined;
         const cabeca = (nome: string, minimo: string) => opcaoLongaGnu(arg, nome, minimo);
-        if (cabeca("--file", "--fil") || cabeca("--exec", "--exe") || cabeca("--source", "--so")) {
+        if (cabeca("--file", "--fil") || cabeca("--exec", "--e") || cabeca("--source", "--so")) {
           const [valor, proximo] = valorDe(inline, i);
           if (valor === undefined) return bloquear("awk com opção de programa sem valor (falha fechada)");
           scripts.push(cabeca("--source", "--so") ? { texto: valor } : { arquivo: valor }); i = proximo;
-        } else if (cabeca("--include", "--inc")) {
+        } else if (cabeca("--include", "--i") || cabeca("--load", "--lo")) {
           const [valor, proximo] = valorDe(inline, i);
           if (valor !== undefined && /inplace/i.test(valor)) inplace = true;
           i = proximo;
-        } else if ((cabeca("--assign", "--as") || cabeca("--field-separator", "--fie") || cabeca("--load", "--lo")) && inline === undefined) i++;
+        } else if ((cabeca("--assign", "--a") || cabeca("--field-separator", "--fie")) && inline === undefined) i++;
         continue;
       }
       if (/^-[^-]/.test(arg)) {
         const grupo = arg.slice(1);
         for (let j = 0; j < grupo.length; j++) {
           const letra = grupo[j]!;
-          if ("fFvieElWd".includes(letra)) {
+          // -d[arquivo] só tem valor colado: o argumento seguinte é o programa.
+          if (letra === "d") break;
+          if ("fFvieElW".includes(letra)) {
             const [valor, proximo] = valorDe(grupo.slice(j + 1) || undefined, i);
             if (valor === undefined) return bloquear("awk com opção sem valor (falha fechada)");
             if (letra === "f" || letra === "E") scripts.push({ arquivo: valor });
             else if (letra === "e") scripts.push({ texto: valor });
-            else if (letra === "i" && /inplace/i.test(valor)) inplace = true;
+            else if ((letra === "i" || letra === "l") && /inplace/i.test(valor)) inplace = true;
+            else if (letra === "W") {
+              // mawk/gawk -W source=texto, exec=arquivo, file=arquivo
+              const w = /^(source|exec|file)=([\s\S]*)$/i.exec(valor);
+              if (w) scripts.push(w[1]!.toLowerCase() === "source" ? { texto: w[2]! } : { arquivo: w[2]! });
+            }
             i = proximo;
             break;
           }
@@ -1642,7 +1703,7 @@ function analisarFerramentaDeTexto(
       if (arg.startsWith("+") && arg.length > 1) { textos.push(arg.slice(1)); continue; }
       if (/^-[^-]/.test(arg)) {
         const grupo = arg.slice(1);
-        const comValor = verbo === "ed" || verbo === "red" ? "cSuitTwWpG" : "cSuitTwW";
+        const comValor = verbo === "ed" || verbo === "red" ? "cSuUitTwWpG" : "cSuUitTwW";
         for (let j = 0; j < grupo.length; j++) {
           const letra = grupo[j]!;
           letras.add(letra);
@@ -1656,7 +1717,9 @@ function analisarFerramentaDeTexto(
             if (valor === undefined) return bloquear("editor com opção sem valor (falha fechada)");
             if (letra === "c") textos.push(valor);
             else if (letra === "S") arquivosScript.push(valor);
-            else if (letra === "w" || letra === "W") destinos.push(valor);
+            else if (letra === "w" || letra === "W" || letra === "i") destinos.push(valor);
+            // -u/-U executam um vimrc que o guarda não lê: só NONE/NORC se prova inofensivo.
+            else if ((letra === "u" || letra === "U") && !/^(?:NONE|NORC)$/i.test(valor)) return bloquear("editor com vimrc não literal (falha fechada)");
             i = proximo;
             break;
           }
@@ -1667,6 +1730,10 @@ function analisarFerramentaDeTexto(
     }
     // O terminal não escreve em wiki/: editor com arquivo da wiki, em qualquer modo, bloqueia.
     if (temMudancaDir || operandos.some(arg => argumentoTocaWiki(arg, base, raiz, ambiente))) return bloquear(MSG_TERMINAL_WIKI);
+    // Fora do modo ex, `-s` recebe um arquivo de teclas (scriptin) que o guarda não lê.
+    if (letras.has("s") && !(verbo === "ed" || verbo === "red" || verbo === "ex" || letras.has("e") || letras.has("E"))) {
+      return bloquear(`${verbo} -s com arquivo de teclas (não se prova; falha fechada)`);
+    }
     const modoScript = verbo === "ed" || verbo === "red" || verbo === "ex" || letras.has("s") || letras.has("e") || letras.has("E");
     if (modoScript && (entrada.redirecionada || entrada.dePipe)) {
       return bloquear(`${verbo} com script vindo da entrada padrão (não se prova; falha fechada)`);

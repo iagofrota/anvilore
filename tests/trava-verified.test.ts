@@ -2807,5 +2807,56 @@ describe("trava de verified nos quatro agentes", () => {
         rmSync(fora, { recursive: true, force: true });
       }
     });
+
+    test("Rodada 11 (revisão automática): rótulo do sed, prefixos, -d/-W/-l do awk, concatenação e regex, ex por lista permitida e -u/-s/-i do vim", async () => {
+      const { fora, stage, cofre, julgar, todos, wikiA } = prepararRodada11();
+      writeFileSync(join(fora, "rc.vim"), "silent! !cp -R x y\n");
+      writeFileSync(join(fora, "teclas"), `:w ${wikiA}\r`);
+      try {
+        const ataques = [
+          `sed ':a;w wiki/a.md' ${fora}/p.md`,
+          `sed 'b end;w wiki/a.md' ${fora}/p.md`,
+          `sed 't;w wiki/a.md' ${fora}/p.md`,
+          `sed --e='w wiki/a.md' ${fora}/p.md`,
+          `sed --e 'w wiki/a.md' ${fora}/p.md`,
+          `awk -d '{print > "wiki/a.md"}' ${fora}/p.md`,
+          `awk -W 'source={print > "wiki/a.md"}' ${fora}/p.md`,
+          `awk --so='{print > "wiki/a.md"}' ${fora}/p.md`,
+          `awk -l inplace '{print}' ${wikiA}`,
+          `awk --load=inplace '{print}' wiki/a.md`,
+          `awk '@include "x"; {print}' ${fora}/p.md`,
+          `awk '@load "inplace"; BEGIN{}' ${fora}/p.md`,
+          `awk '{print > "w" "iki/a.md"}' ${fora}/p.md`,
+          `awk '{print | "cat >" " wiki/a.md"}' ${fora}/p.md`,
+          `awk 'BEGIN{"cp -R " "x" | getline}' ${fora}/p.md`,
+          `awk '/"/ {print > "${fora}/x"} /"/ {print > "wiki/a.md"}' ${fora}/p.md`,
+          `vim -es -c 's/x/\\=system("cp -R ${stage}/. .")/' -c q ${fora}/p.md`,
+          `vim -es -c 'call system("cp -R ${stage}/. .")' -c q ${fora}/p.md`,
+          `vim -es -c 'let x=system("cp")' -c q ${fora}/p.md`,
+          `vim -es -c 'e wiki/a.md' -c w -c q ${fora}/p.md`,
+          `vim -es -c 'term cp -R ${stage}/. .' ${fora}/p.md`,
+          `vim -es -c 'grep x' ${fora}/p.md`,
+          `vim -es -u ${fora}/rc.vim -c q ${fora}/p.md`,
+          `vim -s ${fora}/teclas ${fora}/p.md`,
+          `vim -i wiki/a.viminfo -es -c q ${fora}/p.md`,
+        ];
+        expect(await julgar(ataques, cofre)).toEqual(todos(ataques, 2));
+
+        const regressoes = [
+          `sed ':a;N;$!ba;s/\\n/ /g' ${fora}/p.md`,
+          `sed 'b end;p;:end' ${fora}/p.md`,
+          `sed --e='s/a/b/' ${fora}/p.md`,
+          `awk -d '{print $1}' ${fora}/p.md`,
+          `awk '/"/ {print}' ${fora}/p.md`,
+          `awk '{x = 4 / 2; print x}' ${fora}/p.md`,
+          `awk '{print > "${fora}/x"; print "a" "b"}' ${fora}/p.md`,
+          `vim -es -u NONE -c q ${fora}/p.md`,
+          `vim --clean -es -c '%s/a/b/g' -c wq ${fora}/p.md`,
+        ];
+        expect(await julgar(regressoes, cofre)).toEqual(todos(regressoes, 0));
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
   });
 });
