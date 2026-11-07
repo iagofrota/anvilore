@@ -138,6 +138,13 @@ describe("trava de verified nos quatro agentes", () => {
     for (const interno of permitidos) await esperarCodigos([`echo \"$(${interno})\"`, `git commit -m \"x $(${interno})\"`], 0, temporario);
   });
 
+  test("Dado heredoc com terminador anterior ou operador escapado Quando há comando depois Então bloqueia", async () => {
+    await esperarCodigos([
+      "echo \"$(cat <<'EOF'\nEOF\ncp p wiki/a.md\nEOF\n)\"",
+      "cat \\<<'EOF'\ncp p wiki/a.md\nEOF",
+    ], 2, temporario);
+  });
+
   test("Dado comando de escrita com diretório trocado Quando o terminal é julgado Então bloqueia se o diretório efetivo é a wiki", async () => {
     const ataques = [
       "env -C wiki sed -i s/a/b/ a.md",

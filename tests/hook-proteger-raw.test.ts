@@ -1528,4 +1528,11 @@ test("Dado substituições no corpo de heredoc ou após cd Quando o comando é j
   expect(decidirNo("cat <<'EOF'\n$(date)\nEOF", temporario).acao).toBe("liberar");
 });
 
+test("Dado limites reais do heredoc Quando há delimitador anterior ou operador escapado Então não oculta comandos seguintes", () => {
+  const escapar = join(temporario, "raw");
+  mkdirSync(escapar);
+  expect(decidir(JSON.stringify({ tool_name: "Bash", cwd: temporario, tool_input: { command: "echo \"$(cat <<'EOF'\nEOF\nrm raw/a.md\nEOF\n)\"" } })).acao).toBe("bloquear");
+  expect(decidir(JSON.stringify({ tool_name: "Bash", cwd: temporario, tool_input: { command: "cat \\<<'EOF'\nrm raw/a.md\nEOF" } })).acao).toBe("bloquear");
+});
+
 

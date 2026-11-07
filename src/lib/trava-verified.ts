@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { caminhoReal, dentroDe } from "./caminhos";
 import { lerFrontmatter } from "./frontmatter";
 import { caminhoWiki } from "./wiki-repo";
+import { analisarHeredocs, type CorpoHeredoc } from "./heredoc";
 
 export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
 type Json = Record<string, unknown>;
@@ -827,8 +828,12 @@ function tokenizar(comando: string, windows = false): Token[] {
 // Substituições são negadas por padrão: só aceitamos comandos de leitura simples cuja saída
 // continua opaca para a análise do comando externo.
 export function substituicaoDeLeituraPermitida(comando: string): boolean {
-  const catComHeredocCitado = /^\s*cat\s+<<(['"])([A-Za-z0-9_.-]+)\1[ \t]*\r?\n([\s\S]*?)\r?\n\2[ \t]*\r?\n?\s*$/.exec(comando);
-  if (catComHeredocCitado) return true;
+  try {
+    const heredoc = analisarHeredocs(comando);
+    if (heredoc.corpos.length === 1 && heredoc.corpos[0]!.citado && heredoc.semCorpos.trim() === "cat < /dev/null") return true;
+  } catch {
+    return false;
+  }
 
   if (/[;|&<>()[\]$`]/.test(comando) || /\\\s*(?:\r?\n|$)/.test(comando)) return false;
   let tokens: Token[];
@@ -855,31 +860,20 @@ export function substituicaoDeLeituraPermitida(comando: string): boolean {
   return false;
 }
 
-// Encontra $(...) e crases sem executar o shell. O conteúdo do heredoc não participa do balanceamento
-// dos parênteses: `)` dentro do texto literal não fecha a substituição.
-function encontrarFimSubstituicao(comando: string, inicio: number, crase: boolean): number {
+// Encontra o fim sem executar o shell. Os intervalos de heredoc vêm do analisador compartilhado.
+function encontrarFimSubstituicao(comando: string, inicio: number, crase: boolean, corpos: CorpoHeredoc[]): number {
   let aspas = "";
   let profundidade = crase ? 0 : 1;
-  const heredocs: string[] = [];
   for (let i = inicio; i < comando.length; i++) {
-    const c = comando[i]!;
-    const prox = comando[i + 1] ?? "";
-    if (c === "\n" && heredocs.length) {
-      i++;
-      while (i <= comando.length) {
-        const fimLinha = comando.indexOf("\n", i);
-        const fim = fimLinha < 0 ? comando.length : fimLinha;
-        const linha = comando.slice(i, fim).replace(/^\t+/, "");
-        if (linha === heredocs[0]) heredocs.shift();
-        if (heredocs.length === 0) {
-          i = fim;
-          break;
-        }
-        if (fimLinha < 0) return -1;
-        i = fimLinha + 1;
-      }
+    const corpo = corpos.find(item => i >= item.inicioCorpo && i < item.fimTermino);
+    if (corpo) {
+      i = corpo.fimTermino;
+      if (comando[i] === "\n") i++;
+      i--;
       continue;
     }
+    const c = comando[i]!;
+    const prox = comando[i + 1] ?? "";
     if (aspas) {
       if (c === "\\" && aspas === '"') { i++; continue; }
       if (c === aspas) aspas = "";
@@ -888,24 +882,6 @@ function encontrarFimSubstituicao(comando: string, inicio: number, crase: boolea
     }
     if (c === "\\" && !crase) { i++; continue; }
     if (c === "'" || c === '"') { aspas = c; continue; }
-    if (c === "<" && prox === "<") {
-      let j = i + 2;
-      if (comando[j] === "-") j++;
-      while (/[ \t]/.test(comando[j] ?? "")) j++;
-      let delimitador = "";
-      let quote = "";
-      while (j < comando.length && comando[j] !== "\n" && !/[ \t;]/.test(comando[j]!)) {
-        const parte = comando[j]!;
-        if (quote) { if (parte === quote) quote = ""; else delimitador += parte; }
-        else if (parte === "'" || parte === '"') quote = parte;
-        else if (parte === "\\" && j + 1 < comando.length) delimitador += comando[++j]!;
-        else delimitador += parte;
-        j++;
-      }
-      if (delimitador) heredocs.push(delimitador);
-      i = j - 1;
-      continue;
-    }
     if (crase) {
       if (c === "`") return i;
       continue;
@@ -920,41 +896,18 @@ function encontrarFimSubstituicao(comando: string, inicio: number, crase: boolea
 }
 
 export function extrairSubstituicoesComando(comando: string): { texto: string; substituicoes: string[] } {
+  const analiseHeredoc = analisarHeredocs(comando);
   let texto = "";
   const substituicoes: string[] = [];
   let aspas = "";
-  const heredocs: Array<{ delimitador: string; tabs: boolean; citado: boolean }> = [];
   for (let i = 0; i < comando.length; i++) {
     const c = comando[i]!;
     const prox = comando[i + 1] ?? "";
-    if (c === "\n" && heredocs.length) {
-      texto += c;
-      let cursor = i + 1;
-      for (const heredoc of heredocs.splice(0)) {
-        const inicioCorpo = cursor;
-        let fimCorpo = -1;
-        let fimLinhaMarcador = -1;
-        while (cursor <= comando.length) {
-          const fimLinha = comando.indexOf("\n", cursor);
-          const fim = fimLinha < 0 ? comando.length : fimLinha;
-          const linha = comando.slice(cursor, fim);
-          const comparada = heredoc.tabs ? linha.replace(/^\t+/, "") : linha;
-          if (comparada === heredoc.delimitador) {
-            fimCorpo = cursor;
-            fimLinhaMarcador = fim;
-            cursor = fimLinha < 0 ? comando.length : fimLinha + 1;
-            break;
-          }
-          if (fimLinha < 0) break;
-          cursor = fimLinha + 1;
-        }
-        if (fimCorpo < 0) throw new Error("heredoc sem delimitador de fechamento");
-        const corpo = comando.slice(inicioCorpo, fimCorpo);
-        texto += corpo;
-        if (!heredoc.citado && /\$\(|\$\{|\$\(\(|`/.test(corpo)) substituicoes.push("ANVILORE_HEREDOC_SEM_CITACAO_COM_EXPANSAO");
-        texto += comando.slice(fimCorpo, cursor);
-        i = cursor - 1;
-      }
+    const corpo = analiseHeredoc.corpos.find(item => i >= item.inicioCorpo && i < item.fimTermino);
+    if (corpo) {
+      texto += comando.slice(i, corpo.fimTermino);
+      if (!corpo.citado && /\$\(|\$\{|\$\(\(|`/.test(corpo.texto)) substituicoes.push("ANVILORE_HEREDOC_SEM_CITACAO_COM_EXPANSAO");
+      i = corpo.fimTermino - 1;
       continue;
     }
     if (aspas === "'") {
@@ -969,36 +922,10 @@ export function extrairSubstituicoesComando(comando: string): { texto: string; s
       texto += c;
       continue;
     }
-    if (c === "<" && prox === "<" && comando[i + 2] !== "<") {
-      let j = i + 2;
-      let tabs = false;
-      if (comando[j] === "-") { tabs = true; j++; }
-      while (/[ \t]/.test(comando[j] ?? "")) j++;
-      const inicioDelimitador = j;
-      let delimitador = "";
-      let quote = "";
-      let citado = false;
-      while (j < comando.length && comando[j] !== "\n" && !/[ \t;]/.test(comando[j]!)) {
-        const parte = comando[j]!;
-        if (quote) { if (parte === quote) quote = ""; else delimitador += parte; }
-        else if (parte === "'" || parte === '"') { quote = parte; citado = true; }
-        else if (parte === "\\" && j + 1 < comando.length) { delimitador += comando[++j]!; citado = true; }
-        else delimitador += parte;
-        j++;
-      }
-      if (delimitador) {
-        const textoDelimitador = comando.slice(inicioDelimitador, j);
-        citado = /^'(?:[^']*)'$|^\"(?:[^\"]*)\"$/.test(textoDelimitador);
-        heredocs.push({ delimitador, tabs, citado });
-      }
-      texto += comando.slice(i, j);
-      i = j - 1;
-      continue;
-    }
     if ((c === "$" && prox === "(" && comando[i + 2] !== "(") || (c === "`" && aspas !== "'")) {
       const crase = c === "`";
       const inicio = i + (crase ? 1 : 2);
-      const fim = encontrarFimSubstituicao(comando, inicio, crase);
+      const fim = encontrarFimSubstituicao(comando, inicio, crase, analiseHeredoc.corpos);
       if (fim < 0) throw new Error("substituição de comando sem fechamento");
       substituicoes.push(comando.slice(inicio, fim));
       texto += "$ANVILORE_EXPANSAO";
@@ -1006,7 +933,7 @@ export function extrairSubstituicoesComando(comando: string): { texto: string; s
       continue;
     }
     if (c === "(" && (comando[i - 1] === "<" || comando[i - 1] === ">")) {
-      const fim = encontrarFimSubstituicao(comando, i + 1, false);
+      const fim = encontrarFimSubstituicao(comando, i + 1, false, analiseHeredoc.corpos);
       if (fim < 0) throw new Error("substituição de processo sem fechamento");
       substituicoes.push(comando.slice(i + 1, fim));
       texto += "$ANVILORE_EXPANSAO";
@@ -1015,21 +942,8 @@ export function extrairSubstituicoesComando(comando: string): { texto: string; s
     }
     texto += c;
   }
-  return { texto, substituicoes };
-}
-
-function simplificarHeredocDeDados(comando: string): string {
-  const linhas = comando.split("\n");
-  const linhaComando = linhas[0] ?? "";
-  const cat = /^\s*(?:(?:[A-Za-z_]\w*=\S*)\s+)*cat(?:\s|$)/.test(linhaComando);
-  const commitEntrada = /^\s*git\s+commit\s+-F\s+-\s+<<(['"])([A-Za-z0-9_.-]+)\1\s*$/.exec(linhaComando);
-  if (!cat && !commitEntrada) return comando;
-  const marcador = cat ? /<<-?\s*(['"]?)([^\s'";|]+)\1/.exec(linhaComando) : /<<(['"])([A-Za-z0-9_.-]+)\1/.exec(linhaComando);
-  if (!marcador) return comando;
-  const fim = linhas.findIndex((linha, indice) => indice > 0 && (marcador[0]!.startsWith("<<-") ? linha.replace(/^\t+/, "") : linha) === marcador[2]);
-  if (fim < 0) throw new Error("heredoc sem delimitador de fechamento");
-  const semEntrada = linhaComando.replace(marcador[0]!, "< /dev/null");
-  return [semEntrada, ...linhas.slice(fim + 1)].join("\n").trimEnd();
+  const semCorpos = analisarHeredocs(texto).semCorpos;
+  return { texto: semCorpos, substituicoes };
 }
 
 function verboNormalizado(palavra: string): string {
@@ -3258,7 +3172,7 @@ function decidirTerminalVerified(
   let substituicoes: string[];
   try {
     const extraidas = extrairSubstituicoesComando(cmdTexto);
-    comandoExterno = simplificarHeredocDeDados(extraidas.texto);
+    comandoExterno = extraidas.texto;
     substituicoes = extraidas.substituicoes;
   } catch (erro) {
     return { acao: "bloquear", motivo: `substituição de comando ilegível (falha fechada): ${(erro as Error).message}` };

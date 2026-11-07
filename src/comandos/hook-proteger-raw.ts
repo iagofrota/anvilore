@@ -3,6 +3,7 @@ import { appendFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix, resolve } from "node:path";
 import { caminhoReal, dentroDe, estaEmRaw } from "../lib/caminhos";
 import { decidirVerified, encontrarRaizVault, extrairSubstituicoesComando, substituicaoDeLeituraPermitida } from "../lib/trava-verified";
+import { analisarHeredocs, textoHeredocParaAnalise } from "../lib/heredoc";
 
 export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
 type Mapa = Record<string, unknown>;
@@ -204,44 +205,6 @@ function extrairTextoPatch(entrada: Mapa, dados: Mapa): string {
   return "";
 }
 
-function encontrarHeredoc(linha: string): { inicio: number; fim: number; delim: string; tab: boolean; citado: boolean } | null {
-  let aspas = "";
-  for (let i = 0; i < linha.length; i++) {
-    const c = linha[i]!;
-    if (aspas) {
-      if (c === aspas) aspas = "";
-      else if (c === "\\" && aspas === '"' && i + 1 < linha.length) i++;
-    } else if (c === "'" || c === '"') {
-      aspas = c;
-    } else if (c === "#" && (i === 0 || /\s/.test(linha[i - 1]!))) {
-      break;
-    } else if (c === "<" && linha[i + 1] === "<" && linha[i + 2] !== "<" && (i === 0 || linha[i - 1] !== "<")) {
-      const inicio = i;
-      i += 2;
-      let tab = false;
-      if (linha[i] === "-") {
-        tab = true;
-        i++;
-      }
-      while (i < linha.length && /\s/.test(linha[i]!)) i++;
-      let delim = "";
-      if (linha[i] === "'" || linha[i] === '"') {
-        const q = linha[i++]!;
-        while (i < linha.length && linha[i] !== q) delim += linha[i++]!;
-        if (i < linha.length) i++;
-        return { inicio, fim: i, delim, tab, citado: true };
-      } else {
-        while (i < linha.length && !/[\s;|<>()\r\n]/.test(linha[i]!)) {
-          if (linha[i] === "\\" && i + 1 < linha.length) i++;
-          delim += linha[i++]!;
-        }
-        if (delim) return { inicio, fim: i, delim, tab, citado: false };
-      }
-    }
-  }
-  return null;
-}
-
 const INTERPRETADORES_HEREDOC = new Set([
   "bash", "sh", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd",
   "eval", "source", ".", "xargs", "parallel",
@@ -265,39 +228,13 @@ function alimentaInterpretador(linhaComando: string): boolean {
 }
 
 function descartarCorpoHeredoc(comando: string): string {
-  if (!comando.includes("<<")) return comando;
-  const linhas = comando.split("\n");
-  const resultado: string[] = [];
-  let delimitador: string | undefined;
-  let ignoraTabs = false;
-  let corpoEhScript = false;
-  let corpoInerte = false;
-
-  for (let idx = 0; idx < linhas.length; idx++) {
-    const linha = linhas[idx]!;
-    if (delimitador !== undefined) {
-      const limpa = linha.replace(/\r$/, "");
-      const comparada = ignoraTabs ? limpa.replace(/^\t+/, "").trimEnd() : limpa.trimEnd();
-      if (comparada === delimitador) {
-        delimitador = undefined;
-      } else if (!corpoInerte || corpoEhScript) {
-        resultado.push(limpa);
-      }
-      continue;
-    }
-    const h = encontrarHeredoc(linha);
-    if (h) {
-      delimitador = h.delim;
-      ignoraTabs = h.tab;
-      const linhaLimpa = (linha.slice(0, h.inicio) + " " + linha.slice(h.fim)).replace(/\r$/, "").trimEnd();
-      corpoEhScript = alimentaInterpretador(linhaLimpa);
-      corpoInerte = h.citado;
-      if (linhaLimpa) resultado.push(linhaLimpa);
-    } else {
-      resultado.push(linha);
-    }
-  }
-  return resultado.join("\n");
+  const analise = analisarHeredocs(comando);
+  return textoHeredocParaAnalise(analise, corpo => {
+    const inicioLinha = comando.lastIndexOf("\n", corpo.inicioOperador - 1) + 1;
+    const fimLinha = comando.indexOf("\n", corpo.inicioOperador);
+    const linha = comando.slice(inicioLinha, fimLinha < 0 ? comando.length : fimLinha);
+    return alimentaInterpretador(linha);
+  });
 }
 
 // Reconhece palavras, aspas e operadores; não executa nem expande código de shell.
