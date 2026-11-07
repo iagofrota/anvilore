@@ -756,6 +756,8 @@ function tokenizar(comando: string, windows = false): Token[] {
     if (aspas) {
       if (caractere === aspas) {
         aspas = "";
+      } else if (!windows && aspas === '"' && caractere === "\\" && (seguinte === "\n" || (seguinte === "\r" && comando[i + 2] === "\n"))) {
+        i += seguinte === "\r" ? 2 : 1;
       } else if (!windows && aspas === '"' && caractere === "\\" && /["\\$`]/.test(seguinte) && seguinte) {
         palavra += comando[++i];
       } else if (aspas === '"' && (caractere === "`" || (caractere === "$" && /[({]/.test(seguinte) && seguinte))) {
@@ -765,6 +767,8 @@ function tokenizar(comando: string, windows = false): Token[] {
       }
     } else if (caractere === "'" || caractere === '"') {
       aspas = caractere;
+    } else if (!windows && caractere === "\\" && (seguinte === "\n" || (seguinte === "\r" && comando[i + 2] === "\n"))) {
+      i += seguinte === "\r" ? 2 : 1;
     } else if (!windows && caractere === "\\" && seguinte && /[\s'";|&<>\\]/.test(seguinte)) {
       palavra += comando[++i];
     } else if (caractere === "`" || caractere === "(" || caractere === ")" || (caractere === "$" && /[({]/.test(seguinte) && seguinte)) {
@@ -857,17 +861,6 @@ export function caminhoTocaWiki(
 
 const MSG_TERMINAL_WIKI = "Edite páginas da wiki pelas ferramentas de edição (Write/Edit/apply_patch); o terminal não escreve em wiki/.";
 
-function extrairAlvosRedirecionamento(cmdTexto: string): string[] {
-  const alvos: string[] = [];
-  const regex = /(?:>>|>\||&>|(?:\d+)?>(?!&[012]))\s*(?:"([^"]+)"|'([^']+)'|([^\s;|&<>()]+))/g;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(cmdTexto)) !== null) {
-    const alvo = match[1] ?? match[2] ?? match[3];
-    if (alvo) alvos.push(alvo.trim());
-  }
-  return alvos;
-}
-
 function estaSobTmp(abs: string, real: string): boolean {
   const normAbs = abs.replace(/\\/g, "/");
   const normReal = real.replace(/\\/g, "/");
@@ -894,6 +887,8 @@ function destinoEhSeguro(
   const limpo = alvo.replace(/^["']|["']$/g, "").trim();
   if (!limpo) return false;
   if (limpo === "/dev/null" || limpo.toLowerCase() === "nul" || limpo === "&1" || limpo === "&2") return true;
+  // Destinos com expansão de shell não podem ser classificados como caminho físico.
+  if (/[$`%*?\[\]{}]/.test(limpo) || limpo.startsWith("~")) return false;
 
   // 1. Resolve o destino (normaliza .., realpath do pai existente) e classifica com estaSobWiki ANTES de qualquer isenção
   if (estaSobWiki(limpo, raiz, ambiente, base) || estaSobWiki(limpo, raiz, ambiente, raiz)) {
@@ -911,7 +906,9 @@ function destinoEhSeguro(
     return true;
   }
 
-  return false;
+  // Um caminho relativo literal fora de qualquer wiki reconhecível é seguro para esta trava.
+  // estaSobWiki acima já resolve symlinks e ancestrais físicos antes desta liberação.
+  return true;
 }
 
 function argumentoTocaWiki(
@@ -1284,25 +1281,15 @@ function analisarComandoSimples(
 }
 
 function ehComandoSimplesCli(
-  cmdTexto: string,
+  cmdTokens: Token[],
   base: string,
-  raiz: string
+  raiz: string,
+  ambiente: Record<string, string | undefined>
 ): boolean {
-  // Allowlist só libera se o comando INTEIRO for um único comando simples
-  // (sem ;, &&, ||, |, &, $(, crase, (, redireção para wiki/)
-  if (/[;&|`$()]/.test(cmdTexto)) return false;
+  // A isenção só aceita um comando simples já tokenizado, sem redirecionamentos ou operadores restantes.
+  if (!cmdTokens.length || cmdTokens.some(token => token.operador)) return false;
 
-  const alvos = extrairAlvosRedirecionamento(cmdTexto);
-  if (alvos.some(alvo => caminhoTocaWiki(alvo, base, raiz, process.env))) return false;
-
-  let tokens: Token[];
-  try {
-    tokens = tokenizar(cmdTexto);
-  } catch {
-    return false;
-  }
-
-  const args = tokens.filter(t => !t.operador).map(t => t.texto);
+  const args = cmdTokens.map(t => t.texto);
   if (args.length === 0) return false;
 
   const verbo = verboNormalizado(args[0]!);
@@ -1359,18 +1346,7 @@ function decidirTerminalVerified(
     return { acao: "bloquear", motivo: "chamada direta a rotinas internas de aprovação" };
   }
 
-  const wiki = caminhoWiki(raiz, ambiente);
-  const wikiExiste = Boolean(ambiente.ANVILORE_WIKI || existsSync(wiki));
-  if (!wikiExiste) {
-    return { acao: "liberar", motivo: "wiki inexistente no vault" };
-  }
-
-  // 1. Allowlist do CLI do kit: regra 4
-  if (ehComandoSimplesCli(cmdTexto, base, raiz)) {
-    return { acao: "liberar", motivo: "comando permitido da CLI do kit" };
-  }
-
-  // 2. Tokenização e divisão em comandos simples
+  // 1. Tokenização e divisão em comandos simples antes de qualquer isenção.
   let tokens: Token[];
   try {
     tokens = tokenizar(cmdTexto, isWindows);
@@ -1385,6 +1361,11 @@ function decidirTerminalVerified(
   const comandosSimples = dividirEmComandosSimples(tokens);
   if (comandosSimples.length === 0) {
     return { acao: "bloquear", motivo: "comando de terminal vazio ou inválido (falha fechada)" };
+  }
+
+  // 2. A isenção da CLI só vale para a invocação inteira quando há exatamente um comando simples.
+  if (comandosSimples.length === 1 && ehComandoSimplesCli(comandosSimples[0]!, base, raiz, ambiente)) {
+    return { acao: "liberar", motivo: "comando permitido da CLI do kit" };
   }
 
   const temCdOuPushd = tokens.some(t => !t.operador && /^(?:cd|pushd)$/i.test(t.texto)) || /\b(?:cd|pushd)\b/i.test(cmdTexto);

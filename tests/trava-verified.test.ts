@@ -89,6 +89,64 @@ describe("trava de verified nos quatro agentes", () => {
     );
   });
 
+  test("Dado CLI segura seguida de outro comando Quando o terminal é julgado Então a isenção só cobre o primeiro comando", async () => {
+    const ataques = [
+      "anvilore validar\ncp /tmp/page.md wiki/a.md",
+      "anvilore validar\r\ncp /tmp/page.md wiki/a.md",
+      "anvilore validar && \\" + "\n" + "cp /tmp/page.md wiki/a.md",
+      "anvilore validar\nprintf 'verified: fraud' > wiki/a.md",
+    ];
+    const resultados = await Promise.all(ataques.map(command => executarProtecao(JSON.stringify({
+      cwd: temporario,
+      tool_name: "Bash",
+      tool_input: { command },
+    }))));
+    expect(Object.fromEntries(ataques.map((command, index) => [command, resultados[index]]))).toEqual(
+      Object.fromEntries(ataques.map(command => [command, 2]))
+    );
+    expect(await executarProtecao(JSON.stringify({
+      cwd: temporario,
+      tool_name: "Bash",
+      tool_input: { command: "anvilore validar" },
+    }))).toBe(0);
+    expect(await executarProtecao(JSON.stringify({
+      cwd: temporario,
+      tool_name: "Bash",
+      tool_input: { command: "anvilore validar && echo ok" },
+    }))).toBe(0);
+  });
+
+  test("Dado destino em outro vault sem wiki padrão Quando o terminal tenta escrever Então classifica o ancestral do destino", async () => {
+    const outroVault = mkdtempSync(join(tmpdir(), "anvilore-outro-vault-"));
+    try {
+      writeFileSync(join(outroVault, "SCHEMA.md"), "# Schema\n");
+      mkdirSync(join(outroVault, "wiki"), { recursive: true });
+      const destino = join(outroVault, "wiki/a.md");
+      delete process.env.ANVILORE_WIKI;
+      delete process.env.ANVILORE_DESTINO;
+      const ataques = [
+        `cp /tmp/page.md ${destino}`,
+        `sed -i s/a/b/ ${destino}`,
+        `printf 'body' > ${destino}`,
+      ];
+      const resultados = await Promise.all(ataques.map(command => executarProtecao(JSON.stringify({
+        cwd: "/tmp",
+        tool_name: "Bash",
+        tool_input: { command },
+      }))));
+      expect(Object.fromEntries(ataques.map((command, index) => [command, resultados[index]]))).toEqual(
+        Object.fromEntries(ataques.map(command => [command, 2]))
+      );
+      expect(await executarProtecao(JSON.stringify({
+        cwd: "/tmp",
+        tool_name: "Bash",
+        tool_input: { command: "cp /tmp/a.md /tmp/b.md" },
+      }))).toBe(0);
+    } finally {
+      rmSync(outroVault, { recursive: true, force: true });
+    }
+  });
+
   test("Dado opções curtas agrupadas que escolhem destino Quando o terminal é julgado Então bloqueia cópia ou edição na wiki", async () => {
     const ataques = [
       "cp -ft wiki /tmp/page.md",
