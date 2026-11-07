@@ -210,6 +210,110 @@ exit 0
   }
 });
 
+test("Dado o ambiente de teste padrão, Quando o lançador falha sem TTY, Então nenhum zenity/kdialog/notify-send/emulador real é chamado", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-bloqueio-dialogos-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "bin");
+    const arquivoCanary = join(base, "canary-chamado.txt");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    // Fake bun que falha com código 5
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh\nexit 5\n`);
+    await chmod(bun, 0o755);
+
+    // Falsos zenity, kdialog, notify-send, x-terminal-emulator no PATH que gravam no arquivoCanary
+    const scriptCanary = `#!/bin/sh\nprintf '%s\\n' "$0 $*" >>"$ANV_TEST_CANARY"\nexit 0\n`;
+    for (const ferramenta of ["zenity", "kdialog", "notify-send", "x-terminal-emulator"]) {
+      const caminho = join(bin, ferramenta);
+      await writeFile(caminho, scriptCanary);
+      await chmod(caminho, 0o755);
+    }
+
+    // Ambiente padrão herdado de process.env (onde preload.ts limpou DISPLAY e setou ANVILORE_SEM_DIALOGO=1)
+    const env = {
+      ...process.env,
+      HOME: home,
+      PATH: `${bin}:/usr/bin:/bin`,
+      ANVILORE_PASTA: pasta,
+      ANV_TEST_CANARY: arquivoCanary,
+    };
+
+    const proc = Bun.spawnSync(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+    expect(proc.exitCode).toBe(5);
+
+    // Nenhum dos comandos falsos deve ter sido executado: o arquivo deve estar ausente
+    expect(await Bun.file(arquivoCanary).exists()).toBe(false);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("Dado ausência de trava de diálogo com DISPLAY configurado, Quando o lançador falha sem TTY, Então o diálogo é chamado (prova RED sem o preload)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-prova-red-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "bin");
+    const arquivoCanary = join(base, "canary-chamado.txt");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    // Fake bun que falha com código 5
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh\nexit 5\n`);
+    await chmod(bun, 0o755);
+
+    // Falsos zenity, kdialog, notify-send, x-terminal-emulator no PATH que gravam no arquivoCanary
+    const scriptCanary = `#!/bin/sh\nprintf '%s\\n' "$0 $*" >>"$ANV_TEST_CANARY"\nexit 0\n`;
+    for (const ferramenta of ["zenity", "kdialog", "notify-send", "x-terminal-emulator"]) {
+      const caminho = join(bin, ferramenta);
+      await writeFile(caminho, scriptCanary);
+      await chmod(caminho, 0o755);
+    }
+
+    // Sem preload: DISPLAY configurado e ANVILORE_SEM_DIALOGO desativado (assim como CI e AGENTISTICS_THROWAWAY vazios)
+    const env = {
+      ...process.env,
+      HOME: home,
+      PATH: `${bin}:/usr/bin:/bin`,
+      ANVILORE_PASTA: pasta,
+      ANV_TEST_CANARY: arquivoCanary,
+      DISPLAY: ":0",
+      ANVILORE_SEM_DIALOGO: "",
+      AGENTISTICS_THROWAWAY: "",
+      CI: "",
+    };
+
+    const proc = Bun.spawnSync(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+    expect(proc.exitCode).toBe(5);
+
+    // Prova RED: sem o preload, o falso zenity é invocado e grava no canary
+    expect(await Bun.file(arquivoCanary).exists()).toBe(true);
+    const gravado = await readFile(arquivoCanary, "utf8");
+    expect(gravado).toContain("zenity");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 test("Dado estado com symlink malicioso, Quando verifico instância existente, Então não reutiliza e remove o link", async () => {
   if (process.platform !== "linux") return;
   const base = await mkdtemp(join(tmpdir(), "anvilore-symlink-estado-"));
