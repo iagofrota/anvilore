@@ -1237,8 +1237,10 @@ function extratorNoAncestral(
         if (args.some(arg => arg.startsWith("@") || /^-(?:i|ir|x|xr)(?![a-z])/i.test(arg))) {
           return `${verbo} -sdel com lista ou filtro de arquivos (falha fechada)`;
         }
-        for (const fonte of operandos7z.slice(2)) {
-          if (caminhoTocaWiki(fonte, base, raiz, ambiente) || ehDestinoPerigoso(fonte, base, raiz, ambiente)) {
+        // Sem fontes explícitas o 7z arquiva o diretório de trabalho: ele conta como fonte.
+        const fontes7z = operandos7z.length > 2 ? operandos7z.slice(2) : ["."];
+        for (const fonte of fontes7z) {
+          if (fonteApagadaPerigosa(fonte, base, raiz, ambiente)) {
             return `${verbo} -sdel apaga fontes na wiki ou num ancestral dela (falha fechada)`;
           }
         }
@@ -2180,6 +2182,13 @@ function cortarEntradasParallel(args: string[]): string[] {
   return indice < 0 ? args : args.slice(0, indice);
 }
 
+// Fonte que uma opção apaga: caminho que toca a wiki ou ancestral dela; glob, `$` e `~` não se provam, então valem pelo diretório de
+// trabalho (cofre, ancestral ou wiki bloqueia).
+function fonteApagadaPerigosa(fonte: string, dir: string, raiz: string, ambiente: Record<string, string | undefined>): boolean {
+  if (EXPANSAO_DE_SHELL.test(fonte) || fonte.startsWith("~")) return ehDestinoPerigoso(".", dir, raiz, ambiente);
+  return caminhoTocaWiki(fonte, dir, raiz, ambiente) || ehDestinoPerigoso(fonte, dir, raiz, ambiente);
+}
+
 // Padrão negado: o fim da função liberava QUALQUER verbo não reconhecido (curl -o wiki/a.md, wget -O, scp, pandoc -o, touch, rm...).
 // Verbo fora da lista de leitura e sem ramo próprio, com argumento que toca a wiki (ou é ela ou um ancestral dela), bloqueia, mesmo
 // quando é só leitura (`pandoc wiki/a.md -o /tmp/a.html`): prefere-se bloquear a adivinhar qual argumento é a saída.
@@ -2205,6 +2214,8 @@ export function candidatosDeCaminho(arg: string): string[] {
     let caminho = arquivo[1]!;
     try { caminho = decodeURIComponent(caminho); } catch { candidatos.add(CANDIDATO_INVALIDO); continue; }
     if (caminho.includes("\u0000")) { candidatos.add(CANDIDATO_INVALIDO); continue; }
+    // ?query, #fragmento e glob de URL (o curl expande [a-z] e {a,b}) mudam o arquivo de verdade: não se provam.
+    if (/[?#*\[\]{}]/.test(caminho)) { candidatos.add(CANDIDATO_INVALIDO); continue; }
     candidatos.add(caminho);
     const unidade = /^\/([A-Za-z]:\/.*)$/.exec(caminho);
     if (unidade) candidatos.add(unidade[1]!);
@@ -2394,7 +2405,7 @@ function analisarComandoSimples(
       for (const fonte of fontes) {
         // Cada fonte vale contra o diretório de antes dos -C, contra cada -C e contra o último: a posição dela entre os -C não se prova.
         for (const dir of new Set([baseInicial, ...efetivos, base])) {
-          if (caminhoTocaWiki(fonte, dir, raiz, ambiente) || ehDestinoPerigoso(fonte, dir, raiz, ambiente)) {
+          if (fonteApagadaPerigosa(fonte, dir, raiz, ambiente)) {
             return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
           }
         }
@@ -2581,9 +2592,9 @@ function analisarComandoSimples(
       }
     }
     // --remove-source-files apaga as FONTES depois de enviar: uma fonte na wiki (ou a wiki inteira) seria apagada.
-    if (verbo === "rsync" && opcaoLongaPresente(cmdArgs, "--remove-source-files", "--remove-s")) {
+    if (verbo === "rsync" && cmdArgs.some(arg => arg.startsWith("--remove-"))) {
       for (const fonte of operandos.slice(0, -1)) {
-        if (caminhoTocaWiki(fonte, base, raiz, ambiente) || ehDestinoPerigoso(fonte, base, raiz, ambiente)) {
+        if (fonteApagadaPerigosa(fonte, base, raiz, ambiente)) {
           return { acao: "bloquear", motivo: MSG_TERMINAL_WIKI };
         }
       }

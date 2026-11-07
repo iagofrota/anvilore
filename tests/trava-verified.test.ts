@@ -3541,5 +3541,41 @@ describe("trava de verified nos quatro agentes", () => {
         rmSync(fora, { recursive: true, force: true });
       }
     });
+
+    test("Rodada 15c (revisão do push): fonte apagada com glob ou sem lista, alias do rsync e file: com query, fragmento ou glob", async () => {
+      const { fora, cofre, esperar, wikiA } = prepararRodada11();
+      try {
+        // cwd no cofre: o glob e a falta de fontes apagariam a wiki
+        await esperar([
+          `7z a -sdel ${fora}/x.7z '*'`,
+          `7z a -sdel ${fora}/x.7z`,
+          `7z a -sdel ${fora}/x.7z ~/x`,
+          `tar --remove-files -cf ${fora}/b.tar '*'`,
+          `tar --remove-files -cf ${fora}/b.tar -C ${cofre} '*'`,
+          `rsync --remove-source-files '*' ${fora}/y/`,
+          `rsync --remove-source-files $DIR ${fora}/y/`,
+        ], 2, cofre);
+        // cwd FORA do cofre: o alias do rsync e o file: derivado
+        await esperar([
+          `rsync --remove-sent-files ${cofre}/wiki/ ${fora}/y/`,
+          `rsync -a --remove-sent-files ${cofre}/ ${fora}/y/`,
+          `curl -T ${fora}/p.md file://${cofre}/wiki/a.md?x=1`,
+          `curl -T ${fora}/p.md file://${cofre}/wiki/a.md#frag`,
+          `curl -T ${fora}/p.md file://${cofre}/[w]iki/a.md`,
+          `curl -T ${fora}/p.md file://${cofre}/{wiki,x}/a.md`,
+          `curl -T ${fora}/p.md file://${cofre}/wik*/a.md`,
+          `curl -T ${fora}/p.md file:${wikiA}`,
+        ], 2, fora);
+        await esperar([
+          `7z a -sdel ${fora}/x.7z '*'`,
+          `7z a -sdel ${fora}/x.7z ${fora}/p.md`,
+          `tar --remove-files -cf ${fora}/b.tar '*'`,
+          `rsync --remove-sent-files ${fora}/p.md ${fora}/y/`,
+          `curl -T ${fora}/p.md file://${fora}/x`,
+        ], 0, fora);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
   });
 });
