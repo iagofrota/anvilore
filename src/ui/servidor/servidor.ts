@@ -184,6 +184,24 @@ async function criarIngestao(raiz: string, opcoes: OpcoesServidor): Promise<Inge
   return ingestao;
 }
 
+export function podeEncerrarPorInatividade(dados: {
+  requisicoesEmVoo: number;
+  ultimoBatimento: number;
+  inatividadeMs: number;
+  ocupada?: boolean;
+  paginasEmAjuste?: number;
+  conversasRodando?: boolean;
+  agora?: number;
+}): boolean {
+  if (dados.requisicoesEmVoo > 0) return false;
+  const agora = dados.agora ?? Date.now();
+  if (agora - dados.ultimoBatimento < dados.inatividadeMs) return false;
+  if (dados.ocupada) return false;
+  if ((dados.paginasEmAjuste ?? 0) > 0) return false;
+  if (dados.conversasRodando) return false;
+  return true;
+}
+
 export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServidor = {}) {
   const ambiente = opcoes.ambiente ?? process.env;
   let raiz = resolve(raizInicial);
@@ -215,16 +233,36 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
 
   if (autoEncerrar) {
     timerInatividade = setInterval(async () => {
-      if (requisicoesEmVoo > 0) return;
-      if (Date.now() - ultimoBatimento < inatividadeMs) return;
-      if (ingestao?.ocupada) return;
-      if ((ingestao?.paginasEmAjuste().size ?? 0) > 0) return;
+      if (!podeEncerrarPorInatividade({
+        requisicoesEmVoo,
+        ultimoBatimento,
+        inatividadeMs,
+        ocupada: ingestao?.ocupada,
+        paginasEmAjuste: ingestao?.paginasEmAjuste().size,
+      })) {
+        return;
+      }
+
+      let conversasRodando = false;
       if (ingestao) {
         try {
           const conversas = await ingestao.listar();
-          if (conversas.some(c => c.situacao === "rodando")) return;
+          conversasRodando = conversas.some(c => c.situacao === "rodando");
         } catch { return; }
       }
+
+      // P3-C: Re-checagem atômica após o await ingestao.listar() antes do stop definitivo
+      if (!podeEncerrarPorInatividade({
+        requisicoesEmVoo,
+        ultimoBatimento,
+        inatividadeMs,
+        ocupada: ingestao?.ocupada,
+        paginasEmAjuste: ingestao?.paginasEmAjuste().size,
+        conversasRodando,
+      })) {
+        return;
+      }
+
       clearInterval(timerInatividade!);
       timerInatividade = undefined;
       await encerrarServidor();

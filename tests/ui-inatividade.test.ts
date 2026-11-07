@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { iniciarServidorUi } from "../src/ui/servidor/servidor";
+import { iniciarServidorUi, podeEncerrarPorInatividade } from "../src/ui/servidor/servidor";
 import { PonteClaudeCode } from "../src/lib/ponte-claude-code";
 
 class PonteFalsa extends PonteClaudeCode {
@@ -126,4 +126,50 @@ test("Dado requisição lenta em andamento em /api/*, Quando o período de inati
   } finally {
     await rm(raiz, { recursive: true, force: true });
   }
+});
+
+test("Dado watchdog de inatividade avaliando condições de parada, Quando requisições em voo ou novo batimento ocorrem durante a checagem, Então recusa o encerramento evitando corrida (P3-C)", () => {
+  const agora = 100_000;
+  const inatividadeMs = 60_000;
+
+  // Cenário 1: Tudo inativo e tempo expirado -> pode encerrar
+  expect(podeEncerrarPorInatividade({
+    requisicoesEmVoo: 0,
+    ultimoBatimento: agora - 70_000,
+    inatividadeMs,
+    agora,
+  })).toBe(true);
+
+  // Cenário 2: Chegou requisição durante o await -> não pode encerrar
+  expect(podeEncerrarPorInatividade({
+    requisicoesEmVoo: 1,
+    ultimoBatimento: agora - 70_000,
+    inatividadeMs,
+    agora,
+  })).toBe(false);
+
+  // Cenário 3: Chegou batimento recente durante o await -> não pode encerrar
+  expect(podeEncerrarPorInatividade({
+    requisicoesEmVoo: 0,
+    ultimoBatimento: agora - 10_000,
+    inatividadeMs,
+    agora,
+  })).toBe(false);
+
+  // Cenário 4: Ingestão ocupada ou com conversa rodando -> não pode encerrar
+  expect(podeEncerrarPorInatividade({
+    requisicoesEmVoo: 0,
+    ultimoBatimento: agora - 70_000,
+    inatividadeMs,
+    ocupada: true,
+    agora,
+  })).toBe(false);
+
+  expect(podeEncerrarPorInatividade({
+    requisicoesEmVoo: 0,
+    ultimoBatimento: agora - 70_000,
+    inatividadeMs,
+    conversasRodando: true,
+    agora,
+  })).toBe(false);
 });
