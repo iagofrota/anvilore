@@ -269,7 +269,7 @@ atualizar_kit_do_pacote() {
     return 0
   fi
   printf 'Atualizando o Anvilore de %s para %s…\n' "$versao_atual" "$versao_pacote"
-  ANVILORE_PASTA="$PASTA" ANVILORE_VERSAO="$versao_pacote" ANVILORE_SEM_PERGUNTAS=1 bash "$instalador"
+  PATH="$(dirname "$BUN_BIN"):$PATH" ANVILORE_PASTA="$PASTA" ANVILORE_VERSAO="$versao_pacote" ANVILORE_SEM_PERGUNTAS=1 bash "$instalador"
   codigo=$?
   versao_atual="$(versao_instalada || true)"
   if [ "$codigo" -ne 0 ] || ! versao_numerica_valida "$versao_atual" || ! versao_pelo_menos "$versao_atual" "$versao_pacote"; then

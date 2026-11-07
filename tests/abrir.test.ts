@@ -299,6 +299,65 @@ test("Dado que o lançador pula a tentativa por causa do marcador versao-tentada
   } finally { await rm(c.base, { recursive: true, force: true }); }
 });
 
+test("Dado o Bun só no nvm (fora do PATH), Quando o lançador chama o instalador do pacote, Então o instalador vê esse bun no PATH e não baixa outro", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-bun-nvm-instalador-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const pacote = join(base, "usr/lib/anvilore");
+    const nvmBin = join(home, ".nvm/versions/node/v24.15.0/bin");
+    const bunNvm = join(nvmBin, "bun");
+    const bunVisto = join(base, "bun-visto-pelo-instalador");
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(pacote, { recursive: true });
+    await mkdir(nvmBin, { recursive: true });
+    await mkdir(join(home, ".nvm/alias"), { recursive: true });
+    await writeFile(join(home, ".nvm/alias/default"), "v24.15.0\n");
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.9.0" }, null, 2));
+
+    await writeFile(bunNvm, "#!/bin/sh\nexit 0\n");
+    await chmod(bunNvm, 0o755);
+
+    const lancador = join(pacote, "anvilore-abrir");
+    await writeFile(lancador, shell);
+    await chmod(lancador, 0o755);
+    await writeFile(join(pacote, "VERSAO"), "0.10.0\n");
+    await writeFile(join(pacote, "instalar.sh"), [
+      "#!/bin/sh",
+      'command -v bun >"$ANV_TEST_BUN_VISTO" 2>/dev/null || true',
+      'sed "s/0[.]9[.]0/0.10.0/" "$ANVILORE_PASTA/package.json" >"$ANVILORE_PASTA/package.json.tmp"',
+      'mv "$ANVILORE_PASTA/package.json.tmp" "$ANVILORE_PASTA/package.json"',
+      'exit 0',
+    ].join("\n"));
+    await chmod(join(pacote, "instalar.sh"), 0o755);
+
+    const proc = Bun.spawnSync(["bash", lancador], {
+      cwd: base,
+      env: {
+        ...process.env,
+        HOME: home,
+        NVM_DIR: join(home, ".nvm"),
+        XDG_STATE_HOME: join(home, ".local/state"),
+        XDG_CONFIG_HOME: join(home, ".config"),
+        PATH: "/usr/bin:/bin",
+        ANVILORE_PASTA: pasta,
+        ANV_TEST_BUN_VISTO: bunVisto,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await Bun.file(bunVisto).exists()).toBe(true);
+    const visto = (await readFile(bunVisto, "utf8")).trim();
+    expect(visto).toBe(bunNvm);
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
 test("Dado que o lançador não tem metadado VERSAO, Quando abro, Então não tento atualizar a pasta", async () => {
   if (process.platform !== "linux") return;
   const c = await criarCenarioAtualizacaoPacote({});
