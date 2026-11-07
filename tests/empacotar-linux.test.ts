@@ -23,6 +23,8 @@ test("Dado a configuração do pacote Linux, Quando leio instalador/linux/nfpm.y
   // Conteúdo
   expect(yaml).toContain("/usr/lib/anvilore/anvilore-abrir");
   expect(yaml).toContain("/usr/lib/anvilore/instalar.sh");
+  expect(yaml).toContain("/usr/lib/anvilore/VERSAO");
+  expect(yaml).toContain('"${ANVILORE_VERSAO_FILE}"');
   expect(yaml).toContain("/usr/bin/anvilore-abrir");
   expect(yaml).toContain("/usr/share/applications/anvilore.desktop");
   expect(yaml).toContain("/usr/share/icons/hicolor/scalable/apps/anvilore.svg");
@@ -30,6 +32,24 @@ test("Dado a configuração do pacote Linux, Quando leio instalador/linux/nfpm.y
   // Symlink
   expect(yaml).toMatch(/type:\s*symlink/);
 });
+
+test.skipIf(process.platform !== "linux" || (process.env.ANVILORE_PULAR_TESTE_NFPM === "1" && !process.env.CI))("Dado o pacote Linux sem versão informada, Quando empacoto e extraio, Então VERSAO contém a versão do package.json", async () => {
+  const base = await mkdtemp(join(tmpdir(), "anvilore-versao-pacote-"));
+  try {
+    const pacote = JSON.parse(await readFile(join(raiz, "package.json"), "utf8")) as { version: string };
+    const proc = Bun.spawnSync([process.execPath, join(raiz, "scripts/empacotar-linux.ts"), "--saida", base], {
+      cwd: raiz,
+      env: { ...process.env, ANVILORE_VERSAO: "", GITHUB_REF_NAME: "feat/versao-pacote", GITHUB_REF_TYPE: "branch" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(proc.exitCode, `${proc.stdout.toString()}\n${proc.stderr.toString()}`).toBe(0);
+    const extracao = join(base, "extraido");
+    const extrair = Bun.spawnSync(["dpkg-deb", "-x", join(base, "anvilore.deb"), extracao], { stdout: "pipe", stderr: "pipe" });
+    expect(extrair.exitCode, extrair.stderr.toString()).toBe(0);
+    expect(await readFile(join(extracao, "usr/lib/anvilore/VERSAO"), "utf8")).toBe(`${pacote.version}\n`);
+  } finally { await rm(base, { recursive: true, force: true }); }
+}, 30_000);
 
 test("Dado os scripts de pós-instalação e pós-remoção, Quando inspeciono o conteúdo, Então são idempotentes e nunca tocam na pasta de usuário", async () => {
   const posInstalacao = await readFile(join(raiz, "instalador/linux/pos-instalacao.sh"), "utf8");

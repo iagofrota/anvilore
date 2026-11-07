@@ -8,6 +8,135 @@ const raiz = join(import.meta.dir, "..");
 const shell = await readFile(join(raiz, "instalador/anvilore-abrir"), "utf8").catch(() => "");
 const ps1 = await readFile(join(raiz, "instalador/abrir.ps1"), "utf8").catch(() => "");
 
+async function criarCenarioAtualizacaoPacote(opcoes: { versaoPacote?: string; jsonInstalado?: string; codigoAtualizador?: number; pularAtualizacao?: boolean }) {
+  const base = await mkdtemp(join(tmpdir(), "anvilore-atualiza-pacote-"));
+  const home = join(base, "home");
+  const pasta = join(home, "Anvilore");
+  const pacote = join(base, "usr/lib/anvilore");
+  const bin = join(base, "bin");
+  const atualizador = join(base, "atualizador-chamado");
+  const ui = join(base, "ui-chamada");
+  await mkdir(join(pasta, ".git"), { recursive: true });
+  await mkdir(join(pasta, "src"), { recursive: true });
+  await mkdir(join(pasta, "skills"), { recursive: true });
+  await mkdir(pacote, { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await writeFile(join(pasta, "AGENTS.md"), "");
+  await writeFile(join(pasta, "src/cli.ts"), "");
+  await writeFile(join(pasta, "package.json"), opcoes.jsonInstalado ?? JSON.stringify({ version: "0.9.0" }, null, 2));
+  const lancador = join(pacote, "anvilore-abrir");
+  await writeFile(lancador, shell);
+  await chmod(lancador, 0o755);
+  if (opcoes.versaoPacote !== undefined) await writeFile(join(pacote, "VERSAO"), `${opcoes.versaoPacote}\n`);
+  await writeFile(join(pacote, "instalar.sh"), [
+    "#!/bin/sh",
+    'printf chamado >"$ANV_TEST_ATUALIZADOR"',
+    'if [ "${ANV_TEST_CODIGO_ATUALIZADOR:-0}" -eq 0 ] && [ "${ANV_TEST_PULAR_ATUALIZACAO:-0}" != 1 ]; then sed "s/0[.]9[.]0/${ANV_TEST_VERSAO_PACOTE}/" "$ANVILORE_PASTA/package.json" >"$ANVILORE_PASTA/package.json.tmp"; mv "$ANVILORE_PASTA/package.json.tmp" "$ANVILORE_PASTA/package.json"; fi',
+    'exit "${ANV_TEST_CODIGO_ATUALIZADOR:-0}"',
+  ].join("\n"));
+  const bun = join(bin, "bun");
+  await writeFile(bun, `#!/bin/sh\nprintf '%s\\n' "$*" >>"$ANV_TEST_UI"\n`);
+  await chmod(bun, 0o755);
+  const env = {
+    ...process.env,
+    HOME: home,
+    PATH: `${bin}:/usr/bin:/bin`,
+    ANVILORE_PASTA: pasta,
+    ANV_TEST_ATUALIZADOR: atualizador,
+    ANV_TEST_CODIGO_ATUALIZADOR: String(opcoes.codigoAtualizador ?? 0),
+    ANV_TEST_PULAR_ATUALIZACAO: opcoes.pularAtualizacao ? "1" : "0",
+    ANV_TEST_VERSAO_PACOTE: opcoes.versaoPacote ?? "",
+    ANV_TEST_UI: ui,
+  };
+  const executar = () => Bun.spawnSync(["bash", lancador], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+  return { base, pasta, atualizador, ui, executar };
+}
+
+test("Dado o pacote 0.10.0 e a pasta 0.9.0, Quando abro o atalho do pacote, Então atualizo numericamente antes de abrir a UI", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.10.0" });
+  try {
+    const proc = c.executar();
+    const saida = proc.stdout.toString() + proc.stderr.toString();
+    expect(proc.exitCode, saida).toBe(0);
+    expect(saida).toContain("Atualizando o Anvilore de 0.9.0 para 0.10.0");
+    expect(await Bun.file(c.atualizador).exists()).toBe(true);
+    expect(JSON.parse(await readFile(join(c.pasta, "package.json"), "utf8")).version).toBe("0.10.0");
+    expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado a pasta na mesma versão do pacote, Quando abro, Então não executo o instalador", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.9.0" });
+  try {
+    const proc = c.executar();
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await Bun.file(c.atualizador).exists()).toBe(false);
+    expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado a pasta mais nova que o pacote, Quando abro, Então não rebaixo nem executo o instalador", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.8.9", jsonInstalado: "{\n  \"version\": \"0.9.0\"\n}" });
+  try {
+    const proc = c.executar();
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await Bun.file(c.atualizador).exists()).toBe(false);
+    expect(JSON.parse(await readFile(join(c.pasta, "package.json"), "utf8")).version).toBe("0.9.0");
+    expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado que o instalador do pacote falha, Quando abro, Então aviso e abro a versão já instalada", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.10.0", codigoAtualizador: 7 });
+  try {
+    const proc = c.executar();
+    const saida = proc.stdout.toString() + proc.stderr.toString();
+    expect(proc.exitCode, saida).toBe(0);
+    expect(saida).toContain("Não consegui atualizar o Anvilore de 0.9.0 para 0.10.0");
+    expect(JSON.parse(await readFile(join(c.pasta, "package.json"), "utf8")).version).toBe("0.9.0");
+    expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado que o instalador não atualiza mas retorna zero, Quando abro, Então aviso e uso o kit existente", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.10.0", pularAtualizacao: true });
+  try {
+    const proc = c.executar();
+    const saida = proc.stdout.toString() + proc.stderr.toString();
+    expect(proc.exitCode, saida).toBe(0);
+    expect(saida).toContain("Não consegui atualizar o Anvilore de 0.9.0 para 0.10.0");
+    expect(JSON.parse(await readFile(join(c.pasta, "package.json"), "utf8")).version).toBe("0.9.0");
+    expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado que o lançador não tem metadado VERSAO, Quando abro, Então não tento atualizar a pasta", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({});
+  try {
+    const proc = c.executar();
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await Bun.file(c.atualizador).exists()).toBe(false);
+    expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado que a versão instalada é ilegível, Quando abro, Então não atualizo nem deixo de abrir a UI", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.10.0", jsonInstalado: "{quebrado" });
+  try {
+    const proc = c.executar();
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await Bun.file(c.atualizador).exists()).toBe(false);
+    expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
 test("Dado a distribuição, Quando procuro os lançadores, Então há um shell Linux e um PowerShell UTF-8", () => {
   expect(shell).toMatch(/^#!\/usr\/bin\/env bash/);
   expect(ps1).toContain("Get-Content -Raw");

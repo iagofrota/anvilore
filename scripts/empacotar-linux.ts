@@ -105,6 +105,7 @@ export async function empacotarLinux(opcoes: {
   const config = resolve(raiz, opcoes.config ?? "instalador/linux/nfpm.yaml");
   const configuracao = await ler(config);
   if (!configuracao.includes('"${ANVILORE_INSTALAR_SH}"')) throw new Error("A configuração nfpm precisa usar ${ANVILORE_INSTALAR_SH} como origem do instalar.sh conferido.");
+  if (!configuracao.includes('"${ANVILORE_VERSAO_FILE}"')) throw new Error("A configuração nfpm precisa incluir o metadado de versão gerado pelo empacotador.");
   await mkdir(saida, { recursive: true });
   // Mesmo filesystem do destino: os renames de publicação não cruzam volumes.
   const staging = await mkdtemp(join(saida, ".anvilore-staging-"));
@@ -113,9 +114,13 @@ export async function empacotarLinux(opcoes: {
   try {
     const instalarSh = join(staging, "instalar.sh");
     await writeFile(instalarSh, instalador, { mode: 0o755 });
+    const arquivoVersao = join(staging, "VERSAO");
+    await writeFile(arquivoVersao, `${versao}\n`, { mode: 0o644 });
     // nfpm expande version, mas não contents.src. JSON é um escalar YAML com caminho escapado.
     const configPronta = join(staging, "nfpm.yaml");
-    await writeFile(configPronta, configuracao.replaceAll('"${ANVILORE_INSTALAR_SH}"', JSON.stringify(instalarSh)));
+    await writeFile(configPronta, configuracao
+      .replaceAll('"${ANVILORE_INSTALAR_SH}"', JSON.stringify(instalarSh))
+      .replaceAll('"${ANVILORE_VERSAO_FILE}"', JSON.stringify(arquivoVersao)));
     const nfpmBin = opcoes.nfpmBin || process.env.NFPM_BIN || await baixarEVerificarNfpm(staging, { hashInvalidoTeste: opcoes.hashInvalidoTeste });
     const env = { ...process.env, ANVILORE_VERSAO: versao, ANVILORE_INSTALAR_SH: instalarSh };
     console.log(`Empacotando Anvilore ${versao} para Linux (deb e rpm)${opcoes.teste ? " [TESTE: não publicar]" : ""}...`);

@@ -379,10 +379,13 @@ também acrescenta %APPDATA%\npm à busca (`instalador/anvilore-abrir`, `instala
 `instalador/abrir.ps1`). O instalador reconhece a entrada de sistema e não cria outra entrada por
 usuário.
 
-Atualizar o pacote `.deb`/`.rpm` só troca os arquivos do sistema; ele não executa o instalador como a
-pessoa nem atualiza uma pasta Anvilore da home já válida. O caminho previsto para essa atualização é
-executar manualmente o instalador Linux mais recente, que valida e atualiza a instalação existente.
-O clique do menu, sozinho, continua usando o kit já instalado.
+O pacote Linux leva um arquivo VERSAO no diretório de sistema, gerado com a mesma versão que o
+empacotador usa no .deb/.rpm. Ao abrir pelo atalho do pacote, o lançador compara esse valor com o
+package.json da pasta de usuário. Se o pacote for mais novo, executa sem perguntas o instalar.sh do
+pacote, que delega a atualização assinada e preserva a pasta; em caso de falha, avisa e abre o kit
+existente. Lançadores copiados para o kit não têm esse metadado e continuam abrindo a versão local.
+O gerador do metadado fica em `scripts/empacotar-linux.ts`, a inclusão no pacote em
+`instalador/linux/nfpm.yaml`, e a comparação em `instalador/anvilore-abrir`.
 Remova pela loja, `sudo apt remove anvilore` ou `sudo dnf remove anvilore`:
 o lançador, o atalho e o ícone de sistema saem; ~/Anvilore, a wiki e as fontes continuam.
 
