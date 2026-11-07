@@ -13,6 +13,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 - O atualizador tolera o subprocesso encerrar antes de ler a entrada enviada ao stdin e continua usando o código de saída dele para avaliar a prova.
 - O lançador encontra o Bun instalado pelo npm/nvm e explica como instalá-lo quando ele não está disponível; no Windows, também procura o diretório npm do usuário.
+- A Revisão mostra mensagens em português quando o servidor falha ou fica inacessível, sem exibir HTML de erro como resultado da validação nem indicar que a wiki foi revisada.
 
 ## [0.3.2] - 2026-11-07
 

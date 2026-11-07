@@ -243,7 +243,7 @@ test("O cliente da API manda o token da página e transforma falha em erro legí
   (globalThis as { document?: unknown }).document = { querySelector: () => ({ content: "tok en" }) };
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
     chamadas.push(`${init?.method} ${url}`);
-    return url.startsWith("/api/ok") ? new Response(JSON.stringify({ a: 1 })) : new Response(JSON.stringify({ mensagens: ["Não deu."] }), { status: 500 });
+    return url.startsWith("/api/ok") ? new Response(JSON.stringify({ a: 1 }), { headers: { "content-type": "application/json" } }) : new Response(JSON.stringify({ mensagens: ["Não deu."] }), { status: 500, headers: { "content-type": "application/json" } });
   }) as unknown as typeof fetch;
   try {
     expect(await api("/api/ok")).toEqual({ a: 1 });

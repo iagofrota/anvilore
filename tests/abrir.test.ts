@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { chmod, mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -52,7 +53,7 @@ test("Dado um HOME descartável, Quando executo criar_atalho, Então gravo o .de
     await writeFile(join(pasta, "instalador/anvilore.svg"), await readFile(join(raiz, "instalador/anvilore.svg"), "utf8"));
     const comando = `ANVILORE_INSTALAR_CARREGAR=1; source "$1"; registrar() { :; }; criar_atalho "$2"`;
     const proc = Bun.spawnSync(["bash", "-c", comando, "_", script, pasta], {
-      env: { ...process.env, HOME: home }, stdout: "pipe", stderr: "pipe",
+      env: { ...process.env, HOME: home, ANVILORE_SYSTEM_APPLICATIONS_DIR: join(base, "applications-system") }, stdout: "pipe", stderr: "pipe",
     });
     expect(proc.exitCode, proc.stderr.toString()).toBe(0);
     const desktop = join(home, ".local/share/applications/anvilore.desktop");
@@ -368,8 +369,7 @@ test("Dado que não há Bun nos locais conhecidos nem na shell de login, Quando 
   } finally { await rm(base, { recursive: true, force: true }); }
 });
 
-test("Dado que o Anvilore não está instalado e não há instalador, Quando abro no Linux em terminal, Então leio o erro antes de pressionar Enter", async () => {
-  if (process.platform !== "linux" || !Bun.which("script")) return;
+test.skipIf(process.platform !== "linux" || !Bun.which("script") || existsSync("/usr/lib/anvilore/instalar.sh"))("Dado que o Anvilore não está instalado e não há instalador, Quando abro no Linux em terminal, Então leio o erro antes de pressionar Enter", async () => {
   const base = await mkdtemp(join(tmpdir(), "anvilore-sem-instalador-"));
   try {
     const home = join(base, "home");

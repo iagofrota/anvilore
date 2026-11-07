@@ -73,6 +73,35 @@ test("[C09] Dado uma wiki válida sem rascunhos Quando valido de novo após incl
   expect((await oraculo.post<{ codigo: number; saida: string }>("/api/validar")).body.codigo).toBe(1);
 });
 
+test("[C09.a] Dado a conexão com o servidor fechada Quando abro Revisão Então vejo erro em português e a fila sai do carregamento", async ({ page, app }) => {
+  await page.route("**/api/rascunhos*", route => route.abort());
+  await page.goto(`${app.base}/?token=${encodeURIComponent(app.token)}#/revisao`);
+  await expect(page.getByRole("alert")).toContainText("Não consegui falar com o Anvilore. Ele pode ter sido fechado; abra de novo.");
+  await expect(page.getByText("Lendo os rascunhos…")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Tudo revisado" })).toHaveCount(0);
+  await guardarEvidencias(page, "revisao");
+});
+
+test("[C09.b] Dado validar responde HTTP 500 com HTML Quando abro Revisão Então não exibo o HTML como resultado nem marco a wiki como revisada", async ({ page, app }) => {
+  let chamadasValidacao = 0;
+  await page.route("**/api/validar*", route => {
+    chamadasValidacao++;
+    return route.fulfill({
+      status: 500,
+      contentType: "text/html; charset=utf-8",
+      body: "<!doctype html><title>Internal Server Error</title><!-- Bun DevErrorPage -->",
+    });
+  });
+  await page.goto(`${app.base}/?token=${encodeURIComponent(app.token)}#/revisao`);
+  await expect(page.getByRole("alert")).toContainText("O servidor do Anvilore falhou ao processar a solicitação.");
+  await expect(page.getByRole("heading", { name: "Tudo revisado" })).toHaveCount(0);
+  await expect(page.locator(".result-badge")).toHaveCount(0);
+  await expect(page.locator(".validation-output")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Validar de novo" })).toBeVisible();
+  await page.waitForTimeout(250);
+  expect(chamadasValidacao).toBe(1);
+});
+
 test("[C23-Ajuste] Dado um rascunho na Revisão Quando peço ajuste com R, escrevo o pedido e envio Então o escritor aplica o ajuste e a nova versão volta à Revisão", async ({ page, app, vault }) => {
   const caminho = "wiki/pessoal/concepts/segundo-cerebro.md";
   const conteudoOriginal = paginaGerada("segundo-cerebro", "Texto original que deve ser ajustado.");
