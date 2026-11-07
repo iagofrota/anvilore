@@ -167,7 +167,7 @@ Páginas lidas: concepts/x, concepts/y, sources/z (N no total)
 Lacunas identificadas: 1 (mixture-of-experts não coberto)
 ```
 
-Depois de criar a página e atualizar índice/log, pergunte **"Aprovar esta página?"**. Se sim, execute `aprovar` para ela e depois `fechar wiki`; Claude pedirá a confirmação em um clique. Se a pessoa não aprovar, mantenha o rascunho e não diga que está validado. Se o usuário disser não à gravação, registre só a consulta no log. Nunca mostre YAML nem peça para a pessoa digitar comandos.
+Depois de criar a página e atualizar índice/log, pergunte **"Aprovar esta página?"**. Se sim, rode `aprovar <caminhos>`; ele abre a Revisão; diga à pessoa que as páginas esperam o clique dela; rode `fechar wiki` só depois que ela disser que aprovou; se `fechar` acusar 'página gerada sem aprovação humana', pare e avise — não tente de novo. Se a pessoa não voltar ao chat, nada se perde: depois do clique a página já passa no validador, e o próximo `fechar`, de qualquer sessão ou da ingestão pela interface, fecha normalmente. Se a pessoa não aprovar, mantenha o rascunho e não diga que está validado. Se o usuário disser não à gravação, registre só a consulta no log. Nunca mostre YAML nem peça para a pessoa digitar comandos.
 
 ---
 

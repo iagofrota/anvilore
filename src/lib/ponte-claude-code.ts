@@ -3,6 +3,7 @@ import { valorDoPath } from "../comandos/instalar";
 import { FERRAMENTAS, MODELO_GRANDE } from "./papeis-ingestao";
 import type { Disponibilidade, EventoDoAgente, ExecucaoDeFase, FimDaFase, PedidoDeFase, PonteDeAgente, Recusa } from "./ponte-agente";
 import { esquemaRelatorioLeitor } from "./relatorio-leitor";
+import { ambienteComCaminhosAbsolutos } from "./caminhos";
 
 // A ponte com o Claude Code: `claude -p` com stream JSON, uma execução por fase, usando o login que a
 // pessoa já fez (nada de chave de API). O que cada flag faz e por que está aqui foi provado num vault
@@ -228,7 +229,7 @@ export class PonteClaudeCode implements PonteDeAgente {
       if (pedido.papel === "escritor") ambiente.ANVILORE_SEM_AUTOCOMMIT = "1";
       else delete ambiente.ANVILORE_SEM_AUTOCOMMIT;
       try {
-        processo = Bun.spawn([...comando, ...argumentosDoPapel(pedido)], { cwd: pedido.raiz, env: ambiente, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+        processo = Bun.spawn([...comando, ...argumentosDoPapel(pedido)], { cwd: pedido.raiz, env: ambienteComCaminhosAbsolutos(ambiente), stdin: "ignore", stdout: "pipe", stderr: "pipe" });
       } catch (erro) {
         return { situacao: "falhou", erro: `Não foi possível iniciar o Claude Code: ${(erro as Error).message}`, recusas: [] };
       }

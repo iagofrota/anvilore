@@ -2,6 +2,8 @@ import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { atualizar } from "../lib/atualizacao";
 import { access, readFile, readdir } from "node:fs/promises";
 import { caminhoWiki, repositorioDaWiki } from "../lib/wiki-repo";
+import { decidirVerified } from "../lib/trava-verified";
+import { ambienteComCaminhosAbsolutos } from "../lib/caminhos";
 
 type Json = Record<string, unknown>;
 const dataLocal = (data = new Date()) => `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, "0")}-${String(data.getDate()).padStart(2, "0")}`;
@@ -113,68 +115,18 @@ function negarPermissao(evento: "PreToolUse", mensagem: string): void {
   console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: evento, permissionDecision: "deny", permissionDecisionReason: mensagem } }));
 }
 
-function dentro(base: string, alvo: string): boolean {
-  const rel = relative(resolve(base), resolve(alvo));
-  return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+async function protegerAprovacao(_raiz: string, _entrada: string): Promise<void> {
+  // O comando aprovar agora só abre a interface na Revisão e não grava verified;
+  // a verificação prévia deixa de barrar o comando.
 }
 
-async function protegerAprovacao(raiz: string, entrada: string): Promise<void> {
-  let payload: Json;
-  try { payload = JSON.parse(entrada) as Json; }
-  catch { negarPermissao("PreToolUse", "Não foi possível conferir o modo da sessão; aprovação recusada."); return; }
-  const ferramenta = (payload.tool_input ?? payload.toolInput ?? {}) as Json;
-  const comando = ferramenta.command;
-  if (typeof comando !== "string" || !/(?:^|[\s;&|])(?:bun\s+[^\n;&|]*\s+|anvilore\s+)aprovar(?:\s|$)/i.test(comando)) return;
-  if (payload.permission_mode !== "default") negarPermissao("PreToolUse", "Para aprovar, saia do modo automático (Shift+Tab) e peça de novo");
-}
-
-async function protegerVerified(raiz: string, entrada: string): Promise<void> {
-  let payload: Json;
-  try { payload = JSON.parse(entrada) as Json; } catch { return; }
-  const ferramenta = (payload.tool_input ?? payload.toolInput ?? {}) as Json;
-  const caminho = ferramenta.file_path ?? ferramenta.filePath ?? ferramenta.path;
-  if (typeof caminho !== "string") return;
-  const base = caminhoWiki(raiz);
-  const abs = isAbsolute(caminho) ? resolve(caminho) : resolve(typeof payload.cwd === "string" ? payload.cwd : raiz, caminho);
-  if (!dentro(base, abs)) return;
-  const blocoVerified = (texto: string): string => {
-    const linhas = texto.split(/\r?\n/);
-    const inicioFrontmatter = linhas[0] === "---" ? 1 : 0;
-    const fimFrontmatter = linhas.indexOf("---", inicioFrontmatter);
-    const limite = fimFrontmatter < 0 ? linhas.length : fimFrontmatter;
-    const inicio = linhas.findIndex((linha, i) => i < limite && /^\s*verified\s*:/i.test(linha));
-    if (inicio < 0) {
-      return linhas.flatMap((linha, i) => /^\s*-?\s*by\s*:\s*human:/i.test(linha)
-        ? [linha.trim(), ...(linhas[i + 1] && /^\s+at\s*:/.test(linhas[i + 1]!) ? [linhas[i + 1]!.trim()] : [])]
-        : []).join("\n");
-    }
-    let fim = inicio + 1;
-    while (fim < limite && !/^[A-Za-z_][\w-]*\s*:/.test(linhas[fim]!)) fim++;
-    return linhas.slice(inicio, fim).map(linha => linha.trim()).join("\n");
-  };
-  const mudouBloco = (anterior: string, novo: string) => blocoVerified(anterior) !== blocoVerified(novo);
-  let mudou = false;
-  if (typeof ferramenta.content === "string") {
-    let atual = "";
-    try { atual = await readFile(abs, "utf8"); }
-    catch (erro) { if ((erro as NodeJS.ErrnoException).code !== "ENOENT") { negarPermissao("PreToolUse", "Não foi possível comparar verified com o arquivo atual."); return; } }
-    mudou = mudouBloco(atual, ferramenta.content);
-  } else {
-    const edicoes = Array.isArray(ferramenta.edits) ? ferramenta.edits as Json[] : [ferramenta];
-    let atual = "";
-    try { atual = await readFile(abs, "utf8"); }
-    catch (erro) { if ((erro as NodeJS.ErrnoException).code !== "ENOENT") { negarPermissao("PreToolUse", "Não foi possível comparar verified com o arquivo atual."); return; } }
-    let proposto = atual;
-    for (const edicao of edicoes) {
-      const anterior = typeof edicao.old_string === "string" ? edicao.old_string : "";
-      const novo = typeof edicao.new_string === "string" ? edicao.new_string : "";
-      const indice = anterior ? proposto.indexOf(anterior) : -1;
-      if (indice >= 0) proposto = `${proposto.slice(0, indice)}${novo}${proposto.slice(indice + anterior.length)}`;
-      else if (mudouBloco(anterior, novo)) mudou = true;
-    }
-    mudou ||= mudouBloco(atual, proposto);
+async function protegerVerified(raiz: string, entrada: string): Promise<number> {
+  const decisao = await decidirVerified(entrada, raiz, process.env);
+  if (decisao.acao === "bloquear") {
+    negarPermissao("PreToolUse", `Só o comando de aprovação pode alterar verified em wiki/: ${decisao.motivo}`);
+    return 2;
   }
-  if (mudou) negarPermissao("PreToolUse", "Só o comando de aprovação pode alterar verified em wiki/.");
+  return 0;
 }
 
 export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise<string> = () => Bun.stdin.text()): Promise<number> {
@@ -204,7 +156,7 @@ export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise
       if (Number.isFinite(ultima) && Date.now() - ultima < 24 * 60 * 60 * 1000) return 0;
       const bun = Bun.which("bun");
       if (bun) {
-        const processo = Bun.spawn([bun, resolve(raiz, "src/cli.ts"), "atualizar", "--verificar"], { cwd: raiz, stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
+        const processo = Bun.spawn([bun, resolve(raiz, "src/cli.ts"), "atualizar", "--verificar"], { cwd: raiz, env: ambienteComCaminhosAbsolutos(process.env), stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
         processo.unref();
       }
       return 0;
@@ -223,7 +175,7 @@ export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise
       return 0;
     }
     if (acao === "proteger-aprovacao") { await protegerAprovacao(raiz, await lerEntrada()); return 0; }
-    if (acao === "proteger-verified") { await protegerVerified(raiz, await lerEntrada()); return 0; }
+    if (acao === "proteger-verified") return await protegerVerified(raiz, await lerEntrada());
     if (acao === "backup") {
       if (!(await opcoesHooksWiki(raiz)).backup) return 0;
       const resultado = await backupGitHub(raiz);
@@ -242,5 +194,12 @@ export async function comandoHooksWiki(args: string[], lerEntrada: () => Promise
     }
     console.error("Uso: anvilore hooks-wiki <autocommit|backup|arquivo-raw|contexto|sugerir-lint|watch-paths|atualizar|proteger-aprovacao|proteger-verified> [raiz]");
     return 2;
-  } catch (erro) { console.error(`hooks-wiki: ${(erro as Error).message}`); return 0; }
+  } catch (erro) {
+    console.error(`hooks-wiki: ${(erro as Error).message}`);
+    if (typeof acao === "string" && acao.startsWith("proteger-")) {
+      negarPermissao("PreToolUse", `hooks-wiki: ${(erro as Error).message}`);
+      return 2;
+    }
+    return 0;
+  }
 }

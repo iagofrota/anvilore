@@ -16,7 +16,7 @@ desta página. As decisões de fundo (servidor opcional, aprovação pelo servid
 | Biblioteca | `#/biblioteca` | Listagem e catálogo de páginas com abas de tipos, filtros por status, área, tags e busca. | `ui/web/biblioteca.tsx`, `src/lib/ui-biblioteca.ts` |
 | Nota | `#/nota/<caminho>` | Leitura estrita de uma página: metadados, corpo renderizado, callouts de lacunas com atalho para o chat, proveniência, backlinks e grafo local SVG. | `ui/web/nota.tsx`, `src/lib/ui-nota.ts` |
 | Chat de ingestão | `#/chat` e `#/chat/<id>` | Fonte, leitura, parada, escrita e fechamento. | `ui/web/chat.tsx`, `src/lib/ui-ingestao.ts` |
-| Revisão | `#/revisao` | Fila de rascunhos, mudanças, Aprovar e Pedir ajuste (R). | `ui/web/main.tsx`, `ui/web/caixa-ajuste.tsx`, `src/lib/ui-fila.ts`, `src/lib/ui-ingestao.ts` |
+| Revisão | `#/revisao` | Fila de rascunhos, mudanças, Aprovar (a Revisão é a única porta para gravar `verified`) e Pedir ajuste (R). | `ui/web/main.tsx`, `ui/web/caixa-ajuste.tsx`, `src/lib/ui-fila.ts`, `src/lib/ui-ingestao.ts` |
 | Onboarding | `#/onboarding` e `#/onboarding/<1-4>` | Primeiros passos: confirmação do vault, checagem do agente sem pedir chaves, inicialização de áreas com identidade automática e primeira ingestão. | `ui/web/onboarding.tsx`, `src/lib/ui-onboarding.ts` |
 
 Endereço vazio ou desconhecido abre o Início (`lerRota` em `ui/web/navegacao.ts`).

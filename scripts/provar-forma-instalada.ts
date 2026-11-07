@@ -7,7 +7,8 @@ const raiz = resolve(import.meta.dir, "..");
 const AGENTES = ["claude", "codex", "gemini", "copilot"] as const;
 const PAYLOADS = {
   "escrita em raw": JSON.stringify({ tool_name: "Write", tool_input: { file_path: "raw/a.md", content: "x" } }),
-  "escrita em wiki": JSON.stringify({ tool_name: "Write", tool_input: { file_path: "wiki/a.md", content: "cita raw/a.md" } }),
+  "escrita em wiki": JSON.stringify({ tool_name: "Write", tool_input: { file_path: "wiki/a.md", content: "---\ntitle: Nota Legítima\ngenerated:\n  by: process:agente\n  at: 2026-11-04T10:00:00Z\n---\nCorpo da nota cita raw/a.md.\n" } }),
+  "escrita de verified em wiki": JSON.stringify({ tool_name: "Write", tool_input: { file_path: "wiki/a.md", content: "---\ntitle: Nota Fraude\ngenerated:\n  by: process:agente\n  at: 2026-11-04T10:00:00Z\nverified:\n  - by: human:fraude\n    at: 2026-11-04T12:00:00Z\n---\nCorpo fraudulento.\n" } }),
 };
 
 export type Forma = { agente: string; campo: string; comando: string; shells: string[]; informativos?: string[]; semBunInformativo?: boolean };
@@ -137,6 +138,7 @@ export async function rodarCenarios(formas: Forma[], cwd: string = raiz): Promis
       const casos: Array<[string, number, string, Ambiente]> = [
         ["escrita em raw", 2, PAYLOADS["escrita em raw"], process.env],
         ["escrita em wiki", 0, PAYLOADS["escrita em wiki"], process.env],
+        ["escrita de verified em wiki", 2, PAYLOADS["escrita de verified em wiki"], process.env],
         ["sem bun no PATH", 2, PAYLOADS["escrita em raw"], ambienteSemBun(process.env, dirBun)],
       ];
       for (const [cenario, esperado, payload, env] of casos) {

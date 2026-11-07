@@ -63,9 +63,7 @@ W11/W17. W12 usa FileChanged com `SessionStart.watchPaths` só no Claude; W13 us
 no Claude e Codex; W14 não está disponível no Copilot porque `agentStop` não fornece uma mensagem
 visível sem bloquear a próxima rodada. W17 usa SessionEnd nos quatro. Claude Code define timeout de
 15 segundos para o hook. No Codex, cujo limite é 3 segundos, e no Gemini, onde SessionEnd é
-best-effort e não aguarda o comando terminar, o backup é melhor esforço e pode não completar. Claude
-Code usa `permissions.ask` e um hook que só permite aprovar em modo `default`; os outros agentes ainda
-não têm mecanismo de aprovação com um clique. Os testes verificam lógica e configurações geradas, não
+best-effort e não aguarda o comando terminar, o backup é melhor esforço e pode não completar. A aprovação é pela Revisão da interface em todos os quatro agentes, com trava de `verified` unificada no hook `proteger-raw`. Os testes verificam lógica e configurações geradas, não
 executam ciclos de vida reais dos agentes.
 
 ## Testes de navegador

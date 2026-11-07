@@ -26,17 +26,20 @@ export async function comandoUi(
   iniciar = iniciarServidorUi,
   esperar = esperarEncerramento,
 ): Promise<number> {
-  if (args.length) {
-    console.error("Uso: anvilore ui");
+  const soRevisao = args.includes("--revisao");
+  if (args.length > (soRevisao ? 1 : 0)) {
+    console.error("Uso: anvilore ui [--revisao]");
     return 2;
   }
   const raiz = process.env.ANVILORE_DESTINO ?? process.cwd();
-  // No início da UI, aplica estado retomável; se não houver versão pronta, a checagem fica destacada.
-  await comandoHooksWiki(["atualizar", raiz]);
+  if (!soRevisao) {
+    // No início da UI, aplica estado retomável; se não houver versão pronta, a checagem fica destacada.
+    await comandoHooksWiki(["atualizar", raiz]);
+  }
   let app: AppUi;
-  try { app = await iniciar(raiz); }
+  try { app = await iniciar(raiz, { soRevisao }); }
   catch (erro) { console.error(`Não foi possível abrir a interface: ${(erro as Error).message}`); return 1; }
-  console.log(`Interface do Anvilore aberta em ${app.url}`);
+  console.log("Interface do Anvilore aberta no navegador");
   await esperar(app.servidor, undefined, app.encerrar);
   return 0;
 }

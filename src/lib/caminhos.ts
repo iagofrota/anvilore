@@ -73,6 +73,21 @@ function resolverReal(alvo: string, base: string, conta: { saltos: number }): st
   return atual;
 }
 
+// Variáveis ANVILORE_* que carregam um caminho: o pai as valida relativas ao cwd DELE, mas um filho com cwd diferente as leria relativas ao
+// dele (ANVILORE_WIKI=wiki, ANVILORE_DESTINO=. abririam outra pasta). Por nome: as conhecidas e as terminadas em DIR/PATH/PASTA/DESTINO/ORIGEM/WIKI.
+const VARIAVEIS_DE_CAMINHO = /^ANVILORE_(?:ASSINANTES|RG_RESULTADO|(?:.*_)?(?:DIR|PATH|PASTA|DESTINO|ORIGEM|WIKI)(?:_.*)?)$/;
+
+// Copia do ambiente com os caminhos do Anvilore ABSOLUTOS, resolvidos a partir do cwd do PAI. Todo processo filho lançado com cwd diferente
+// do pai tem de receber o ambiente por aqui; valores já absolutos ficam iguais.
+export function ambienteComCaminhosAbsolutos<T extends Record<string, string | undefined>>(env: T, cwdDoPai: string = process.cwd()): T {
+  const saida: Record<string, string | undefined> = { ...env };
+  for (const [nome, valor] of Object.entries(env)) {
+    if (!VARIAVEIS_DE_CAMINHO.test(nome) || valor === undefined || valor.trim() === "") continue;
+    saida[nome] = isAbsolute(valor) ? valor : resolve(cwdDoPai, valor);
+  }
+  return saida as T;
+}
+
 // `filho` é `pai` ou mora dentro dele (comparação por segmento: raw-velho não está em raw).
 export function dentroDe(filho: string, pai: string): boolean {
   const rel = relative(pai, filho);

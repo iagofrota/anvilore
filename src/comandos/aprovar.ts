@@ -1,13 +1,46 @@
 import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import type { Subprocess } from "bun";
+import { ambienteComCaminhosAbsolutos } from "../lib/caminhos";
 import { lerFrontmatter } from "../lib/frontmatter";
 import { estadoAprovacaoHumana } from "../lib/okf";
 import { caminhoWiki } from "../lib/wiki-repo";
+import { listarFilaRascunhos } from "../lib/ui-fila";
 import { autoCommitWiki, opcoesHooksWiki } from "./hooks-wiki";
 
 export type ResultadoAprovacao = { codigo: number; mensagens: string[] };
+
+const processosRevisaoAtivos: Subprocess[] = [];
+
+export function fecharProcessosRevisao(): void {
+  while (processosRevisaoAtivos.length > 0) {
+    const p = processosRevisaoAtivos.pop();
+    try { p?.kill(); } catch {}
+  }
+}
+
+export function lancarServidorRevisao(raiz: string): Subprocess | undefined {
+  const bun = Bun.which("bun") ?? process.execPath;
+  const cliPath = resolve(import.meta.dir, "../cli.ts");
+  try {
+    const processo = Bun.spawn([bun, cliPath, "ui", "--revisao"], {
+      cwd: tmpdir(),
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+      detached: true,
+      env: ambienteComCaminhosAbsolutos({ ...process.env, ANVILORE_DESTINO: raiz }),
+    });
+    processo.unref();
+    processosRevisaoAtivos.push(processo);
+    return processo;
+  } catch {
+    // Se o spawn falhar no sandbox, o comando segue imprimindo a mensagem
+  }
+}
 
 function identidadeSugerida(raiz: string, wiki: string, ambiente: Record<string, string | undefined>): string {
   const opcoes = { stdout: "pipe" as const, stderr: "ignore" as const, env: ambiente };
@@ -78,7 +111,7 @@ function provenienciaAprovada(texto: string, identidade: string): string {
   return aprovado;
 }
 
-export async function aprovarPaginas(raiz: string, arquivos: string[], ambiente: Record<string, string | undefined> = process.env, versaoEsperada?: string): Promise<ResultadoAprovacao> {
+async function gravarAprovacao(raiz: string, arquivos: string[], ambiente: Record<string, string | undefined> = process.env, versaoEsperada?: string): Promise<ResultadoAprovacao> {
   if (arquivos.length === 0) return { codigo: 2, mensagens: ["Uso: anvilore aprovar <página.md> [página.md ...]"] };
   const wiki = caminhoWiki(raiz, ambiente);
   const preparados: Array<{ caminho: string; texto: string }> = [];
@@ -119,9 +152,56 @@ export async function aprovarPaginas(raiz: string, arquivos: string[], ambiente:
   }
 }
 
-export async function comandoAprovar(args: string[]): Promise<number> {
+export async function aprovarPelaInterface(
+  raiz: string,
+  caminho: string,
+  versao: string,
+  ambiente: Record<string, string | undefined> = process.env
+): Promise<ResultadoAprovacao> {
+  if (!versao || typeof versao !== "string" || !/^[a-f0-9]{64}$/.test(versao)) {
+    return { codigo: 2, mensagens: ["Versão inválida."] };
+  }
+  return gravarAprovacao(raiz, [caminho], ambiente, versao);
+}
+
+export async function comandoAprovar(
+  args: string[],
+  lancar: (raiz: string) => Subprocess | undefined = lancarServidorRevisao
+): Promise<number> {
+  if (args.length === 0) {
+    console.log("Uso: anvilore aprovar <página.md> [página.md ...]");
+    return 2;
+  }
   const raiz = process.env.ANVILORE_DESTINO ?? process.cwd();
-  const resultado = await aprovarPaginas(raiz, args, process.env);
-  for (const mensagem of resultado.mensagens) console.log(mensagem);
-  return resultado.codigo;
+  const wiki = caminhoWiki(raiz);
+
+  let fila;
+  try {
+    fila = await listarFilaRascunhos(raiz);
+  } catch (erro) {
+    console.error(`Aprovação recusada: ${(erro as Error).message}`);
+    return 1;
+  }
+
+  const filaAprovavel = new Set(fila.filter(r => r.aprovavel).map(r => resolve(wiki, r.caminho)));
+
+  for (const arquivo of args) {
+    const caminho = isAbsolute(arquivo) ? resolve(arquivo) : resolve(raiz, arquivo);
+    const rel = relative(wiki, caminho);
+    if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel) || !rel.toLowerCase().endsWith(".md")) {
+      console.error(`Aprovação recusada: página fora de wiki/: ${arquivo}`);
+      return 1;
+    }
+    if (!filaAprovavel.has(caminho)) {
+      console.error(`Aprovação recusada: página fora da fila de rascunhos ou inválida: ${arquivo}`);
+      return 1;
+    }
+  }
+
+  // Sobe destacado anvilore ui --revisao
+  lancar(raiz);
+
+  const total = args.length;
+  console.log(`${total === 1 ? "A página está" : `As ${total} páginas estão`} na Revisão do Anvilore. Peça à pessoa para conferir e clicar em Aprovar.`);
+  return 0;
 }

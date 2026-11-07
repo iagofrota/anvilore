@@ -317,3 +317,10 @@ o dono mantém o arquivo e o purge; os instaladores consultam antes da tag e ant
   uma pergunta (D7), nunca padrão silencioso.
 - O Bun baixado vai para ~/.bun/bin e ganha um link em ~/.local/bin/bun, porque os hooks chamam `bun` pelo PATH
   e uma sessão aberta antes do instalador não enxerga o PATH novo (prova U0, item 16).
+
+## Aprovação exclusivamente pela interface (por que não /dev/tty nem diálogo do SO)
+
+- **Decisão do dono do projeto em 2026-11-02:** Aprovação humana só pelo clique na tela de Revisão da interface local (`anvilore ui --revisao`). O comando `anvilore aprovar` deixa de gravar `verified` diretamente e passa a abrir a interface destacada só com a Revisão, e uma trava de `verified` unificada entra no hook `proteger-raw` para Claude, Codex, Gemini e Copilot com falha fechada.
+- **Por que não confirmação em /dev/tty ou CONIN$:** No chat do assistente sempre falha (`ENXIO` no Bash do Claude Code; stdin não é TTY), o que obrigaria a pessoa a digitar num terminal fora do chat — ferindo o critério de que a pessoa nunca roda comandos. Além disso, não oferece proteção real: o agente local pode rodar `script -qc "anvilore aprovar …" /dev/null` (Linux/macOS) ou criar um ConPTY (Windows), obtendo um pseudo-terminal que ele mesmo controla para responder "sim".
+- **Por que não diálogo gráfico nativo do SO:** Usar diálogos nativos (`zenity`/`kdialog` no Linux, `osascript display dialog` no macOS, `MessageBox` via PowerShell no Windows) traria três caminhos distintos por SO para manter e falharia fechado em ambientes sem display (SSH, WSL sem servidor gráfico). Além disso, um agente rodando como o usuário do SO pode clicar sozinho no diálogo via `xdotool` (X11), System Events (macOS com Acessibilidade) ou UIAutomation/SendKeys (Windows). Ganharia conveniência aparente sem segurança técnica.
+- A Revisão da interface web local passa a ser a única porta para gravar `verified`, vinculada ao hash SHA-256 da versão inspecionada pela pessoa.

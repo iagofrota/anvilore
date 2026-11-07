@@ -4,7 +4,7 @@ import { lstat, mkdir, readdir, readFile, readlink, realpath, rename, stat, syml
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { conferirArquivoDeLeitura } from "../comandos/conferir-leitura";
-import { caminhoReal, dentroDe, estaEmRaw } from "./caminhos";
+import { ambienteComCaminhosAbsolutos, caminhoReal, dentroDe, estaEmRaw } from "./caminhos";
 import { isoComOffset } from "./hora";
 import { caminhoDeRawIngerivelPeloBotao, caminhoTemMetacaracteres } from "./caminho-raw";
 export { caminhoDeRawIngerivelPeloBotao, caminhoTemMetacaracteres } from "./caminho-raw";
@@ -225,7 +225,7 @@ export function lerFechamento(codigo: number, saidaBruta: string): Fechamento {
 
 export async function rodarFechamento(raiz: string, wiki: string, ambiente: Record<string, string | undefined> = process.env): Promise<{ codigo: number; saida: string }> {
   const cli = resolve(import.meta.dir, "../cli.ts");
-  const processo = Bun.spawn([process.execPath, cli, "fechar", wiki], { cwd: raiz, env: { ...ambiente, ANVILORE_WIKI: wiki }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  const processo = Bun.spawn([process.execPath, cli, "fechar", wiki], { cwd: raiz, env: ambienteComCaminhosAbsolutos({ ...ambiente, ANVILORE_WIKI: wiki }), stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, codigo] = await Promise.all([new Response(processo.stdout).text(), new Response(processo.stderr).text(), processo.exited]);
   return { codigo, saida: `${stdout}${stderr}` };
 }

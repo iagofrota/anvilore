@@ -204,10 +204,7 @@ Mostre um resumo curto (poucas linhas) com a fonte, quantidade de páginas novas
 sinalizadas. Não mostre YAML nem peça para a pessoa editar frontmatter ou executar comandos. Pergunte:
 **"Aprovar estas N páginas?"** com os caminhos das páginas geradas.
 
-Se a pessoa aprovar, execute `aprovar` com os caminhos das páginas. O hook Claude apresenta a permissão
-para um clique; se o comando for negado por modo automático, peça para sair desse modo e solicite a
-aprovação de novo. Nunca escreva `verified` por conta própria. Depois execute `fechar wiki` você mesmo. Se
-a pessoa não aprovar, mantenha as páginas como rascunho e não declare o ingest concluído.
+Se a pessoa aprovar, rode `aprovar <caminhos>`; ele abre a Revisão; diga à pessoa que as páginas esperam o clique dela; rode `fechar wiki` só depois que ela disser que aprovou; se `fechar` acusar 'página gerada sem aprovação humana', pare e avise — não tente de novo. Se a pessoa não voltar ao chat, nada se perde: depois do clique a página já passa no validador, e o próximo `fechar`, de qualquer sessão ou da ingestão pela interface, fecha normalmente. Nunca escreva `verified` por conta própria. Se a pessoa não aprovar, mantenha as páginas como rascunho e não declare o ingest concluído.
 
 O fechamento atualiza índices e log, valida a wiki e verifica a entrada do dia. Se falhar por outro
 motivo, corrija e execute novamente antes de encerrar o fluxo.
