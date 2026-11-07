@@ -376,14 +376,47 @@ atualizar_kit_do_pacote() {
   fi
 }
 
-atualizar_kit_do_pacote
-
 obter_caminho_estado() {
   if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
     printf '%s/anvilore-ui.json' "$XDG_RUNTIME_DIR"
   else
     local state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
     printf '%s/anvilore/anvilore-ui.json' "$state_home"
+  fi
+}
+
+obter_caminho_trava() {
+  if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+    printf '%s/anvilore-ui.lock' "$XDG_RUNTIME_DIR"
+  else
+    local state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+    printf '%s/anvilore/anvilore-ui.lock' "$state_home"
+  fi
+}
+
+travar_instancia() {
+  local arquivo_trava trava_dir
+  arquivo_trava="$(obter_caminho_trava)"
+  trava_dir="$(dirname -- "$arquivo_trava")"
+  if [ -L "$trava_dir" ] || [ -L "$arquivo_trava" ]; then return 0; fi
+  if [ -e "$trava_dir" ] && [ ! -O "$trava_dir" ]; then return 0; fi
+  if [ -e "$arquivo_trava" ] && [ ! -O "$arquivo_trava" ]; then return 0; fi
+  mkdir -p "$trava_dir" 2>/dev/null || true
+  chmod 700 "$trava_dir" 2>/dev/null || true
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>"$arquivo_trava" || return 0
+    chmod 600 "$arquivo_trava" 2>/dev/null || true
+    if ! flock -w 15 9; then
+      mostrar_erro_e_esperar "Não foi possível obter a trava de inicialização do Anvilore (tempo esgotado)."
+      exit 1
+    fi
+  fi
+}
+
+liberar_trava_instancia() {
+  if command -v flock >/dev/null 2>&1; then
+    flock -u 9 2>/dev/null || true
+    exec 9>&- 2>/dev/null || true
   fi
 }
 
@@ -444,20 +477,34 @@ verificar_instancia_existente() {
     return 0
   fi
 
+  # P3-7: se o PID ainda está vivo, preserva o estado e reabre mesmo com timeout do fetch
+  if kill -0 "$est_pid" 2>/dev/null; then
+    URL_EXISTENTE="$url"
+    return 0
+  fi
+
   rm -f -- "$arquivo_estado"
   return 1
 }
 
 URL_EXISTENTE=""
+travar_instancia
+
+# P3-4: checar se já existe servidor ativo ANTES de qualquer tentativa de atualização
 if verificar_instancia_existente; then
+  liberar_trava_instancia
   abrir_navegador "$URL_EXISTENTE"
   exit 0
 fi
 
-cd -- "$PASTA" || { mostrar_erro_e_esperar "Não consegui abrir a pasta $PASTA."; exit 1; }
+# Início a frio: se houver versão mais recente do pacote, atualiza o kit
+atualizar_kit_do_pacote
+
+cd -- "$PASTA" || { liberar_trava_instancia; mostrar_erro_e_esperar "Não consegui abrir a pasta $PASTA."; exit 1; }
 
 # Se estiver em terminal interativo e não foi solicitado modo desacoplado, executa no terminal
 if { [ -t 0 ] || [ -t 1 ]; } && [ -z "${ANVILORE_DESACOPLADO:-}" ]; then
+  liberar_trava_instancia
   ANVILORE_DESTINO="$PASTA" "$BUN_BIN" src/cli.ts ui
   CODIGO=$?
   if [ "$CODIGO" -ne 0 ]; then
@@ -474,6 +521,7 @@ touch "$log_file" 2>/dev/null || true
 chmod 600 "$log_file" 2>/dev/null || true
 
 (
+  exec 9>&-
   set -o pipefail
   ANVILORE_DESTINO="$PASTA" "$BUN_BIN" src/cli.ts ui --auto-encerrar 2>&1 | \
     sed -E 's/token=[a-zA-Z0-9_-]+/token=[REDUZIDO]/g' >>"$log_file"
@@ -487,10 +535,12 @@ for _ in $(seq 1 50); do
     wait "$server_pid" 2>/dev/null
     CODIGO=$?
     if [ "$CODIGO" -ne 0 ]; then
+      liberar_trava_instancia
       [ -f "$log_file" ] && cat "$log_file" >&2
       mostrar_erro_e_esperar "" "A interface do Anvilore fechou com erro (código $CODIGO). Confira a mensagem acima."
       exit "$CODIGO"
     fi
+    liberar_trava_instancia
     exit 0
   fi
   if [ -e "$(obter_caminho_estado)" ]; then
@@ -500,4 +550,5 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 
+liberar_trava_instancia
 exit 0

@@ -484,3 +484,259 @@ exit 0
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test("Dado uma versão mais nova disponível no pacote porém com servidor já ativo, Quando o lançador é executado, Então reaproveita a instância ativa e não executa a atualização (P3-4)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-nao-atualiza-ativo-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const pacote = join(base, "usr/lib/anvilore");
+    const bin = join(base, "bin");
+    const instaladorChamado = join(base, "instalador-chamado");
+    const xdgRuntime = join(base, "run");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(pacote, { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await mkdir(xdgRuntime, { recursive: true });
+
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.9.0" }, null, 2));
+    await writeFile(join(pacote, "VERSAO"), "0.10.0\n");
+
+    const lancadorTemp = join(pacote, "anvilore-abrir");
+    const scriptOriginal = await readFile(lancadorOriginal, "utf8");
+    await writeFile(lancadorTemp, scriptOriginal);
+    await chmod(lancadorTemp, 0o755);
+
+    await writeFile(join(pacote, "instalar.sh"), `#!/bin/sh
+printf 'atualizou\\n' >>"${instaladorChamado}"
+exit 0
+`);
+    await chmod(join(pacote, "instalar.sh"), 0o755);
+
+    const xdgOpen = join(bin, "xdg-open");
+    await writeFile(xdgOpen, `#!/bin/sh
+exit 0
+`);
+    await chmod(xdgOpen, 0o755);
+
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh
+if [ "$1" = "-e" ]; then
+  exec "${process.execPath}" "$@"
+fi
+exit 0
+`);
+    await chmod(bun, 0o755);
+
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response("OK", { status: 200 });
+      },
+    });
+
+    try {
+      const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+      await writeFile(estadoFile, JSON.stringify({
+        pid: process.pid,
+        porta: server.port,
+        token: "token-ativo",
+        pasta,
+      }, null, 2), { mode: 0o600 });
+
+      const env = {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:/usr/bin:/bin`,
+        ANVILORE_PASTA: pasta,
+        XDG_RUNTIME_DIR: xdgRuntime,
+        ANVILORE_SEM_DIALOGO: "1",
+      };
+
+      const proc = Bun.spawnSync(["bash", lancadorTemp], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+      expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+
+      // Não deve ter chamado instalar.sh para atualizar porque a instância já estava ativa
+      expect(await Bun.file(instaladorChamado).exists()).toBe(false);
+    } finally {
+      server.stop(true);
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("Dado servidor com processo vivo porém com resposta HTTP lenta, Quando o lançador verifica a instância, Então preserva o estado e reabre o navegador na URL existente (P3-7)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-timeout-launcher-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "bin");
+    const xdgRuntime = join(base, "run");
+    const navegadorChamado = join(base, "navegador-chamado");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await mkdir(xdgRuntime, { recursive: true });
+
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh
+if [ "$1" = "-e" ]; then
+  exec "${process.execPath}" "$@"
+fi
+exit 0
+`);
+    await chmod(bun, 0o755);
+
+    const xdgOpen = join(bin, "xdg-open");
+    await writeFile(xdgOpen, `#!/bin/sh
+printf '%s\\n' "$*" >>"${navegadorChamado}"
+exit 0
+`);
+    await chmod(xdgOpen, 0o755);
+
+    // Servidor que demora 3s para responder (induz timeout de 2000ms do fetch)
+    const serverLento = Bun.serve({
+      port: 0,
+      async fetch() {
+        await new Promise(r => setTimeout(r, 3000));
+        return new Response("OK");
+      },
+    });
+
+    try {
+      const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+      await writeFile(estadoFile, JSON.stringify({
+        pid: process.pid,
+        porta: serverLento.port,
+        token: "token-timeout",
+        pasta,
+      }, null, 2), { mode: 0o600 });
+
+      const env = {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:/usr/bin:/bin`,
+        ANVILORE_PASTA: pasta,
+        XDG_RUNTIME_DIR: xdgRuntime,
+        ANVILORE_SEM_DIALOGO: "1",
+      };
+
+      const proc = Bun.spawnSync(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+      expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+
+      // O arquivo de estado não deve ser apagado
+      expect(await Bun.file(estadoFile).exists()).toBe(true);
+      // O navegador deve ter sido aberto mesmo com o timeout do fetch
+      for (let i = 0; i < 20; i++) {
+        if (await Bun.file(navegadorChamado).exists()) break;
+        await new Promise(r => setTimeout(r, 25));
+      }
+      expect(await Bun.file(navegadorChamado).exists()).toBe(true);
+      const url = await readFile(navegadorChamado, "utf8");
+      expect(url.trim()).toContain(`:${serverLento.port}/?token=token-timeout`);
+    } finally {
+      serverLento.stop(true);
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("Dado dois lançamentos concorrentes sem instância prévia, Quando ambos executam simultaneamente, Então a trava atômica garante que apenas um servidor seja iniciado (P2-2)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-trava-concorrente-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "bin");
+    const xdgRuntime = join(base, "run");
+    const contadorUi = join(base, "contador-ui");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await mkdir(xdgRuntime, { recursive: true });
+
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh
+if [ "$1" = "-e" ]; then
+  exec "${process.execPath}" "$@"
+fi
+if [ "$1" = "src/cli.ts" ] && [ "$2" = "ui" ]; then
+  printf 'iniciou\\n' >>"${contadorUi}"
+  # Grava estado simulando servidor ativo
+  cat <<EOF >"${estadoFile}"
+{
+  "pid": $$,
+  "porta": 49123,
+  "token": "token-lock",
+  "pasta": "${pasta}"
+}
+EOF
+  sleep 10 &
+  wait $!
+  exit 0
+fi
+exit 0
+`);
+    await chmod(bun, 0o755);
+
+    const xdgOpen = join(bin, "xdg-open");
+    await writeFile(xdgOpen, `#!/bin/sh
+exit 0
+`);
+    await chmod(xdgOpen, 0o755);
+
+    const server = Bun.serve({
+      port: 49123,
+      fetch() {
+        return new Response("OK", { status: 200 });
+      },
+    });
+
+    try {
+      const env = {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:/usr/bin:/bin`,
+        ANVILORE_PASTA: pasta,
+        XDG_RUNTIME_DIR: xdgRuntime,
+        ANVILORE_SEM_DIALOGO: "1",
+      };
+
+      const p1 = Bun.spawn(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+      const p2 = Bun.spawn(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+
+      const [c1, c2] = await Promise.all([p1.exited, p2.exited]);
+      expect(c1).toBe(0);
+      expect(c2).toBe(0);
+
+      const contagem = (await readFile(contadorUi, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
+      expect(contagem.length).toBe(1);
+    } finally {
+      server.stop(true);
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});

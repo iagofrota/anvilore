@@ -73,3 +73,39 @@ test("Dado estado com processo morto, Quando verifico instância existente, Ent�
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test("Dado servidor com processo vivo porém com resposta HTTP lenta, Quando a verificação sofre timeout, Então o arquivo de estado é preservado e a URL é reaberta", async () => {
+  const base = await mkdtemp(join(tmpdir(), "anvilore-timeout-vivo-"));
+  try {
+    const serverLento = Bun.serve({
+      port: 0,
+      async fetch() {
+        await new Promise(r => setTimeout(r, 3000));
+        return new Response("OK");
+      },
+    });
+
+    try {
+      const estado = {
+        pid: process.pid,
+        porta: serverLento.port as number,
+        token: "token-timeout-vivo",
+        pasta: base,
+      };
+      await gravarEstadoUi(estado, { XDG_STATE_HOME: base });
+
+      const resultado = await verificarInstanciaExistente(base, { XDG_STATE_HOME: base });
+
+      expect(resultado.ativa).toBe(true);
+      expect(resultado.url).toContain(`:${serverLento.port}/?token=token-timeout-vivo`);
+
+      const estadoAindaExiste = await obterEstadoUi({ XDG_STATE_HOME: base });
+      expect(estadoAindaExiste).not.toBeNull();
+      expect(estadoAindaExiste?.porta).toBe(serverLento.port);
+    } finally {
+      serverLento.stop(true);
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});

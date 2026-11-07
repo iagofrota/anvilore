@@ -107,7 +107,12 @@ export async function verificarInstanciaExistente(
     if (resposta.status === 200) {
       return { ativa: true, estado, url };
     }
-  } catch {}
+  } catch {
+    try {
+      process.kill(estado.pid, 0);
+      return { ativa: true, estado, url };
+    } catch {}
+  }
 
   await removerEstadoUi(undefined, ambiente);
   return { ativa: false };
