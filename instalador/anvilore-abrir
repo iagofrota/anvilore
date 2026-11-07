@@ -21,7 +21,7 @@ mostrar_erro_e_esperar() {
 if ! instalacao_valida "$PASTA"; then
   INSTALADOR=""
   if [ -f "$ORIGEM/instalar.sh" ]; then INSTALADOR="$ORIGEM/instalar.sh"
-  elif [ -f /usr/lib/anvilore/instalar.sh ]; then INSTALADOR=/usr/lib/anvilore/instalar.sh
+  elif [ -f "${ANVILORE_PACKAGE_DIR:-/usr/lib/anvilore}/instalar.sh" ]; then INSTALADOR="${ANVILORE_PACKAGE_DIR:-/usr/lib/anvilore}/instalar.sh"
   elif [ -f "$PASTA/instalador/instalar.sh" ]; then INSTALADOR="$PASTA/instalador/instalar.sh"
   fi
   if [ -n "$INSTALADOR" ]; then
@@ -189,6 +189,43 @@ versao_instalada() {
   printf '%s' "$versao"
 }
 
+gravar_versao_tentada() {
+  local versao="$1" diretorio destino arquivo_temporario
+  [ -n "$versao" ] || return 0
+  diretorio="${XDG_STATE_HOME:-$HOME/.local/state}/anvilore"
+  destino="$diretorio/versao-tentada"
+  if [ -L "$diretorio" ] || [ -L "$destino" ]; then return 0; fi
+  if [ -e "$diretorio" ] && [ ! -O "$diretorio" ]; then return 0; fi
+  if [ -e "$destino" ] && [ ! -O "$destino" ]; then return 0; fi
+  mkdir -p "$diretorio" 2>/dev/null || return 0
+  chmod 700 "$diretorio" 2>/dev/null || true
+  arquivo_temporario="$(mktemp "$diretorio/.versao-tentada.XXXXXX" 2>/dev/null)" || return 0
+  if (umask 077; printf '%s\n' "$versao" >"$arquivo_temporario") && chmod 600 "$arquivo_temporario" && mv -f -- "$arquivo_temporario" "$destino"; then
+    :
+  else
+    rm -f -- "$arquivo_temporario"
+  fi
+}
+
+limpar_versao_tentada() {
+  local diretorio="${XDG_STATE_HOME:-$HOME/.local/state}/anvilore"
+  local destino="$diretorio/versao-tentada"
+  if [ -f "$destino" ] && [ ! -L "$destino" ] && [ -O "$destino" ]; then
+    rm -f -- "$destino" 2>/dev/null || true
+  fi
+}
+
+versao_ja_tentada() {
+  local versao="$1" diretorio destino tentada
+  diretorio="${XDG_STATE_HOME:-$HOME/.local/state}/anvilore"
+  destino="$diretorio/versao-tentada"
+  if [ -f "$destino" ] && [ ! -L "$destino" ] && [ -O "$destino" ]; then
+    IFS= read -r tentada <"$destino" || return 1
+    [ "$tentada" = "$versao" ] && return 0
+  fi
+  return 1
+}
+
 atualizar_kit_do_pacote() {
   local arquivo_versao="$ORIGEM/VERSAO" versao_pacote versao_atual versao_original instalador codigo
   [ -f "$arquivo_versao" ] || return 0
@@ -197,6 +234,7 @@ atualizar_kit_do_pacote() {
   versao_atual="$(versao_instalada || true)"
   versao_numerica_valida "$versao_atual" || return 0
   versao_maior "$versao_pacote" "$versao_atual" || return 0
+  versao_ja_tentada "$versao_pacote" && return 0
   versao_original="$versao_atual"
 
   instalador="$ORIGEM/instalar.sh"
@@ -209,7 +247,10 @@ atualizar_kit_do_pacote() {
   codigo=$?
   versao_atual="$(versao_instalada || true)"
   if [ "$codigo" -ne 0 ] || ! versao_numerica_valida "$versao_atual" || ! versao_pelo_menos "$versao_atual" "$versao_pacote"; then
+    gravar_versao_tentada "$versao_pacote"
     printf 'Não consegui atualizar o Anvilore de %s para %s. Vou abrir a versão existente.\n' "$versao_original" "$versao_pacote" >&2
+  else
+    limpar_versao_tentada
   fi
 }
 

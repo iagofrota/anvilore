@@ -42,6 +42,8 @@ async function criarCenarioAtualizacaoPacote(opcoes: { versaoPacote?: string; js
   const env = {
     ...process.env,
     HOME: home,
+    XDG_STATE_HOME: join(home, ".local/state"),
+    XDG_CONFIG_HOME: join(home, ".config"),
     PATH: `${bin}:/usr/bin:/bin`,
     ANVILORE_PASTA: pasta,
     ANV_TEST_ATUALIZADOR: atualizador,
@@ -117,6 +119,88 @@ test("Dado que o instalador não atualiza mas retorna zero, Quando abro, Então 
     expect(JSON.parse(await readFile(join(c.pasta, "package.json"), "utf8")).version).toBe("0.9.0");
     expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
   } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado que a atualização do pacote falha, Quando clico de novo no lançador, Então não repito a tentativa de atualização e abro direto a versão existente", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.10.0", codigoAtualizador: 7 });
+  try {
+    const proc1 = c.executar();
+    const saida1 = proc1.stdout.toString() + proc1.stderr.toString();
+    expect(proc1.exitCode, saida1).toBe(0);
+    expect(saida1).toContain("Atualizando o Anvilore de 0.9.0 para 0.10.0");
+    expect(saida1).toContain("Não consegui atualizar o Anvilore de 0.9.0 para 0.10.0");
+    expect(await Bun.file(c.atualizador).exists()).toBe(true);
+
+    // Remove o marcador de chamada do atualizador para testar se é chamado de novo
+    await rm(c.atualizador, { force: true });
+
+    // Segundo clique: não deve chamar o atualizador nem exibir mensagem de atualização
+    const proc2 = c.executar();
+    const saida2 = proc2.stdout.toString() + proc2.stderr.toString();
+    expect(proc2.exitCode, saida2).toBe(0);
+    expect(await Bun.file(c.atualizador).exists()).toBe(false);
+    expect(saida2).not.toContain("Atualizando o Anvilore de 0.9.0 para 0.10.0");
+    expect(saida2).not.toContain("Não consegui atualizar");
+    expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
+
+    // Novo pacote (versão muda para 0.10.1): deve tentar de novo
+    await writeFile(join(c.base, "usr/lib/anvilore/VERSAO"), "0.10.1\n");
+    const proc3 = c.executar();
+    const saida3 = proc3.stdout.toString() + proc3.stderr.toString();
+    expect(proc3.exitCode, saida3).toBe(0);
+    expect(saida3).toContain("Atualizando o Anvilore de 0.9.0 para 0.10.1");
+    expect(await Bun.file(c.atualizador).exists()).toBe(true);
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado o instalador real em pasta existente e ANVILORE_VERSAO definida, Quando executa passo_atualizar_existente, Então repassa --versao ao comando atualizar", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-instalar-versao-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const chamadasCli = join(base, "cli-chamadas.log");
+    const script = join(raiz, "instalador/instalar.sh");
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.9.0" }, null, 2));
+    await writeFile(join(pasta, "src/cli.ts"), `
+import { appendFileSync } from "node:fs";
+appendFileSync(process.env.CHAMADAS_CLI!, process.argv.slice(2).join(" ") + "\\n");
+if (process.argv[2] === "atualizar") {
+  console.log("atualizado com sucesso");
+  process.exit(0);
+}
+process.exit(0);
+`);
+    const comando = `
+      ANVILORE_INSTALAR_CARREGAR=1
+      source "$1"
+      conferir_estado_das_chaves() { :; }
+      dizer() { :; }
+      avisar() { :; }
+      falhar() { printf '%s\\n' "$1" >&2; exit 1; }
+      CONFIANCA_MINIMA="0.0.0"
+      TMP_DIR="$2"
+      mkdir -p "$TMP_DIR"
+      touch "$TMP_DIR/assinantes"
+      PASTA="$3"
+      ANVILORE_VERSAO="v0.10.0"
+      passo_atualizar_existente
+    `;
+    const proc = Bun.spawnSync(["bash", "-c", comando, "_", script, join(base, "tmp"), pasta], {
+      env: { ...process.env, HOME: home, PATH: process.env.PATH, CHAMADAS_CLI: chamadasCli },
+      stdout: "pipe", stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    const chamadas = await readFile(chamadasCli, "utf8");
+    expect(chamadas).toContain("atualizar");
+    expect(chamadas).toContain("--assinantes-do-instalador");
+    expect(chamadas).toContain("--versao 0.10.0");
+  } finally { await rm(base, { recursive: true, force: true }); }
 });
 
 test("Dado que o lançador não tem metadado VERSAO, Quando abro, Então não tento atualizar a pasta", async () => {
@@ -643,7 +727,7 @@ test.skipIf(process.platform !== "linux" || !Bun.which("script") || existsSync("
     const lancador = join(kit, "anvilore-abrir");
     await writeFile(lancador, shell);
     const proc = Bun.spawnSync(["script", "-q", "-e", "-c", `bash '${lancador}'`, "/dev/null"], {
-      env: { ...process.env, HOME: home, ANVILORE_PASTA: pasta },
+      env: { ...process.env, HOME: home, ANVILORE_PASTA: pasta, ANVILORE_PACKAGE_DIR: join(base, "sem-pacote") },
       stdin: new TextEncoder().encode("\n"), stdout: "pipe", stderr: "pipe",
     });
     const saida = proc.stdout.toString() + proc.stderr.toString();

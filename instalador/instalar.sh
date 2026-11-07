@@ -1179,7 +1179,13 @@ passo_atualizar_existente() {
   # reduzido às chaves que a lista atual do site ainda autoriza.
   assinantes="$TMP_DIR/assinantes-reinstalacao"
   cp "$TMP_DIR/assinantes" "$assinantes" || falhar "não consegui preparar as chaves de assinatura para conferir a atualização."
-  if rodar bash -c 'cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts atualizar --assinantes-do-instalador "$2"' _ "$PASTA" "$assinantes"; then
+  local cmd_atualizar
+  if [ -n "${ANVILORE_VERSAO:-}" ]; then
+    cmd_atualizar='cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts atualizar --assinantes-do-instalador "$2" --versao "$3"'
+  else
+    cmd_atualizar='cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts atualizar --assinantes-do-instalador "$2"'
+  fi
+  if rodar bash -c "$cmd_atualizar" _ "$PASTA" "$assinantes" "${ANVILORE_VERSAO#v}"; then
     dizer "Atualização: $(printf '%s\n' "$ULTIMA_SAIDA" | tail -n1)"
   else
     codigo=$?
