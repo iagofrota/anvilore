@@ -1107,7 +1107,9 @@ function tarExtrai(args: string[]): boolean {
 }
 
 function tarCaminhosAbsolutos(args: string[]): boolean {
-  return args.some(arg => (/^-[^-]/.test(arg) && arg.slice(1).includes("P")) || (arg.startsWith("--") && opcaoLongaGnu(arg, "--absolute-names", "--abs")));
+  return args.some((arg, indice) => (/^-[^-]/.test(arg) && arg.slice(1).includes("P"))
+    || (indice === 0 && /^[A-Za-z]+$/.test(arg) && arg.includes("P"))
+    || (arg.startsWith("--") && opcaoLongaGnu(arg, "--absolute-names", "--abs")));
 }
 
 // Extratores que gravam sob um diretório escolhido (ou o cwd): o conteúdo do pacote decide o que nasce lá.
@@ -1123,10 +1125,13 @@ function extratorNoAncestral(
     const opcoes = analisarOpcoesCurtas(args, { d: { recebeValor: true, destino: true } });
     if (opcoes.malformado) return "unzip com -d sem diretório (falha fechada)";
     if (["l", "t", "p", "v", "Z"].some(letra => opcoes.letras.has(letra))) return undefined;
+    // -: e -^ mantêm caminhos absolutos e `..` do pacote: o pacote escolhe onde grava.
+    if (opcoes.letras.has(":") || opcoes.letras.has("^")) return "unzip mantém caminhos do pacote (falha fechada)";
     diretorios = opcoes.destinos.length ? opcoes.destinos : ["."];
   } else if (/^7z[a-z]?$/.test(verbo)) {
-    const comando = args.find(arg => !arg.startsWith("-"));
+    const comando = args.find(arg => !arg.startsWith("-"))?.toLowerCase();
     if (comando !== "x" && comando !== "e") return undefined;
+    if (args.some(arg => /^-spf/i.test(arg))) return `${verbo} com caminhos absolutos do pacote (falha fechada)`;
     const saidas = args.filter(arg => /^-o./i.test(arg) && !arg.startsWith("--")).map(arg => arg.slice(2));
     diretorios = saidas.length ? saidas : ["."];
   }
@@ -1153,6 +1158,7 @@ function analisarGitArvore(args: string[]): { subcomando?: string; resto: string
   const arvores: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
+    if (arg === "-c" && /^core\.worktree=/i.test(args[i + 1] ?? "")) arvores.push(args[i + 1]!.slice(args[i + 1]!.indexOf("=") + 1));
     if (arg === "-C" || arg === "-c") { i++; continue; }
     if (arg.startsWith("--") && opcaoLongaGnu(arg, "--work-tree", "--wo")) {
       if (arg.includes("=")) arvores.push(arg.slice(arg.indexOf("=") + 1));
@@ -1205,12 +1211,60 @@ function gitNoAncestral(
   return [".", ...arvores, ...arvoresDoAmbiente].some(perigoso) ? motivo : undefined;
 }
 
+// Comando executado por outro comando (sh -c, find -exec, eval) volta ao mesmo classificador; acima do teto, bloqueia.
+type ContextoAninhado = { profundidade: number };
+const TETO_ANINHAMENTO = 5;
+const SHELLS_COM_C = new Set(["sh", "bash", "zsh", "dash", "ksh", "ash", "mksh", "csh", "tcsh", "fish"]);
+
+// `-c <texto>` de um shell, inclusive em grupo curto (-ec, -lc), depois de opções como -o pipefail ou --rcfile arq.
+function textoDeShellC(args: string[]): { temC: boolean; texto?: string } {
+  let temC = false;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--") { i++; return temC ? { temC, texto: args[i] } : { temC }; }
+    if (arg.startsWith("--")) {
+      if (/^--(?:rcfile|init-file)$/.test(arg)) i++;
+      continue;
+    }
+    if (!/^[-+][^-+]/.test(arg)) return temC ? { temC, texto: arg } : { temC };
+    const grupo = arg.slice(1);
+    for (let j = 0; j < grupo.length; j++) {
+      const letra = grupo[j]!;
+      if (letra === "c" && arg.startsWith("-")) temC = true;
+      if (letra === "o" || letra === "O") {
+        if (j === grupo.length - 1) i++;
+        break;
+      }
+    }
+  }
+  return { temC };
+}
+
+// O comando de `find -exec|-ok` até o terminador `;` ou `+` (sem terminador, vai até o fim).
+function comandosDoFind(args: string[]): string[][] {
+  const comandos: string[][] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] !== "-exec" && args[i] !== "-ok") continue;
+    let fim = i + 1;
+    while (fim < args.length && args[fim] !== ";" && args[fim] !== "+") fim++;
+    comandos.push(args.slice(i + 1, fim));
+    i = fim;
+  }
+  return comandos;
+}
+
+function cortarEntradasParallel(args: string[]): string[] {
+  const indice = args.findIndex(arg => arg.startsWith(":::"));
+  return indice < 0 ? args : args.slice(0, indice);
+}
+
 function analisarComandoSimples(
   cmdTokens: Token[],
   base: string,
   raiz: string,
   ambiente: Record<string, string | undefined>,
-  temMudancaDir: boolean
+  temMudancaDir: boolean,
+  aninhado: ContextoAninhado = { profundidade: 0 }
 ): Decisao {
   // 1. Extrai redirecionamentos e tokens sem operadores de redireção
   const alvosRedir: string[] = [];
@@ -1305,7 +1359,7 @@ function analisarComandoSimples(
         }
       }
     }
-    palavras = resto;
+    palavras = verbo === "parallel" ? cortarEntradasParallel(resto) : resto;
     if (!palavras.length) break;
     verbo = verboNormalizado(palavras[0]!);
   }
@@ -1332,15 +1386,19 @@ function analisarComandoSimples(
     const dirs = extrairDiretoriosC(cmdArgs);
     if (dirs.malformado) return { acao: "bloquear", motivo: `${verbo} -C sem diretório literal (falha fechada)` };
     let tarDirTocaWiki = false;
+    const efetivos: string[] = [];
     for (const diretorio of dirs.diretorios) {
       const efetivo = resolverDiretorioEfetivo(base, diretorio);
       if (!efetivo) return { acao: "bloquear", motivo: `${verbo} -C com diretório não literal ou inválido (falha fechada)` };
       if (ehTar && estaSobWiki(efetivo, raiz, ambiente, base)) tarDirTocaWiki = true;
       base = efetivo;
+      efetivos.push(efetivo);
     }
     if (ehTar && tarExtrai(cmdArgs)) {
       // Extrair grava o que o pacote tem sob o diretório efetivo (-C ou cwd); -P deixa o pacote escolher o caminho.
-      if (tarCaminhosAbsolutos(cmdArgs) || ehDestinoPerigoso(".", base, raiz, ambiente)) {
+      // Com vários -C a ordem de aplicação varia: cada diretório visto no comando é julgado.
+      if (!efetivos.length) efetivos.push(base);
+      if (tarCaminhosAbsolutos(cmdArgs) || efetivos.some(diretorio => ehDestinoPerigoso(diretorio, base, raiz, ambiente))) {
         return { acao: "bloquear", motivo: `${verbo} extrai para a wiki ou para um ancestral dela (falha fechada)` };
       }
     }
@@ -1354,6 +1412,33 @@ function analisarComandoSimples(
 
   if (verbo === "find" && cmdArgs.some(arg => arg === "-execdir" || arg === "-okdir")) {
     return { acao: "bloquear", motivo: "find com execução em diretório variável (falha fechada)" };
+  }
+
+  // 3b. Comando executado por outro comando: sh -c, find -exec/-ok e eval passam pelo mesmo classificador.
+  if (SHELLS_COM_C.has(verbo) || verbo === "find" || verbo === "eval") {
+    if (aninhado.profundidade >= TETO_ANINHAMENTO) {
+      return { acao: "bloquear", motivo: "comandos aninhados demais (falha fechada)" };
+    }
+    const proximo = { profundidade: aninhado.profundidade + 1 };
+    if (SHELLS_COM_C.has(verbo)) {
+      const { temC, texto } = textoDeShellC(cmdArgs);
+      if (temC) {
+        if (texto === undefined) return { acao: "bloquear", motivo: `${verbo} -c sem texto de comando (falha fechada)` };
+        const interno = decidirTerminalVerified(texto, false, base, raiz, ambiente, proximo, temMudancaDir);
+        if (interno.acao === "bloquear") return interno;
+      }
+    } else if (verbo === "eval") {
+      if (cmdArgs.length) {
+        const interno = decidirTerminalVerified(cmdArgs.join(" "), false, base, raiz, ambiente, proximo, temMudancaDir);
+        if (interno.acao === "bloquear") return interno;
+      }
+    } else {
+      for (const interno of comandosDoFind(cmdArgs)) {
+        if (!interno.length) return { acao: "bloquear", motivo: "find -exec sem comando (falha fechada)" };
+        const decisao = analisarComandoSimples(interno.map(texto => ({ texto, operador: false })), base, raiz, ambiente, temMudancaDir, proximo);
+        if (decisao.acao === "bloquear") return decisao;
+      }
+    }
   }
 
   // 4. Se cita verified ou aprovação no comando simples
@@ -1626,7 +1711,9 @@ function decidirTerminalVerified(
   isWindows: boolean,
   base: string,
   raiz: string,
-  ambiente: Record<string, string | undefined>
+  ambiente: Record<string, string | undefined>,
+  aninhado: ContextoAninhado = { profundidade: 0 },
+  mudancaDirHerdada = false
 ): Decisao {
   if (!cmdTexto.trim()) {
     return { acao: "bloquear", motivo: "comando de terminal vazio citando verified ou aprovação (falha fechada)" };
@@ -1659,10 +1746,10 @@ function decidirTerminalVerified(
     return { acao: "liberar", motivo: "comando permitido da CLI do kit" };
   }
 
-  const temCdOuPushd = tokens.some(t => !t.operador && /^(?:cd|pushd)$/i.test(t.texto)) || /\b(?:cd|pushd)\b/i.test(cmdTexto);
+  const temCdOuPushd = mudancaDirHerdada || tokens.some(t => !t.operador && /^(?:cd|pushd)$/i.test(t.texto)) || /\b(?:cd|pushd)\b/i.test(cmdTexto);
 
   for (const cmdTokens of comandosSimples) {
-    const decisao = analisarComandoSimples(cmdTokens, base, raiz, ambiente, temCdOuPushd);
+    const decisao = analisarComandoSimples(cmdTokens, base, raiz, ambiente, temCdOuPushd, aninhado);
     if (decisao.acao === "bloquear") {
       return decisao;
     }

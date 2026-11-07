@@ -2393,5 +2393,91 @@ describe("trava de verified nos quatro agentes", () => {
         rmSync(fora, { recursive: true, force: true });
       }
     });
+
+    test("Achado preventivo (rodada 9): comando executado por outro comando (sh -c, find -exec, xargs, parallel, eval) é analisado", async () => {
+      const { fora, stage, cofre, julgar, todos } = prepararRodada8();
+      const aninhado = (niveis: number, interno = `cp -R ${stage}/. ${cofre}/`) => {
+        let comando = interno;
+        for (let i = 0; i < niveis; i++) comando = `sh -c '${comando.replaceAll("'", "'\\''")}'`;
+        return comando;
+      };
+      try {
+        // Dado o verbo de escrita aninhado, Quando o terminal é julgado, Então vale a mesma regra do comando direto
+        const ataques = [
+          `sh -c "cp -R ${stage}/. ${cofre}/"`,
+          `bash -ec "printf x > ${cofre}/wiki/a.md"`,
+          `sh -c "sh -c 'cp -R ${stage}/. ${cofre}/'"`,
+          `zsh -lc "cp -a ${stage}/. ${cofre}/"`,
+          `bash --norc -c "cp -R ${stage}/. ${cofre}/"`,
+          `bash -o pipefail -c "cp -R ${stage}/. ${cofre}/"`,
+          `bash --rcfile ${fora}/rc -c "cp -R ${stage}/. ${cofre}/"`,
+          `sh -c "echo ok; cp -R ${stage}/. ${cofre}/"`,
+          `env FOO=1 sh -c "cp -R ${stage}/. ${cofre}/"`,
+          `sudo bash -c "mv ${stage}/wiki ${cofre}/"`,
+          `busybox sh -c "rsync -a ${stage}/ ${cofre}/"`,
+          `timeout 5 sh -c "tar -C ${cofre} -xf ${fora}/x.tar"`,
+          `sh -c 'cp $(echo x) ${fora}/y'`,
+          `sh -c`,
+          aninhado(8),
+          `find ${stage} -exec cp -r {} ${cofre}/ \\;`,
+          `find ${stage} -exec cp {} ${cofre}/wiki/ +`,
+          `find ${stage} -ok mv {} ${cofre}/ \\;`,
+          `find ${stage} -exec sh -c 'cp -R "$0" ${cofre}/' {} \\;`,
+          `find ${stage} -exec cp -r {} ${cofre}/`,
+          `parallel cp -R {} ${cofre}/ ::: ${stage}`,
+          `xargs -I{} cp -r {} ${cofre}/`,
+          `xargs cp -R -t ${cofre}`,
+          `xargs sh -c 'cp -R "$0" ${cofre}/'`,
+          `eval 'cp -R ${stage}/. ${cofre}/'`,
+        ];
+        expect(await julgar(ataques)).toEqual(todos(ataques, 2));
+
+        // Regressões com exit 0: comandos aninhados que só leem ou escrevem fora da wiki
+        const regressoes = [
+          `sh -c "echo ok"`,
+          aninhado(3, `cp ${fora}/a.md ${fora}/b.md`),
+          `bash -c "cp ${fora}/a.md ${fora}/b.md"`,
+          `bash -c "cp ${fora}/a.md ${cofre}/"`,
+          `sh ${fora}/script.sh`,
+          `sh -c "tar -tf ${fora}/x.tar"`,
+          `find ${cofre}/wiki -name '*.md'`,
+          `find ${cofre}/wiki -exec cat {} \\;`,
+          `find ${fora}/x -exec cp {} ${fora}/y/ \\;`,
+          `find ${stage} -exec cp {} ${cofre}/ \\;`,
+          `xargs cat`,
+          `parallel echo {} ::: a b`,
+          `eval 'echo ok'`,
+        ];
+        expect(await julgar(regressoes)).toEqual(todos(regressoes, 0));
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Achados da revisão automática da rodada 8: tar com P na forma antiga e vários -C, unzip -:, 7z -spf e caixa do comando, git -c core.worktree", async () => {
+      const { fora, cofre, julgar, todos } = prepararRodada8();
+      try {
+        const ataques = [
+          `tar xPf ${fora}/x.tar -C ${fora}/y`,
+          `tar -C ${cofre} -C ${fora}/y -xf ${fora}/x.tar`,
+          `tar -C ${fora}/y -C ${cofre} -xf ${fora}/x.tar`,
+          `unzip -: ${fora}/x.zip -d ${fora}/y`,
+          `unzip -^ ${fora}/x.zip -d ${fora}/y`,
+          `7z x ${fora}/x.7z -spf -o${fora}/y`,
+          `7z X ${fora}/x.7z -o${cofre}`,
+          `git -c core.worktree=${cofre} -C ${fora}/y checkout .`,
+        ];
+        expect(await julgar(ataques)).toEqual(todos(ataques, 2));
+        const regressoes = [
+          `tar -C ${fora}/y -xf ${fora}/x.tar`,
+          `tar xf ${fora}/x.tar -C ${fora}/y`,
+          `7z x ${fora}/x.7z -o${fora}/y`,
+          `git -c user.name=x -C ${cofre} log`,
+        ];
+        expect(await julgar(regressoes)).toEqual(todos(regressoes, 0));
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
   });
 });
