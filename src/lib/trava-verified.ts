@@ -2061,7 +2061,9 @@ function analisarComandoSimples(
     if (aninhado.profundidade >= TETO_ANINHAMENTO) {
       return { acao: "bloquear", motivo: "comandos aninhados demais (falha fechada)" };
     }
-    const proximo = { profundidade: aninhado.profundidade + 1 };
+    // O comando aninhado roda dentro da linha de fora: a contagem de comandos dela continua valendo (um `cp` antes do `sh -c`
+    // pode trocar o script que o `sed -f` de dentro vai ler).
+    const proximo: ContextoAninhado = { profundidade: aninhado.profundidade + 1, comandosNaLinha: aninhado.comandosNaLinha };
     if (ehShell(verbo)) {
       const { textos, semTexto } = textosDeShell(verbo, cmdArgs);
       if (semTexto) return { acao: "bloquear", motivo: `${verbo} com opção de comando sem texto (falha fechada)` };
@@ -2075,9 +2077,12 @@ function analisarComandoSimples(
         if (interno.acao === "bloquear") return interno;
       }
     } else {
-      for (const interno of comandosDoFind(cmdArgs)) {
+      const execucoes = comandosDoFind(cmdArgs);
+      // Cada -exec/-ok roda um comando: com mais de um, o primeiro pode trocar o que o segundo lê.
+      const doFind: ContextoAninhado = { ...proximo, comandosNaLinha: (proximo.comandosNaLinha ?? 1) + Math.max(0, execucoes.length - 1) };
+      for (const interno of execucoes) {
         if (!interno.length) return { acao: "bloquear", motivo: "find -exec sem comando (falha fechada)" };
-        const decisao = analisarComandoSimples(interno.map(texto => ({ texto, operador: false })), base, raiz, ambiente, temMudancaDir, proximo, ambienteGit);
+        const decisao = analisarComandoSimples(interno.map(texto => ({ texto, operador: false })), base, raiz, ambiente, temMudancaDir, doFind, ambienteGit);
         if (decisao.acao === "bloquear") return decisao;
       }
     }
@@ -2217,7 +2222,7 @@ function analisarComandoSimples(
   // 5.4b Linguagem de script que grava ou executa: sed (w/W/e), awk (>, |, system) e ed/ex/vim (w, !, saveas)
   const executarAninhado = (texto: string): Decisao => aninhado.profundidade >= TETO_ANINHAMENTO
     ? { acao: "bloquear", motivo: "comandos aninhados demais (falha fechada)" }
-    : decidirTerminalVerified(texto, false, base, raiz, ambiente, { profundidade: aninhado.profundidade + 1 }, temMudancaDir, ambienteGit);
+    : decidirTerminalVerified(texto, false, base, raiz, ambiente, { profundidade: aninhado.profundidade + 1, comandosNaLinha: aninhado.comandosNaLinha }, temMudancaDir, ambienteGit);
   const ferramentaDeTexto = analisarFerramentaDeTexto(
     verbo, cmdArgs, base, raiz, ambiente, temMudancaDir, { redirecionada: entradaRedirecionada, dePipe: doPipe, unicoComando: (aninhado.comandosNaLinha ?? 1) <= 1 }, executarAninhado
   );
@@ -2402,7 +2407,8 @@ function decidirTerminalVerified(
 
   const temCdOuPushd = mudancaDirHerdada || tokens.some(t => !t.operador && /^(?:cd|pushd)$/i.test(t.texto)) || /\b(?:cd|pushd)\b/i.test(cmdTexto);
 
-  const contexto: ContextoAninhado = { ...aninhado, comandosNaLinha: comandosSimples.length };
+  // A contagem da linha de fora não se perde no aninhamento: vale o maior entre ela e a destes comandos.
+  const contexto: ContextoAninhado = { ...aninhado, comandosNaLinha: Math.max(aninhado.comandosNaLinha ?? 1, comandosSimples.length) };
   for (const { tokens: cmdTokens, doPipe } of comandosSimples) {
     const decisao = analisarComandoSimples(cmdTokens, base, raiz, ambiente, temCdOuPushd, contexto, ambienteGit, doPipe);
     if (decisao.acao === "bloquear") {

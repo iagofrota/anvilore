@@ -2980,5 +2980,47 @@ describe("trava de verified nos quatro agentes", () => {
         rmSync(fora, { recursive: true, force: true });
       }
     });
+
+    test("Nota 3 (rodada 13): script lido de arquivo dentro de comando aninhado herda que a linha de fora tem mais de um comando", async () => {
+      const { fora, cofre, esperar, wikiA } = prepararRodada11();
+      writeFileSync(join(fora, "limpo.awk"), "{ print }\n");
+      writeFileSync(join(fora, "grava.vim"), `w! ${wikiA}\nq\n`);
+      writeFileSync(join(fora, "limpo.vim"), "q\n");
+      const copiar = `cp ${fora}/script.sed ${fora}/limpo.sed`;
+      try {
+        // Dado um comando antes (ou pipe) que pode trocar o script, Quando o sed/awk/vim lê o arquivo dentro de sh -c, eval ou find -exec
+        const ataques = [
+          `${copiar}; sh -c "sed -f ${fora}/limpo.sed ${fora}/p.md"`,
+          `${copiar} && bash -c "sed -f ${fora}/limpo.sed ${fora}/p.md"`,
+          `${copiar} && eval 'sed -f ${fora}/limpo.sed ${fora}/p.md'`,
+          `${copiar} && find ${fora}/p.md -exec sed -f ${fora}/limpo.sed {} \\;`,
+          `echo x | sh -c "sed -f ${fora}/limpo.sed ${fora}/p.md"`,
+          `${copiar}; sh -c "sh -c 'sed -f ${fora}/limpo.sed ${fora}/p.md'"`,
+          `sh -c "sed -f ${fora}/limpo.sed ${fora}/p.md"; ${copiar}`,
+          `find ${fora}/p.md -exec ${copiar} \\; -exec sed -f ${fora}/limpo.sed {} \\;`,
+          `find ${fora}/p.md -ok ${copiar} \\; -exec sed -f ${fora}/limpo.sed {} \\;`,
+          `cp ${fora}/script.awk ${fora}/limpo.awk; sh -c "awk -f ${fora}/limpo.awk ${fora}/p.md"`,
+          `mv ${fora}/grava.vim ${fora}/limpo.vim; sh -c "vim -es -S ${fora}/limpo.vim ${fora}/p.md"`,
+          `${copiar} | xargs sed -f ${fora}/limpo.sed`,
+          `${copiar}; parallel sed -f ${fora}/limpo.sed {} ::: ${fora}/p.md`,
+        ];
+        await esperar(ataques, 2, cofre);
+
+        // Regressões com exit 0: a linha inteira tem um comando só
+        const regressoes = [
+          `sh -c "sed -f ${fora}/limpo.sed ${fora}/p.md"`,
+          `bash -c "sed -f ${fora}/limpo.sed ${fora}/p.md"`,
+          `eval 'sed -f ${fora}/limpo.sed ${fora}/p.md'`,
+          `sh -c "sh -c 'sed -f ${fora}/limpo.sed ${fora}/p.md'"`,
+          `find ${fora}/p.md -exec sed -f ${fora}/limpo.sed {} \\;`,
+          `sh -c "awk -f ${fora}/limpo.awk ${fora}/p.md"`,
+          `sh -c "vim -es -S ${fora}/limpo.vim ${fora}/p.md"`,
+          `xargs sed -f ${fora}/limpo.sed`,
+        ];
+        await esperar(regressoes, 0, cofre);
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
   });
 });
