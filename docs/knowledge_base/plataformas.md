@@ -1,6 +1,5 @@
 ---
-generated: 2026-10-31
-verified: 2026-11-01
+generated: 2026-11-07
 ---
 
 # Plataformas
@@ -371,8 +370,19 @@ não escrevem na pasta de usuário (`instalador/linux/`).
 
 O primeiro clique em **Anvilore** abre um terminal (`Terminal=true`) e instala em ~/Anvilore
 como a pessoa que clicou. Outra conta ganha sua própria instalação, sem sudo. Cliques seguintes
-chamam a interface sem repetir o instalador. O instalador reconhece a entrada de sistema e não cria
-outra entrada por usuário (`instalador/anvilore-abrir`, `instalador/instalar.sh`).
+chamam a interface sem repetir o instalador. O lançador procura o Bun no PATH atual, em
+$HOME/.bun/bin/bun, no caminho registrado pelo instalador sob $XDG_CONFIG_HOME (por padrão,
+$HOME/.config) e, por último, numa shell de login com limite de três segundos. O registro é texto
+de configuração do usuário, salvo com modo 0600; o lançador confere a propriedade e o bit executável
+antes de usá-lo. Sem Bun, explica como instalar npm Bun e retorna código 2. No Windows, o lançador
+também acrescenta %APPDATA%\npm à busca (`instalador/anvilore-abrir`, `instalador/instalar.sh`,
+`instalador/abrir.ps1`). O instalador reconhece a entrada de sistema e não cria outra entrada por
+usuário.
+
+Atualizar o pacote `.deb`/`.rpm` só troca os arquivos do sistema; ele não executa o instalador como a
+pessoa nem atualiza uma pasta Anvilore da home já válida. O caminho previsto para essa atualização é
+executar manualmente o instalador Linux mais recente, que valida e atualiza a instalação existente.
+O clique do menu, sozinho, continua usando o kit já instalado.
 Remova pela loja, `sudo apt remove anvilore` ou `sudo dnf remove anvilore`:
 o lançador, o atalho e o ícone de sistema saem; ~/Anvilore, a wiki e as fontes continuam.
 

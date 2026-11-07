@@ -62,6 +62,7 @@ $caminhos = @(
   (Join-Path $perfil '.bun\bin'),
   (Join-Path $perfil '.local\bin')
 )
+if ($env:APPDATA) { $caminhos += Join-Path $env:APPDATA 'npm' }
 if ($env:LOCALAPPDATA) {
   $caminhos += Join-Path $env:LOCALAPPDATA 'Anvilore\bin'
   $caminhos += Join-Path $env:LOCALAPPDATA 'Anvilore\git\cmd'
