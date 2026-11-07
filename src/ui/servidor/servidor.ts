@@ -237,6 +237,8 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
                 anterior,
                 aprovavel,
                 ...(motivoNaoAprovavel ? { motivoNaoAprovavel } : {}),
+                // Só-revisão não sobe a ponte com o agente: a tela desabilita o botão e mostra o motivo.
+                ...(ingestao ? {} : { ajustavel: false, motivoNaoAjustavel: "Pedir ajuste só funciona com a interface completa aberta." }),
               };
             })));
           }

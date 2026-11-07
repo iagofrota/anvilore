@@ -647,6 +647,23 @@ describe("Servidor UI — Pedir ajuste na Revisão", () => {
     expect(itemExclamacao?.motivoNaoAjustavel).toBe("Não dá para pedir ajuste nesta página porque o nome dela ou da pasta do vault tem um caractere especial (* ? [ ] { } ! \\). Renomeie para usar o ajuste.");
   });
 
+  test("Dado a interface só de Revisão Quando consulto /api/rascunhos Então cada item vem com ajustavel: false e o motivo em linguagem simples", async () => {
+    const conteudo = (slug: string) => `---\ntype: concept\nslug: ${slug}\ntitle: ${slug}\ngenerated:\n  by: teste/1.0\n  at: 2026-11-01T10:00:00-03:00\n---\nTexto\n`;
+    writeFileSync(join(raiz, "wiki/pessoal/concepts/normal.md"), conteudo("normal"));
+    writeFileSync(join(raiz, "wiki/pessoal/concepts/nota!.md"), conteudo("nota-alerta"));
+
+    const app = await iniciarServidorUi(raiz, { portaInicial: 0, token: "token-teste", abrirNavegador: false, soRevisao: true });
+    servidores.push(app.servidor);
+    const res = await fetch(`http://127.0.0.1:${app.porta}/api/rascunhos?token=token-teste`);
+    expect(res.status).toBe(200);
+    const rascunhos = (await res.json()) as Array<{ caminho: string; ajustavel: boolean; motivoNaoAjustavel?: string }>;
+    expect(rascunhos.length).toBeGreaterThanOrEqual(2);
+    for (const item of rascunhos) {
+      expect(item.ajustavel).toBe(false);
+      expect(item.motivoNaoAjustavel).toBe("Pedir ajuste só funciona com a interface completa aberta.");
+    }
+  });
+
   test("Dado links simbólicos apontando para raw, fora da wiki ou outra página Quando envio ajuste Então a API recusa com 400 e arquivos sentinela permanecem intactos", async () => {
     // 1. Arquivo alvo legítimo e sentinela em raw
     const conteudoRaw = "DADO BRUTO EM RAW - SENTINELA";

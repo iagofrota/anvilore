@@ -18,6 +18,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
+- Na interface só de Revisão o botão "Pedir ajuste" aparece desabilitado, com o motivo "Pedir ajuste só funciona com a interface completa aberta.", em vez de dar erro ao clicar.
 - A remoção da área de exemplo no onboarding recusa links que apontem para `raw/`, preserva áreas com nomes que apenas começam por `exemplo` e protege o estado salvo do onboarding contra links simbólicos.
 
 ### Security
@@ -27,6 +28,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - A trava de `verified` no terminal passa a barrar a escrita em massa num destino que é a wiki ou a pasta acima dela (por exemplo `cp -R pasta/. <cofre>/`, `rsync`, `tar -x`, `unzip`, `7z x`, `mv` de pasta e `git checkout` na raiz do cofre), que criava páginas aprovadas na wiki sem citá-la; copiar um arquivo só para a raiz do cofre continua liberado.
 - A trava de `verified` no terminal passa a olhar também o comando que outro comando executa (`sh -c`, `bash -c`, `find -exec`/`-ok`, `eval`, `parallel`): ele recebe a mesma análise do comando direto, e comando aninhado demais ou ilegível é barrado. A extração de pacotes (`tar`, `unzip`, `7z`) ficou mais estrita com caminhos absolutos do pacote, vários `-C` e `git -c core.worktree`.
 - A trava de `verified` no terminal acompanha também a árvore de trabalho do `git` fixada fora do próprio comando (`export GIT_WORK_TREE=…` num comando anterior, `git config core.worktree`, `--config-env`, `GIT_CONFIG_*`, `--git-dir`) e barra o `find -fprint`/`-fls` com destino na wiki; verbo escondido em expansão dentro de `sh -c` e shells como o `fish --command` também são barrados, inclusive com várias opções de comando; o `git config core.worktree` é barrado mesmo com a opção abreviada.
+- A trava de `verified` no terminal julga todas as ocorrências de `git config core.worktree`, reconhece o `-c` de `bash -oc pipefail "cmd"` (cada `o`/`O` do grupo leva o seu valor), não aceita script lido de arquivo quando a linha tem mais de um comando, barra as opções do `awk` que gravam arquivo e tira `put` e `set` da lista permitida do `vim`.
 - A trava de `verified` no terminal passa a ler o script das ferramentas de texto, e não só o `sed -i`: `sed` (`w`, `W`, `s///w`, `e`), `awk` (`print >`, `|`, `system`, `getline`) e `ed`/`ex`/`vim` em modo script (`w`, `saveas`, `!`) são barrados quando gravam na wiki ou executam algo que não se prova inofensivo; ler a wiki ou gravar fora dela continua liberado.
 - O `anvilore migrar-rastreio --puxar` aplica guarda de transporte no `git pull`: só aceita o protocolo do endereço do remoto (https, ssh ou pasta local) e recusa protocolos como `ext::` e trocas por `insteadOf`, com `credential.helper` e prompt de terminal desabilitados.
 

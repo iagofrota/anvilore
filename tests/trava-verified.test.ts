@@ -2858,5 +2858,78 @@ describe("trava de verified nos quatro agentes", () => {
         rmSync(fora, { recursive: true, force: true });
       }
     });
+
+    test("Rodada 11 (pendências): git config com -- e várias ocorrências, bash -oc, put/set do vim e awk x++ / 2", async () => {
+      const { fora, stage, cofre, julgar, todos, wikiA } = prepararRodada11();
+      const longe = join(fora, "y");
+      const atacar = `cp -R ${stage}/. ${cofre}/`;
+      try {
+        const ataques = [
+          `git config core.worktree -- ${cofre}`,
+          `git config -- core.worktree ${cofre}`,
+          `git config --default core.worktree core.worktree ${cofre}`,
+          `git config core.worktree ${longe} ${cofre}`,
+          `git config --add core.worktree ${longe} --add core.worktree ${cofre}`,
+          `bash -oc pipefail "${atacar}"`,
+          `bash -Oc extglob "${atacar}"`,
+          `bash -ocO pipefail extglob "${atacar}"`,
+          `bash -o pipefail -oc errexit "${atacar}"`,
+          `sh -oc nounset "${atacar}"`,
+          `vim -es -c 'put =system("${atacar}")' -c q ${fora}/p.md`,
+          `vim -es -c 'pu =execute("w ${wikiA}")' -c q ${fora}/p.md`,
+          `vim -es -c 'set verbosefile=${wikiA}' -c q ${fora}/p.md`,
+          `vim -es -c 'setlocal shell=x' -c q ${fora}/p.md`,
+          `awk 'BEGIN{x++ / 2; print > "wiki/a.md"; y / 3}' ${fora}/p.md`,
+          `awk 'BEGIN{x-- / 2; print > "wiki/a.md"; y / 3}' ${fora}/p.md`,
+        ];
+        expect(await julgar(ataques, longe)).toEqual(todos(ataques, 2));
+
+        const regressoes = [
+          `git config core.worktree ${longe}`,
+          `git config --get core.worktree`,
+          `git config core.worktree`,
+          `git config --default x user.name y`,
+          `bash -oc pipefail "echo ok"`,
+          `bash -o pipefail -c "echo ok"`,
+          `bash -ec "echo ok"`,
+          `vim -es -c '%s/a/b/g' -c wq ${fora}/p.md`,
+          `awk 'BEGIN{x++; y = 4 / 2; print y > "${fora}/x"}' ${fora}/p.md`,
+        ];
+        expect(await julgar(regressoes, longe)).toEqual(todos(regressoes, 0));
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
+
+    test("Rodada 11 (revisão automática 2): script trocado na mesma linha e opções do gawk que gravam arquivo", async () => {
+      const { fora, cofre, julgar, todos, wikiA } = prepararRodada11();
+      writeFileSync(join(fora, "grava.vim"), `w! ${wikiA}\nq\n`);
+      writeFileSync(join(fora, "limpo.vim"), "q\n");
+      try {
+        const ataques = [
+          `cp ${fora}/script.sed ${fora}/limpo.sed && sed -f ${fora}/limpo.sed ${fora}/p.md`,
+          `mv ${fora}/grava.vim ${fora}/limpo.vim; vim -es -S ${fora}/limpo.vim ${fora}/p.md`,
+          `cat ${fora}/p.md | sed -f ${fora}/limpo.sed`,
+          `awk -p${wikiA} 'BEGIN{}' ${fora}/p.md`,
+          `awk -dwiki/a.md 'BEGIN{}' ${fora}/p.md`,
+          `awk -owiki/a.md 'BEGIN{}' ${fora}/p.md`,
+          `awk --dump-variables=${wikiA} 'BEGIN{}' ${fora}/p.md`,
+          `awk --profile=wiki/a.md 'BEGIN{}' ${fora}/p.md`,
+          `awk --pretty-print=wiki/a.md 'BEGIN{}' ${fora}/p.md`,
+        ];
+        expect(await julgar(ataques, cofre)).toEqual(todos(ataques, 2));
+
+        const regressoes = [
+          `sed -f ${fora}/limpo.sed ${fora}/p.md`,
+          `vim -es -S ${fora}/limpo.vim ${fora}/p.md`,
+          `awk --dump-variables=${fora}/v 'BEGIN{}' ${fora}/p.md`,
+          `awk -d 'BEGIN{}' ${fora}/p.md`,
+          `awk --pretty-print 'BEGIN{}' ${fora}/p.md`,
+        ];
+        expect(await julgar(regressoes, cofre)).toEqual(todos(regressoes, 0));
+      } finally {
+        rmSync(fora, { recursive: true, force: true });
+      }
+    });
   });
 });

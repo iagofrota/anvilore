@@ -1217,13 +1217,14 @@ function gitNoAncestral(
 
   // core.worktree gravado na configuração fixa a árvore de trabalho dos próximos comandos: vale como o --work-tree.
   if (subcomando === "config" && !resto.some(arg => /^--(?:get|unset|list|remove|rename)/.test(arg) || arg === "-l")) {
-    // Sem lista de opções com valor (as abreviações --fi, --typ mudam o que é valor): acha a chave onde ela estiver.
-    const livres = resto.filter(arg => !arg.startsWith("-"));
-    const indiceChave = livres.findIndex(arg => arg.toLowerCase() === "core.worktree");
-    const valor = indiceChave >= 0 ? livres[indiceChave + 1] : undefined;
-    if (valor !== undefined) {
-      // O valor relativo é lido a partir do diretório do repositório (.git).
-      if (perigoso(valor) || (!isAbsolute(valor) && perigoso(join(".git", valor)))) return motivo;
+    // Sem lista de opções com valor (as abreviações --fi, --typ mudam o que é valor) e sem confiar em `--`:
+    // para cada ocorrência da chave, todo argumento depois dela é candidato a valor (ou a padrão de valor).
+    for (let k = 0; k < resto.length; k++) {
+      if (resto[k]!.toLowerCase() !== "core.worktree") continue;
+      for (const valor of resto.slice(k + 1)) {
+        // O valor relativo é lido a partir do diretório do repositório (.git).
+        if (perigoso(valor) || (!isAbsolute(valor) && perigoso(join(".git", valor)))) return motivo;
+      }
     }
   }
   if (configWorktree || configWorktreeNoAmbiente) {
@@ -1243,14 +1244,17 @@ function gitNoAncestral(
 }
 
 // ---- Ferramentas de texto cuja linguagem de script grava arquivo ou executa comando (sed, awk, ed/ex/vim) ----
-type EntradaDoComando = { redirecionada: boolean; dePipe: boolean };
+type EntradaDoComando = { redirecionada: boolean; dePipe: boolean; unicoComando: boolean };
 type EscritaDeScript = { destinos: string[]; comandos: string[]; bloqueio?: string };
 
-function lerScriptLegivel(arquivo: string, base: string): string | undefined {
+// O arquivo é lido agora, mas pode ser trocado por um comando anterior da mesma linha: com mais de um comando, não se prova.
+function lerScriptLegivel(arquivo: string, base: string, unicoComando: boolean): string | undefined {
   const limpo = arquivo.replace(/^["']|["']$/g, "").trim();
-  if (!limpo || limpo === "-" || limpo.startsWith("/dev/") || EXPANSAO_DE_SHELL.test(limpo) || limpo.startsWith("~")) return undefined;
+  if (!unicoComando || !limpo || limpo === "-" || limpo.startsWith("/dev/") || EXPANSAO_DE_SHELL.test(limpo) || limpo.startsWith("~")) return undefined;
   try {
-    return readFileSync(resolve(base, limpo), "utf8");
+    const caminho = resolve(base, limpo);
+    if (!statSync(caminho).isFile()) return undefined;
+    return readFileSync(caminho, "utf8");
   } catch {
     return undefined;
   }
@@ -1467,6 +1471,8 @@ function analisarScriptAwk(script: string): EscritaDeScript {
       }
       continue;
     }
+    // `x++ / 2`: depois de ++ ou -- (pós-fixo) a barra é divisão, não início de regex.
+    if ((c === "+" || c === "-") && script[i + 1] === c) { anterior = ")"; i += 2; continue; }
     anterior = c;
     i++;
   }
@@ -1478,7 +1484,7 @@ function analisarComandosEx(texto: string): EscritaDeScript {
   const r: EscritaDeScript = { destinos: [], comandos: [] };
   // Lista permitida: só comandos ex conhecidos como inofensivos passam; os demais (e, call, let, grep, term, normal, exe, py...)
   // podem abrir outro arquivo, executar comando ou código, então bloqueiam (falha fechada).
-  const PERMITIDOS = /^(?:s|su|sub|subs|subst|substi|substit|substitu|substitut|substitute|&&?|~|d|de|del|dele|delet|delete|p|pr|pri|prin|print|nu|num|numb|numbe|number|l|li|lis|list|#|=|j|jo|joi|join|m|mo|mov|move|t|co|cop|copy|y|ya|yan|yank|pu|put|u|un|und|undo|red|redo|noh|nohl|nohls|nohlse|nohlsea|nohlsear|nohlsearc|nohlsearch|se|set|setl|setlo|setloc|setloca|setlocal|q|qu|qui|quit|qa|qal|qall|quita|quitall|cq|cquit|k|ma|mar|mark|sor|sort|le|lef|left|ri|rig|righ|right|ce|cen|cent|cente|center|ret|reta|retab|a|ap|app|appe|appen|append|i|in|ins|inse|inser|insert|c|ch|cha|chan|chang|change|>+|<+)$/;
+  const PERMITIDOS = /^(?:s|su|sub|subs|subst|substi|substit|substitu|substitut|substitute|&&?|~|d|de|del|dele|delet|delete|p|pr|pri|prin|print|nu|num|numb|numbe|number|l|li|lis|list|#|=|j|jo|joi|join|m|mo|mov|move|t|co|cop|copy|y|ya|yan|yank|u|un|und|undo|red|redo|noh|nohl|nohls|nohlse|nohlsea|nohlsear|nohlsearc|nohlsearch|q|qu|qui|quit|qa|qal|qall|quita|quitall|cq|cquit|k|ma|mar|mark|sor|sort|le|lef|left|ri|rig|righ|right|ce|cen|cent|cente|center|ret|reta|retab|a|ap|app|appe|appen|append|i|in|ins|inse|inser|insert|c|ch|cha|chan|chang|change|>+|<+)$/;
   const ESCRITA = /^(?:w|wr|wri|writ|write|wq|x|xi|xit|exi|exit|up|upd|upda|updat|update|sav|save|savea|saveas|wn|wnext|wN|wNext|wp|wprevious|wa|wal|wall|wqa|wqall|xa|xall|f|fil|file)$/i;
   const GLOBAL = /^(?:g|gl|glo|glob|globa|global|v|vg|vgl|vglo|vglob|vgloba|vglobal)$/i;
   const MODIFICADORES = /^(?:sil|silent|keepa|keepalt|keepm|keepmarks|keepj|keepjumps|noa|noautocmd|loc|lockmarks|verb|verbose|uns|unsilent|keepp|keeppatterns|leftabove|aboveleft|rightbelow|belowright|botright|topleft|vert|vertical|tab|hid|hide)$/i;
@@ -1611,7 +1617,7 @@ function analisarFerramentaDeTexto(
     if (sandbox) return undefined;
     if (!scripts.length && operandos.length) scripts.push({ texto: operandos.shift() });
     for (const script of scripts) {
-      const texto = script.texto ?? lerScriptLegivel(script.arquivo!, base);
+      const texto = script.texto ?? lerScriptLegivel(script.arquivo!, base, entrada.unicoComando);
       if (texto === undefined) return bloquear("script do sed ilegível ou não literal (falha fechada)");
       const achados = analisarScriptSed(texto);
       if (achados.dinamico) return bloquear("sed com e ou s///e executa o que não se prova (falha fechada)");
@@ -1623,6 +1629,7 @@ function analisarFerramentaDeTexto(
 
   if (/^(?:awk|gawk|mawk|nawk)$/.test(verbo)) {
     let inplace = false;
+    const destinosDeOpcao: string[] = [];
     const scripts: Array<{ texto?: string; arquivo?: string }> = [];
     const operandos: string[] = [];
     for (let i = 0; i < args.length; i++) {
@@ -1631,6 +1638,7 @@ function analisarFerramentaDeTexto(
       if (arg.startsWith("--")) {
         const inline = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : undefined;
         const cabeca = (nome: string, minimo: string) => opcaoLongaGnu(arg, nome, minimo);
+        if ((cabeca("--dump-variables", "--d") || cabeca("--profile", "--prof") || cabeca("--pretty-print", "--pre")) && inline) destinosDeOpcao.push(inline);
         if (cabeca("--file", "--fil") || cabeca("--exec", "--e") || cabeca("--source", "--so")) {
           const [valor, proximo] = valorDe(inline, i);
           if (valor === undefined) return bloquear("awk com opção de programa sem valor (falha fechada)");
@@ -1646,8 +1654,12 @@ function analisarFerramentaDeTexto(
         const grupo = arg.slice(1);
         for (let j = 0; j < grupo.length; j++) {
           const letra = grupo[j]!;
-          // -d[arquivo] só tem valor colado: o argumento seguinte é o programa.
-          if (letra === "d") break;
+          // -d, -o e -p [arquivo] (gawk) gravam variáveis, programa formatado e perfil; o valor só vale colado.
+          if (letra === "d" || letra === "o" || letra === "p") {
+            const colado = grupo.slice(j + 1);
+            if (colado) destinosDeOpcao.push(colado);
+            break;
+          }
           if ("fFvieElW".includes(letra)) {
             const [valor, proximo] = valorDe(grupo.slice(j + 1) || undefined, i);
             if (valor === undefined) return bloquear("awk com opção sem valor (falha fechada)");
@@ -1668,9 +1680,13 @@ function analisarFerramentaDeTexto(
       operandos.push(arg);
     }
     if (!scripts.length && operandos.length) scripts.push({ texto: operandos.shift() });
+    if (destinosDeOpcao.length) {
+      const decisao = decidir({ destinos: destinosDeOpcao, comandos: [] });
+      if (decisao) return decisao;
+    }
     if (inplace && (temMudancaDir || operandos.some(arg => argumentoTocaWiki(arg, base, raiz, ambiente)))) return bloquear(MSG_TERMINAL_WIKI);
     for (const script of scripts) {
-      const texto = script.texto ?? lerScriptLegivel(script.arquivo!, base);
+      const texto = script.texto ?? lerScriptLegivel(script.arquivo!, base, entrada.unicoComando);
       if (texto === undefined) return bloquear("programa do awk ilegível ou não literal (falha fechada)");
       const decisao = decidir(analisarScriptAwk(texto));
       if (decisao) return decisao;
@@ -1745,7 +1761,7 @@ function analisarFerramentaDeTexto(
       achados.destinos.push(...um.destinos); achados.comandos.push(...um.comandos);
     }
     for (const arquivo of arquivosScript) {
-      const conteudo = lerScriptLegivel(arquivo, base);
+      const conteudo = lerScriptLegivel(arquivo, base, entrada.unicoComando);
       if (conteudo === undefined) return bloquear("script do editor ilegível ou não literal (falha fechada)");
       const um = analisarComandosEx(conteudo);
       if (um.bloqueio) return bloquear(um.bloqueio);
@@ -1757,7 +1773,7 @@ function analisarFerramentaDeTexto(
 }
 
 // Comando executado por outro comando (sh -c, find -exec, eval) volta ao mesmo classificador; acima do teto, bloqueia.
-type ContextoAninhado = { profundidade: number };
+type ContextoAninhado = { profundidade: number; comandosNaLinha?: number };
 // Ambiente que um comando simples deixa para os seguintes da mesma invocação (export, atribuição isolada).
 type AmbienteGit = { arvores: string[]; configWorktree: boolean };
 function novoAmbienteGit(): AmbienteGit {
@@ -1823,9 +1839,10 @@ function textosDeShell(verbo: string, args: string[]): { textos: string[]; semTe
         break;
       }
       if (!fish && letra === "c" && arg.startsWith("-")) temC = true;
+      // Cada o/O do grupo (-oc, -Oc, -ocO) leva um valor próprio, na ordem; as letras seguintes continuam valendo.
       if (!fish && (letra === "o" || letra === "O")) {
-        if (j === grupo.length - 1) i++;
-        break;
+        if (args[i + 1] === undefined) semTexto = true;
+        i++;
       }
     }
   }
@@ -2195,7 +2212,7 @@ function analisarComandoSimples(
     ? { acao: "bloquear", motivo: "comandos aninhados demais (falha fechada)" }
     : decidirTerminalVerified(texto, false, base, raiz, ambiente, { profundidade: aninhado.profundidade + 1 }, temMudancaDir, ambienteGit);
   const ferramentaDeTexto = analisarFerramentaDeTexto(
-    verbo, cmdArgs, base, raiz, ambiente, temMudancaDir, { redirecionada: entradaRedirecionada, dePipe: doPipe }, executarAninhado
+    verbo, cmdArgs, base, raiz, ambiente, temMudancaDir, { redirecionada: entradaRedirecionada, dePipe: doPipe, unicoComando: (aninhado.comandosNaLinha ?? 1) <= 1 }, executarAninhado
   );
   if (ferramentaDeTexto) return ferramentaDeTexto;
 
@@ -2378,8 +2395,9 @@ function decidirTerminalVerified(
 
   const temCdOuPushd = mudancaDirHerdada || tokens.some(t => !t.operador && /^(?:cd|pushd)$/i.test(t.texto)) || /\b(?:cd|pushd)\b/i.test(cmdTexto);
 
+  const contexto: ContextoAninhado = { ...aninhado, comandosNaLinha: comandosSimples.length };
   for (const { tokens: cmdTokens, doPipe } of comandosSimples) {
-    const decisao = analisarComandoSimples(cmdTokens, base, raiz, ambiente, temCdOuPushd, aninhado, ambienteGit, doPipe);
+    const decisao = analisarComandoSimples(cmdTokens, base, raiz, ambiente, temCdOuPushd, contexto, ambienteGit, doPipe);
     if (decisao.acao === "bloquear") {
       return decisao;
     }
