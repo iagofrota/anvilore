@@ -1379,7 +1379,7 @@ describe("Auditoria run-1 (S1) — Delta 5b21337 (QA 2)", () => {
     { id: "FP-NOVO-05", acao: "liberar", comando: 'git checkout -b "fix/#12"' },
     { id: "FP-NOVO-06", acao: "liberar", comando: 'echo "nota #1" | cat' },
     { id: "FP-NOVO-07", acao: "liberar", comando: 'git log --grep="#12"' },
-    { id: "FP-NOVO-08", acao: "liberar", comando: 'echo $(echo "wiki/x")' },
+    { id: "FP-NOVO-08", acao: "bloquear", comando: 'echo $(echo "wiki/x")' },
     { id: "FP-NOVO-09", acao: "liberar", comando: "cat > wiki/x <<EOF1\nt1\nEOF1\ncat > wiki/y <<EOF2\nt2\nEOF2" },
     { id: "FP-NOVO-10", acao: "liberar", comando: 'git commit -m "fix $(date)"' },
     { id: "FP-NOVO-11", acao: "liberar", comando: 'echo "$HOME"' },
@@ -1494,6 +1494,38 @@ test("Dado heredoc com delimitador citado Quando o corpo contém substituições
       expect(await executarProtecao(payload)).toBe(0);
     }
   }
+});
+
+test("Dado substituições no corpo de heredoc ou após cd Quando o comando é julgado Então só libera leituras puras", () => {
+  const raw = join(temporario, "raw");
+  const wiki = join(temporario, "wiki");
+  mkdirSync(raw);
+  mkdirSync(wiki);
+  const decidirNo = (command: string, cwd: string) => decidir(JSON.stringify({ tool_name: "Bash", cwd, tool_input: { command } }));
+
+  expect(decidirNo("cat <<EOF\n'$(cp p wiki/a.md)'\nEOF", temporario).acao).toBe("bloquear");
+  expect(decidirNo('cd raw; echo "$(rm a.md)"', temporario).acao).toBe("bloquear");
+
+  const negados = ["rm a.md", "cp a.md b.md", "mv a.md b.md", "sed -i s/a/b/ a.md", "tee a.md", "sh -c true", "bash -c true", "eval true", "find .", "xargs echo", "python3 -c pass", "anvilore-inventado a.md"];
+  const formas = [
+    (interno: string) => `echo "$(${interno})"`,
+    (interno: string) => `echo \`${interno}\``,
+    (interno: string) => `echo <(${interno})`,
+  ];
+  for (const cwd of [temporario, raw, wiki]) {
+    for (const interno of negados) {
+      for (const forma of formas) expect(decidirNo(forma(interno), cwd).acao).toBe("bloquear");
+    }
+  }
+
+  const permitidos = ["date", "pwd", "basename a.md", "dirname a.md", "whoami", "hostname", "uname", "git rev-parse HEAD", "git log -1 --oneline", "git describe --always", "git branch --show-current", "git status --porcelain", "git status --short"];
+  for (const interno of permitidos) {
+    expect(decidirNo(`echo \"$(${interno})\"`, temporario).acao).toBe("liberar");
+    expect(decidirNo(`git commit -m \"x $(${interno})\"`, temporario).acao).toBe("liberar");
+  }
+
+  expect(decidirNo("cat <<EOF\n$(date)\nEOF", temporario).acao).toBe("bloquear");
+  expect(decidirNo("cat <<'EOF'\n$(date)\nEOF", temporario).acao).toBe("liberar");
 });
 
 

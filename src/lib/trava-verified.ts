@@ -824,6 +824,37 @@ function tokenizar(comando: string, windows = false): Token[] {
   return tokens;
 }
 
+// Substituições são negadas por padrão: só aceitamos comandos de leitura simples cuja saída
+// continua opaca para a análise do comando externo.
+export function substituicaoDeLeituraPermitida(comando: string): boolean {
+  const catComHeredocCitado = /^\s*cat\s+<<(['"])([A-Za-z0-9_.-]+)\1[ \t]*\r?\n([\s\S]*?)\r?\n\2[ \t]*\r?\n?\s*$/.exec(comando);
+  if (catComHeredocCitado) return true;
+
+  if (/[;|&<>()[\]$`]/.test(comando) || /\\\s*(?:\r?\n|$)/.test(comando)) return false;
+  let tokens: Token[];
+  try {
+    tokens = tokenizar(comando);
+  } catch {
+    return false;
+  }
+  if (!tokens.length || tokens.some(token => token.operador)) return false;
+  const argv = tokens.map(token => token.texto);
+  if (argv.some(argumento => /^(?:[A-Za-z_][A-Za-z0-9_]*=|export$|alias$|function$)/.test(argumento))) return false;
+  const verbo = argv[0]!.toLowerCase();
+  const argumentos = argv.slice(1);
+  if (["date", "pwd", "whoami", "hostname", "uname"].includes(verbo)) return argumentos.length === 0;
+  if (["basename", "dirname"].includes(verbo)) return argumentos.length === 1 && !argumentos[0]!.startsWith("-");
+  if (verbo !== "git" || argumentos.length === 0 || argumentos.includes("-c") || argumentos.some(a => a.startsWith("--config-env"))) return false;
+  const subcomando = argumentos[0]!.toLowerCase();
+  const args = argumentos.slice(1);
+  if (subcomando === "rev-parse") return true;
+  if (subcomando === "log") return args.every(a => ["-1", "--oneline", "--decorate", "--no-decorate"].includes(a) || /^(?:--format=|--pretty=|--since=|--until=)/.test(a));
+  if (subcomando === "describe") return args.every(a => ["--always", "--tags", "--dirty"].includes(a));
+  if (subcomando === "branch") return args.length === 1 && args[0] === "--show-current";
+  if (subcomando === "status") return args.length === 1 && ["--porcelain", "--short"].includes(args[0]!);
+  return false;
+}
+
 // Encontra $(...) e crases sem executar o shell. O conteúdo do heredoc não participa do balanceamento
 // dos parênteses: `)` dentro do texto literal não fecha a substituição.
 function encontrarFimSubstituicao(comando: string, inicio: number, crase: boolean): number {
@@ -919,12 +950,8 @@ export function extrairSubstituicoesComando(comando: string): { texto: string; s
         }
         if (fimCorpo < 0) throw new Error("heredoc sem delimitador de fechamento");
         const corpo = comando.slice(inicioCorpo, fimCorpo);
-        if (heredoc.citado) texto += corpo;
-        else {
-          const extraido = extrairSubstituicoesComando(corpo);
-          texto += extraido.texto;
-          substituicoes.push(...extraido.substituicoes);
-        }
+        texto += corpo;
+        if (!heredoc.citado && /\$\(|\$\{|\$\(\(|`/.test(corpo)) substituicoes.push("ANVILORE_HEREDOC_SEM_CITACAO_COM_EXPANSAO");
         texto += comando.slice(fimCorpo, cursor);
         i = cursor - 1;
       }
@@ -947,6 +974,7 @@ export function extrairSubstituicoesComando(comando: string): { texto: string; s
       let tabs = false;
       if (comando[j] === "-") { tabs = true; j++; }
       while (/[ \t]/.test(comando[j] ?? "")) j++;
+      const inicioDelimitador = j;
       let delimitador = "";
       let quote = "";
       let citado = false;
@@ -958,7 +986,11 @@ export function extrairSubstituicoesComando(comando: string): { texto: string; s
         else delimitador += parte;
         j++;
       }
-      if (delimitador) heredocs.push({ delimitador, tabs, citado });
+      if (delimitador) {
+        const textoDelimitador = comando.slice(inicioDelimitador, j);
+        citado = /^'(?:[^']*)'$|^\"(?:[^\"]*)\"$/.test(textoDelimitador);
+        heredocs.push({ delimitador, tabs, citado });
+      }
       texto += comando.slice(i, j);
       i = j - 1;
       continue;
@@ -989,8 +1021,10 @@ export function extrairSubstituicoesComando(comando: string): { texto: string; s
 function simplificarHeredocDeDados(comando: string): string {
   const linhas = comando.split("\n");
   const linhaComando = linhas[0] ?? "";
-  if (!/^\s*(?:(?:[A-Za-z_]\w*=\S*)\s+)*cat(?:\s|$)/.test(linhaComando)) return comando;
-  const marcador = /<<-?\s*(['"]?)([^\s'";|]+)\1/.exec(linhaComando);
+  const cat = /^\s*(?:(?:[A-Za-z_]\w*=\S*)\s+)*cat(?:\s|$)/.test(linhaComando);
+  const commitEntrada = /^\s*git\s+commit\s+-F\s+-\s+<<(['"])([A-Za-z0-9_.-]+)\1\s*$/.exec(linhaComando);
+  if (!cat && !commitEntrada) return comando;
+  const marcador = cat ? /<<-?\s*(['"]?)([^\s'";|]+)\1/.exec(linhaComando) : /<<(['"])([A-Za-z0-9_.-]+)\1/.exec(linhaComando);
   if (!marcador) return comando;
   const fim = linhas.findIndex((linha, indice) => indice > 0 && (marcador[0]!.startsWith("<<-") ? linha.replace(/^\t+/, "") : linha) === marcador[2]);
   if (fim < 0) throw new Error("heredoc sem delimitador de fechamento");
@@ -3250,6 +3284,9 @@ function decidirTerminalVerified(
     }
     const proximo: ContextoAninhado = { ...contexto, profundidade: contexto.profundidade + 1 };
     for (const interno of substituicoes) {
+      if (!substituicaoDeLeituraPermitida(interno)) {
+        return { acao: "bloquear", motivo: "substituição bloqueada: apenas comandos simples de leitura são permitidos" };
+      }
       const decisao = decidirTerminalVerified(interno, false, base, raiz, ambiente, proximo, temCdOuPushd, ambienteGit, primeiroDoPipe);
       if (decisao.acao === "bloquear") return decisao;
     }

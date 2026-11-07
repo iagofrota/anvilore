@@ -18,7 +18,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
-- Os guardas classificam expansões de comando antes das isenções de terminal; heredocs com delimitador sem aspas também têm suas expansões analisadas, inclusive com `<<-`.
+- Substituições de comando agora são negadas por padrão nos dois guardas; só comandos simples da lista curta de leitura e `$(cat <<'EOF'…EOF)` são aceitos. Expansão em corpo de heredoc sem delimitador totalmente citado bloqueia.
 - A trava do terminal aceita redirecionamentos entre descritores (`2>&1`) e classifica recursivamente comandos em `$()` e crases; o hook `proteger-raw` também identifica os caminhos de patches no formato git.
 - Na interface só de Revisão o botão "Pedir ajuste" aparece desabilitado, com o motivo "Pedir ajuste só funciona com a interface completa aberta.", em vez de dar erro ao clicar.
 - A remoção da área de exemplo no onboarding recusa links que apontem para `raw/`, preserva áreas com nomes que apenas começam por `exemplo` e protege o estado salvo do onboarding contra links simbólicos.

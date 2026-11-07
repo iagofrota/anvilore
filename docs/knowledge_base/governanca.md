@@ -39,9 +39,14 @@ erro que nomeia o arquivo.
 
 Na trava do terminal, redirecionamentos entre descritores como `2>&1`, `>&2`, `2>&-` e `<&0` não
 contam como destino de arquivo; `&>arquivo` e `>&arquivo` continuam sendo julgados como gravação.
-Substituições de comando em `$()` e crases passam pelo classificador recursivo, e o texto que elas
-produzem é tratado como expansão. Em heredocs, só o delimitador entre aspas torna o corpo literal;
-corpos sem aspas são analisados, inclusive com `<<-`. O hook `proteger-raw` reconhece os caminhos dos cabeçalhos
+Substituições de comando em `$()`, crases e substituições de processo são negadas por padrão nos dois
+guardas. Só se aceitam comandos simples de leitura da lista curta (`date`, `pwd`, `basename`, `dirname`,
+`whoami`, `hostname`, `uname` e algumas consultas `git`), sem encadeamento, redirecionamento, atribuição,
+`cd`, alias, função ou substituição aninhada. A única forma composta liberada é `$(cat <<'EOF'…EOF)`
+com todo o delimitador entre aspas. Corpo de heredoc sem delimitador totalmente citado não é analisado como
+comando; se contiver `$(`, crase ou `${`, bloqueia, mesmo que esses caracteres estejam entre aspas simples.
+O valor produzido por substituição aceita continua sendo tratado como caminho opaco no comando externo.
+O hook `proteger-raw` reconhece os caminhos dos cabeçalhos
 `diff --git`, `---`/`+++` e `rename from`/`rename to` em `apply_patch` (`src/lib/trava-verified.ts`,
 funções `tokenizar` e `decidirTerminalVerified`; `src/comandos/hook-proteger-raw.ts`, função
 `caminhosDoPatch`).

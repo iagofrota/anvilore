@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix, resolve } from "node:path";
 import { caminhoReal, dentroDe, estaEmRaw } from "../lib/caminhos";
-import { decidirVerified, encontrarRaizVault, extrairSubstituicoesComando } from "../lib/trava-verified";
+import { decidirVerified, encontrarRaizVault, extrairSubstituicoesComando, substituicaoDeLeituraPermitida } from "../lib/trava-verified";
 
 export type Decisao = { acao: "liberar" | "bloquear"; motivo: string };
 type Mapa = Record<string, unknown>;
@@ -741,8 +741,8 @@ function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cw
       if (extraido.substituicoes.length) {
         if (profundidadeSubstituicao >= 5) return true;
         for (const interno of extraido.substituicoes) {
+          if (!substituicaoDeLeituraPermitida(interno)) return true;
           citaRawSubstituicao ||= citaRaw(interno);
-          if (terminalEscreve(interno, cwdInicial, raiz, windows, profundidadeSubstituicao + 1)) return true;
         }
         comandoParaTokenizar = citaRawSubstituicao
           ? extraido.texto.replaceAll("$ANVILORE_EXPANSAO", "raw/ANVILORE_EXPANSAO")

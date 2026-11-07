@@ -81,6 +81,7 @@ describe("trava de verified nos quatro agentes", () => {
       "git commit -m \"$(cat <<'EOF'\nmsg\nEOF\n)\"",
       "git commit -m \"$(date)\"",
       "git commit -m `git rev-parse HEAD`",
+      "git commit -F - <<'EOF'\nmsg $(date)\nEOF",
     ], 0, temporario);
     await esperarCodigos([
       "cat raw/a.md &>wiki/a.md",
@@ -114,6 +115,27 @@ describe("trava de verified nos quatro agentes", () => {
         }
       }
     }
+  });
+
+  test("Dado substituições de comando Quando o verbo não é leitura pura Então bloqueia em qualquer cwd e forma", async () => {
+    const raw = join(temporario, "raw");
+    mkdirSync(raw);
+    const negados = ["rm a.md", "cp a.md b.md", "mv a.md b.md", "sed -i s/a/b/ a.md", "tee a.md", "sh -c true", "bash -c true", "eval true", "find .", "xargs echo", "python3 -c pass", "anvilore-inventado a.md"];
+    const formas = [
+      (interno: string) => `echo \"$(${interno})\"`,
+      (interno: string) => `echo \`${interno}\``,
+      (interno: string) => `echo <(${interno})`,
+    ];
+    for (const cwd of [temporario, raw, wikiDir]) {
+      for (const interno of negados) {
+        for (const forma of formas) await esperarCodigos([forma(interno)], 2, cwd);
+      }
+    }
+    await esperarCodigos(["cat <<EOF\n'$(cp p wiki/a.md)'\nEOF", 'cd raw; echo "$(rm a.md)"', "cat <<EOF\n$(date)\nEOF"], 2, temporario);
+    await esperarCodigos(["cat <<'EOF'\n$(date)\nEOF"], 0, temporario);
+
+    const permitidos = ["date", "pwd", "basename a.md", "dirname a.md", "whoami", "hostname", "uname", "git rev-parse HEAD", "git log -1 --oneline", "git describe --always", "git branch --show-current", "git status --porcelain", "git status --short"];
+    for (const interno of permitidos) await esperarCodigos([`echo \"$(${interno})\"`, `git commit -m \"x $(${interno})\"`], 0, temporario);
   });
 
   test("Dado comando de escrita com diretório trocado Quando o terminal é julgado Então bloqueia se o diretório efetivo é a wiki", async () => {
@@ -1068,7 +1090,7 @@ describe("trava de verified nos quatro agentes", () => {
       cwd: temporario,
       tool_name: "Bash",
       tool_input: { command: 'echo "`cat wiki/a.md`" # verified' },
-    }))).toBe(0);
+    }))).toBe(2);
 
     expect(await executarProtecao(JSON.stringify({
       cwd: temporario,
@@ -1171,7 +1193,7 @@ describe("trava de verified nos quatro agentes", () => {
       cwd: temporario,
       tool_name: "Bash",
       tool_input: { command: 'echo "$(cat wiki/a.md)" # verified' },
-    }))).toBe(0);
+    }))).toBe(2);
 
     expect(await executarProtecao(JSON.stringify({
       cwd: temporario,
