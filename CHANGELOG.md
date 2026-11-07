@@ -9,6 +9,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-07
+
 ### Added
 
 - O Início traz botão "Ingerir" para arquivos já presentes em `raw/` que ainda não foram ingeridos, abrindo a conversa correspondente no chat sem copiar, mover nem alterar o arquivo bruto existente.
@@ -22,6 +24,12 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - A trava do terminal aceita redirecionamentos entre descritores (`2>&1`) e classifica recursivamente comandos em `$()` e crases; o hook `proteger-raw` também identifica os caminhos de patches no formato git.
 - Na interface só de Revisão o botão "Pedir ajuste" aparece desabilitado, com o motivo "Pedir ajuste só funciona com a interface completa aberta.", em vez de dar erro ao clicar.
 - A remoção da área de exemplo no onboarding recusa links que apontem para `raw/`, preserva áreas com nomes que apenas começam por `exemplo` e protege o estado salvo do onboarding contra links simbólicos.
+
+- A invalidação e o registro de aprovação preservam chaves YAML entre aspas; falhas em frontmatter que não pode ser reescrito com segurança são registradas como erro visível.
+- Cópias usadas como base em Mudanças agora são escolhidas pelo momento em que foram capturadas.
+- Ao iniciar a interface, o servidor recupera ajustes interrompidos antes de abrir as rotas; se a página mudou, remove a aprovação vigente antes de responder.
+- Ajustes que cancelam ou falham depois de uma escrita parcial invalidam a aprovação anterior antes de encerrar a conversa e mantêm o desfecho original visível.
+- Se a aprovação não puder ser invalidada com segurança, o ajuste restaura atomicamente a cópia-base aprovada ou move a página para `.anvilore/ui/quarentena` quando não consegue restaurá-la; a conversa informa o descarte da edição não revisada.
 
 ### Security
 
@@ -41,14 +49,6 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 - A trava de `verified` no terminal julga todas as ocorrências de `git config core.worktree`, reconhece o `-c` de `bash -oc pipefail "cmd"` (cada `o`/`O` do grupo leva o seu valor), não aceita script lido de arquivo quando a linha tem mais de um comando, barra as opções do `awk` que gravam arquivo e tira `put` e `set` da lista permitida do `vim`.
 - A trava de `verified` no terminal passa a ler o script das ferramentas de texto, e não só o `sed -i`: `sed` (`w`, `W`, `s///w`, `e`), `awk` (`print >`, `|`, `system`, `getline`) e `ed`/`ex`/`vim` em modo script (`w`, `saveas`, `!`) são barrados quando gravam na wiki ou executam algo que não se prova inofensivo; ler a wiki ou gravar fora dela continua liberado.
 - O `anvilore migrar-rastreio --puxar` aplica guarda de transporte no `git pull`: só aceita o protocolo do endereço do remoto (https, ssh ou pasta local) e recusa protocolos como `ext::` e trocas por `insteadOf`, com `credential.helper` e prompt de terminal desabilitados.
-
-### Fixed
-
-- A invalidação e o registro de aprovação preservam chaves YAML entre aspas; falhas em frontmatter que não pode ser reescrito com segurança são registradas como erro visível.
-- Cópias usadas como base em Mudanças agora são escolhidas pelo momento em que foram capturadas.
-- Ao iniciar a interface, o servidor recupera ajustes interrompidos antes de abrir as rotas; se a página mudou, remove a aprovação vigente antes de responder.
-- Ajustes que cancelam ou falham depois de uma escrita parcial invalidam a aprovação anterior antes de encerrar a conversa e mantêm o desfecho original visível.
-- Se a aprovação não puder ser invalidada com segurança, o ajuste restaura atomicamente a cópia-base aprovada ou move a página para `.anvilore/ui/quarentena` quando não consegue restaurá-la; a conversa informa o descarte da edição não revisada.
 
 ## [0.3.1] - 2026-10-31
 
