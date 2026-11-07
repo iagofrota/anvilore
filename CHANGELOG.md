@@ -18,7 +18,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Fixed
 
-- Os dois guardas compartilham um analisador léxico de heredocs: operador escapado, comentário e string não iniciam corpo; cada terminador fecha na primeira linha igual, e comandos posteriores continuam sendo analisados. Substituições seguem negadas por padrão, com a lista curta de leituras e `$(cat <<'EOF'…EOF)` como exceções.
+- Os dois guardas compartilham um analisador léxico de heredocs: operador escapado, comentário e string não iniciam corpo; cada terminador fecha na primeira linha igual, e o parser conserva a quebra para reconhecer continuações por pipe, operadores, escape e blocos. Se o corpo chega à entrada de um interpretador, ele também é analisado como script. Substituições seguem negadas por padrão, com a lista curta de leituras e `$(cat <<'EOF'…EOF)` como exceções.
 - A trava do terminal aceita redirecionamentos entre descritores (`2>&1`) e classifica recursivamente comandos em `$()` e crases; o hook `proteger-raw` também identifica os caminhos de patches no formato git.
 - Na interface só de Revisão o botão "Pedir ajuste" aparece desabilitado, com o motivo "Pedir ajuste só funciona com a interface completa aberta.", em vez de dar erro ao clicar.
 - A remoção da área de exemplo no onboarding recusa links que apontem para `raw/`, preserva áreas com nomes que apenas começam por `exemplo` e protege o estado salvo do onboarding contra links simbólicos.

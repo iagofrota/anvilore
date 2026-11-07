@@ -44,10 +44,13 @@ guardas. Só se aceitam comandos simples de leitura da lista curta (`date`, `pwd
 `whoami`, `hostname`, `uname` e algumas consultas `git`), sem encadeamento, redirecionamento, atribuição,
 `cd`, alias, função ou substituição aninhada. A única forma composta liberada é `$(cat <<'EOF'…EOF)`
 com todo o delimitador entre aspas. O analisador lexical compartilhado reconhece aspas, escape e comentários;
-acompanha a fila de heredocs e fecha cada corpo na primeira linha igual ao delimitador, removendo o corpo
-antes de analisar os comandos seguintes. Corpo sem delimitador citado não é analisado como comando; se contiver
-`$(`, crase ou `${`, bloqueia mesmo que esses caracteres estejam entre aspas simples. O valor produzido por
-substituição aceita continua sendo tratado como caminho opaco no comando externo.
+acompanha a fila de heredocs e fecha cada corpo na primeira linha igual ao delimitador. Ao remover o corpo,
+preserva a quebra de linha do terminador e deixa os parsers decidir se ela separa comandos ou continua o comando
+por pipe, `&&`, `||`, escape ou bloco composto. Corpo sem delimitador citado não é analisado como comando; se contiver
+`$(`, crase ou `${`, bloqueia mesmo que esses caracteres estejam entre aspas simples. Quando o corpo chega à entrada
+de um interpretador nessa continuação, também é analisado como script (`src/lib/heredoc.ts`, `src/lib/trava-verified.ts`
+e `src/comandos/hook-proteger-raw.ts`). O valor produzido por substituição aceita continua sendo tratado como caminho
+opaco no comando externo.
 O hook `proteger-raw` reconhece os caminhos dos cabeçalhos
 `diff --git`, `---`/`+++` e `rename from`/`rename to` em `apply_patch` (`src/lib/trava-verified.ts`,
 funções `tokenizar` e `decidirTerminalVerified`; `src/comandos/hook-proteger-raw.ts`, função

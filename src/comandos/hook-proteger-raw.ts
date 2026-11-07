@@ -233,7 +233,11 @@ function descartarCorpoHeredoc(comando: string): string {
     const inicioLinha = comando.lastIndexOf("\n", corpo.inicioOperador - 1) + 1;
     const fimLinha = comando.indexOf("\n", corpo.inicioOperador);
     const linha = comando.slice(inicioLinha, fimLinha < 0 ? comando.length : fimLinha);
-    return alimentaInterpretador(linha);
+    if (alimentaInterpretador(linha)) return true;
+    // Heredoc body can be stdin for an interpreter in a pipeline continued after its terminator.
+    if (!/(?:\|&?|\\)\s*$/.test(linha)) return false;
+    const resto = comando.slice(corpo.fimTermino).replace(/^\r?\n/, "").split(/\r?\n/, 1)[0] ?? "";
+    return alimentaInterpretador(`${linha} ${resto}`);
   });
 }
 
@@ -301,7 +305,7 @@ function tokenizar(comando: string, windows = false): Token[] {
       }
       let op = caractere;
       if (caractere === "\n") {
-        op = ";";
+        op = "\n";
       } else if (caractere === ">") {
         if (seguinte === ">") { op = ">>"; i++; }
         else if (seguinte === "&") { op = ">&"; i++; }
@@ -312,7 +316,10 @@ function tokenizar(comando: string, windows = false): Token[] {
           else { op = "<<"; i++; }
         } else if (seguinte === "&") { op = "<&"; i++; }
         else if (seguinte === ">") { op = "<>"; i++; }
-      } else if (caractere === seguinte) {
+      } else if (caractere === "|" && seguinte === "&") {
+        op = "|&";
+        i++;
+      } else if (caractere !== "\n" && caractere === seguinte) {
         op = caractere + seguinte;
         i++;
       }
@@ -585,9 +592,26 @@ function verboNormalizado(palavra: string): string {
 function segmentosDoTexto(texto: string, windows = false): string[][] {
   try {
     const segmentos: string[][] = [[]];
+    let continuaNaQuebra = false;
+    let profundidadeComposta = 0;
+    let emComandoComposto = false;
     for (const token of tokenizar(texto, windows)) {
-      if (token.operador && /^[;|&]+$/.test(token.texto)) segmentos.push([]);
-      else if (!token.operador) segmentos.at(-1)!.push(token.texto);
+      if (token.operador && token.texto === "\n") {
+        if (continuaNaQuebra || profundidadeComposta > 0 || emComandoComposto) continue;
+        segmentos.push([]);
+        continue;
+      }
+      if (token.operador && /^[;|&]+$/.test(token.texto)) {
+        segmentos.push([]);
+        continuaNaQuebra = ["|", "|&", "||", "&&"].includes(token.texto);
+      } else if (!token.operador) {
+        segmentos.at(-1)!.push(token.texto);
+        continuaNaQuebra = false;
+        if (token.texto === "{") profundidadeComposta++;
+        else if (token.texto === "}" && profundidadeComposta > 0) profundidadeComposta--;
+        if (/^(?:if|then|else|elif|while|until|for|select|do|case|in)$/.test(token.texto)) emComandoComposto = true;
+        else if (/^(?:fi|done|esac)$/.test(token.texto)) emComandoComposto = false;
+      }
     }
     return segmentos;
   } catch {
@@ -667,6 +691,8 @@ function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cw
   let citouEmRedirecao = false;
   let citouRawGlobal = false;
   let entradaDeRaw = false;
+  let continuaNaQuebra = false;
+  let emComandoComposto = false;
   const segmentos: string[][] = [];
   const chaves = (itens: string[]) => { const texto = itens.join(" "); return (texto.match(/\{/g) ?? []).length - (texto.match(/\}/g) ?? []).length; };
   const dentroDeBlocoDeRaw = () => profundidade + chaves(palavras) > 0 && (blocoAlimentado || doPipe || listagemAncestral);
@@ -726,6 +752,16 @@ function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cw
     const token = tokens[i]!;
     if (!token.operador) {
       palavras.push(token.texto);
+      continuaNaQuebra = false;
+      if (/^(?:if|then|else|elif|while|until|for|select|do|case|in)$/.test(token.texto)) emComandoComposto = true;
+      else if (/^(?:fi|done|esac)$/.test(token.texto)) emComandoComposto = false;
+      continue;
+    }
+    if (token.texto === "\n") {
+      if (continuaNaQuebra || profundidade > 0 || chaves(palavras) > 0 || emComandoComposto) continue;
+      if (fechar()) return true;
+      doPipe = false;
+      listagemAncestral = false;
       continue;
     }
     if (REGEX_REDIRECAO.test(token.texto)) {
@@ -742,13 +778,14 @@ function terminalEscreve(comando: unknown, cwdInicial: string, raiz: string = cw
         if (tokens[i + 1]?.operador && /^[|&]$/.test(tokens[i + 1]!.texto)) i++;
         i++; // Consome o alvo para não entrar em palavras
       }
-    } else if ([";", ";;", "|", "||", "&&", "&"].includes(token.texto)) {
+    } else if ([";", ";;", "|", "|&", "||", "&&", "&"].includes(token.texto)) {
       const citou = citaRawSegmento(palavras, cwd) || citouEmRedirecao;
       citouEmRedirecao = false;
       const recursiva = palavras.length > 0 && listagemRecursivaAncestral(verboNormalizado(palavras[0]!), palavras.slice(1), cwd, raiz);
       if (fechar()) return true;
-      doPipe = token.texto === "|" && (doPipe || citou);
-      listagemAncestral = token.texto === "|" && (listagemAncestral || recursiva);
+      doPipe = ["|", "|&"].includes(token.texto) && (doPipe || citou);
+      listagemAncestral = ["|", "|&"].includes(token.texto) && (listagemAncestral || recursiva);
+      continuaNaQuebra = ["|", "|&", "||", "&&"].includes(token.texto);
     }
   }
   if (fechar()) return true;

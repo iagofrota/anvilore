@@ -9,6 +9,7 @@ export type CorpoHeredoc = {
   fimDelimitador: number;
   inicioTermino: number;
   fimTermino: number;
+  continuaDepois: boolean;
 };
 
 export type ResultadoHeredocs = { original: string; semCorpos: string; corpos: CorpoHeredoc[] };
@@ -214,6 +215,9 @@ export function analisarHeredocs(comando: string): ResultadoHeredocs {
             cursor = fimLinhaOriginal + 1;
           }
           if (inicioTermino < 0) throw new Error("heredoc sem terminador");
+          const inicioLinhaOperador = comando.lastIndexOf("\n", pendente.inicioOperador - 1) + 1;
+          const fimLinhaOperador = comando.indexOf("\n", pendente.inicioOperador);
+          const textoLinhaOperador = comando.slice(inicioLinhaOperador, fimLinhaOperador < 0 ? comando.length : fimLinhaOperador);
           corpos.push({
             delimitador: pendente.delimitador,
             citado: pendente.citado,
@@ -225,11 +229,12 @@ export function analisarHeredocs(comando: string): ResultadoHeredocs {
             fimDelimitador: pendente.fimDelimitador,
             inicioTermino,
             fimTermino,
+            continuaDepois: /\\\s*$/.test(textoLinhaOperador),
           });
-          // The terminator ends the input, then the shell resumes parsing commands. Keep an
-          // explicit separator in the command-only view so tokenizers cannot join or drop the
-          // first word of the following line while the heredoc body is removed.
-          mudancas.push({ inicio: inicioCorpo, fim: fimTermino, texto: ";" });
+          // Preserve the newline after the terminator; a marker backslash keeps an escaped
+          // continuation visible to the downstream shell command parsers.
+          mudancas.push({ inicio: inicioCorpo, fim: inicioTermino, texto: "" });
+          mudancas.push({ inicio: inicioTermino, fim: fimTermino, texto: corpos.at(-1)!.continuaDepois ? "\\" : "" });
         }
         i = cursor;
         palavraIniciada = true;
@@ -259,8 +264,8 @@ export function textoHeredocParaAnalise(analise: ResultadoHeredocs, manterCorpo:
   for (const corpo of analise.corpos) {
     mudancas.push({ inicio: corpo.inicioOperador, fim: corpo.fimDelimitador, texto: "< /dev/null" });
     if (!manterCorpo(corpo)) mudancas.push({ inicio: corpo.inicioCorpo, fim: corpo.fimCorpo, texto: "" });
-    // The line break after the terminator separates the next shell command, just like `;`.
-    mudancas.push({ inicio: corpo.inicioTermino, fim: corpo.fimTermino, texto: ";" });
+    // Keep the line break after the terminator marked for the shell command parser.
+    mudancas.push({ inicio: corpo.inicioTermino, fim: corpo.fimTermino, texto: corpo.continuaDepois ? "\\" : "" });
   }
   let texto = analise.original;
   for (const mudanca of mudancas.sort((a, b) => b.inicio - a.inicio)) {

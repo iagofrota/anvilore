@@ -809,9 +809,10 @@ function tokenizar(comando: string, windows = false): Token[] {
       throw new Error("heredoc não interpretável");
     } else if (/[;|&<>\n]/.test(caractere)) {
       guardar();
-      let operador = caractere === "\n" ? ";" : caractere;
+      let operador = caractere === "\n" ? "\n" : caractere;
       if ((caractere === ">" || caractere === "<") && seguinte === "&") { operador += "&"; i++; }
-      else if (seguinte === caractere) { operador += comando[++i]; }
+      else if (caractere === "|" && seguinte === "&") { operador += comando[++i]; }
+      else if (caractere !== "\n" && seguinte === caractere) { operador += comando[++i]; }
       tokens.push({ texto: operador, operador: true });
     } else if (/\s/.test(caractere)) {
       guardar();
@@ -1094,16 +1095,34 @@ function dividirEmComandosSimples(tokens: Token[]): Array<{ tokens: Token[]; doP
   const comandos: Array<{ tokens: Token[]; doPipe: boolean }> = [];
   let atual: Token[] = [];
   let recebePipe = false;
+  let continuaNaQuebra = false;
+  let profundidadeComposta = 0;
+  let emComandoComposto = false;
   for (const token of tokens) {
-    if (token.operador && /^[;&|]+$/.test(token.texto)) {
+    if (token.operador && token.texto === "\n") {
+      if (continuaNaQuebra || profundidadeComposta > 0 || emComandoComposto) continue;
+      if (atual.length > 0) {
+        comandos.push({ tokens: atual, doPipe: recebePipe });
+        atual = [];
+      }
+      recebePipe = false;
+      continue;
+    }
+    if (token.operador && /^(?:[;&|]+|\|&)$/.test(token.texto)) {
       if (atual.length > 0) {
         comandos.push({ tokens: atual, doPipe: recebePipe });
         atual = [];
       }
       // Só `|` simples alimenta o comando seguinte pela entrada padrão (`||` e `&&` não).
-      recebePipe = token.texto === "|";
+      recebePipe = token.texto === "|" || token.texto === "|&";
+      continuaNaQuebra = ["|", "|&", "||", "&&"].includes(token.texto);
     } else {
       atual.push(token);
+      continuaNaQuebra = false;
+      if (!token.operador && token.texto === "{") profundidadeComposta++;
+      else if (!token.operador && token.texto === "}" && profundidadeComposta > 0) profundidadeComposta--;
+      if (!token.operador && /^(?:if|then|else|elif|while|until|for|select|do|case|in)$/.test(token.texto)) emComandoComposto = true;
+      else if (!token.operador && /^(?:fi|done|esac)$/.test(token.texto)) emComandoComposto = false;
     }
   }
   if (atual.length > 0) comandos.push({ tokens: atual, doPipe: recebePipe });
@@ -3205,6 +3224,29 @@ function decidirTerminalVerified(
       const decisao = decidirTerminalVerified(interno, false, base, raiz, ambiente, proximo, temCdOuPushd, ambienteGit, primeiroDoPipe);
       if (decisao.acao === "bloquear") return decisao;
     }
+  }
+
+  // A heredoc body becomes script input when its continued command sends it to a shell.
+  // Analyze that input as commands too; otherwise stripping the body hides writes from the consumer.
+  try {
+    const heredocs = analisarHeredocs(cmdTexto);
+    for (const corpo of heredocs.corpos) {
+      const inicioLinha = cmdTexto.lastIndexOf("\n", corpo.inicioOperador - 1) + 1;
+      const fimLinha = cmdTexto.indexOf("\n", corpo.inicioOperador);
+      const cabecalho = cmdTexto.slice(inicioLinha, fimLinha < 0 ? cmdTexto.length : fimLinha);
+      if (!/(?:\|&?|\\)\s*$/.test(cabecalho)) continue;
+      const consumidor = cmdTexto.slice(corpo.fimTermino).replace(/^\r?\n/, "").split(/\r?\n/, 1)[0] ?? "";
+      const verbo = consumidor.trim().split(/\s+/, 1)[0]?.toLowerCase();
+      if (!verbo || !new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "powershell"]).has(verbo)) continue;
+      if (!corpo.texto.trim()) continue;
+      const entrada = decidirTerminalVerified(corpo.texto, false, base, raiz, ambiente, {
+        ...contexto,
+        profundidade: contexto.profundidade + 1,
+      }, temCdOuPushd, ambienteGit, false);
+      if (entrada.acao === "bloquear") return entrada;
+    }
+  } catch {
+    return { acao: "bloquear", motivo: "heredoc de entrada não interpretável (falha fechada)" };
   }
 
   // As expansões já foram verificadas para todos os segmentos; só agora valem retornos curtos e isenções.

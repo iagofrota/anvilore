@@ -90,7 +90,7 @@ test.skipIf(!heredoctsDisponiveis)("Dado corpus gerado de heredocs Quando compar
           linhasDeAtaque[indiceLinha] = linhas[indiceLinha]!.replace(/touch raw\/M\d+/, carga);
           const comandoDeAtaque = linhasDeAtaque.join("\n");
           const codigo = await executarProtecaoSemLog(JSON.stringify({ cwd: pasta, tool_name: "Bash", tool_input: { command: comandoDeAtaque } }));
-          expect({ comando: comandoDeAtaque, carga, codigo }).toEqual({ comando: comandoDeAtaque, carga, codigo: 2 });
+          if (codigo !== 2) throw new Error(`Proteção não bloqueou carga executável: ${JSON.stringify({ comandoDeAtaque, carga, codigo })}`);
         }
       }
     } finally {
@@ -122,6 +122,39 @@ test.skipIf(!heredoctsDisponiveis)("Dado corpus gerado de heredocs Quando compar
       } finally {
         rmSync(pasta, { recursive: true, force: true });
       }
+    }
+  }
+
+  // Linhas de operador e comandos compostos podem continuar depois do terminador.
+  // O Bash é o oráculo ponta a ponta: cargas que ele executa devem ser bloqueadas.
+  const continuacoes = ["|", "| ", "|&", "&&", "||", "\\"];
+  const consumidores = ["sh", "bash", "sh -s", "wc -l"];
+  for (const cabecalho of [
+    ...continuacoes.map(op => `${["|", "| ", "|&"].includes(op) ? "cat" : op === "||" ? "false" : "true"} <<'EOF' ${op}`),
+    ...consumidores.map(() => `{ cat <<'EOF' |`),
+  ]) for (const consumidor of consumidores) for (const carga of ["cp p wiki/a.md", "rm raw/a.md"]) {
+    const pasta = mkdtempSync(join(tmpdir(), "anvilore-heredoc-pipe-"));
+    mkdirSync(join(pasta, "raw"));
+    mkdirSync(join(pasta, "wiki"));
+    writeFileSync(join(pasta, "SCHEMA.md"), "# Schema\n");
+    writeFileSync(join(pasta, "p"), "origem\n");
+    writeFileSync(join(pasta, "raw/a.md"), "bruto\n");
+    writeFileSync(join(pasta, "wiki/a.md"), "---\ntitle: A\n---\n");
+    try {
+      const emGrupo = cabecalho.startsWith("{");
+      const operadorFinal = cabecalho.trimEnd();
+      const pipeOuGrupo = cabecalho.startsWith("{") || (!operadorFinal.endsWith("||") && /\|&?$/.test(operadorFinal));
+      const conteudoHeredoc = pipeOuGrupo ? carga : "mensagem";
+      const script = `${cabecalho}\n${conteudoHeredoc}\nEOF\n${consumidor}${pipeOuGrupo ? "" : `\n${carga}`}${emGrupo ? "\n}" : ""}`;
+      comandoDoBash(script, pasta);
+      const bashExecutouCarga = carga.startsWith("cp")
+        ? (await Bun.file(join(pasta, "wiki/a.md")).text()).startsWith("origem")
+        : !existsSync(join(pasta, "raw/a.md"));
+      const codigoEsperado = bashExecutouCarga ? 2 : 0;
+      const codigo = await executarProtecaoSemLog(JSON.stringify({ cwd: pasta, tool_name: "Bash", tool_input: { command: script } }));
+      if (codigo !== codigoEsperado) throw new Error(JSON.stringify({ cabecalho, consumidor, carga, bashExecutouCarga, codigo, codigoEsperado, script }));
+    } finally {
+      rmSync(pasta, { recursive: true, force: true });
     }
   }
 });
