@@ -496,12 +496,23 @@ async function conferirConfig(raiz: string, copia: Copia): Promise<string[]> {
   return problemas;
 }
 
-async function cli(raiz: string, args: string[], entrada?: string): Promise<Saida> {
+export async function cli(raiz: string, args: string[], entrada?: string): Promise<Saida> {
   const p = Bun.spawn([process.execPath, join(raiz, "src/cli.ts"), ...args], { cwd: raiz, env: ambienteComCaminhosAbsolutos(process.env), stdin: "pipe", stdout: "pipe", stderr: "pipe" });
-  if (entrada !== undefined) p.stdin.write(entrada);
-  p.stdin.end();
+  try {
+    if (entrada !== undefined) p.stdin.write(entrada);
+  } catch (err) {
+    if (!ehEpipe(err)) throw err;
+  }
+  try {
+    await p.stdin.end();
+  } catch (err) {
+    if (!ehEpipe(err)) throw err;
+  }
   const [stdout, stderr, codigo] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
   return { codigo, stdout, saida: `${stdout}${stderr}`.trim() };
+}
+function ehEpipe(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "code" in err && err.code === "EPIPE";
 }
 async function provaDoHook(raiz: string, deps: DependenciasAtualizacao) {
   if (deps.provarHook) return { codigo: (await deps.provarHook(raiz)) ? 2 : 1, saida: "prova injetada" };

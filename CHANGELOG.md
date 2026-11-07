@@ -9,6 +9,10 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Fixed
+
+- O atualizador tolera o subprocesso encerrar antes de ler a entrada enviada ao stdin e continua usando o código de saída dele para avaliar a prova.
+
 ## [0.3.2] - 2026-11-07
 
 ### Added

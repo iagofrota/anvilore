@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { atualizar, compararSemVer, comandoAtualizar, decidirPolitica, parsearSemVer, selecionarRelease, tipoDeLink } from "../src/lib/atualizacao";
+import { atualizar, cli, compararSemVer, comandoAtualizar, decidirPolitica, parsearSemVer, selecionarRelease, tipoDeLink } from "../src/lib/atualizacao";
 import { URL_CONFIANCA } from "../src/lib/confianca";
 import { capturarConsole } from "./apoio/console";
 import { arvore, criarChave, criarKit, gitReal, respostaDaLista, type Kit, type Versao } from "./apoio/kit-atualizavel";
@@ -49,6 +49,17 @@ test("Dado opção desconhecida, Quando invoca o comando atualizar, Então mostr
     expect(await comandoAtualizar(["--desconhecida"])).toBe(2);
     expect(c.erros.join("\n")).toContain("Uso: anvilore atualizar");
   } finally { c.restaurar(); }
+});
+test("Dado subprocesso que sai sem ler uma entrada grande, Quando envio stdin, Então devolve seu código de saída", async () => {
+  const raiz = await mkdtemp(join(tmpdir(), "anvilore-stdin-epipe-"));
+  await mkdir(join(raiz, "src"), { recursive: true });
+  await writeFile(join(raiz, "src/cli.ts"), "process.stdout.write('stdout'); process.stderr.write('stderr'); process.exit(2);\n");
+  try {
+    const resultado = await cli(raiz, [], "x".repeat(1024 * 1024));
+    expect(resultado.codigo).toBe(2);
+    expect(resultado.stdout).toBe("stdout");
+    expect(resultado.saida).toBe("stdoutstderr");
+  } finally { await rm(raiz, { recursive: true, force: true }); }
 });
 // 30 s nos testes com git/ssh-keygen reais fora do `real`: no Windows do CI passam de 5 s (o limite padrão do Bun).
 test("Dado allow_signers ausente, vazio ou inválido, Quando verifica uma tag, Então recusa e orienta a configuração", async () => {
