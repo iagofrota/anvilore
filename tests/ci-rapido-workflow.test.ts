@@ -132,7 +132,7 @@ test("Dado o passo de detecção, Então ele sai com instalar-ps1=true quando o 
   }
 });
 
-test.skip("Dado todo caminho scripts/*.ts citado em tests/instalar-ps1/*.ps1, Então ele e seus imports locais transitivos casam com o filtro", async () => {
+test("Dado todo caminho scripts/*.ts citado em tests/instalar-ps1/*.ps1, Então ele e seus imports locais transitivos casam com o filtro", async () => {
   const raiz = resolve(import.meta.dir, "..");
   const dirPester = join(raiz, "tests/instalar-ps1");
   const arquivosPester = readdirSync(dirPester).filter(f => f.endsWith(".ps1"));
@@ -166,7 +166,8 @@ test.skip("Dado todo caminho scripts/*.ts citado em tests/instalar-ps1/*.ps1, En
 
     let m: RegExpExecArray | null;
     while ((m = regexImport.exec(texto)) !== null) {
-      let rel = m[1];
+      const rel = m[1];
+      if (!rel) continue;
       let alvo = resolve(dirAtual, rel);
       if (!alvo.endsWith(".ts") && !alvo.endsWith(".json")) {
         const comTs = `${alvo}.ts`;

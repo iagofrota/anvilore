@@ -130,6 +130,9 @@ jobs:
               '^\.github/workflows/ci\.yml$'
               '^package\.json$'
               '^bun\.lock$'
+              '^scripts/embutir-instalador\.ts$'
+              '^scripts/servir-confianca-teste\.ts$'
+              '^src/lib/confianca\.ts$'
             )
             executar=false
             while IFS= read -r arq; do
