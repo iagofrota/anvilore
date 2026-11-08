@@ -126,9 +126,9 @@ test("Dado instância já em execução Quando comandoUi é chamado Então reabr
     },
   });
 
-  const fake = { servidor: { stop: () => {} }, porta: server.port, token: "token", url: `http://127.0.0.1:${server.port}/?token=token` } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>;
+  const fake = { servidor: { stop: () => {} }, porta: server.port!, token: "token", url: `http://127.0.0.1:${server.port}/?token=token` } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>;
   const { gravarEstadoUi, removerEstadoUi } = await import("../src/lib/ui-estado");
-  const estado = { pid: process.pid, porta: server.port, token: "token-existente", pasta: process.cwd() };
+  const estado = { pid: process.pid, porta: server.port!, token: "token-existente", pasta: process.cwd() };
 
   try {
     await gravarEstadoUi(estado);
@@ -165,7 +165,7 @@ test("Dado instância em execução no modo só-revisão, Quando comandoUi é ch
 
   const estado = {
     pid: process.pid,
-    porta: serverRevisao.port,
+    porta: serverRevisao.port!,
     token: "token-revisao",
     pasta: process.cwd(),
     soRevisao: true,

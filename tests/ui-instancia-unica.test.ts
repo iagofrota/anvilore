@@ -197,7 +197,7 @@ test("Dado servidor ativo na pasta A, Quando a rota /api/onboarding/pasta troca 
       // Grava o estado inicial apontando para pastaA
       await gravarEstadoUi({
         pid: process.pid,
-        porta: app.porta,
+        porta: app.porta!,
         token: app.token,
         pasta: pastaA,
         soRevisao: false,
