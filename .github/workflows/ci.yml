@@ -178,7 +178,7 @@ jobs:
           $c.Run.Exit = $true
           Invoke-Pester -Configuration $c
       - name: Testes do lançador abrir.ps1 (Windows PowerShell 5.1)
-        if: github.event_name != 'pull_request' || needs.mudancas.outputs.instalar-ps1 == 'true'
+        if: (github.event_name != 'pull_request' || needs.mudancas.outputs.instalar-ps1 == 'true') && !cancelled()
         shell: powershell
         run: |
           Import-Module Pester -MinimumVersion 5.5
