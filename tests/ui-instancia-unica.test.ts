@@ -173,7 +173,8 @@ test("Dado servidor ativo na pasta A, Quando a rota /api/onboarding/pasta troca 
     const home = join(base, "home");
     const pastaA = join(home, "vault-a");
     const pastaB = join(home, "vault-b");
-    const stateHome = join(base, "state");
+    const xdgRuntime = join(base, "run");
+    await mkdir(xdgRuntime, { recursive: true });
 
     await mkdir(join(pastaA, "wiki"), { recursive: true });
     await writeFile(join(pastaA, "SCHEMA.md"), "# Schema\n");
@@ -183,7 +184,7 @@ test("Dado servidor ativo na pasta A, Quando a rota /api/onboarding/pasta troca 
     await writeFile(join(pastaB, "SCHEMA.md"), "# Schema\n");
     await writeFile(join(pastaB, "AGENTS.md"), "# Agentes\n");
 
-    const ambiente = { ...process.env, HOME: home, XDG_STATE_HOME: stateHome };
+    const ambiente = { ...process.env, HOME: home, XDG_RUNTIME_DIR: xdgRuntime };
 
     const app = await iniciarServidorUi(pastaA, {
       portaInicial: 0,
@@ -225,6 +226,141 @@ test("Dado servidor ativo na pasta A, Quando a rota /api/onboarding/pasta troca 
       const instB = await verificarInstanciaExistente(pastaB, ambiente);
       expect(instB.ativa).toBe(true);
       expect(instB.url).toContain(`:${app.porta}/?token=${app.token}`);
+    } finally {
+      await app.encerrar();
+      app.servidor.stop(true);
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("Dado arquivo de estado pertencente a outro PID, Quando a rota /api/onboarding/pasta troca de cofre, Então o arquivo de estado não é alterado (P2-3 ajuste)", async () => {
+  const base = await mkdtemp(join(tmpdir(), "anvilore-outro-pid-"));
+  try {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { iniciarServidorUi } = await import("../src/ui/servidor/servidor");
+    const { PonteClaudeCode } = await import("../src/lib/ponte-claude-code");
+    class PonteFalsa extends PonteClaudeCode {
+      override async disponibilidade() {
+        return { ok: true as const, binario: "claude", versao: "fake" };
+      }
+    }
+
+    const home = join(base, "home");
+    const pastaA = join(home, "vault-a");
+    const pastaB = join(home, "vault-b");
+    const xdgRuntime = join(base, "run");
+    await mkdir(xdgRuntime, { recursive: true });
+
+    await mkdir(join(pastaA, "wiki"), { recursive: true });
+    await writeFile(join(pastaA, "SCHEMA.md"), "# Schema\n");
+    await writeFile(join(pastaA, "AGENTS.md"), "# Agentes\n");
+
+    await mkdir(join(pastaB, "wiki"), { recursive: true });
+    await writeFile(join(pastaB, "SCHEMA.md"), "# Schema\n");
+    await writeFile(join(pastaB, "AGENTS.md"), "# Agentes\n");
+
+    const ambiente = { ...process.env, HOME: home, XDG_RUNTIME_DIR: xdgRuntime };
+
+    const app = await iniciarServidorUi(pastaA, {
+      portaInicial: 0,
+      token: "tok-servidor-atual",
+      abrirNavegador: false,
+      ponte: new PonteFalsa(),
+      ambiente,
+    });
+
+    try {
+      // Grava o arquivo de estado como se pertencesse a OUTRO servidor/PID
+      const estadoOutro = {
+        pid: 999999,
+        porta: 54321,
+        token: "tok-outro-servidor",
+        pasta: pastaA,
+        soRevisao: false,
+      };
+      await gravarEstadoUi(estadoOutro, ambiente);
+
+      // Troca para pastaB via POST /api/onboarding/pasta no servidor atual
+      const res = await fetch(`http://127.0.0.1:${app.porta}/api/onboarding/pasta?token=${app.token}`, {
+        method: "POST",
+        headers: {
+          origin: `http://127.0.0.1:${app.porta}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ pasta: pastaB }),
+      });
+      expect(res.status).toBe(200);
+
+      // O arquivo de estado NÃO pode ter sido alterado pelo servidor atual
+      const estadoApos = await obterEstadoUi(ambiente);
+      expect(estadoApos?.pid).toBe(999999);
+      expect(estadoApos?.token).toBe("tok-outro-servidor");
+      expect(estadoApos?.pasta).toBe(pastaA);
+      expect(estadoApos?.porta).toBe(54321);
+    } finally {
+      await app.encerrar();
+      app.servidor.stop(true);
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("Dado servidor ativo sem arquivo de estado gravado, Quando a rota /api/onboarding/pasta troca de cofre, Então nenhum arquivo de estado é criado (P2-3 ajuste)", async () => {
+  const base = await mkdtemp(join(tmpdir(), "anvilore-sem-estado-"));
+  try {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { iniciarServidorUi } = await import("../src/ui/servidor/servidor");
+    const { PonteClaudeCode } = await import("../src/lib/ponte-claude-code");
+    class PonteFalsa extends PonteClaudeCode {
+      override async disponibilidade() {
+        return { ok: true as const, binario: "claude", versao: "fake" };
+      }
+    }
+
+    const home = join(base, "home");
+    const pastaA = join(home, "vault-a");
+    const pastaB = join(home, "vault-b");
+    const xdgRuntime = join(base, "run");
+    await mkdir(xdgRuntime, { recursive: true });
+
+    await mkdir(join(pastaA, "wiki"), { recursive: true });
+    await writeFile(join(pastaA, "SCHEMA.md"), "# Schema\n");
+    await writeFile(join(pastaA, "AGENTS.md"), "# Agentes\n");
+
+    await mkdir(join(pastaB, "wiki"), { recursive: true });
+    await writeFile(join(pastaB, "SCHEMA.md"), "# Schema\n");
+    await writeFile(join(pastaB, "AGENTS.md"), "# Agentes\n");
+
+    const ambiente = { ...process.env, HOME: home, XDG_RUNTIME_DIR: xdgRuntime };
+
+    // Inicia servidor diretamente sem gravar estado
+    const app = await iniciarServidorUi(pastaA, {
+      portaInicial: 0,
+      token: "tok-sem-estado",
+      abrirNavegador: false,
+      ponte: new PonteFalsa(),
+      ambiente,
+    });
+
+    try {
+      expect(await obterEstadoUi(ambiente)).toBeNull();
+
+      // Troca para pastaB via POST /api/onboarding/pasta
+      const res = await fetch(`http://127.0.0.1:${app.porta}/api/onboarding/pasta?token=${app.token}`, {
+        method: "POST",
+        headers: {
+          origin: `http://127.0.0.1:${app.porta}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ pasta: pastaB }),
+      });
+      expect(res.status).toBe(200);
+
+      // Como o servidor nunca gravou estado, a troca NÃO deve criar arquivo de estado
+      expect(await obterEstadoUi(ambiente)).toBeNull();
     } finally {
       await app.encerrar();
       app.servidor.stop(true);

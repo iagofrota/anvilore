@@ -440,14 +440,16 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
                 ingestao = await criarIngestao(raiz, opcoes);
                 try {
                   const estadoAtual = await obterEstadoUi(ambiente);
-                  await gravarEstadoUi({
-                    pid: process.pid,
-                    porta: servidor?.port ?? 0,
-                    token,
-                    pasta: raiz,
-                    inicio: estadoAtual?.inicio,
-                    soRevisao,
-                  }, ambiente);
+                  if (estadoAtual && estadoAtual.pid === process.pid && estadoAtual.token === token) {
+                    await gravarEstadoUi({
+                      pid: process.pid,
+                      porta: estadoAtual.porta,
+                      token,
+                      pasta: raiz,
+                      inicio: estadoAtual.inicio,
+                      soRevisao: estadoAtual.soRevisao ?? soRevisao,
+                    }, ambiente);
+                  }
                 } catch {
                   // Se falhar ao gravar o estado, não impede a troca de pasta
                 }
