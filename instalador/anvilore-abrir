@@ -548,10 +548,10 @@ verificar_instancia_existente() {
       const fs = require("node:fs");
       const est = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
       if (typeof est.pid === "number" && typeof est.porta === "number" && typeof est.token === "string" && typeof est.pasta === "string") {
-        if (est.soRevisao === true) {
-          console.log("INCOMPATIVEL:" + est.pid);
-        } else if (est.soRevisao === false) {
+        if (est.soRevisao === false) {
           console.log(`${est.pid}:${est.porta}:${est.token}:${est.inicio || ""}:${est.pasta}`);
+        } else {
+          console.log("INCOMPATIVEL:" + est.pid);
         }
       }
     } catch {}

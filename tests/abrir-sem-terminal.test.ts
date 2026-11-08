@@ -67,6 +67,7 @@ exit 0
         porta: server.port,
         token: "token-teste-123",
         pasta,
+        soRevisao: false,
       }, null, 2), { mode: 0o600 });
 
       const env = {
@@ -548,6 +549,7 @@ exit 0
         porta: server.port,
         token: "token-ativo",
         pasta,
+        soRevisao: false,
       }, null, 2), { mode: 0o600 });
 
       const env = {
@@ -624,6 +626,7 @@ exit 0
         porta: serverLento.port,
         token: "token-timeout",
         pasta,
+        soRevisao: false,
       }, null, 2), { mode: 0o600 });
 
       const env = {
@@ -690,7 +693,8 @@ if [ "$1" = "src/cli.ts" ] && [ "$2" = "ui" ]; then
   "pid": $$,
   "porta": 49123,
   "token": "token-lock",
-  "pasta": "${pasta}"
+  "pasta": "${pasta}",
+  "soRevisao": false
 }
 EOF
   sleep 10 &
@@ -1022,7 +1026,8 @@ if [ "$1" = "src/cli.ts" ] && [ "$2" = "ui" ]; then
   "pid": $$,
   "porta": 45999,
   "token": "tok123",
-  "pasta": "${pasta}"
+  "pasta": "${pasta}",
+  "soRevisao": false
 }
 EOF
   sleep 15 &
@@ -1148,6 +1153,7 @@ test("Dado estado com PID vivo de outro processo e porta morta, Quando lançador
         porta: 45998,
         token: "tokX",
         pasta,
+        soRevisao: false,
       }, null, 2), { mode: 0o600 });
 
       const bun = join(bin, "bun");
@@ -1162,7 +1168,8 @@ if [ "$1" = "src/cli.ts" ] && [ "$2" = "ui" ]; then
   "pid": $$,
   "porta": 45999,
   "token": "tokNovo",
-  "pasta": "${pasta}"
+  "pasta": "${pasta}",
+  "soRevisao": false
 }
 EOF
   sleep 15 &
@@ -1259,6 +1266,7 @@ exit 0
         token: "tokColon",
         pasta,
         inicio: inicioProc,
+        soRevisao: false,
       }, null, 2), { mode: 0o600 });
 
       const env = {
@@ -1481,6 +1489,79 @@ exit 0
       // Deve ter iniciado um servidor completo (starts = 1)
       const starts = (await readFile(chamadas, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
       expect(starts.length).toBe(1);
+    } finally {
+      server.stop(true);
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("Dado estado antigo sem campo soRevisao, Quando lançador sem terminal executa, Então trata como incompatível, não reaproveita e sobe novo servidor (P2-1)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-estado-legado-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "bin");
+    const xdgRuntime = join(base, "run");
+    const chamadas = join(base, "chamadas");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await mkdir(xdgRuntime, { recursive: true });
+
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh
+if [ "$1" = "-e" ]; then
+  exec "${process.execPath}" "$@"
+fi
+if [ "$1" = "src/cli.ts" ] && [ "$2" = "ui" ]; then
+  echo "start $$" >>"${chamadas}"
+  exit 0
+fi
+exit 0
+`);
+    await chmod(bun, 0o755);
+
+    const server = Bun.serve({
+      port: 49993,
+      fetch() {
+        return new Response("OK", { status: 200 });
+      },
+    });
+
+    try {
+      const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+      await writeFile(estadoFile, JSON.stringify({
+        pid: process.pid,
+        porta: 49993,
+        token: "tokLegado",
+        pasta,
+      }, null, 2), { mode: 0o600 });
+
+      const env = {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:/usr/bin:/bin`,
+        ANVILORE_PASTA: pasta,
+        XDG_RUNTIME_DIR: xdgRuntime,
+        ANVILORE_SEM_DIALOGO: "1",
+      };
+
+      const proc = Bun.spawnSync(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+      expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+
+      const starts = (await readFile(chamadas, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
+      expect(starts.length).toBe(1);
+
+      expect(await Bun.file(estadoFile).exists()).toBe(true);
     } finally {
       server.stop(true);
     }
