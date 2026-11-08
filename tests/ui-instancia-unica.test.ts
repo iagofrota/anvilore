@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, symlink, writeFile, chmod } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -159,7 +159,7 @@ test("Dado instância em execução em modo só-revisão, Quando verifico instâ
 });
 
 test("Dado servidor ativo na pasta A, Quando a rota /api/onboarding/pasta troca para a pasta B, Então o estado é regravado apontando para B e A fica inativa (P2-3)", async () => {
-  const base = await mkdtemp(join(tmpdir(), "anvilore-troca-pasta-"));
+  const base = await realpath(await mkdtemp(join(tmpdir(), "anvilore-troca-pasta-")));
   try {
     const { mkdir, writeFile } = await import("node:fs/promises");
     const { iniciarServidorUi } = await import("../src/ui/servidor/servidor");
@@ -236,7 +236,7 @@ test("Dado servidor ativo na pasta A, Quando a rota /api/onboarding/pasta troca 
 });
 
 test("Dado arquivo de estado pertencente a outro PID, Quando a rota /api/onboarding/pasta troca de cofre, Então o arquivo de estado não é alterado (P2-3 ajuste)", async () => {
-  const base = await mkdtemp(join(tmpdir(), "anvilore-outro-pid-"));
+  const base = await realpath(await mkdtemp(join(tmpdir(), "anvilore-outro-pid-")));
   try {
     const { mkdir, writeFile } = await import("node:fs/promises");
     const { iniciarServidorUi } = await import("../src/ui/servidor/servidor");
@@ -309,7 +309,7 @@ test("Dado arquivo de estado pertencente a outro PID, Quando a rota /api/onboard
 });
 
 test("Dado servidor ativo sem arquivo de estado gravado, Quando a rota /api/onboarding/pasta troca de cofre, Então nenhum arquivo de estado é criado (P2-3 ajuste)", async () => {
-  const base = await mkdtemp(join(tmpdir(), "anvilore-sem-estado-"));
+  const base = await realpath(await mkdtemp(join(tmpdir(), "anvilore-sem-estado-")));
   try {
     const { mkdir, writeFile } = await import("node:fs/promises");
     const { iniciarServidorUi } = await import("../src/ui/servidor/servidor");
