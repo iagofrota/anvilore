@@ -286,10 +286,11 @@ kbd { display: inline-grid; min-width: 17px; height: 17px; place-items: center; 
 
 @media (max-width: 760px) {
   .layout { height: 100vh; flex-direction: column; padding: 0; gap: 0; }
-  .sidebar { flex: none; min-height: auto; flex-direction: row; align-items: center; gap: 12px; padding: 9px 12px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }
-  .brand { padding: 0; }
+  .sidebar { flex: none; min-width: 0; min-height: auto; flex-direction: row; align-items: center; gap: 8px; padding: 9px 8px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }
+  .brand { flex: none; padding: 0; }
   .vault-label, .conversations, .sidebar .nav + .vault-label { display: none; }
-  .nav { flex-direction: row; margin: 0 0 0 auto; }
+  .nav { flex: 1; min-width: 0; flex-direction: row; justify-content: flex-end; gap: 0; margin: 0; }
+  .nav a { min-width: 0; justify-content: center; padding-inline: 5px; font-size: 12px; text-align: center; }
   .thread-scroll { padding: 16px 14px 30px; }
   .plan-grid { grid-template-columns: 1fr; }
   .vault-path { padding: 6px 8px; }

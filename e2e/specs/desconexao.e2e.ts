@@ -4,6 +4,20 @@ import { guardarEvidencias } from "../apoio/visuais";
 
 const textoDeTeste = "Rascunho que precisa sobreviver à desconexão temporária.";
 
+async function esperarSemOverflowHorizontal(page: import("@playwright/test").Page) {
+  await expect.poll(() => page.evaluate(() => {
+    const largura = window.innerWidth;
+    const excedentes = [...document.querySelectorAll<HTMLElement>("body *")]
+      .map(elemento => {
+        const caixa = elemento.getBoundingClientRect();
+        return { elemento: `${elemento.tagName.toLowerCase()}${typeof elemento.className === "string" && elemento.className ? `.${elemento.className.trim().replace(/\s+/g, ".")}` : ""}`, esquerda: Math.round(caixa.left), direita: Math.round(caixa.right) };
+      })
+      .filter(elemento => elemento.direita > largura || elemento.esquerda < 0)
+      .slice(0, 8);
+    return { semOverflow: document.documentElement.scrollWidth <= largura, largura, scrollWidth: document.documentElement.scrollWidth, excedentes };
+  })).toMatchObject({ semOverflow: true });
+}
+
 async function prepararConexao(page: import("@playwright/test").Page) {
   let online = true;
   let batimentos = 0;
@@ -47,7 +61,7 @@ test("[C09.a][P2 texto] Dado texto não enviado Quando três batimentos falham e
   await expect(page.getByRole("status")).toHaveText("Conexão com o Anvilore perdida. Tentando reconectar…");
   await guardarEvidencias(page, "chat");
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await esperarSemOverflowHorizontal(page);
   await page.setViewportSize({ width: 1280, height: 800 });
   await reconectar.reconectar();
 
@@ -78,7 +92,7 @@ test("[C09.a][P2 arquivo] Dado arquivo escolhido Quando três batimentos falham 
   await expect(page.getByRole("status")).toHaveText("Conexão com o Anvilore perdida. Tentando reconectar…");
   await guardarEvidencias(page, "chat");
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await esperarSemOverflowHorizontal(page);
   await page.setViewportSize({ width: 1280, height: 800 });
   await reconectar.reconectar();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
