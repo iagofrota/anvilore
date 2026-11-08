@@ -53,7 +53,7 @@ e [instalar.ps1](https://github.com/iagofrota/anvilore/releases/latest/download/
 Antes de executá-los, confira o hash e a assinatura SSH pelo [procedimento de verificação](docs/knowledge_base/release.md#conferir-o-instalador-antes-de-executar);
 a chave pública vem do [site do mantenedor](https://anvilore.iagofrota.com.br), fora do GitHub.
 
-Os pacotes de duplo clique chegam na versão 0.3.1; os links passam a oferecê-los quando ela for publicada.
+Os links de download apontam para a release publicada mais recente.
 macOS usa a configuração do clone abaixo. O Windows é testado no CI; duplo clique e SmartScreen ainda aguardam prova numa máquina real.
 
 ## Desenvolver ou configurar um clone
