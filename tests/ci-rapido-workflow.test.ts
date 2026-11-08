@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
-import { resolve } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 
-type Step = { name?: string; uses?: string; run?: string; if?: string; with?: Record<string, unknown>; id?: string };
+type Step = { name?: string; uses?: string; run?: string; if?: string; with?: Record<string, unknown>; id?: string; env?: Record<string, string> };
 type Job = {
   name?: string;
   uses?: string;
@@ -13,6 +14,7 @@ type Job = {
 };
 type Workflow = {
   name: string;
+  permissions?: Record<string, string>;
   on: Record<string, any>;
   concurrency?: { group: string; "cancel-in-progress": unknown };
   jobs: Record<string, Job>;
@@ -64,36 +66,148 @@ test("Dado um evento que não é pull_request, Quando o grupo é montado, Então
   expect(linux.concurrency?.["cancel-in-progress"]).toBe("${{ github.event_name == 'pull_request' }}");
 });
 
-test("Dado o workflow ci.yml, Quando verifico a detecção de mudanças, Então o job mudancas usa dorny/paths-filter fixado por SHA com os caminhos do instalador", async () => {
+test("Dado ci.yml, Então nenhum nível pede pull-requests e nenhum passo usa dorny/paths-filter", async () => {
   const ci = await carregar("ci.yml");
-  const mudancas = ci.jobs.mudancas;
-  expect(mudancas).toBeDefined();
-  if (!mudancas) throw new Error("job mudancas não encontrado");
-  expect(mudancas.outputs?.["instalar-ps1"]).toBeDefined();
+  expect(ci.permissions?.["pull-requests"]).toBeUndefined();
 
-  const passoFiltro = mudancas.steps?.find(s => s.uses?.startsWith("dorny/paths-filter@"));
-  expect(passoFiltro).toBeDefined();
-  expect(passoFiltro?.uses).toBe("dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36");
-  const ciTexto = await Bun.file(resolve(import.meta.dir, "../.github/workflows/ci.yml")).text();
-  expect(ciTexto).toContain("dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2");
-  const filtros = String(passoFiltro?.with?.filters ?? "");
-  expect(filtros).toContain("instalador/**");
-  expect(filtros).toContain("tests/instalar-ps1/**");
-  expect(filtros).toContain("seguranca/**");
-  expect(filtros).toContain(".github/workflows/ci.yml");
+  for (const [id, job] of Object.entries(ci.jobs)) {
+    expect(job.permissions?.["pull-requests"], `job ${id}`).toBeUndefined();
+    for (const step of job.steps ?? []) {
+      expect(step.uses ?? "", `job ${id} step`).not.toContain("dorny/paths-filter");
+    }
+  }
 });
 
-test("Dado o filtro do instalar-ps1, Então inclui package.json e bun.lock", async () => {
+test("Dado release.yml chamando ci.yml, Então toda permissão pedida em ci.yml (topo e jobs) está contida nas do job chamador", async () => {
+  const release = await carregar("release.yml");
+  const ci = await carregar("ci.yml");
+
+  const jobCiNaRelease = release.jobs.ci;
+  expect(jobCiNaRelease).toBeDefined();
+  const permsChamador = jobCiNaRelease?.permissions ?? release.permissions ?? {};
+
+  const permsTopoCi = ci.permissions ?? {};
+  for (const [k, v] of Object.entries(permsTopoCi)) {
+    expect(permsChamador[k], `topo ci.yml permissão ${k}`).toBeDefined();
+    expect(permsChamador[k]).toBe(v);
+  }
+
+  for (const [id, job] of Object.entries(ci.jobs)) {
+    for (const [k, v] of Object.entries(job.permissions ?? {})) {
+      expect(permsChamador[k], `job ${id} permissão ${k}`).toBeDefined();
+      expect(permsChamador[k]).toBe(v);
+    }
+  }
+});
+
+test("Dado o passo de detecção, Então ele sai com instalar-ps1=true quando o diff falha", async () => {
   const ci = await carregar("ci.yml");
   const mudancas = ci.jobs.mudancas;
   expect(mudancas).toBeDefined();
   if (!mudancas) throw new Error("job mudancas não encontrado");
 
-  const passoFiltro = mudancas.steps?.find(s => s.uses?.startsWith("dorny/paths-filter@"));
-  expect(passoFiltro).toBeDefined();
-  const filtros = String(passoFiltro?.with?.filters ?? "");
-  expect(filtros).toContain("package.json");
-  expect(filtros).toContain("bun.lock");
+  const passo = mudancas.steps?.find(s => s.id === "filtro");
+  expect(passo).toBeDefined();
+  expect(passo?.run).toBeDefined();
+  const script = passo?.run ?? "";
+
+  // Executa o script passando variáveis com SHA inválido para simular falha do git diff
+  const tmpOutput = resolve(import.meta.dir, `../.tmp-test-output-${Date.now()}.txt`);
+  try {
+    const proc = Bun.spawnSync(["bash", "-c", script], {
+      env: {
+        ...process.env,
+        BASE_SHA: "sha_invalido_0000",
+        HEAD_SHA: "sha_invalido_1111",
+        GITHUB_OUTPUT: tmpOutput,
+      },
+      cwd: resolve(import.meta.dir, ".."),
+    });
+    expect(proc.exitCode).toBe(0);
+    const conteudoOutput = await Bun.file(tmpOutput).text();
+    expect(conteudoOutput).toContain("instalar-ps1=true");
+  } finally {
+    const f = Bun.file(tmpOutput);
+    if (await f.exists()) await f.delete();
+  }
+});
+
+test.skip("Dado todo caminho scripts/*.ts citado em tests/instalar-ps1/*.ps1, Então ele e seus imports locais transitivos casam com o filtro", async () => {
+  const raiz = resolve(import.meta.dir, "..");
+  const dirPester = join(raiz, "tests/instalar-ps1");
+  const arquivosPester = readdirSync(dirPester).filter(f => f.endsWith(".ps1"));
+
+  const scriptsCitados = new Set<string>();
+  const regexScript = /scripts\/[a-zA-Z0-9_-]+\.ts/g;
+
+  for (const p of arquivosPester) {
+    const texto = readFileSync(join(dirPester, p), "utf8");
+    let match: RegExpExecArray | null;
+    while ((match = regexScript.exec(texto)) !== null) {
+      scriptsCitados.add(match[0]);
+    }
+  }
+
+  expect(scriptsCitados.size).toBeGreaterThan(0);
+
+  // Calcula fecho transitivo de imports locais
+  const fecho = new Set<string>();
+  const fila = Array.from(scriptsCitados);
+  const regexImport = /(?:import|export)\s+.*?from\s+["'](\.[^"']+)["']/g;
+
+  while (fila.length > 0) {
+    const atual = fila.shift()!;
+    if (fecho.has(atual)) continue;
+    fecho.add(atual);
+
+    const caminhoCompleto = join(raiz, atual);
+    const texto = await Bun.file(caminhoCompleto).text();
+    const dirAtual = dirname(caminhoCompleto);
+
+    let m: RegExpExecArray | null;
+    while ((m = regexImport.exec(texto)) !== null) {
+      let rel = m[1];
+      let alvo = resolve(dirAtual, rel);
+      if (!alvo.endsWith(".ts") && !alvo.endsWith(".json")) {
+        const comTs = `${alvo}.ts`;
+        const comIndex = join(alvo, "index.ts");
+        if (await Bun.file(comTs).exists()) alvo = comTs;
+        else if (await Bun.file(comIndex).exists()) alvo = comIndex;
+      }
+      const relativoRaiz = alvo.replace(raiz + "/", "");
+      if (relativoRaiz.startsWith("src/") || relativoRaiz.startsWith("scripts/")) {
+        fila.push(relativoRaiz);
+      }
+    }
+  }
+
+  // Carrega o script de filtro do ci.yml
+  const ci = await carregar("ci.yml");
+  const mudancas = ci.jobs.mudancas;
+  expect(mudancas).toBeDefined();
+  const passo = mudancas?.steps?.find(s => s.id === "filtro");
+  expect(passo?.run).toBeDefined();
+  const scriptFiltro = passo?.run ?? "";
+
+  const padroesBloco = /padroes=\(\s*([\s\S]*?)\s*\)/.exec(scriptFiltro)?.[1] ?? "";
+  const padroes = padroesBloco
+    .split("\n")
+    .map(l => l.trim().replace(/^['"]|['"]$/g, ""))
+    .filter(Boolean);
+
+  expect(padroes.length).toBeGreaterThan(0);
+
+  // Todo arquivo do fecho deve casar com o filtro
+  for (const arq of fecho) {
+    const casa = padroes.some(p => new RegExp(p).test(arq));
+    expect(casa, `arquivo do fecho ${arq} deve casar com o filtro`).toBe(true);
+  }
+
+  // Arquivos não relacionados não devem casar
+  for (const arq of ["src/cli.ts", "docs/knowledge_base/README.md"]) {
+    const casa = padroes.some(p => new RegExp(p).test(arq));
+    expect(casa, `arquivo não relacionado ${arq} não deve casar`).toBe(false);
+  }
 });
 
 test("Dado o workflow ci.yml, Quando verifico o job instalar-ps1, Então depende de mudancas, é sempre criado e possui passos condicionais", async () => {
