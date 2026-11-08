@@ -33,7 +33,7 @@ test("Dado tag, Quando sigo todos os caminhos até o rascunho, Então nenhum gat
 test("Dado CI reutilizável, Quando executo branch ou tag autenticada, Então uso a mesma montagem sem outro ponto de entrada de tag", async () => {
   const ci = await carregar("ci.yml"), linux = await carregar("instalar-linux.yml"), release = await carregar("release.yml");
   expect(Object.keys(ci.on)).toContain("workflow_call");
-  for (const w of [ci, linux]) expect(w.on.push).toEqual({ branches: ["**"] });
+  for (const w of [ci, linux]) expect(w.on.push).toEqual({ branches: ["main"] });
   expect(release.jobs.ci?.uses).toBe("./.github/workflows/ci.yml");
   expect(needs(release.jobs.ci ?? {})).toContain("assinatura");
   expect(ci.jobs["builds-release"]?.uses).toBe("./.github/workflows/builds-release.yml");

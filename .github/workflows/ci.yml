@@ -2,9 +2,13 @@ name: ci
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_call:
+
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}-{1}', github.run_id, github.run_attempt) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -96,20 +100,76 @@ jobs:
         if: always()
         run: bun scripts/rg-temporario-prova.ts --limpar
 
+  mudancas:
+    name: Detectar mudanças
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      instalar-ps1: ${{ steps.filtro.outputs.instalar-ps1 }}
+    steps:
+      - if: github.event_name == 'pull_request'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - if: github.event_name == 'pull_request'
+        id: filtro
+        name: Conferir se o PR altera arquivos do instalador
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          executar=true
+          if arquivos=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" 2>/dev/null); then
+            padroes=(
+              '^instalador/'
+              '^tests/instalar-ps1/'
+              '^seguranca/'
+              '^\.github/workflows/ci\.yml$'
+              '^package\.json$'
+              '^bun\.lock$'
+              '^scripts/embutir-instalador\.ts$'
+              '^scripts/servir-confianca-teste\.ts$'
+              '^src/lib/confianca\.ts$'
+            )
+            executar=false
+            while IFS= read -r arq; do
+              [ -z "$arq" ] && continue
+              for padrao in "${padroes[@]}"; do
+                if echo "$arq" | grep -qE "$padrao"; then
+                  executar=true
+                  break 2
+                fi
+              done
+            done <<< "$arquivos"
+          fi
+          echo "instalar-ps1=$executar" >> "$GITHUB_OUTPUT"
+
   instalar-ps1:
     name: instalar.ps1 (Windows, perfil vazio)
+    needs: mudancas
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
+      - name: Ignorar instalar.ps1 (PR não altera arquivos do instalador)
+        if: github.event_name == 'pull_request' && needs.mudancas.outputs.instalar-ps1 != 'true'
+        shell: bash
+        run: echo "PR não altera instalador/**, tests/instalar-ps1/**, seguranca/**, package.json, bun.lock ou ci.yml. Etapa pulada com sucesso."
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: github.event_name != 'pull_request' || needs.mudancas.outputs.instalar-ps1 == 'true'
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: github.event_name != 'pull_request' || needs.mudancas.outputs.instalar-ps1 == 'true'
         with:
           bun-version-file: package.json
       - name: Instalar Pester 5
+        if: github.event_name != 'pull_request' || needs.mudancas.outputs.instalar-ps1 == 'true'
         shell: powershell
         run: |
           Install-Module Pester -MinimumVersion 5.5 -Force -Scope CurrentUser -SkipPublisherCheck
       - name: Testes unitários do instalar.ps1 (Windows PowerShell 5.1)
+        if: github.event_name != 'pull_request' || needs.mudancas.outputs.instalar-ps1 == 'true'
         shell: powershell
         run: |
           Import-Module Pester -MinimumVersion 5.5
@@ -118,7 +178,7 @@ jobs:
           $c.Run.Exit = $true
           Invoke-Pester -Configuration $c
       - name: Resultados e pausa do AnviloreSetup.exe (runtime Inno e PowerShell)
-        if: ${{ !cancelled() }}
+        if: (github.event_name != 'pull_request' || needs.mudancas.outputs.instalar-ps1 == 'true') && !cancelled()
         shell: powershell
         run: |
           Import-Module Pester -MinimumVersion 5.5
@@ -128,7 +188,7 @@ jobs:
           $c.Output.Verbosity = 'Detailed'
           Invoke-Pester -Configuration $c
       - name: Prova de ponta a ponta do instalar.ps1 (perfil vazio, tag assinada com chave descartável)
-        if: ${{ !cancelled() }}
+        if: (github.event_name != 'pull_request' || needs.mudancas.outputs.instalar-ps1 == 'true') && !cancelled()
         shell: powershell
         run: |
           Import-Module Pester -MinimumVersion 5.5
