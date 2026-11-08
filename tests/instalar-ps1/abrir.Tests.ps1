@@ -151,6 +151,6 @@ $global:LASTEXITCODE = 0
     $env:ANVILORE_TEST_FALHA = '1'
     $saida = ExecutarAbrirTeste
     $saida | Should -Match 'A interface do Anvilore fechou com erro'
-    (Get-Content -Raw -LiteralPath $script:AbrirRecebidaTeste) | Should -Be '1.0.0'
+    (Get-Content -Raw -LiteralPath $script:AbrirRecebidaTeste) | Should -Be ('1.0.0|' + $script:AbrirPastaTeste + '|1')
   }
 }
