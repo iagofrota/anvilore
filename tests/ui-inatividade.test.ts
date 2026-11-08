@@ -173,3 +173,49 @@ test("Dado watchdog de inatividade avaliando condições de parada, Quando requi
     agora,
   })).toBe(false);
 });
+
+test("Dado upload lento em /api/fontes sem batimento, Quando o período de inatividade expira antes do fim do envio, Então o servidor não é encerrado durante a requisição (P2-2)", async () => {
+  const raiz = await mkdtemp(join(tmpdir(), "anvilore-fontes-lento-"));
+  try {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    await mkdir(join(raiz, "wiki"), { recursive: true });
+    await writeFile(join(raiz, "SCHEMA.md"), "# Schema\n");
+    await writeFile(join(raiz, "AGENTS.md"), "# Agentes\n");
+
+    const app = await iniciarServidorUi(raiz, {
+      portaInicial: 0,
+      token: "token-fontes-1",
+      abrirNavegador: false,
+      ponte: new PonteFalsa(),
+      autoEncerrar: true,
+      inatividadeMs: 60,
+      intervaloChecagemMs: 15,
+    });
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        controller.enqueue(new TextEncoder().encode("--boundary\r\nContent-Disposition: form-data; name=\"area\"\r\n\r\ngeral\r\n"));
+        await new Promise(r => setTimeout(r, 100));
+        controller.enqueue(new TextEncoder().encode("--boundary--\r\n"));
+        controller.close();
+      },
+    });
+
+    const resposta = await fetch(`http://127.0.0.1:${app.porta}/api/fontes?token=token-fontes-1`, {
+      method: "POST",
+      headers: {
+        origin: `http://127.0.0.1:${app.porta}`,
+        "content-type": "multipart/form-data; boundary=boundary",
+      },
+      body: stream,
+      duplex: "half",
+    } as any);
+
+    expect(resposta.status).toBeGreaterThanOrEqual(200);
+
+    await app.encerrar();
+    app.servidor.stop(true);
+  } finally {
+    await rm(raiz, { recursive: true, force: true });
+  }
+});

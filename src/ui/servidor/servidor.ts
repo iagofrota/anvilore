@@ -551,7 +551,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
           }
           if (url.pathname === "/api/fontes" && request.method === "POST") {
             if (!ingestao) return respostaSegura("Não encontrado", { status: 404 });
-            return receberFonte(request, ingestao, new Date());
+            return await receberFonte(request, ingestao, new Date());
           }
           if (url.pathname === "/api/conversas/de-raw" && request.method === "POST") {
             if (!ingestao) return respostaSegura("Não encontrado", { status: 404 });
@@ -565,7 +565,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
           const daConversa = ROTA_DA_CONVERSA.exec(url.pathname);
           if (daConversa) {
             if (!ingestao) return respostaSegura("Não encontrado", { status: 404 });
-            return rotaDaConversa(request, daConversa[1]!, daConversa[2], ingestao);
+            return await rotaDaConversa(request, daConversa[1]!, daConversa[2], ingestao);
           }
           if (request.method === "GET" && (url.pathname === "/" || url.pathname.startsWith("/assets/"))) {
             const raizPublica = resolve(import.meta.dir, "../public");
