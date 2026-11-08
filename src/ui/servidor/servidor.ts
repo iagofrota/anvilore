@@ -429,8 +429,16 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             try { corpo = await request.json() as { pasta?: unknown }; } catch { return json({ erro: "Pedido inválido." }, 400); }
             if (typeof corpo.pasta !== "string") return json({ erro: "Caminho da pasta obrigatório." }, 400);
             try {
+              // Valida o texto antes de resolver alias, para resolve/realpath não esconder a sintaxe original.
+              if (!corpo.pasta.trim()) throw new Error("O caminho da pasta não pode ser vazio.");
+              if (/[\u0000-\u001f]/.test(corpo.pasta)) throw new Error("O caminho contém caracteres inválidos.");
+              const textoPasta = corpo.pasta.trim();
+              if (textoPasta.split(/[\\/]/).some(parte => parte === "..")) {
+                throw new Error("O caminho não pode conter segmentos '..'.");
+              }
+
               const raizAtualCanonica = chaveCofreUi(raiz);
-              const pastaSolicitada = resolve(corpo.pasta);
+              const pastaSolicitada = resolve(textoPasta);
               const mesmaRaiz = chaveCofreUi(pastaSolicitada) === raizAtualCanonica;
               const pastaValida = validarPastaVault(mesmaRaiz ? await realpath(pastaSolicitada) : corpo.pasta, ambiente);
               const novaRaiz = resolve(pastaValida);
