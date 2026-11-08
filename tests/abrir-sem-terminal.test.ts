@@ -1828,6 +1828,89 @@ estado_pronto_para_servidor "$1" "$2" "$3"
     }));
     const r4 = Bun.spawnSync(["bash", script, estadoFile, String(process.pid), base]);
     expect(r4.exitCode).toBe(0);
+
+    // 5. Estado gravado com caminho real e pastaAlvo via symlink -> deve aceitar (realpath)
+    const linkBase = join(base, "link-para-base");
+    await symlink(base, linkBase);
+    const r5 = Bun.spawnSync(["bash", script, estadoFile, String(process.pid), linkBase]);
+    expect(r5.exitCode).toBe(0);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("Dado ANVILORE_PASTA que é symlink para a pasta real, Quando o lançador sem terminal aguarda prontidão, Então reconhece o estado do próprio servidor sem esperar o timeout", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-symlink-prontidao-"));
+  try {
+    const home = join(base, "home");
+    const pastaReal = join(home, "AnviloreReal");
+    const pastaLink = join(home, "AnviloreLink");
+    const bin = join(base, "bin");
+    const xdgRuntime = join(base, "run");
+
+    await mkdir(join(pastaReal, ".git"), { recursive: true });
+    await mkdir(join(pastaReal, "src"), { recursive: true });
+    await mkdir(join(pastaReal, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await mkdir(xdgRuntime, { recursive: true });
+
+    await writeFile(join(pastaReal, "AGENTS.md"), "");
+    await writeFile(join(pastaReal, "src/cli.ts"), "");
+    await writeFile(join(pastaReal, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    // Cria o symlink apontando para a pasta real
+    await symlink(pastaReal, pastaLink);
+
+    const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+    const bun = join(bin, "bun");
+
+    // O servidor grava a pasta REAL no estado
+    await writeFile(bun, `#!/bin/sh
+if [ "$1" = "-e" ]; then
+  exec "${process.execPath}" "$@"
+fi
+if [ "$1" = "src/cli.ts" ] && [ "$2" = "ui" ]; then
+  cat <<EOF >"${estadoFile}"
+{
+  "pid": $$,
+  "porta": 45999,
+  "token": "tokSymlink",
+  "pasta": "${pastaReal}",
+  "soRevisao": false
+}
+EOF
+  sleep 10 &
+  wait $!
+  exit 0
+fi
+exit 0
+`);
+    await chmod(bun, 0o755);
+
+    const xdgOpen = join(bin, "xdg-open");
+    await writeFile(xdgOpen, `#!/bin/sh
+exit 0
+`);
+    await chmod(xdgOpen, 0o755);
+
+    const env = {
+      ...process.env,
+      HOME: home,
+      PATH: `${bin}:/usr/bin:/bin`,
+      ANVILORE_PASTA: pastaLink,
+      XDG_RUNTIME_DIR: xdgRuntime,
+      ANVILORE_SEM_DIALOGO: "1",
+    };
+
+    const inicio = Date.now();
+    const proc = Bun.spawn(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+    const codigo = await proc.exited;
+    const duracao = Date.now() - inicio;
+
+    expect(codigo).toBe(0);
+    // Deve reconhecer imediatamente a prontidão (< 5s), nunca esperando os 20s de timeout
+    expect(duracao).toBeLessThan(5000);
   } finally {
     await rm(base, { recursive: true, force: true });
   }

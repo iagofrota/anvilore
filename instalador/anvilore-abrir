@@ -554,8 +554,12 @@ estado_pronto_para_servidor() {
       if (est.soRevisao === true) {
         process.exit(1);
       }
-      if (pastaAlvo && path.resolve(est.pasta) !== pastaAlvo) {
-        process.exit(1);
+      if (pastaAlvo) {
+        const realEst = (() => { try { return fs.realpathSync(est.pasta); } catch { return path.resolve(est.pasta); } })();
+        const realAlvo = (() => { try { return fs.realpathSync(pastaAlvo); } catch { return path.resolve(pastaAlvo); } })();
+        if (realEst !== realAlvo) {
+          process.exit(1);
+        }
       }
       if (est.pid === serverPid) {
         process.exit(0);
