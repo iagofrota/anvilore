@@ -440,12 +440,12 @@ test("Dado o mesmo cofre por caminho real e por symlink, Quando calculo o caminh
     const lancadorOriginal = resolve(import.meta.dir, "../instalador/anvilore-abrir");
     const procBashReal = Bun.spawnSync([
       "bash", "-c",
-      `BUN_BIN="${process.execPath}"; source <(sed -n '/obter_chave_cofre()/,/^}/p;/obter_caminho_estado()/,/^}/p' "${lancadorOriginal}"); obter_caminho_estado "$1"`,
+      `BUN_BIN="${process.execPath}"; eval "$(sed -n '/obter_chave_cofre()/,/^}/p;/obter_caminho_estado()/,/^}/p' "${lancadorOriginal}")"; obter_caminho_estado "$1"`,
       "_", pastaReal,
     ], { env: ambiente });
     const procBashLink = Bun.spawnSync([
       "bash", "-c",
-      `BUN_BIN="${process.execPath}"; source <(sed -n '/obter_chave_cofre()/,/^}/p;/obter_caminho_estado()/,/^}/p' "${lancadorOriginal}"); obter_caminho_estado "$1"`,
+      `BUN_BIN="${process.execPath}"; eval "$(sed -n '/obter_chave_cofre()/,/^}/p;/obter_caminho_estado()/,/^}/p' "${lancadorOriginal}")"; obter_caminho_estado "$1"`,
       "_", pastaLink,
     ], { env: ambiente });
 
