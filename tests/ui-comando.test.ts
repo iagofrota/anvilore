@@ -115,19 +115,20 @@ test("Dado instância já em execução Quando comandoUi é chamado Então reabr
   const c = capturarConsole();
   let navegadorAberto: string | undefined;
   let novoServidorIniciado = false;
-  const fake = { servidor: { stop: () => {} }, porta: 4173, token: "token", url: "http://127.0.0.1:4173/?token=token" } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>;
-  const { gravarEstadoUi, removerEstadoUi } = await import("../src/lib/ui-estado");
-  const estado = { pid: process.pid, porta: 4173, token: "token-existente", pasta: process.cwd() };
 
-  // Servidor fake local para responder GET autenticado
+  // Servidor fake local em porta efêmera para responder GET autenticado
   const server = Bun.serve({
-    port: 4173,
+    port: 0,
     fetch(req) {
       const url = new URL(req.url);
       if (url.searchParams.get("token") === "token-existente") return new Response("OK", { status: 200 });
       return new Response("Forbidden", { status: 403 });
     },
   });
+
+  const fake = { servidor: { stop: () => {} }, porta: server.port, token: "token", url: `http://127.0.0.1:${server.port}/?token=token` } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>;
+  const { gravarEstadoUi, removerEstadoUi } = await import("../src/lib/ui-estado");
+  const estado = { pid: process.pid, porta: server.port, token: "token-existente", pasta: process.cwd() };
 
   try {
     await gravarEstadoUi(estado);
@@ -139,7 +140,7 @@ test("Dado instância já em execução Quando comandoUi é chamado Então reabr
     );
     expect(codigo).toBe(0);
     expect(novoServidorIniciado).toBe(false);
-    expect(navegadorAberto).toBe("http://127.0.0.1:4173/?token=token-existente");
+    expect(navegadorAberto).toBe(`http://127.0.0.1:${server.port}/?token=token-existente`);
     expect(c.saida.join(" ")).toContain("Interface do Anvilore aberta no navegador");
   } finally {
     server.stop(true);

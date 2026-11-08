@@ -12,12 +12,12 @@ import {
 
 test("Dado XDG_RUNTIME_DIR definido, Quando obtenho caminho do estado, Então usa o diretório de runtime", () => {
   const caminho = caminhoEstadoUi({ XDG_RUNTIME_DIR: "/run/user/1000" });
-  expect(caminho).toBe("/run/user/1000/anvilore-ui.json");
+  expect(caminho).toBe(join("/run/user/1000", "anvilore-ui.json"));
 });
 
 test("Dado XDG_RUNTIME_DIR ausente e XDG_STATE_HOME definido, Quando obtenho caminho do estado, Então usa anvilore sob state home", () => {
   const caminho = caminhoEstadoUi({ XDG_STATE_HOME: "/tmp/state" });
-  expect(caminho).toBe("/tmp/state/anvilore/anvilore-ui.json");
+  expect(caminho).toBe(join("/tmp/state", "anvilore", "anvilore-ui.json"));
 });
 
 test("Dado gravação do estado, Quando gravo dados da instância, Então o arquivo tem modo 0600 e conteúdo JSON válido", async () => {
