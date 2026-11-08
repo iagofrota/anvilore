@@ -1,5 +1,6 @@
 ---
 generated: 2026-11-07
+verified: 2026-11-08
 ---
 
 # Plataformas
