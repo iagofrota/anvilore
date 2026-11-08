@@ -1,6 +1,5 @@
 ---
 generated: 2026-11-06
-verified: 2026-11-07
 ---
 
 # Interface local (`anvilore ui`)
@@ -21,6 +20,8 @@ desta página. As decisões de fundo (servidor opcional, aprovação pelo servid
 | Onboarding | `#/onboarding` e `#/onboarding/<1-4>` | Primeiros passos: confirmação do vault, checagem do agente sem pedir chaves, inicialização de áreas com identidade automática e primeira ingestão. | `ui/web/onboarding.tsx`, `src/lib/ui-onboarding.ts` |
 
 Endereço vazio ou desconhecido abre o Início (`lerRota` em `ui/web/navegacao.ts`).
+
+Se três batimentos consecutivos falham, a interface mostra um aviso de conexão e continua tentando. O aviso fica junto da tela atual, incluindo onboarding, sem desmontar o formulário; quando um batimento volta a responder, ele some. A falha de rede não permite concluir que o servidor encerrou por inatividade (`ui/web/main.tsx`, `ui/web/inatividade.ts`).
 
 O Chat consulta a conversa em memória, mas `obter` e `listar` de `IngestaoNaInterface`
 publicam somente o último snapshot cuja gravação atômica terminou. Cada evento captura seu próprio

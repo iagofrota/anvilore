@@ -68,14 +68,14 @@ test("Dado os scripts de pós-instalação e pós-remoção, Quando inspeciono o
   }
 });
 
-test("Dado a entrada desktop do sistema, Quando leio instalador/linux/anvilore.desktop, Então passa no desktop-file-validate e usa Terminal=true", async () => {
+test("Dado a entrada desktop do sistema, Quando leio instalador/linux/anvilore.desktop, Então passa no desktop-file-validate e usa Terminal=false", async () => {
   const desktop = join(raiz, "instalador/linux/anvilore.desktop");
   const texto = await readFile(desktop, "utf8");
 
   expect(texto).toContain("[Desktop Entry]");
   expect(texto).toContain("Name=Anvilore");
   expect(texto).toContain("Exec=anvilore-abrir");
-  expect(texto).toContain("Terminal=true");
+  expect(texto).toContain("Terminal=false");
   expect(texto).toContain("Icon=anvilore");
   expect(texto).toContain("Categories=Office;Utility;");
 

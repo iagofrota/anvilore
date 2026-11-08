@@ -1,6 +1,6 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { aprovarPelaInterface } from "../../comandos/aprovar";
 import { isoComOffset } from "../../lib/hora";
@@ -25,6 +25,7 @@ import {
   validarPastaVault,
 } from "../../lib/ui-onboarding";
 import { ambienteComCaminhosAbsolutos } from "../../lib/caminhos";
+import { chaveCofreUi, gravarEstadoUi, obterEstadoUi, removerEstadoUi, verificarInstanciaExistente } from "../../lib/ui-estado";
 
 type Servidor = ReturnType<typeof Bun.serve>;
 type OpcoesServidor = {
@@ -37,6 +38,10 @@ type OpcoesServidor = {
   ambiente?: Record<string, string | undefined>;
   soRevisao?: boolean;
   validar?: (raiz: string, wiki: string) => Promise<{ codigo: number; saida: string }>;
+  autoEncerrar?: boolean;
+  inatividadeMs?: number;
+  intervaloChecagemMs?: number;
+  aoEncerrar?: () => Promise<void>;
 };
 
 // Teto de uma fonte enviada pela tela. Acima da janela grande (~1,15 MB) a ingestão já pede para dividir;
@@ -180,6 +185,24 @@ async function criarIngestao(raiz: string, opcoes: OpcoesServidor): Promise<Inge
   return ingestao;
 }
 
+export function podeEncerrarPorInatividade(dados: {
+  requisicoesEmVoo: number;
+  ultimoBatimento: number;
+  inatividadeMs: number;
+  ocupada?: boolean;
+  paginasEmAjuste?: number;
+  conversasRodando?: boolean;
+  agora?: number;
+}): boolean {
+  if (dados.requisicoesEmVoo > 0) return false;
+  const agora = dados.agora ?? Date.now();
+  if (agora - dados.ultimoBatimento < dados.inatividadeMs) return false;
+  if (dados.ocupada) return false;
+  if ((dados.paginasEmAjuste ?? 0) > 0) return false;
+  if (dados.conversasRodando) return false;
+  return true;
+}
+
 export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServidor = {}) {
   const ambiente = opcoes.ambiente ?? process.env;
   let raiz = resolve(raizInicial);
@@ -190,6 +213,66 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
   let ingestao: IngestaoNaInterface | undefined = soRevisao ? undefined : await criarIngestao(raiz, opcoes);
   let servidor: Servidor | undefined;
   let ultimoErro: unknown;
+
+  const autoEncerrar = opcoes.autoEncerrar ?? (ambiente.ANVILORE_AUTO_ENCERRAR === "1");
+  const inatividadeMs = opcoes.inatividadeMs ?? 120_000;
+  const intervaloChecagemMs = opcoes.intervaloChecagemMs ?? Math.min(5_000, Math.max(10, Math.floor(inatividadeMs / 2)));
+  let ultimoBatimento = Date.now();
+  let requisicoesEmVoo = 0;
+  let timerInatividade: ReturnType<typeof setInterval> | undefined;
+
+  const encerrarServidor = async () => {
+    if (timerInatividade) clearInterval(timerInatividade);
+    if (timeoutInatividade) clearTimeout(timeoutInatividade);
+    try {
+      await removerEstadoUi(raiz, process.pid, ambiente);
+    } catch {}
+    servidor?.stop(true);
+    await ingestao?.encerrar();
+    if (opcoes.aoEncerrar) {
+      await opcoes.aoEncerrar();
+    }
+    process.emit("SIGTERM");
+  };
+
+  if (autoEncerrar) {
+    timerInatividade = setInterval(async () => {
+      if (!podeEncerrarPorInatividade({
+        requisicoesEmVoo,
+        ultimoBatimento,
+        inatividadeMs,
+        ocupada: ingestao?.ocupada,
+        paginasEmAjuste: ingestao?.paginasEmAjuste().size,
+      })) {
+        return;
+      }
+
+      let conversasRodando = false;
+      if (ingestao) {
+        try {
+          const conversas = await ingestao.listar();
+          conversasRodando = conversas.some(c => c.situacao === "rodando");
+        } catch { return; }
+      }
+
+      // P3-C: Re-checagem atômica após o await ingestao.listar() antes do stop definitivo
+      if (!podeEncerrarPorInatividade({
+        requisicoesEmVoo,
+        ultimoBatimento,
+        inatividadeMs,
+        ocupada: ingestao?.ocupada,
+        paginasEmAjuste: ingestao?.paginasEmAjuste().size,
+        conversasRodando,
+      })) {
+        return;
+      }
+
+      clearInterval(timerInatividade!);
+      timerInatividade = undefined;
+      await encerrarServidor();
+    }, intervaloChecagemMs);
+    timerInatividade.unref?.();
+  }
 
   let timeoutInatividade: ReturnType<typeof setTimeout> | undefined;
   const resetarInatividade = () => {
@@ -214,7 +297,15 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
           const url = new URL(request.url);
           if (url.pathname === "/favicon.ico" && request.method === "GET") return respostaSegura(null, { status: 204 });
           if (!tokenValido(url, token)) return respostaSegura("Acesso recusado", { status: 403 });
-          if (soRevisao) {
+          ultimoBatimento = Date.now();
+          if (url.pathname === "/api/batimento" && (request.method === "POST" || request.method === "GET")) {
+            return json({ ok: true });
+          }
+
+          const ehApi = url.pathname.startsWith("/api/");
+          if (ehApi) requisicoesEmVoo++;
+          try {
+            if (soRevisao) {
             if (
               url.pathname === "/api/ingestao" ||
               url.pathname === "/api/fontes" ||
@@ -338,18 +429,50 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             try { corpo = await request.json() as { pasta?: unknown }; } catch { return json({ erro: "Pedido inválido." }, 400); }
             if (typeof corpo.pasta !== "string") return json({ erro: "Caminho da pasta obrigatório." }, 400);
             try {
-              const pastaValida = validarPastaVault(corpo.pasta, ambiente);
+              // Valida o texto antes de resolver alias, para resolve/realpath não esconder a sintaxe original.
+              if (!corpo.pasta.trim()) throw new Error("O caminho da pasta não pode ser vazio.");
+              if (/[\u0000-\u001f]/.test(corpo.pasta)) throw new Error("O caminho contém caracteres inválidos.");
+              const textoPasta = corpo.pasta.trim();
+              if (textoPasta.split(/[\\/]/).some(parte => parte === "..")) {
+                throw new Error("O caminho não pode conter segmentos '..'.");
+              }
+
+              const raizAtualCanonica = chaveCofreUi(raiz);
+              const pastaSolicitada = resolve(textoPasta);
+              const mesmaRaiz = chaveCofreUi(pastaSolicitada) === raizAtualCanonica;
+              const pastaValida = validarPastaVault(mesmaRaiz ? await realpath(pastaSolicitada) : corpo.pasta, ambiente);
               const novaRaiz = resolve(pastaValida);
-              if (novaRaiz !== raiz) {
+              if (chaveCofreUi(novaRaiz) !== raizAtualCanonica) {
+                const instNova = await verificarInstanciaExistente(novaRaiz, ambiente);
+                if (instNova.ativa) {
+                  return json({ erro: "Esse cofre já está aberto em outra janela." }, 409);
+                }
                 const conversas = await ingestao.listar();
                 const emAndamento = conversas.some(c => c.situacao === "rodando");
                 if (ingestao.ocupada || emAndamento) {
                   return json({ erro: "Não é possível alterar a pasta enquanto houver uma ingestão em andamento." }, 409);
                 }
                 await ingestao.encerrar();
+                const pastaAntiga = raiz;
                 raiz = novaRaiz;
                 wiki = caminhoWiki(raiz, ambiente);
                 ingestao = await criarIngestao(raiz, opcoes);
+                try {
+                  const estadoAtual = await obterEstadoUi(pastaAntiga, ambiente);
+                  if (estadoAtual && estadoAtual.pid === process.pid && estadoAtual.token === token) {
+                    await gravarEstadoUi({
+                      pid: process.pid,
+                      porta: estadoAtual.porta,
+                      token,
+                      pasta: raiz,
+                      inicio: estadoAtual.inicio,
+                      soRevisao: estadoAtual.soRevisao ?? soRevisao,
+                    }, ambiente);
+                    await removerEstadoUi(pastaAntiga, process.pid, ambiente);
+                  }
+                } catch {
+                  // Se falhar ao gravar o estado, não impede a troca de pasta
+                }
               }
               const inspecao = await inspecionarPasta(raiz, ambiente);
               const caminhoOnboarding = join(raiz, ".anvilore", "onboarding.json");
@@ -464,7 +587,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
           }
           if (url.pathname === "/api/fontes" && request.method === "POST") {
             if (!ingestao) return respostaSegura("Não encontrado", { status: 404 });
-            return receberFonte(request, ingestao, new Date());
+            return await receberFonte(request, ingestao, new Date());
           }
           if (url.pathname === "/api/conversas/de-raw" && request.method === "POST") {
             if (!ingestao) return respostaSegura("Não encontrado", { status: 404 });
@@ -478,7 +601,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
           const daConversa = ROTA_DA_CONVERSA.exec(url.pathname);
           if (daConversa) {
             if (!ingestao) return respostaSegura("Não encontrado", { status: 404 });
-            return rotaDaConversa(request, daConversa[1]!, daConversa[2], ingestao);
+            return await rotaDaConversa(request, daConversa[1]!, daConversa[2], ingestao);
           }
           if (request.method === "GET" && (url.pathname === "/" || url.pathname.startsWith("/assets/"))) {
             const raizPublica = resolve(import.meta.dir, "../public");
@@ -497,7 +620,10 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             }
           }
           return respostaSegura("Não encontrado", { status: 404 });
-        },
+        } finally {
+          if (ehApi) requisicoesEmVoo--;
+        }
+      },
       });
       break;
     } catch (erro) {
@@ -510,5 +636,19 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
 
   const url = `http://127.0.0.1:${servidor.port}/?token=${encodeURIComponent(token)}${soRevisao ? "#revisao" : ""}`;
   if (opcoes.abrirNavegador !== false) (opcoes.abrir ?? abrirNavegador)(url);
-  return { servidor, porta: servidor.port, token, url, encerrar: async () => { await ingestao?.encerrar(); } };
+  return {
+    servidor,
+    porta: servidor.port,
+    token,
+    url,
+    obterRaiz: () => raiz,
+    encerrar: async () => {
+      if (timerInatividade) clearInterval(timerInatividade);
+      if (timeoutInatividade) clearTimeout(timeoutInatividade);
+      try {
+        await removerEstadoUi(raiz, process.pid, ambiente);
+      } catch {}
+      await ingestao?.encerrar();
+    },
+  };
 }

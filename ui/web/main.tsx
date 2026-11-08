@@ -11,6 +11,7 @@ import type { EstadoOnboarding } from "../../src/lib/ui-onboarding";
 import { lerRota } from "./navegacao";
 import { Nota } from "./nota";
 import { diffLinhas, ErroApi, indiceVizinho } from "./revisao";
+import { criarControladorBatimento, MENSAGEM_DESCONEXAO } from "./inatividade";
 import { Shell } from "./shell";
 import "./styles.css";
 
@@ -32,6 +33,7 @@ function Aplicacao() {
   const [dadosOnboarding, setDadosOnboarding] = useState<EstadoOnboarding | null>(null);
   const [operandoAtualizador, setOperandoAtualizador] = useState(false);
   const [mensagemAtualizador, setMensagemAtualizador] = useState("");
+  const [desconectado, setDesconectado] = useState(false);
 
   const carregarOnboarding = useCallback(async () => {
     try {
@@ -53,6 +55,14 @@ function Aplicacao() {
     const mudou = () => setRota(lerRota(window.location.hash));
     window.addEventListener("hashchange", mudou);
     return () => window.removeEventListener("hashchange", mudou);
+  }, []);
+  useEffect(() => {
+    return criarControladorBatimento({
+      enviar: () => api("/api/batimento", "POST"),
+      aoFalhar: () => setDesconectado(true),
+      aoRecuperar: () => setDesconectado(false),
+      intervaloMs: 20_000,
+    });
   }, []);
   useEffect(() => {
     document.documentElement.dataset.theme = tema;
@@ -86,12 +96,16 @@ function Aplicacao() {
   }, [rota.tela, recarregarEstado]);
 
   const atualizador = estado?.atualizador && <PainelDoAtualizador atualizador={estado.atualizador} mensagem={mensagemAtualizador} operando={operandoAtualizador} acionar={acionarAtualizador} />;
+
+  const avisoDesconexao = desconectado && <div className="connection-warning" role="status">{MENSAGEM_DESCONEXAO}</div>;
+
   if (rota.tela === "onboarding" && dadosOnboarding) {
     if (!dadosOnboarding.precisaOnboarding) {
       window.location.hash = "#/inicio";
       return null;
     }
-    return (
+    return <>
+      {avisoDesconexao}
       <Onboarding
         passo={rota.passo ?? 1}
         tema={tema}
@@ -100,10 +114,10 @@ function Aplicacao() {
         aoAtualizar={carregarOnboarding}
         aoAtualizarIngestao={recarregarEstado}
       />
-    );
+    </>;
   }
 
-  return <Shell rota={rota} conversas={estado?.conversas ?? []} agente={estado?.agente ?? "Agente"} aviso={atualizador}>
+  return <Shell rota={rota} conversas={estado?.conversas ?? []} agente={estado?.agente ?? "Agente"} aviso={<>{avisoDesconexao}{atualizador}</>}>
     {rota.tela === "revisao" ? <Revisao tema={tema} alternarTema={alternarTema} />
       : rota.tela === "chat" ? <Chat id={rota.id} lacuna={rota.lacuna} estado={estado} recarregarEstado={recarregarEstado} abrir={abrir} tema={tema} alternarTema={alternarTema} />
         : rota.tela === "biblioteca" ? <Biblioteca tema={tema} alternarTema={alternarTema} />

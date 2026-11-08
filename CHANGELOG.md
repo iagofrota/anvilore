@@ -9,8 +9,14 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+### Added
+
+- O lançador Linux abre a interface sem janela de terminal (`Terminal=false`), garante instância única por pasta reutilizando servidor ativo, exibe erros em diálogo gráfico (`zenity`/`kdialog`/`notify-send`) com log seguro em `abrir.log` (0600), e o servidor desacoplado encerra sozinho por inatividade após ~2 minutos sem batimentos da página web e sem ingestão em andamento.
+
 ### Fixed
 
+- A navegação móvel da interface distribui os links dentro da largura disponível, sem corte ou rolagem horizontal.
+- A interface mantém as telas e as entradas de texto e arquivo enquanto tenta restabelecer a conexão com o servidor, sem atribuir a falha de rede à inatividade.
 - O atualizador tolera o subprocesso encerrar antes de ler a entrada enviada ao stdin e continua usando o código de saída dele para avaliar a prova.
 - O lançador encontra o Bun instalado pelo npm/nvm e explica como instalá-lo quando ele não está disponível; no Windows, também procura o diretório npm do usuário.
 - A Revisão mostra mensagens em português quando o servidor falha ou fica inacessível, sem exibir HTML de erro como resultado da validação nem indicar que a wiki foi revisada.

@@ -10,12 +10,134 @@ instalacao_valida() {
   [ -d "$1/.git" ] && [ -f "$1/AGENTS.md" ] && [ -f "$1/src/cli.ts" ] && [ -d "$1/skills" ]
 }
 
+obter_ou_preparar_arquivo_log() {
+  local log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/anvilore"
+  local log_file="$log_dir/abrir.log"
+  if [ -L "$log_dir" ] || [ -L "$log_file" ]; then return 1; fi
+  if [ -e "$log_dir" ] && [ ! -O "$log_dir" ]; then return 1; fi
+  if [ -e "$log_file" ] && [ ! -O "$log_file" ]; then return 1; fi
+  (
+    umask 077
+    mkdir -p -m 700 "$log_dir" 2>/dev/null || true
+    touch "$log_file" 2>/dev/null || true
+  ) 2>/dev/null || true
+  chmod 700 "$log_dir" 2>/dev/null || true
+  chmod 600 "$log_file" 2>/dev/null || true
+  if [ -f "$log_file" ] && [ -O "$log_file" ] && [ ! -L "$log_file" ]; then
+    printf '%s' "$log_file"
+    return 0
+  fi
+  return 1
+}
+
+registrar_abrir_log() {
+  local mensagem="$1" log_file
+  log_file="$(obter_ou_preparar_arquivo_log 2>/dev/null || true)"
+  [ -n "$log_file" ] || return 0
+  (
+    umask 077
+    local carimbo msg
+    carimbo="$(date --iso-8601=seconds 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
+    msg="$(printf '%s\n' "$mensagem" | sed -E 's/token=[a-zA-Z0-9_-]+/token=[REDUZIDO]/g')"
+    printf '%s %s\n' "$carimbo" "$msg" >>"$log_file"
+  ) 2>/dev/null || true
+  chmod 600 "$log_file" 2>/dev/null || true
+}
+
+gravar_log_erro() {
+  registrar_abrir_log "$*"
+}
+
+montar_mensagem_erro_servidor() {
+  local codigo="$1" log_file="$2"
+  local ultimas_linhas=""
+  if [ -n "$log_file" ] && [ -f "$log_file" ]; then
+    ultimas_linhas="$(tail -n 10 "$log_file" 2>/dev/null | sed -E 's/token=[a-zA-Z0-9_-]+/token=[REDUZIDO]/g')"
+  fi
+
+  local corpo="A interface do Anvilore fechou com erro (código $codigo)."
+  if [ -n "$ultimas_linhas" ]; then
+    corpo="$corpo"$'\n\n'"Últimas linhas do erro:"$'\n'"$ultimas_linhas"
+  fi
+  if [ -n "$log_file" ] && [ -f "$log_file" ] && [ "$log_file" != "/dev/null" ]; then
+    corpo="$corpo"$'\n\n'"Registro completo em: $log_file"
+  fi
+  printf '%s' "$corpo"
+}
+
 mostrar_erro_e_esperar() {
+  local msg="$*"
+  [ -n "$msg" ] && gravar_log_erro "$msg"
   printf '%s\n' "$@" >&2
+
   if [ -t 0 ]; then
     printf 'Pressione Enter para fechar esta janela. ' >&2
     IFS= read -r _ || true
+    return 0
   fi
+
+  local texto
+  texto="$(printf '%s\n' "$@" | sed -e '/./,$!d')"
+  [ -n "$texto" ] || return 0
+
+  # Se estiver em ambiente com diálogos suprimidos, não bloqueia com diálogo modal
+  if [ -n "${ANVILORE_SEM_DIALOGO:-}" ]; then
+    [ -n "${ANVILORE_TEST_DIALOGO:-}" ] || return 0
+  fi
+
+  if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+    if command -v zenity >/dev/null 2>&1; then
+      zenity --error --title="Anvilore" --text="$texto" 2>/dev/null && return 0
+    fi
+    if command -v kdialog >/dev/null 2>&1; then
+      kdialog --error "$texto" --title "Anvilore" 2>/dev/null && return 0
+    fi
+    if command -v notify-send >/dev/null 2>&1; then
+      notify-send -u critical "Anvilore" "$texto" 2>/dev/null && return 0
+    fi
+  fi
+
+  local emuladores=("x-terminal-emulator" "gnome-terminal" "ptyxis" "kgx" "konsole" "xfce4-terminal" "xterm")
+  local emu bin
+  for emu in "${emuladores[@]}"; do
+    bin="$(command -v "$emu" 2>/dev/null || true)"
+    if [ -n "$bin" ] && [ -x "$bin" ]; then
+      case "$emu" in
+        gnome-terminal|ptyxis|kgx)
+          "$bin" -- bash -c 'printf "%s\n\nPressione Enter para fechar esta janela. " "$1"; read -r _' _ "$texto" 2>/dev/null && return 0
+          ;;
+        xfce4-terminal)
+          "$bin" -x bash -c 'printf "%s\n\nPressione Enter para fechar esta janela. " "$1"; read -r _' _ "$texto" 2>/dev/null && return 0
+          ;;
+        konsole|xterm|x-terminal-emulator|*)
+          "$bin" -e bash -c 'printf "%s\n\nPressione Enter para fechar esta janela. " "$1"; read -r _' _ "$texto" 2>/dev/null && return 0
+          ;;
+      esac
+    fi
+  done
+  return 0
+}
+
+abrir_no_terminal() {
+  local emuladores=("x-terminal-emulator" "gnome-terminal" "ptyxis" "kgx" "konsole" "xfce4-terminal" "xterm")
+  local emu bin
+  for emu in "${emuladores[@]}"; do
+    bin="$(command -v "$emu" 2>/dev/null || true)"
+    if [ -n "$bin" ] && [ -x "$bin" ]; then
+      case "$emu" in
+        gnome-terminal|ptyxis|kgx)
+          exec "$bin" -- env ANVILORE_EM_TERMINAL=1 ANVILORE_PASTA="$PASTA" bash "$ARQUIVO_LANCADOR" "$@"
+          ;;
+        xfce4-terminal)
+          exec "$bin" -x env ANVILORE_EM_TERMINAL=1 ANVILORE_PASTA="$PASTA" bash "$ARQUIVO_LANCADOR" "$@"
+          ;;
+        konsole|xterm|x-terminal-emulator|*)
+          exec "$bin" -e env ANVILORE_EM_TERMINAL=1 ANVILORE_PASTA="$PASTA" bash "$ARQUIVO_LANCADOR" "$@"
+          ;;
+      esac
+    fi
+  done
+  return 1
 }
 
 if ! instalacao_valida "$PASTA"; then
@@ -24,7 +146,13 @@ if ! instalacao_valida "$PASTA"; then
   elif [ -f "${ANVILORE_PACKAGE_DIR:-/usr/lib/anvilore}/instalar.sh" ]; then INSTALADOR="${ANVILORE_PACKAGE_DIR:-/usr/lib/anvilore}/instalar.sh"
   elif [ -f "$PASTA/instalador/instalar.sh" ]; then INSTALADOR="$PASTA/instalador/instalar.sh"
   fi
+
   if [ -n "$INSTALADOR" ]; then
+    if ! { [ -t 0 ] || [ -t 1 ]; } && [ -z "${ANVILORE_EM_TERMINAL:-}" ]; then
+      if [ -z "${ANVILORE_SEM_DIALOGO:-}" ] || [ -n "${ANVILORE_TEST_DIALOGO:-}" ]; then
+        abrir_no_terminal "$@" || true
+      fi
+    fi
     ANVILORE_PASTA="$PASTA" bash "$INSTALADOR"
     CODIGO_INSTALADOR=$?
     if [ "$CODIGO_INSTALADOR" -ne 0 ]; then
@@ -38,6 +166,19 @@ if ! instalacao_valida "$PASTA"; then
   if ! instalacao_valida "$PASTA"; then
     mostrar_erro_e_esperar "A instalação não foi concluída em $PASTA. Rode o instalador Linux e tente de novo."
     exit 1
+  fi
+
+  # P2-5: depois da 1ª instalação no terminal, relançar desacoplado e fechar o terminal
+  if [ -n "${ANVILORE_EM_TERMINAL:-}" ]; then
+    printf 'Pronto, abrindo no navegador…\n'
+    if command -v setsid >/dev/null 2>&1; then
+      setsid env ANVILORE_DESACOPLADO=1 ANVILORE_PASTA="$PASTA" bash "$ARQUIVO_LANCADOR" "$@" </dev/null >/dev/null 2>&1 &
+    elif command -v nohup >/dev/null 2>&1; then
+      nohup env ANVILORE_DESACOPLADO=1 ANVILORE_PASTA="$PASTA" bash "$ARQUIVO_LANCADOR" "$@" </dev/null >/dev/null 2>&1 &
+    else
+      env ANVILORE_DESACOPLADO=1 ANVILORE_PASTA="$PASTA" bash "$ARQUIVO_LANCADOR" "$@" </dev/null >/dev/null 2>&1 &
+    fi
+    exit 0
   fi
 fi
 
@@ -236,19 +377,6 @@ versao_ja_tentada() {
   return 1
 }
 
-registrar_abrir_log() {
-  local mensagem="$1" diretorio destino
-  diretorio="${XDG_STATE_HOME:-$HOME/.local/state}/anvilore"
-  destino="$diretorio/abrir.log"
-  if [ -L "$diretorio" ] || [ -L "$destino" ]; then return 0; fi
-  if [ -e "$diretorio" ] && [ ! -O "$diretorio" ]; then return 0; fi
-  if [ -e "$destino" ] && [ ! -O "$destino" ]; then return 0; fi
-  mkdir -p "$diretorio" 2>/dev/null || return 0
-  chmod 700 "$diretorio" 2>/dev/null || true
-  ( umask 077; printf '%s %s\n' "$(date --iso-8601=seconds 2>/dev/null || date)" "$mensagem" >>"$destino" ) 2>/dev/null || true
-  chmod 600 "$destino" 2>/dev/null || true
-}
-
 atualizar_kit_do_pacote() {
   local arquivo_versao="$ORIGEM/VERSAO" versao_pacote versao_atual versao_original instalador codigo
   [ -f "$arquivo_versao" ] || return 0
@@ -268,6 +396,9 @@ atualizar_kit_do_pacote() {
     printf 'Não consegui atualizar o Anvilore de %s para %s: o instalador do pacote não está disponível. Vou abrir a versão existente.\n' "$versao_atual" "$versao_pacote" >&2
     return 0
   fi
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send "Anvilore" "Atualizando o Anvilore de $versao_atual para $versao_pacote…" 2>/dev/null || true
+  fi
   printf 'Atualizando o Anvilore de %s para %s…\n' "$versao_atual" "$versao_pacote"
   PATH="$(dirname "$BUN_BIN"):$PATH" ANVILORE_PASTA="$PASTA" ANVILORE_VERSAO="$versao_pacote" ANVILORE_SEM_PERGUNTAS=1 bash "$instalador"
   codigo=$?
@@ -282,12 +413,420 @@ atualizar_kit_do_pacote() {
   fi
 }
 
+obter_chave_cofre() {
+  local pasta_alvo="${1:-$PASTA}"
+  local chave=""
+  if [ -n "${BUN_BIN:-}" ]; then
+    chave="$("$BUN_BIN" -e '
+      const crypto = require("node:crypto");
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const alvo = process.argv[1];
+      let canonica;
+      try {
+        canonica = fs.realpathSync(alvo);
+      } catch {
+        canonica = path.resolve(alvo);
+      }
+      process.stdout.write(crypto.createHash("sha256").update(canonica).digest("hex").slice(0, 16));
+    ' "$pasta_alvo" 2>/dev/null || true)"
+  fi
+  if [ -z "$chave" ] && command -v node >/dev/null 2>&1; then
+    chave="$(node -e '
+      const crypto = require("node:crypto");
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const alvo = process.argv[1];
+      let canonica;
+      try {
+        canonica = fs.realpathSync(alvo);
+      } catch {
+        canonica = path.resolve(alvo);
+      }
+      process.stdout.write(crypto.createHash("sha256").update(canonica).digest("hex").slice(0, 16));
+    ' "$pasta_alvo" 2>/dev/null || true)"
+  fi
+  if [ -z "$chave" ]; then
+    local canonica
+    canonica="$(realpath "$pasta_alvo" 2>/dev/null || readlink -f "$pasta_alvo" 2>/dev/null || echo "$pasta_alvo")"
+    if command -v sha256sum >/dev/null 2>&1; then
+      chave="$(printf '%s' "$canonica" | sha256sum 2>/dev/null | cut -c 1-16)"
+    elif command -v shasum >/dev/null 2>&1; then
+      chave="$(printf '%s' "$canonica" | shasum -a 256 2>/dev/null | cut -c 1-16)"
+    fi
+  fi
+  printf '%s' "$chave"
+}
+
+obter_caminho_estado() {
+  local pasta_alvo="${1:-$PASTA}"
+  local chave
+  chave="$(obter_chave_cofre "$pasta_alvo")"
+  if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+    printf '%s/anvilore-ui-%s.json' "$XDG_RUNTIME_DIR" "$chave"
+  else
+    local state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+    printf '%s/anvilore/anvilore-ui-%s.json' "$state_home" "$chave"
+  fi
+}
+
+obter_caminho_trava() {
+  local pasta_alvo="${1:-$PASTA}"
+  local chave
+  chave="$(obter_chave_cofre "$pasta_alvo")"
+  if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+    printf '%s/anvilore-ui-%s.lock' "$XDG_RUNTIME_DIR" "$chave"
+  else
+    local state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+    printf '%s/anvilore/anvilore-ui-%s.lock' "$state_home" "$chave"
+  fi
+}
+
+USOU_MKDIR_LOCK=0
+MKDIR_LOCK_DIR=""
+
+travar_instancia() {
+  local arquivo_trava trava_dir
+  arquivo_trava="$(obter_caminho_trava "$PASTA")"
+  trava_dir="$(dirname -- "$arquivo_trava")"
+
+  # P3-A: arquivo de trava não pode ser symlink nem ter outro dono
+  if [ -L "$trava_dir" ] || [ -L "$arquivo_trava" ]; then
+    mostrar_erro_e_esperar "Trava inválida: symlink não é permitido em $arquivo_trava"
+    exit 1
+  fi
+  if [ -e "$trava_dir" ] && [ ! -O "$trava_dir" ]; then
+    mostrar_erro_e_esperar "Diretório de trava inválido: não pertence ao usuário atual ($trava_dir)"
+    exit 1
+  fi
+  if [ -e "$arquivo_trava" ] && [ ! -O "$arquivo_trava" ]; then
+    mostrar_erro_e_esperar "Arquivo de trava inválido: não pertence ao usuário atual ($arquivo_trava)"
+    exit 1
+  fi
+  if [ -d "$arquivo_trava" ]; then
+    mostrar_erro_e_esperar "Não consegui abrir a trava do Anvilore em $arquivo_trava: o arquivo de trava é um diretório."
+    exit 1
+  fi
+
+  mkdir -p -m 700 "$trava_dir" 2>/dev/null || true
+  chmod 700 "$trava_dir" 2>/dev/null || true
+
+  if command -v flock >/dev/null 2>&1; then
+    if ! ( : >>"$arquivo_trava" ) 2>/dev/null; then
+      mostrar_erro_e_esperar "Não consegui abrir a trava do Anvilore em $arquivo_trava."
+      exit 1
+    fi
+    exec 9>"$arquivo_trava" || {
+      mostrar_erro_e_esperar "Não consegui abrir a trava do Anvilore em $arquivo_trava."
+      exit 1
+    }
+    chmod 600 "$arquivo_trava" 2>/dev/null || true
+    if ! flock -w 20 9; then
+      gravar_log_erro "Trava de inicialização ocupada por mais de 20s (outro processo ainda subindo). Saindo silenciosamente."
+      exit 0
+    fi
+  else
+    # P3-A: Fallback atômico com mkdir caso flock não esteja disponível
+    MKDIR_LOCK_DIR="$arquivo_trava.d"
+    local obtido=0 agora mod
+    for _ in $(seq 1 200); do
+      if mkdir "$MKDIR_LOCK_DIR" 2>/dev/null; then
+        obtido=1
+        USOU_MKDIR_LOCK=1
+        trap 'liberar_trava_instancia' EXIT INT TERM
+        break
+      fi
+      # Expira lock velho após 30 s
+      agora=$(date +%s 2>/dev/null || echo 0)
+      mod=$(stat -c %Y "$MKDIR_LOCK_DIR" 2>/dev/null || echo "$agora")
+      if [ $((agora - mod)) -gt 30 ]; then
+        rmdir "$MKDIR_LOCK_DIR" 2>/dev/null || rm -rf "$MKDIR_LOCK_DIR" 2>/dev/null || true
+      fi
+      sleep 0.1
+    done
+    if [ "$obtido" -ne 1 ]; then
+      gravar_log_erro "Trava de inicialização ocupada por mais de 20s (outro processo ainda subindo via diretório). Saindo silenciosamente."
+      exit 0
+    fi
+  fi
+}
+
+liberar_trava_instancia() {
+  if [ "$USOU_MKDIR_LOCK" -eq 1 ] && [ -n "$MKDIR_LOCK_DIR" ]; then
+    rmdir "$MKDIR_LOCK_DIR" 2>/dev/null || rm -rf "$MKDIR_LOCK_DIR" 2>/dev/null || true
+    USOU_MKDIR_LOCK=0
+  fi
+  if command -v flock >/dev/null 2>&1; then
+    flock -u 9 2>/dev/null || true
+    exec 9>&-
+  fi
+}
+
+abrir_navegador() {
+  local url="$1"
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$url" >/dev/null 2>&1 &
+  elif command -v gio >/dev/null 2>&1; then
+    gio open "$url" >/dev/null 2>&1 &
+  fi
+}
+
+obter_inicio_processo() {
+  local pid="$1"
+  if [ -f "/proc/$pid/stat" ]; then
+    local stat_str
+    stat_str="$(cat "/proc/$pid/stat" 2>/dev/null || true)"
+    local pos_p="${stat_str##*)}"
+    if [ -n "$pos_p" ]; then
+      local -a campos=($pos_p)
+      printf '%s' "${campos[19]:-}"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+estado_pronto_para_servidor() {
+  local arquivo_estado="$1" server_pid="$2" pasta_alvo="${3:-}"
+  [ -f "$arquivo_estado" ] || return 1
+  [ -n "$server_pid" ] || return 1
+
+  "$BUN_BIN" -e '
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const arquivo = process.argv[1];
+    const serverPid = parseInt(process.argv[2], 10);
+    const pastaAlvo = process.argv[3] ? path.resolve(process.argv[3]) : undefined;
+    try {
+      const est = JSON.parse(fs.readFileSync(arquivo, "utf8"));
+      if (typeof est.pid !== "number" || typeof est.porta !== "number" || typeof est.token !== "string" || typeof est.pasta !== "string") {
+        process.exit(1);
+      }
+      if (est.soRevisao === true) {
+        process.exit(1);
+      }
+      if (pastaAlvo) {
+        const realEst = (() => { try { return fs.realpathSync(est.pasta); } catch { return path.resolve(est.pasta); } })();
+        const realAlvo = (() => { try { return fs.realpathSync(pastaAlvo); } catch { return path.resolve(pastaAlvo); } })();
+        if (realEst !== realAlvo) {
+          process.exit(1);
+        }
+      }
+      if (est.pid === serverPid) {
+        process.exit(0);
+      }
+      let atual = est.pid;
+      while (atual > 1) {
+        try {
+          const s = fs.readFileSync("/proc/" + atual + "/stat", "utf8");
+          const r = s.lastIndexOf(")");
+          if (r === -1) break;
+          const campos = s.slice(r + 2).trim().split(/\s+/);
+          const ppid = parseInt(campos[1], 10);
+          if (ppid === serverPid) process.exit(0);
+          if (ppid === atual || ppid <= 1) break;
+          atual = ppid;
+        } catch {
+          break;
+        }
+      }
+      process.exit(1);
+    } catch {
+      process.exit(1);
+    }
+  ' "$arquivo_estado" "$server_pid" "$pasta_alvo" 2>/dev/null
+}
+
+verificar_instancia_existente() {
+  local arquivo_estado
+  arquivo_estado="$(obter_caminho_estado "$PASTA")"
+  [ -e "$arquivo_estado" ] || return 1
+  [ ! -L "$arquivo_estado" ] || { rm -f -- "$arquivo_estado"; return 1; }
+  [ -O "$arquivo_estado" ] || return 1
+
+  local info
+  info="$("$BUN_BIN" -e '
+    try {
+      const fs = require("node:fs");
+      const est = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      if (typeof est.pid === "number" && typeof est.porta === "number" && typeof est.token === "string" && typeof est.pasta === "string") {
+        if (est.soRevisao === false) {
+          console.log(`${est.pid}:${est.porta}:${est.token}:${est.inicio || ""}:${est.pasta}`);
+        } else {
+          console.log("INCOMPATIVEL:" + est.pid);
+        }
+      }
+    } catch {}
+  ' "$arquivo_estado" 2>/dev/null || true)"
+
+  [ -n "$info" ] || { rm -f -- "$arquivo_estado"; return 1; }
+
+  if [[ "$info" == INCOMPATIVEL:* ]]; then
+    local pid_revisao="${info#INCOMPATIVEL:}"
+    if ! kill -0 "$pid_revisao" 2>/dev/null; then
+      rm -f -- "$arquivo_estado"
+    fi
+    return 1
+  fi
+
+  local est_pid est_porta est_token est_inicio est_pasta
+  IFS=: read -r est_pid est_porta est_token est_inicio est_pasta <<<"$info"
+
+  if ! kill -0 "$est_pid" 2>/dev/null; then
+    rm -f -- "$arquivo_estado"
+    return 1
+  fi
+
+  # P2-C: validação da hora de início (campo 22 de /proc/PID/stat) contra PID reaproveitado
+  if [ -n "$est_inicio" ]; then
+    local inicio_atual
+    inicio_atual="$(obter_inicio_processo "$est_pid" || true)"
+    if [ -z "$inicio_atual" ] || [ "$inicio_atual" != "$est_inicio" ]; then
+      rm -f -- "$arquivo_estado"
+      return 1
+    fi
+  fi
+
+  local pasta_canonica pasta_est_canonica
+  pasta_canonica="$(cd -- "$PASTA" 2>/dev/null && pwd -P || printf '%s' "$PASTA")"
+  pasta_est_canonica="$(cd -- "$est_pasta" 2>/dev/null && pwd -P || printf '%s' "$est_pasta")"
+  if [ "$pasta_canonica" != "$pasta_est_canonica" ]; then
+    return 1
+  fi
+
+  local url="http://127.0.0.1:$est_porta/?token=$est_token"
+  local resultado_http
+  resultado_http="$("$BUN_BIN" -e '
+    fetch(process.argv[1], { signal: AbortSignal.timeout(2000) })
+      .then(r => console.log(r.status === 200 ? "OK" : "STATUS_" + r.status))
+      .catch((err) => {
+        if (err && (err.name === "TimeoutError" || err.name === "AbortError")) {
+          console.log("TIMEOUT");
+        } else {
+          console.log("ERRO");
+        }
+      });
+  ' "$url" 2>/dev/null || echo ERRO)"
+
+  if [ "$resultado_http" = "OK" ]; then
+    URL_EXISTENTE="$url"
+    return 0
+  fi
+
+  # P2-C / P3-7: se foi estritamente TIMEOUT e o processo ainda é o mesmo e está vivo, preserva e reabre
+  if [ "$resultado_http" = "TIMEOUT" ] && kill -0 "$est_pid" 2>/dev/null; then
+    if [ -n "$est_inicio" ]; then
+      local inicio_atual
+      inicio_atual="$(obter_inicio_processo "$est_pid" || true)"
+      if [ -n "$inicio_atual" ] && [ "$inicio_atual" = "$est_inicio" ]; then
+        URL_EXISTENTE="$url"
+        return 0
+      fi
+    else
+      URL_EXISTENTE="$url"
+      return 0
+    fi
+  fi
+
+  rm -f -- "$arquivo_estado"
+  return 1
+}
+
+URL_EXISTENTE=""
+travar_instancia
+
+# P3-4: checar se já existe servidor ativo ANTES de qualquer tentativa de atualização
+if verificar_instancia_existente; then
+  liberar_trava_instancia
+  abrir_navegador "$URL_EXISTENTE"
+  exit 0
+fi
+
+# Início a frio: se houver versão mais recente do pacote, atualiza o kit
 atualizar_kit_do_pacote
 
-cd -- "$PASTA" || { mostrar_erro_e_esperar "Não consegui abrir a pasta $PASTA."; exit 1; }
-ANVILORE_DESTINO="$PASTA" "$BUN_BIN" src/cli.ts ui
-CODIGO=$?
-if [ "$CODIGO" -ne 0 ]; then
-  mostrar_erro_e_esperar "" "A interface do Anvilore fechou com erro (código $CODIGO). Confira a mensagem acima."
+cd -- "$PASTA" || { liberar_trava_instancia; mostrar_erro_e_esperar "Não consegui abrir a pasta $PASTA."; exit 1; }
+
+# Se estiver em terminal interativo e não foi solicitado modo desacoplado, executa no terminal.
+# Opção (b): No terminal, iniciamos o servidor e aguardamos o estado aparecer antes de
+# liberar a trava atômica. Assim, dois lançamentos rápidos não sobem dois servidores.
+# Uma vez gravado o estado (ou após falha/timeout), liberamos a trava e aguardamos o processo
+# do servidor em primeiro plano (wait $server_pid) mantendo a sessão interativa vinculada.
+if { [ -t 0 ] || [ -t 1 ]; } && [ -z "${ANVILORE_DESACOPLADO:-}" ]; then
+  ANVILORE_DESTINO="$PASTA" "$BUN_BIN" src/cli.ts ui &
+  server_pid=$!
+  arquivo_estado_esperado="$(obter_caminho_estado "$PASTA")"
+  for _ in $(seq 1 200); do
+    if ! kill -0 "$server_pid" 2>/dev/null; then break; fi
+    if estado_pronto_para_servidor "$arquivo_estado_esperado" "$server_pid" "$PASTA"; then break; fi
+    sleep 0.1
+  done
+  liberar_trava_instancia
+  wait "$server_pid" 2>/dev/null
+  CODIGO=$?
+  if [ "$CODIGO" -ne 0 ]; then
+    log_file="$(obter_ou_preparar_arquivo_log 2>/dev/null || true)"
+    msg_erro="$(montar_mensagem_erro_servidor "$CODIGO" "$log_file")"
+    mostrar_erro_e_esperar "$msg_erro"
+  fi
+  exit "$CODIGO"
 fi
-exit "$CODIGO"
+
+# Modo sem terminal: executa desacoplado com setsid/nohup, gravando saída no log
+log_file="$(obter_ou_preparar_arquivo_log 2>/dev/null || true)"
+if [ -z "$log_file" ]; then
+  log_file="/dev/null"
+fi
+
+if command -v setsid >/dev/null 2>&1; then
+  setsid bash -c '
+    exec 9>&-
+    set -o pipefail
+    ANVILORE_DESTINO="$1" "$2" src/cli.ts ui --auto-encerrar 2>&1 | \
+      sed -E "s/token=[a-zA-Z0-9_-]+/token=[REDUZIDO]/g" >>"$3"
+  ' _ "$PASTA" "$BUN_BIN" "$log_file" </dev/null &
+  server_pid=$!
+elif command -v nohup >/dev/null 2>&1; then
+  nohup bash -c '
+    exec 9>&-
+    set -o pipefail
+    ANVILORE_DESTINO="$1" "$2" src/cli.ts ui --auto-encerrar 2>&1 | \
+      sed -E "s/token=[a-zA-Z0-9_-]+/token=[REDUZIDO]/g" >>"$3"
+  ' _ "$PASTA" "$BUN_BIN" "$log_file" </dev/null 2>/dev/null &
+  server_pid=$!
+else
+  (
+    exec 9>&-
+    set -o pipefail
+    ANVILORE_DESTINO="$PASTA" "$BUN_BIN" src/cli.ts ui --auto-encerrar 2>&1 | \
+      sed -E 's/token=[a-zA-Z0-9_-]+/token=[REDUZIDO]/g' >>"$log_file"
+  ) &
+  server_pid=$!
+fi
+
+# Aguarda o processo confirmar prontidão (estado gravado), falhar ou timeout de 20s
+arquivo_estado_esperado="$(obter_caminho_estado "$PASTA")"
+pronto=0
+for _ in $(seq 1 200); do
+  if ! kill -0 "$server_pid" 2>/dev/null; then
+    wait "$server_pid" 2>/dev/null
+    CODIGO=$?
+    if [ "$CODIGO" -ne 0 ]; then
+      liberar_trava_instancia
+      [ -f "$log_file" ] && [ "$log_file" != "/dev/null" ] && cat "$log_file" >&2
+      msg_erro="$(montar_mensagem_erro_servidor "$CODIGO" "$log_file")"
+      mostrar_erro_e_esperar "$msg_erro"
+      exit "$CODIGO"
+    fi
+    liberar_trava_instancia
+    exit 0
+  fi
+  if estado_pronto_para_servidor "$arquivo_estado_esperado" "$server_pid" "$PASTA"; then
+    pronto=1
+    break
+  fi
+  sleep 0.1
+done
+
+liberar_trava_instancia
+exit 0

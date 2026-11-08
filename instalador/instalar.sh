@@ -1070,7 +1070,7 @@ criar_atalho() {
   desktop_tmp="$aplicativos/.anvilore.desktop.$$"
   if ! {
     printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Anvilore' 'Comment=Abra sua wiki pessoal' \
-      "Exec=env ANVILORE_PASTA=\"$exec_pasta\" \"$exec_bin\"" 'Icon=anvilore' 'Terminal=true' 'Categories=Office;Utility;' 'StartupNotify=false'
+      "Exec=env ANVILORE_PASTA=\"$exec_pasta\" \"$exec_bin\"" 'Icon=anvilore' 'Terminal=false' 'Categories=Office;Utility;' 'StartupNotify=false'
   } >"$desktop_tmp" || ! chmod 644 "$desktop_tmp" || ! mv -f -- "$desktop_tmp" "$aplicativos/anvilore.desktop"; then
     rm -f -- "$desktop_tmp"
     registrar "atalho: não consegui gravar anvilore.desktop"

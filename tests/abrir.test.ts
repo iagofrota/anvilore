@@ -402,11 +402,11 @@ test("Dado o lançador PowerShell, Quando prepara a UI, Então usa USERPROFILE, 
   expect(ps1).toMatch(/\[scriptblock\]::Create[\s\S]*?\$null = AnvAbrirConfigurarUtf8/);
 });
 
-test("Dado o atalho Linux, Quando leio a criação, Então é uma entrada Anvilore que abre Terminal e chama o lançador", async () => {
+test("Dado o atalho Linux, Quando leio a criação, Então é uma entrada Anvilore sem terminal (Terminal=false) e chama o lançador", async () => {
   const instalador = await readFile(join(raiz, "instalador/instalar.sh"), "utf8");
   const funcao = /criar_atalho\(\) \{[\s\S]*?\n\}/.exec(instalador)?.[0] ?? "";
   expect(funcao).toContain("anvilore.desktop");
-  expect(funcao).toContain("Terminal=true");
+  expect(funcao).toContain("Terminal=false");
   expect(funcao).toContain("anvilore-abrir");
   expect(funcao).not.toContain("ponto de chamada ainda vazio");
 });
@@ -431,7 +431,7 @@ test("Dado um HOME descartável, Quando executo criar_atalho, Então gravo o .de
     const desktop = join(home, ".local/share/applications/anvilore.desktop");
     const texto = await readFile(desktop, "utf8");
     expect(texto).toContain("Name=Anvilore");
-    expect(texto).toContain("Terminal=true");
+    expect(texto).toContain("Terminal=false");
     expect(texto).toContain('Exec=env ANVILORE_PASTA="');
     expect(texto).toContain("100%%");
     const pastaEscapada = pasta.replace(/[\\"`$]/g, "\\$&").replaceAll("\\", "\\\\").replaceAll("%", "%%");

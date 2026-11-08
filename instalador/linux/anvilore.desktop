@@ -4,6 +4,6 @@ Name=Anvilore
 Comment=Abra sua wiki pessoal
 Exec=anvilore-abrir
 Icon=anvilore
-Terminal=true
+Terminal=false
 Categories=Office;Utility;
 StartupNotify=false

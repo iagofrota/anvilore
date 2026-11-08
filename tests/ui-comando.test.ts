@@ -1,4 +1,7 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { comandoUi, esperarEncerramento } from "../src/comandos/ui";
 import { capturarConsole } from "./apoio/console";
 
@@ -99,4 +102,161 @@ test("Dado servidor que expõe limpeza Quando comandoUi recebe o sinal Então es
     expect(await comandoUi([], async () => fake, esperar)).toBe(0);
     expect(ingestaoEncerrada).toBe(true);
   } finally { c.restaurar(); }
+});
+
+test("Dado comando com --auto-encerrar Quando o servidor abre Então passa autoEncerrar: true", async () => {
+  const c = capturarConsole();
+  let opcoesRecebidas: any;
+  const fake = { servidor: { stop: () => {} }, porta: 4173, token: "token", url: "http://127.0.0.1:4173/?token=token" } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>;
+  try {
+    expect(await comandoUi(["--auto-encerrar"], async (_raiz, opcoes) => { opcoesRecebidas = opcoes; return fake; }, async servidor => { servidor.stop(true); })).toBe(0);
+    expect(opcoesRecebidas?.autoEncerrar).toBe(true);
+  } finally { c.restaurar(); }
+});
+
+test("Dado instância já em execução Quando comandoUi é chamado Então reabre o navegador na URL existente sem subir outro servidor", async () => {
+  const c = capturarConsole();
+  let navegadorAberto: string | undefined;
+  let novoServidorIniciado = false;
+
+  // Servidor fake local em porta efêmera para responder GET autenticado
+  const server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      const url = new URL(req.url);
+      if (url.searchParams.get("token") === "token-existente") return new Response("OK", { status: 200 });
+      return new Response("Forbidden", { status: 403 });
+    },
+  });
+
+  const fake = { servidor: { stop: () => {} }, porta: server.port!, token: "token", url: `http://127.0.0.1:${server.port}/?token=token` } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>;
+  const { gravarEstadoUi, removerEstadoUi } = await import("../src/lib/ui-estado");
+  const estado = { pid: process.pid, porta: server.port!, token: "token-existente", pasta: process.cwd() };
+
+  try {
+    await gravarEstadoUi(estado);
+    const codigo = await comandoUi(
+      [],
+      async () => { novoServidorIniciado = true; return fake; },
+      async () => {},
+      url => { navegadorAberto = url; },
+    );
+    expect(codigo).toBe(0);
+    expect(novoServidorIniciado).toBe(false);
+    expect(navegadorAberto).toBe(`http://127.0.0.1:${server.port}/?token=token-existente`);
+    expect(c.saida.join(" ")).toContain("Interface do Anvilore aberta no navegador");
+  } finally {
+    server.stop(true);
+    await removerEstadoUi(process.cwd(), process.pid);
+    c.restaurar();
+  }
+});
+
+test("Dado instância em execução no modo só-revisão, Quando comandoUi é chamado sem --revisao, Então inicia um novo servidor completo (P2-1)", async () => {
+  const c = capturarConsole();
+  let novoServidorIniciado = false;
+  const fake = { servidor: { stop: () => {} }, porta: 4174, token: "token-completo", url: "http://127.0.0.1:4174/?token=token-completo" } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>;
+  const { gravarEstadoUi, removerEstadoUi } = await import("../src/lib/ui-estado");
+
+  // Servidor fake de revisão ativo
+  const serverRevisao = Bun.serve({
+    port: 0,
+    fetch() {
+      return new Response("OK", { status: 200 });
+    },
+  });
+
+  const estado = {
+    pid: process.pid,
+    porta: serverRevisao.port!,
+    token: "token-revisao",
+    pasta: process.cwd(),
+    soRevisao: true,
+  };
+
+  try {
+    await gravarEstadoUi(estado);
+    const codigo = await comandoUi(
+      [],
+      async () => { novoServidorIniciado = true; return fake; },
+      async () => {},
+      () => {},
+    );
+    expect(codigo).toBe(0);
+    // Deve iniciar um novo servidor porque o existente é apenas de revisão
+    expect(novoServidorIniciado).toBe(true);
+  } finally {
+    serverRevisao.stop(true);
+    await removerEstadoUi(process.cwd(), process.pid);
+    c.restaurar();
+  }
+});
+
+test("Dado ANVILORE_DESTINO que é symlink para cofre já aberto, Quando rodo comandoUi, Então reaproveita o servidor existente", async () => {
+  const c = capturarConsole();
+  let navegadorAberto = "";
+  let novoServidorIniciado = false;
+
+  const base = await mkdtemp(join(tmpdir(), "anvilore-ui-symlink-"));
+  try {
+    const pastaReal = join(base, "real");
+    const pastaLink = join(base, "link");
+    await mkdir(pastaReal, { recursive: true });
+    await symlink(pastaReal, pastaLink);
+
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        if (url.searchParams.get("token") === "token-symlink") return new Response("OK", { status: 200 });
+        return new Response("Forbidden", { status: 403 });
+      },
+    });
+
+    const fake = {
+      servidor: { stop: () => {} },
+      porta: server.port!,
+      token: "token",
+      url: `http://127.0.0.1:${server.port}/?token=token`,
+    } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>;
+
+    const { gravarEstadoUi, removerEstadoUi } = await import("../src/lib/ui-estado");
+    // O servidor gravou com a pasta REAL
+    const estado = { pid: process.pid, porta: server.port!, token: "token-symlink", pasta: pastaReal };
+
+    const anteriorDestino = process.env.ANVILORE_DESTINO;
+    try {
+      await gravarEstadoUi(estado);
+      // O usuário abre passando o SYMLINK como destino
+      process.env.ANVILORE_DESTINO = pastaLink;
+
+      const codigo = await comandoUi(
+        [],
+        async () => { novoServidorIniciado = true; return fake; },
+        async () => {},
+        url => { navegadorAberto = url; },
+      );
+      expect(codigo).toBe(0);
+      expect(novoServidorIniciado).toBe(false);
+      expect(navegadorAberto).toBe(`http://127.0.0.1:${server.port}/?token=token-symlink`);
+      expect(c.saida.join(" ")).toContain("Interface do Anvilore aberta no navegador");
+    } finally {
+      if (anteriorDestino !== undefined) process.env.ANVILORE_DESTINO = anteriorDestino;
+      else delete process.env.ANVILORE_DESTINO;
+      server.stop(true);
+      await removerEstadoUi(pastaReal, process.pid);
+      c.restaurar();
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("Dado a suíte em execução, Quando leio caminhoEstadoUi, Então ele fica fora do HOME real do usuário", () => {
+  const { caminhoEstadoUi } = require("../src/lib/ui-estado");
+  const { homedir } = require("node:os");
+  const caminho = caminhoEstadoUi(process.cwd());
+  const realHome = homedir();
+  expect(caminho.startsWith(realHome)).toBe(false);
+  expect(caminho).toContain("anvilore-test-state-");
 });

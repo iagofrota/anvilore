@@ -274,13 +274,16 @@ liga os agentes que a pessoa tem, grava o estado da atualização, roda o `docto
 agentes configurados com nomes amigáveis e dois passos para reabrir o terminal/agentes e abrir o atalho ou o agente na pasta.
 Se `rg` não estiver disponível, acrescenta um aviso em linha própria depois dos passos. `criar_atalho` copia o lançador Linux de `instalador/anvilore-abrir`
 para a pasta local de binários do usuário, instala `instalador/anvilore.svg` no diretório local de ícones e grava
-`anvilore.desktop` no diretório local de aplicativos com `Terminal=true`. A entrada usa o mesmo nome do pacote para
+`anvilore.desktop` no diretório local de aplicativos com `Terminal=false`. A entrada usa o mesmo nome do pacote para
 prevalecer sobre a entrada de sistema sem duplicar o menu. `instalador/anvilore-abrir` usa a pasta Anvilore na home
 (ou `ANVILORE_PASTA`), chama `instalador/instalar.sh` ao lado do lançador ou o instalador do pacote em /usr/lib/anvilore
-quando a instalação ainda falta, e depois roda `bun src/cli.ts ui` com o Bun e os binários locais no `PATH`. Se a UI sair com erro, o lançador mostra o código e
-aguarda Enter quando há terminal. A UI abre o navegador sozinha e escolhe a primeira porta livre a partir de 4173
-(`src/ui/servidor/servidor.ts`); ela não detecta uma UI anterior, então um segundo clique inicia outro servidor na
-próxima porta livre e abre outra aba.
+quando a instalação ainda falta (reabrindo em emulador de terminal gráfico caso não haja terminal aberto), e depois roda
+o servidor da interface web de forma desacoplada com Bun. A interface mantém a instância única gravando o estado
+(`pid`, `porta`, `token`, `pasta`) no arquivo anvilore-ui.json (modo 0600, no diretório de runtime ou state do Anvilore). Um segundo clique
+detecta a instância ativa da mesma pasta e reabre o navegador na URL existente com token, sem subir outro servidor.
+Erros sem terminal são exibidos em diálogo gráfico (`zenity`, `kdialog` ou `notify-send`) e gravados no arquivo de log
+abrir.log sob o diretório de estado do Anvilore (modo 0600, sem segredos). Quando iniciado pelo lançador com `--auto-encerrar`,
+o servidor encerra sozinho após ~2 minutos sem batimentos da página e sem ingestão ou ajuste em andamento.
 
 Onde cada coisa fica (Linux):
 
@@ -368,7 +371,8 @@ O pacote instala o lançador e o instalador em /usr/lib/anvilore/, o link
 Os únicos scripts de pós-instalação/remoção atualizam caches de desktop/ícones, tolerando ferramentas ausentes;
 não escrevem na pasta de usuário (`instalador/linux/`).
 
-O primeiro clique em **Anvilore** abre um terminal (`Terminal=true`) e instala em ~/Anvilore
+O atalho no menu opera com `Terminal=false`. O primeiro clique em **Anvilore** instala em ~/Anvilore
+(reabrindo janela de terminal se a instalação inicial ainda precisar ser executada)
 como a pessoa que clicou. Outra conta ganha sua própria instalação, sem sudo. Cliques seguintes
 chamam a interface sem repetir o instalador. O lançador procura o Bun no PATH atual, em
 $HOME/.bun/bin/bun, no caminho registrado pelo instalador sob $XDG_CONFIG_HOME (por padrão,
