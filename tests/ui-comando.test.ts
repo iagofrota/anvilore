@@ -251,3 +251,12 @@ test("Dado ANVILORE_DESTINO que é symlink para cofre já aberto, Quando rodo co
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test("Dado a suíte em execução, Quando leio caminhoEstadoUi, Então ele fica fora do HOME real do usuário", () => {
+  const { caminhoEstadoUi } = require("../src/lib/ui-estado");
+  const { homedir } = require("node:os");
+  const caminho = caminhoEstadoUi(process.cwd());
+  const realHome = homedir();
+  expect(caminho.startsWith(realHome)).toBe(false);
+  expect(caminho).toContain("anvilore-test-state-");
+});
