@@ -9,10 +9,10 @@ permissions:
   contents: read
 
 env:
-  TAG_ANTERIOR: v0.3.1
-  # Âncora aprovada para a 0.3.2. Pin do objeto da tag já publicada, não da candidata.
-  OBJETO_ANTERIOR: 8d027bfc367a8a17f7a30225b5ecc4d2afe7b8d0
-  COMMIT_ANTERIOR: 13805c3f524a4c62e63a00c231ffaddceb98bfe5
+  TAG_ANTERIOR: v0.3.2
+  # Âncora aprovada para a 0.3.3. Pin do objeto da tag já publicada, não da candidata.
+  OBJETO_ANTERIOR: 2bfb2edccb40413282efae52bf3fcdf649baa05b
+  COMMIT_ANTERIOR: a2593b6acf089da384625816e3c414efc3ca0197
 
 jobs:
   assinatura:
@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: 13805c3f524a4c62e63a00c231ffaddceb98bfe5
+          ref: a2593b6acf089da384625816e3c414efc3ca0197
           fetch-depth: 0
           persist-credentials: false
       - name: Autenticar a tag antes de executar código da candidata
@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # HEAD ainda é a 0.3.1 fixada; nem bunfig, imports ou dependências da candidata são carregados.
+          # HEAD ainda é a 0.3.2 fixada; nem bunfig, imports ou dependências da candidata são carregados.
           bun -e '
             import { consultarConfianca, filtrarAssinantes } from "./src/lib/confianca.ts";
             const lista = await consultarConfianca();

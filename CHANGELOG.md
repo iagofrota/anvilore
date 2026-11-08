@@ -9,20 +9,26 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-08
+
 ### Added
 
-- O lançador Linux abre a interface sem janela de terminal (`Terminal=false`), garante instância única por pasta reutilizando servidor ativo, exibe erros em diálogo gráfico (`zenity`/`kdialog`/`notify-send`) com log seguro em `abrir.log` (0600), e o servidor desacoplado encerra sozinho por inatividade após ~2 minutos sem batimentos da página web e sem ingestão em andamento.
+- O lançador Linux abre a interface sem janela de terminal (`Terminal=false`), reutiliza o servidor ativo para evitar duas instâncias na mesma pasta e encerra sozinho após cerca de dois minutos sem uso da interface ou ingestão.
+
+### Changed
+
+- O CI evita execuções duplicadas por push e filtra mudanças no instalador do Windows.
 
 ### Fixed
 
-- A navegação móvel da interface distribui os links dentro da largura disponível, sem corte ou rolagem horizontal.
-- A interface mantém as telas e as entradas de texto e arquivo enquanto tenta restabelecer a conexão com o servidor, sem atribuir a falha de rede à inatividade.
+- O lançador mostra erros em diálogo gráfico, com registro em `abrir.log` protegido para o usuário.
 - O atualizador tolera o subprocesso encerrar antes de ler a entrada enviada ao stdin e continua usando o código de saída dele para avaliar a prova.
 - O lançador encontra o Bun instalado pelo npm/nvm e explica como instalá-lo quando ele não está disponível; no Windows, também procura o diretório npm do usuário.
 - A Revisão mostra mensagens em português quando o servidor falha ou fica inacessível, sem exibir HTML de erro como resultado da validação nem indicar que a wiki foi revisada.
-- Pacotes Linux incluem sua versão; ao abrir pelo menu, o lançador atualiza automaticamente um kit de usuário mais antigo e abre a versão existente se a atualização falhar.
-- O setup do Windows inclui a versão do pacote e atualiza automaticamente uma pasta antiga ao abrir, sem rebaixar nem bloquear a interface quando houver falha.
+- Pacotes Linux incluem sua versão e, ao abrir pelo menu, atualizam um kit de usuário mais antigo; se a atualização falhar, abrem a versão existente.
+- O setup do Windows inclui a versão do pacote e atualiza automaticamente uma pasta antiga ao abrir, sem rebaixá-la.
 - O lançador busca o Bun no nvm diretamente e com timeout estendido na shell de login, gravando o caminho para aberturas seguintes.
+- A navegação móvel distribui os links dentro da largura disponível, sem corte ou rolagem horizontal. A interface mantém telas e entradas de texto e arquivo durante a reconexão, sem confundir falha de rede com inatividade.
 
 ## [0.3.2] - 2026-11-07
 
