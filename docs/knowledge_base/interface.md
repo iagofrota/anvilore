@@ -1,6 +1,5 @@
 ---
 generated: 2026-11-06
-verified: 2026-11-07
 ---
 
 # Interface local (`anvilore ui`)
