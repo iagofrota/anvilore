@@ -21,7 +21,7 @@ async function prepararConexao(page: import("@playwright/test").Page) {
         await page.evaluate(() => window.dispatchEvent(new Event("focus")));
         await expect.poll(() => batimentos).toBe(total);
       }
-      await expect(page.getByRole("status")).toContainText("Conexão com o Anvilore perdida");
+      await expect(page.locator(".connection-warning, [role='alert']")).toBeVisible();
     },
     reconectar: async () => {
       online = true;
@@ -42,7 +42,9 @@ test("[C09.a][P2 texto] Dado texto não enviado Quando três batimentos falham e
 
   await reconectar.desconectar();
 
+  await expect(campo).toHaveCount(1);
   await expect(campo).toHaveValue(textoDeTeste);
+  await expect(page.getByRole("status")).toHaveText("Conexão com o Anvilore perdida. Tentando reconectar…");
   await guardarEvidencias(page, "chat");
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -71,7 +73,9 @@ test("[C09.a][P2 arquivo] Dado arquivo escolhido Quando três batimentos falham 
 
   await reconectar.desconectar();
 
+  await expect(page.locator(".dropzone")).toHaveCount(1);
   await expect(page.locator(".dropzone")).toContainText("fonte-desconexao.md");
+  await expect(page.getByRole("status")).toHaveText("Conexão com o Anvilore perdida. Tentando reconectar…");
   await guardarEvidencias(page, "chat");
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
