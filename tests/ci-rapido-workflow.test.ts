@@ -33,11 +33,35 @@ test("Dado os workflows ci.yml e instalar-linux.yml, Quando leio os gatilhos de 
   expect(ci.on.workflow_call).toBeDefined();
 });
 
-test("Dado o workflow ci.yml, Quando leio a concorrência, Então define o grupo correto e cancela apenas em pull_request", async () => {
+test("Dado ci.yml e instalar-linux.yml, Quando leio o grupo de concorrência, Então cada um tem prefixo literal próprio e não usa github.workflow", async () => {
   const ci = await carregar("ci.yml");
+  const linux = await carregar("instalar-linux.yml");
+
   expect(ci.concurrency).toBeDefined();
-  expect(ci.concurrency?.group).toBe("ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}");
+  expect(linux.concurrency).toBeDefined();
+
+  const grupoCi = ci.concurrency?.group ?? "";
+  const grupoLinux = linux.concurrency?.group ?? "";
+
+  expect(grupoCi).toStartWith("ci-");
+  expect(grupoLinux).toStartWith("instalar-linux-");
+
+  expect(grupoCi).not.toContain("github.workflow");
+  expect(grupoLinux).not.toContain("github.workflow");
+});
+
+test("Dado um evento que não é pull_request, Quando o grupo é montado, Então inclui github.run_id (grupo único; main e release nunca enfileiram nem cancelam)", async () => {
+  const ci = await carregar("ci.yml");
+  const linux = await carregar("instalar-linux.yml");
+
+  const esperadoCi = "ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}-{1}', github.run_id, github.run_attempt) }}";
+  const esperadoLinux = "instalar-linux-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}-{1}', github.run_id, github.run_attempt) }}";
+
+  expect(ci.concurrency?.group).toBe(esperadoCi);
+  expect(linux.concurrency?.group).toBe(esperadoLinux);
+
   expect(ci.concurrency?.["cancel-in-progress"]).toBe("${{ github.event_name == 'pull_request' }}");
+  expect(linux.concurrency?.["cancel-in-progress"]).toBe("${{ github.event_name == 'pull_request' }}");
 });
 
 test("Dado o workflow ci.yml, Quando verifico a detecção de mudanças, Então o job mudancas usa dorny/paths-filter fixado por SHA com os caminhos do instalador", async () => {
@@ -57,6 +81,19 @@ test("Dado o workflow ci.yml, Quando verifico a detecção de mudanças, Então 
   expect(filtros).toContain("tests/instalar-ps1/**");
   expect(filtros).toContain("seguranca/**");
   expect(filtros).toContain(".github/workflows/ci.yml");
+});
+
+test("Dado o filtro do instalar-ps1, Então inclui package.json e bun.lock", async () => {
+  const ci = await carregar("ci.yml");
+  const mudancas = ci.jobs.mudancas;
+  expect(mudancas).toBeDefined();
+  if (!mudancas) throw new Error("job mudancas não encontrado");
+
+  const passoFiltro = mudancas.steps?.find(s => s.uses?.startsWith("dorny/paths-filter@"));
+  expect(passoFiltro).toBeDefined();
+  const filtros = String(passoFiltro?.with?.filters ?? "");
+  expect(filtros).toContain("package.json");
+  expect(filtros).toContain("bun.lock");
 });
 
 test("Dado o workflow ci.yml, Quando verifico o job instalar-ps1, Então depende de mudancas, é sempre criado e possui passos condicionais", async () => {

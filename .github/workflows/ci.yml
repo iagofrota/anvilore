@@ -7,7 +7,7 @@ on:
   workflow_call:
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}-{1}', github.run_id, github.run_attempt) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -122,6 +122,8 @@ jobs:
               - 'tests/instalar-ps1/**'
               - 'seguranca/**'
               - '.github/workflows/ci.yml'
+              - 'package.json'
+              - 'bun.lock'
 
   instalar-ps1:
     name: instalar.ps1 (Windows, perfil vazio)
@@ -132,7 +134,7 @@ jobs:
       - name: Ignorar instalar.ps1 (PR não altera arquivos do instalador)
         if: github.event_name == 'pull_request' && needs.mudancas.outputs.instalar-ps1 != 'true'
         shell: bash
-        run: echo "PR não altera instalador/**, tests/instalar-ps1/**, seguranca/** ou ci.yml. Etapa pulada com sucesso."
+        run: echo "PR não altera instalador/**, tests/instalar-ps1/**, seguranca/**, package.json, bun.lock ou ci.yml. Etapa pulada com sucesso."
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         if: github.event_name != 'pull_request' || needs.mudancas.outputs.instalar-ps1 == 'true'
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
