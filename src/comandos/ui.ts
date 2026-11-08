@@ -45,7 +45,7 @@ export async function comandoUi(
   }
   const raiz = resolve(process.env.ANVILORE_DESTINO ?? process.cwd());
 
-  const instancia = await verificarInstanciaExistente(raiz, process.env);
+  const instancia = await verificarInstanciaExistente(raiz, process.env, { soRevisao });
   if (instancia.ativa && instancia.url) {
     const urlFinal = `${instancia.url}${soRevisao ? "#revisao" : ""}`;
     abrir(urlFinal);
@@ -62,7 +62,7 @@ export async function comandoUi(
   catch (erro) { console.error(`Não foi possível abrir a interface: ${(erro as Error).message}`); return 1; }
   if (typeof app.porta === "number") {
     try {
-      await gravarEstadoUi({ pid: process.pid, porta: app.porta, token: app.token, pasta: raiz }, process.env);
+      await gravarEstadoUi({ pid: process.pid, porta: app.porta, token: app.token, pasta: raiz, soRevisao }, process.env);
     } catch {}
   }
   console.log("Interface do Anvilore aberta no navegador");

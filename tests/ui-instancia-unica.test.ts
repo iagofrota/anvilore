@@ -132,3 +132,28 @@ test("Dado estado com PID vivo de outro processo e porta morta, Quando verifico 
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test("Dado instância em execução em modo só-revisão, Quando verifico instância existente para uso completo, Então relata inativo e preserva o estado (P2-1)", async () => {
+  const base = await mkdtemp(join(tmpdir(), "anvilore-revisao-incompativel-"));
+  try {
+    const estado = {
+      pid: process.pid,
+      porta: 49991,
+      token: "tok-revisao",
+      pasta: base,
+      soRevisao: true,
+    };
+    await gravarEstadoUi(estado, { XDG_STATE_HOME: base });
+
+    // Pedido completo (soRevisao: false) não deve reaproveitar a instância de revisão
+    const resultado = await verificarInstanciaExistente(base, { XDG_STATE_HOME: base }, { soRevisao: false });
+    expect(resultado.ativa).toBe(false);
+
+    // O estado da revisão deve continuar preservado para seu próprio watchdog
+    const estadoGravado = await obterEstadoUi({ XDG_STATE_HOME: base });
+    expect(estadoGravado).not.toBeNull();
+    expect(estadoGravado?.soRevisao).toBe(true);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});

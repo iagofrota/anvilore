@@ -1414,3 +1414,77 @@ exit 0
     await rm(base, { recursive: true, force: true });
   }
 }, 30000);
+
+test("Dado uma instância ativa no modo só-revisão, Quando o lançador sem terminal executa, Então não reaproveita o servidor restrito e inicia uma instância completa (P2-1)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-revisao-lancador-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "bin");
+    const xdgRuntime = join(base, "run");
+    const chamadas = join(base, "chamadas");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await mkdir(xdgRuntime, { recursive: true });
+
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh
+if [ "$1" = "-e" ]; then
+  exec "${process.execPath}" "$@"
+fi
+if [ "$1" = "src/cli.ts" ] && [ "$2" = "ui" ]; then
+  echo "start $$" >>"${chamadas}"
+  exit 0
+fi
+exit 0
+`);
+    await chmod(bun, 0o755);
+
+    // Servidor fake de revisão ativo na porta 49992
+    const server = Bun.serve({
+      port: 49992,
+      fetch() {
+        return new Response("OK", { status: 200 });
+      },
+    });
+
+    try {
+      const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+      await writeFile(estadoFile, JSON.stringify({
+        pid: process.pid,
+        porta: 49992,
+        token: "tokRevisao",
+        pasta,
+        soRevisao: true,
+      }, null, 2), { mode: 0o600 });
+
+      const env = {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:/usr/bin:/bin`,
+        ANVILORE_PASTA: pasta,
+        XDG_RUNTIME_DIR: xdgRuntime,
+        ANVILORE_SEM_DIALOGO: "1",
+      };
+
+      const proc = Bun.spawnSync(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+      expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+
+      // Deve ter iniciado um servidor completo (starts = 1)
+      const starts = (await readFile(chamadas, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
+      expect(starts.length).toBe(1);
+    } finally {
+      server.stop(true);
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});

@@ -148,3 +148,43 @@ test("Dado instância já em execução Quando comandoUi é chamado Então reabr
     c.restaurar();
   }
 });
+
+test("Dado instância em execução no modo só-revisão, Quando comandoUi é chamado sem --revisao, Então inicia um novo servidor completo (P2-1)", async () => {
+  const c = capturarConsole();
+  let novoServidorIniciado = false;
+  const fake = { servidor: { stop: () => {} }, porta: 4174, token: "token-completo", url: "http://127.0.0.1:4174/?token=token-completo" } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>;
+  const { gravarEstadoUi, removerEstadoUi } = await import("../src/lib/ui-estado");
+
+  // Servidor fake de revisão ativo
+  const serverRevisao = Bun.serve({
+    port: 0,
+    fetch() {
+      return new Response("OK", { status: 200 });
+    },
+  });
+
+  const estado = {
+    pid: process.pid,
+    porta: serverRevisao.port,
+    token: "token-revisao",
+    pasta: process.cwd(),
+    soRevisao: true,
+  };
+
+  try {
+    await gravarEstadoUi(estado);
+    const codigo = await comandoUi(
+      [],
+      async () => { novoServidorIniciado = true; return fake; },
+      async () => {},
+      () => {},
+    );
+    expect(codigo).toBe(0);
+    // Deve iniciar um novo servidor porque o existente é apenas de revisão
+    expect(novoServidorIniciado).toBe(true);
+  } finally {
+    serverRevisao.stop(true);
+    await removerEstadoUi(process.pid);
+    c.restaurar();
+  }
+});

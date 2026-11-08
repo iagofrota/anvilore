@@ -548,12 +548,24 @@ verificar_instancia_existente() {
       const fs = require("node:fs");
       const est = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
       if (typeof est.pid === "number" && typeof est.porta === "number" && typeof est.token === "string" && typeof est.pasta === "string") {
-        console.log(`${est.pid}:${est.porta}:${est.token}:${est.inicio || ""}:${est.pasta}`);
+        if (est.soRevisao === true) {
+          console.log("INCOMPATIVEL:" + est.pid);
+        } else if (est.soRevisao === false) {
+          console.log(`${est.pid}:${est.porta}:${est.token}:${est.inicio || ""}:${est.pasta}`);
+        }
       }
     } catch {}
   ' "$arquivo_estado" 2>/dev/null || true)"
 
   [ -n "$info" ] || { rm -f -- "$arquivo_estado"; return 1; }
+
+  if [[ "$info" == INCOMPATIVEL:* ]]; then
+    local pid_revisao="${info#INCOMPATIVEL:}"
+    if ! kill -0 "$pid_revisao" 2>/dev/null; then
+      rm -f -- "$arquivo_estado"
+    fi
+    return 1
+  fi
 
   local est_pid est_porta est_token est_inicio est_pasta
   IFS=: read -r est_pid est_porta est_token est_inicio est_pasta <<<"$info"

@@ -9,6 +9,7 @@ export type EstadoUi = {
   token: string;
   pasta: string;
   inicio?: string;
+  soRevisao?: boolean;
 };
 
 export async function obterInicioProcesso(pid: number): Promise<string | undefined> {
@@ -57,6 +58,7 @@ export async function obterEstadoUi(ambiente: Record<string, string | undefined>
         token: dados.token,
         pasta: dados.pasta,
         inicio: typeof dados.inicio === "string" ? dados.inicio : undefined,
+        soRevisao: typeof dados.soRevisao === "boolean" ? dados.soRevisao : undefined,
       };
     }
     return null;
@@ -71,6 +73,9 @@ export async function gravarEstadoUi(estado: EstadoUi, ambiente: Record<string, 
 
   if (!estado.inicio && typeof estado.pid === "number") {
     estado.inicio = await obterInicioProcesso(estado.pid);
+  }
+  if (typeof estado.soRevisao !== "boolean") {
+    estado.soRevisao = false;
   }
 
   await mkdir(pasta, { recursive: true, mode: 0o700 });
@@ -99,9 +104,14 @@ export async function removerEstadoUi(pid?: number, ambiente: Record<string, str
   } catch {}
 }
 
+export type OpcoesVerificarInstancia = {
+  soRevisao?: boolean;
+};
+
 export async function verificarInstanciaExistente(
   pasta: string,
   ambiente: Record<string, string | undefined> = process.env,
+  opcoes?: OpcoesVerificarInstancia,
 ): Promise<{ ativa: boolean; estado?: EstadoUi; url?: string }> {
   const estado = await obterEstadoUi(ambiente);
   if (!estado) return { ativa: false };
@@ -126,6 +136,18 @@ export async function verificarInstanciaExistente(
       await removerEstadoUi(undefined, ambiente);
       return { ativa: false };
     }
+  }
+
+  // Compatibilidade de modo (P2-1):
+  // Uma instância completa (soRevisao === false) serve a pedidos completos ou de revisão.
+  // Uma instância só de revisão (soRevisao === true) NÃO serve a pedidos completos.
+  // Estado legado sem soRevisao é tratado como incompatível para evitar reaproveitamento indevido.
+  const modoDesejado = opcoes?.soRevisao ?? false;
+  if (typeof estado.soRevisao !== "boolean") {
+    return { ativa: false };
+  }
+  if (estado.soRevisao && !modoDesejado) {
+    return { ativa: false, estado };
   }
 
   const url = `http://127.0.0.1:${estado.porta}/?token=${encodeURIComponent(estado.token)}`;
