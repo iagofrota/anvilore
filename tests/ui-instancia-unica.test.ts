@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, normalize, resolve } from "node:path";
 import {
   caminhoEstadoUi,
   gravarEstadoUi,
@@ -12,12 +12,14 @@ import {
 
 test("Dado XDG_RUNTIME_DIR definido, Quando obtenho caminho do estado, Então usa o diretório de runtime", () => {
   const caminho = caminhoEstadoUi("/tmp/minha-wiki", { XDG_RUNTIME_DIR: "/run/user/1000" });
-  expect(caminho).toMatch(/^\/run\/user\/1000\/anvilore-ui-[a-f0-9]{16}\.json$/);
+  expect(dirname(caminho)).toBe(normalize("/run/user/1000"));
+  expect(basename(caminho)).toMatch(/^anvilore-ui-[a-f0-9]{16}\.json$/);
 });
 
 test("Dado XDG_RUNTIME_DIR ausente e XDG_STATE_HOME definido, Quando obtenho caminho do estado, Então usa anvilore sob state home", () => {
   const caminho = caminhoEstadoUi("/tmp/minha-wiki", { XDG_STATE_HOME: "/tmp/state" });
-  expect(caminho).toMatch(/^\/tmp\/state\/anvilore\/anvilore-ui-[a-f0-9]{16}\.json$/);
+  expect(dirname(caminho)).toBe(normalize(join("/tmp/state", "anvilore")));
+  expect(basename(caminho)).toMatch(/^anvilore-ui-[a-f0-9]{16}\.json$/);
 });
 
 test("Dado gravação do estado, Quando gravo dados da instância, Então o arquivo tem modo 0600 e conteúdo JSON válido", async () => {
@@ -452,8 +454,17 @@ test("Dado o mesmo cofre por caminho real e por symlink, Quando calculo o caminh
     const caminhoBashReal = procBashReal.stdout.toString().trim();
     const caminhoBashLink = procBashLink.stdout.toString().trim();
 
-    expect(caminhoBashReal).toBe(caminhoTsReal);
-    expect(caminhoBashLink).toBe(caminhoTsLink);
+    const normalizarSeparadores = (caminho: string) => normalize(caminho.replaceAll("\\", "/")).replaceAll("\\", "/");
+    const extrairHash = (caminho: string) => {
+      const hash = basename(caminho).match(/^anvilore-ui-([a-f0-9]{16})\.json$/)?.[1];
+      expect(hash).toMatch(/^[a-f0-9]{16}$/);
+      return hash;
+    };
+
+    expect(normalizarSeparadores(caminhoBashReal)).toBe(normalizarSeparadores(caminhoTsReal));
+    expect(normalizarSeparadores(caminhoBashLink)).toBe(normalizarSeparadores(caminhoTsLink));
+    expect(extrairHash(caminhoBashReal)).toBe(extrairHash(caminhoTsReal));
+    expect(extrairHash(caminhoBashLink)).toBe(extrairHash(caminhoTsLink));
   } finally {
     await rm(base, { recursive: true, force: true });
   }
