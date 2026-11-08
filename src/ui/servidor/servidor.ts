@@ -25,6 +25,7 @@ import {
   validarPastaVault,
 } from "../../lib/ui-onboarding";
 import { ambienteComCaminhosAbsolutos } from "../../lib/caminhos";
+import { gravarEstadoUi, obterEstadoUi } from "../../lib/ui-estado";
 
 type Servidor = ReturnType<typeof Bun.serve>;
 type OpcoesServidor = {
@@ -437,6 +438,19 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
                 raiz = novaRaiz;
                 wiki = caminhoWiki(raiz, ambiente);
                 ingestao = await criarIngestao(raiz, opcoes);
+                try {
+                  const estadoAtual = await obterEstadoUi(ambiente);
+                  await gravarEstadoUi({
+                    pid: process.pid,
+                    porta: servidor?.port ?? 0,
+                    token,
+                    pasta: raiz,
+                    inicio: estadoAtual?.inicio,
+                    soRevisao,
+                  }, ambiente);
+                } catch {
+                  // Se falhar ao gravar o estado, não impede a troca de pasta
+                }
               }
               const inspecao = await inspecionarPasta(raiz, ambiente);
               const caminhoOnboarding = join(raiz, ".anvilore", "onboarding.json");

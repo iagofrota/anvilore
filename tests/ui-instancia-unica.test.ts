@@ -157,3 +157,79 @@ test("Dado instância em execução em modo só-revisão, Quando verifico instâ
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test("Dado servidor ativo na pasta A, Quando a rota /api/onboarding/pasta troca para a pasta B, Então o estado é regravado apontando para B e A fica inativa (P2-3)", async () => {
+  const base = await mkdtemp(join(tmpdir(), "anvilore-troca-pasta-"));
+  try {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { iniciarServidorUi } = await import("../src/ui/servidor/servidor");
+    const { PonteClaudeCode } = await import("../src/lib/ponte-claude-code");
+    class PonteFalsa extends PonteClaudeCode {
+      override async disponibilidade() {
+        return { ok: true as const, binario: "claude", versao: "fake" };
+      }
+    }
+
+    const home = join(base, "home");
+    const pastaA = join(home, "vault-a");
+    const pastaB = join(home, "vault-b");
+    const stateHome = join(base, "state");
+
+    await mkdir(join(pastaA, "wiki"), { recursive: true });
+    await writeFile(join(pastaA, "SCHEMA.md"), "# Schema\n");
+    await writeFile(join(pastaA, "AGENTS.md"), "# Agentes\n");
+
+    await mkdir(join(pastaB, "wiki"), { recursive: true });
+    await writeFile(join(pastaB, "SCHEMA.md"), "# Schema\n");
+    await writeFile(join(pastaB, "AGENTS.md"), "# Agentes\n");
+
+    const ambiente = { ...process.env, HOME: home, XDG_STATE_HOME: stateHome };
+
+    const app = await iniciarServidorUi(pastaA, {
+      portaInicial: 0,
+      token: "tok-troca-pasta",
+      abrirNavegador: false,
+      ponte: new PonteFalsa(),
+      ambiente,
+    });
+
+    try {
+      // Grava o estado inicial apontando para pastaA
+      await gravarEstadoUi({
+        pid: process.pid,
+        porta: app.porta,
+        token: app.token,
+        pasta: pastaA,
+        soRevisao: false,
+      }, ambiente);
+
+      // Confere que pastaA está ativa inicialmente
+      const instAInicial = await verificarInstanciaExistente(pastaA, ambiente);
+      expect(instAInicial.ativa).toBe(true);
+
+      // Troca para pastaB via POST /api/onboarding/pasta
+      const res = await fetch(`http://127.0.0.1:${app.porta}/api/onboarding/pasta?token=${app.token}`, {
+        method: "POST",
+        headers: {
+          origin: `http://127.0.0.1:${app.porta}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ pasta: pastaB }),
+      });
+      expect(res.status).toBe(200);
+
+      // Após a troca: pastaA deve ser inativa e pastaB deve ser ativa
+      const instA = await verificarInstanciaExistente(pastaA, ambiente);
+      expect(instA.ativa).toBe(false);
+
+      const instB = await verificarInstanciaExistente(pastaB, ambiente);
+      expect(instB.ativa).toBe(true);
+      expect(instB.url).toContain(`:${app.porta}/?token=${app.token}`);
+    } finally {
+      await app.encerrar();
+      app.servidor.stop(true);
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
