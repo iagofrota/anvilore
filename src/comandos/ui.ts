@@ -70,7 +70,7 @@ export async function comandoUi(
     await esperar(app.servidor, undefined, app.encerrar);
   } finally {
     try {
-      await removerEstadoUi(process.pid, process.env);
+      await removerEstadoUi(app?.obterRaiz ? app.obterRaiz() : raiz, process.pid, process.env);
     } catch {}
   }
   return 0;

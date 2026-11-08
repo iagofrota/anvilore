@@ -25,7 +25,7 @@ import {
   validarPastaVault,
 } from "../../lib/ui-onboarding";
 import { ambienteComCaminhosAbsolutos } from "../../lib/caminhos";
-import { gravarEstadoUi, obterEstadoUi } from "../../lib/ui-estado";
+import { gravarEstadoUi, obterEstadoUi, removerEstadoUi, verificarInstanciaExistente } from "../../lib/ui-estado";
 
 type Servidor = ReturnType<typeof Bun.serve>;
 type OpcoesServidor = {
@@ -224,6 +224,9 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
   const encerrarServidor = async () => {
     if (timerInatividade) clearInterval(timerInatividade);
     if (timeoutInatividade) clearTimeout(timeoutInatividade);
+    try {
+      await removerEstadoUi(raiz, process.pid, ambiente);
+    } catch {}
     servidor?.stop(true);
     await ingestao?.encerrar();
     if (opcoes.aoEncerrar) {
@@ -429,17 +432,22 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
               const pastaValida = validarPastaVault(corpo.pasta, ambiente);
               const novaRaiz = resolve(pastaValida);
               if (novaRaiz !== raiz) {
+                const instNova = await verificarInstanciaExistente(novaRaiz, ambiente);
+                if (instNova.ativa) {
+                  return json({ erro: "Esse cofre já está aberto em outra janela." }, 409);
+                }
                 const conversas = await ingestao.listar();
                 const emAndamento = conversas.some(c => c.situacao === "rodando");
                 if (ingestao.ocupada || emAndamento) {
                   return json({ erro: "Não é possível alterar a pasta enquanto houver uma ingestão em andamento." }, 409);
                 }
                 await ingestao.encerrar();
+                const pastaAntiga = raiz;
                 raiz = novaRaiz;
                 wiki = caminhoWiki(raiz, ambiente);
                 ingestao = await criarIngestao(raiz, opcoes);
                 try {
-                  const estadoAtual = await obterEstadoUi(ambiente);
+                  const estadoAtual = await obterEstadoUi(pastaAntiga, ambiente);
                   if (estadoAtual && estadoAtual.pid === process.pid && estadoAtual.token === token) {
                     await gravarEstadoUi({
                       pid: process.pid,
@@ -449,6 +457,7 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
                       inicio: estadoAtual.inicio,
                       soRevisao: estadoAtual.soRevisao ?? soRevisao,
                     }, ambiente);
+                    await removerEstadoUi(pastaAntiga, process.pid, ambiente);
                   }
                 } catch {
                   // Se falhar ao gravar o estado, não impede a troca de pasta
@@ -621,9 +630,13 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
     porta: servidor.port,
     token,
     url,
+    obterRaiz: () => raiz,
     encerrar: async () => {
       if (timerInatividade) clearInterval(timerInatividade);
       if (timeoutInatividade) clearTimeout(timeoutInatividade);
+      try {
+        await removerEstadoUi(raiz, process.pid, ambiente);
+      } catch {}
       await ingestao?.encerrar();
     },
   };

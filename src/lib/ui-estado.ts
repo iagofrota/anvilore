@@ -1,4 +1,5 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { chmod, lstat, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -12,6 +13,16 @@ export type EstadoUi = {
   soRevisao?: boolean;
 };
 
+export function chaveCofreUi(pasta: string): string {
+  let canonica: string;
+  try {
+    canonica = realpathSync(pasta);
+  } catch {
+    canonica = resolve(pasta);
+  }
+  return createHash("sha256").update(canonica).digest("hex").slice(0, 16);
+}
+
 export async function obterInicioProcesso(pid: number): Promise<string | undefined> {
   try {
     const statStr = await readFile(`/proc/${pid}/stat`, "utf8");
@@ -24,12 +35,22 @@ export async function obterInicioProcesso(pid: number): Promise<string | undefin
   }
 }
 
-export function caminhoEstadoUi(ambiente: Record<string, string | undefined> = process.env): string {
+export function caminhoEstadoUi(pasta: string, ambiente: Record<string, string | undefined> = process.env): string {
+  const chave = chaveCofreUi(pasta);
   if (ambiente.XDG_RUNTIME_DIR) {
-    return join(ambiente.XDG_RUNTIME_DIR, "anvilore-ui.json");
+    return join(ambiente.XDG_RUNTIME_DIR, `anvilore-ui-${chave}.json`);
   }
   const stateHome = ambiente.XDG_STATE_HOME || join(ambiente.HOME ?? tmpdir(), ".local/state");
-  return join(stateHome, "anvilore", "anvilore-ui.json");
+  return join(stateHome, "anvilore", `anvilore-ui-${chave}.json`);
+}
+
+export function caminhoTravaUi(pasta: string, ambiente: Record<string, string | undefined> = process.env): string {
+  const chave = chaveCofreUi(pasta);
+  if (ambiente.XDG_RUNTIME_DIR) {
+    return join(ambiente.XDG_RUNTIME_DIR, `anvilore-ui-${chave}.lock`);
+  }
+  const stateHome = ambiente.XDG_STATE_HOME || join(ambiente.HOME ?? tmpdir(), ".local/state");
+  return join(stateHome, "anvilore", `anvilore-ui-${chave}.lock`);
 }
 
 function ehDonoAtual(uid: number): boolean {
@@ -37,8 +58,8 @@ function ehDonoAtual(uid: number): boolean {
   return uid === process.getuid();
 }
 
-export async function obterEstadoUi(ambiente: Record<string, string | undefined> = process.env): Promise<EstadoUi | null> {
-  const caminho = caminhoEstadoUi(ambiente);
+export async function obterEstadoUi(pasta: string, ambiente: Record<string, string | undefined> = process.env): Promise<EstadoUi | null> {
+  const caminho = caminhoEstadoUi(pasta, ambiente);
   try {
     const linfo = await lstat(caminho);
     if (linfo.isSymbolicLink()) return null;
@@ -68,7 +89,7 @@ export async function obterEstadoUi(ambiente: Record<string, string | undefined>
 }
 
 export async function gravarEstadoUi(estado: EstadoUi, ambiente: Record<string, string | undefined> = process.env): Promise<void> {
-  const caminho = caminhoEstadoUi(ambiente);
+  const caminho = caminhoEstadoUi(estado.pasta, ambiente);
   const pasta = dirname(caminho);
 
   if (!estado.inicio && typeof estado.pid === "number") {
@@ -84,14 +105,15 @@ export async function gravarEstadoUi(estado: EstadoUi, ambiente: Record<string, 
     throw new Error(`Pasta de estado inválida ou insegura: ${pasta}`);
   }
 
-  const tmp = join(pasta, `.anvilore-ui.${process.pid}.${randomBytes(4).toString("hex")}.tmp`);
+  const chave = chaveCofreUi(estado.pasta);
+  const tmp = join(pasta, `.anvilore-ui-${chave}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`);
   await writeFile(tmp, JSON.stringify(estado, null, 2), { mode: 0o600 });
   await chmod(tmp, 0o600);
   await rename(tmp, caminho);
 }
 
-export async function removerEstadoUi(pid?: number, ambiente: Record<string, string | undefined> = process.env): Promise<void> {
-  const caminho = caminhoEstadoUi(ambiente);
+export async function removerEstadoUi(pasta: string, pid?: number, ambiente: Record<string, string | undefined> = process.env): Promise<void> {
+  const caminho = caminhoEstadoUi(pasta, ambiente);
   try {
     const linfo = await lstat(caminho);
     if (linfo.isSymbolicLink() || !ehDonoAtual(linfo.uid)) return;
@@ -113,19 +135,18 @@ export async function verificarInstanciaExistente(
   ambiente: Record<string, string | undefined> = process.env,
   opcoes?: OpcoesVerificarInstancia,
 ): Promise<{ ativa: boolean; estado?: EstadoUi; url?: string }> {
-  const estado = await obterEstadoUi(ambiente);
+  const estado = await obterEstadoUi(pasta, ambiente);
   if (!estado) return { ativa: false };
 
-  const pastaCanonica = resolve(pasta);
-  const pastaEstadoCanonica = resolve(estado.pasta);
-  if (pastaCanonica !== pastaEstadoCanonica) {
+  // Item B: chave canônica (realpath) garante que symlinks e caminhos reais batam exatamente
+  if (chaveCofreUi(pasta) !== chaveCofreUi(estado.pasta)) {
     return { ativa: false };
   }
 
   try {
     process.kill(estado.pid, 0);
   } catch {
-    await removerEstadoUi(undefined, ambiente);
+    await removerEstadoUi(pasta, undefined, ambiente);
     return { ativa: false };
   }
 
@@ -133,7 +154,7 @@ export async function verificarInstanciaExistente(
   if (estado.inicio) {
     const inicioAtual = await obterInicioProcesso(estado.pid);
     if (!inicioAtual || inicioAtual !== estado.inicio) {
-      await removerEstadoUi(undefined, ambiente);
+      await removerEstadoUi(pasta, undefined, ambiente);
       return { ativa: false };
     }
   }
@@ -173,6 +194,6 @@ export async function verificarInstanciaExistente(
     }
   }
 
-  await removerEstadoUi(undefined, ambiente);
+  await removerEstadoUi(pasta, undefined, ambiente);
   return { ativa: false };
 }

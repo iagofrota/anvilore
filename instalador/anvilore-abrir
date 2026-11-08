@@ -413,21 +413,72 @@ atualizar_kit_do_pacote() {
   fi
 }
 
+obter_chave_cofre() {
+  local pasta_alvo="${1:-$PASTA}"
+  local chave=""
+  if [ -n "${BUN_BIN:-}" ]; then
+    chave="$("$BUN_BIN" -e '
+      const crypto = require("node:crypto");
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const alvo = process.argv[1];
+      let canonica;
+      try {
+        canonica = fs.realpathSync(alvo);
+      } catch {
+        canonica = path.resolve(alvo);
+      }
+      process.stdout.write(crypto.createHash("sha256").update(canonica).digest("hex").slice(0, 16));
+    ' "$pasta_alvo" 2>/dev/null || true)"
+  fi
+  if [ -z "$chave" ] && command -v node >/dev/null 2>&1; then
+    chave="$(node -e '
+      const crypto = require("node:crypto");
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const alvo = process.argv[1];
+      let canonica;
+      try {
+        canonica = fs.realpathSync(alvo);
+      } catch {
+        canonica = path.resolve(alvo);
+      }
+      process.stdout.write(crypto.createHash("sha256").update(canonica).digest("hex").slice(0, 16));
+    ' "$pasta_alvo" 2>/dev/null || true)"
+  fi
+  if [ -z "$chave" ]; then
+    local canonica
+    canonica="$(realpath "$pasta_alvo" 2>/dev/null || readlink -f "$pasta_alvo" 2>/dev/null || echo "$pasta_alvo")"
+    if command -v sha256sum >/dev/null 2>&1; then
+      chave="$(printf '%s' "$canonica" | sha256sum 2>/dev/null | cut -c 1-16)"
+    elif command -v shasum >/dev/null 2>&1; then
+      chave="$(printf '%s' "$canonica" | shasum -a 256 2>/dev/null | cut -c 1-16)"
+    fi
+  fi
+  printf '%s' "$chave"
+}
+
 obter_caminho_estado() {
+  local pasta_alvo="${1:-$PASTA}"
+  local chave
+  chave="$(obter_chave_cofre "$pasta_alvo")"
   if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
-    printf '%s/anvilore-ui.json' "$XDG_RUNTIME_DIR"
+    printf '%s/anvilore-ui-%s.json' "$XDG_RUNTIME_DIR" "$chave"
   else
     local state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
-    printf '%s/anvilore/anvilore-ui.json' "$state_home"
+    printf '%s/anvilore/anvilore-ui-%s.json' "$state_home" "$chave"
   fi
 }
 
 obter_caminho_trava() {
+  local pasta_alvo="${1:-$PASTA}"
+  local chave
+  chave="$(obter_chave_cofre "$pasta_alvo")"
   if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
-    printf '%s/anvilore-ui.lock' "$XDG_RUNTIME_DIR"
+    printf '%s/anvilore-ui-%s.lock' "$XDG_RUNTIME_DIR" "$chave"
   else
     local state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
-    printf '%s/anvilore/anvilore-ui.lock' "$state_home"
+    printf '%s/anvilore/anvilore-ui-%s.lock' "$state_home" "$chave"
   fi
 }
 
@@ -436,7 +487,7 @@ MKDIR_LOCK_DIR=""
 
 travar_instancia() {
   local arquivo_trava trava_dir
-  arquivo_trava="$(obter_caminho_trava)"
+  arquivo_trava="$(obter_caminho_trava "$PASTA")"
   trava_dir="$(dirname -- "$arquivo_trava")"
 
   # P3-A: arquivo de trava não pode ser symlink nem ter outro dono
@@ -476,7 +527,7 @@ travar_instancia() {
     fi
   else
     # P3-A: Fallback atômico com mkdir caso flock não esteja disponível
-    MKDIR_LOCK_DIR="$trava_dir/anvilore-ui.lock.d"
+    MKDIR_LOCK_DIR="$arquivo_trava.d"
     local obtido=0 agora mod
     for _ in $(seq 1 200); do
       if mkdir "$MKDIR_LOCK_DIR" 2>/dev/null; then
@@ -588,7 +639,7 @@ estado_pronto_para_servidor() {
 
 verificar_instancia_existente() {
   local arquivo_estado
-  arquivo_estado="$(obter_caminho_estado)"
+  arquivo_estado="$(obter_caminho_estado "$PASTA")"
   [ -e "$arquivo_estado" ] || return 1
   [ ! -L "$arquivo_estado" ] || { rm -f -- "$arquivo_estado"; return 1; }
   [ -O "$arquivo_estado" ] || return 1
@@ -704,9 +755,10 @@ cd -- "$PASTA" || { liberar_trava_instancia; mostrar_erro_e_esperar "Não conseg
 if { [ -t 0 ] || [ -t 1 ]; } && [ -z "${ANVILORE_DESACOPLADO:-}" ]; then
   ANVILORE_DESTINO="$PASTA" "$BUN_BIN" src/cli.ts ui &
   server_pid=$!
+  arquivo_estado_esperado="$(obter_caminho_estado "$PASTA")"
   for _ in $(seq 1 200); do
     if ! kill -0 "$server_pid" 2>/dev/null; then break; fi
-    if estado_pronto_para_servidor "$(obter_caminho_estado)" "$server_pid" "$PASTA"; then break; fi
+    if estado_pronto_para_servidor "$arquivo_estado_esperado" "$server_pid" "$PASTA"; then break; fi
     sleep 0.1
   done
   liberar_trava_instancia
@@ -753,6 +805,7 @@ else
 fi
 
 # Aguarda o processo confirmar prontidão (estado gravado), falhar ou timeout de 20s
+arquivo_estado_esperado="$(obter_caminho_estado "$PASTA")"
 pronto=0
 for _ in $(seq 1 200); do
   if ! kill -0 "$server_pid" 2>/dev/null; then
@@ -768,7 +821,7 @@ for _ in $(seq 1 200); do
     liberar_trava_instancia
     exit 0
   fi
-  if estado_pronto_para_servidor "$(obter_caminho_estado)" "$server_pid" "$PASTA"; then
+  if estado_pronto_para_servidor "$arquivo_estado_esperado" "$server_pid" "$PASTA"; then
     pronto=1
     break
   fi

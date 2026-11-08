@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { caminhoEstadoUi, caminhoTravaUi } from "../src/lib/ui-estado";
 
 const raiz = join(import.meta.dir, "..");
 const lancadorOriginal = join(raiz, "instalador/anvilore-abrir");
@@ -61,7 +62,7 @@ exit 0
 
     try {
       // Grava o arquivo de estado no XDG_RUNTIME_DIR
-      const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+      const estadoFile = caminhoEstadoUi(pasta, { XDG_RUNTIME_DIR: xdgRuntime });
       await writeFile(estadoFile, JSON.stringify({
         pid: process.pid,
         porta: server.port,
@@ -337,7 +338,7 @@ test("Dado estado com symlink malicioso, Quando verifico instância existente, E
     await writeFile(alvo, "conteudo confidencial");
 
     // Cria symlink apontando para arquivo alvo
-    const link = join(xdgRuntime, "anvilore-ui.json");
+    const link = caminhoEstadoUi(pasta, { XDG_RUNTIME_DIR: xdgRuntime });
     await symlink(alvo, link);
 
     const bun = join(bin, "bun");
@@ -543,7 +544,7 @@ exit 0
     });
 
     try {
-      const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+      const estadoFile = caminhoEstadoUi(pasta, { XDG_RUNTIME_DIR: xdgRuntime });
       await writeFile(estadoFile, JSON.stringify({
         pid: process.pid,
         porta: server.port,
@@ -620,7 +621,7 @@ exit 0
     });
 
     try {
-      const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+      const estadoFile = caminhoEstadoUi(pasta, { XDG_RUNTIME_DIR: xdgRuntime });
       await writeFile(estadoFile, JSON.stringify({
         pid: process.pid,
         porta: serverLento.port,
@@ -679,7 +680,7 @@ test("Dado dois lançamentos concorrentes sem instância prévia, Quando ambos e
     await writeFile(join(pasta, "src/cli.ts"), "");
     await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
 
-    const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+    const estadoFile = caminhoEstadoUi(pasta, { XDG_RUNTIME_DIR: xdgRuntime });
     const bun = join(bin, "bun");
     await writeFile(bun, `#!/bin/sh
 if [ "$1" = "-e" ]; then
@@ -1012,7 +1013,7 @@ test("Dado dois lançamentos simultâneos onde o servidor demora 8s para gravar 
     await writeFile(join(pasta, "src/cli.ts"), "");
     await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
 
-    const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+    const estadoFile = caminhoEstadoUi(pasta, { XDG_RUNTIME_DIR: xdgRuntime });
     const bun = join(bin, "bun");
     await writeFile(bun, `#!/bin/sh
 if [ "$1" = "-e" ]; then
@@ -1103,7 +1104,7 @@ test("Dado arquivo de trava que é um symlink, Quando o lançador executa, Entã
 
     const lockTarget = join(base, "alvo-lock");
     await writeFile(lockTarget, "bloqueado");
-    const lockFile = join(xdgRuntime, "anvilore-ui.lock");
+    const lockFile = caminhoTravaUi(pasta, { XDG_RUNTIME_DIR: xdgRuntime });
     await symlink(lockTarget, lockFile);
 
     const env = {
@@ -1147,7 +1148,7 @@ test("Dado estado com PID vivo de outro processo e porta morta, Quando lançador
     const procAlheio = Bun.spawn(["sleep", "60"]);
 
     try {
-      const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+      const estadoFile = caminhoEstadoUi(pasta, { XDG_RUNTIME_DIR: xdgRuntime });
       await writeFile(estadoFile, JSON.stringify({
         pid: procAlheio.pid,
         porta: 45998,
@@ -1259,7 +1260,7 @@ exit 0
       const campos = statStr.slice(posP + 2).trim().split(/\s+/);
       const inicioProc = campos[19];
 
-      const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+      const estadoFile = caminhoEstadoUi(pasta, { XDG_RUNTIME_DIR: xdgRuntime });
       await writeFile(estadoFile, JSON.stringify({
         pid: process.pid,
         porta: 45999,
@@ -1323,13 +1324,18 @@ test("Dado arquivo de trava que é um diretório, Quando lançador executa, Ent�
 
     const bun = join(bin, "bun");
     await writeFile(bun, `#!/bin/sh
-echo "start $$" >>"${chamadas}"
+if [ "$1" = "-e" ]; then
+  exec "${process.execPath}" "$@"
+fi
+if [ "$1" = "src/cli.ts" ]; then
+  echo "start $$" >>"${chamadas}"
+fi
 exit 0
 `);
     await chmod(bun, 0o755);
 
     // Cria a trava como um diretório
-    const lockDir = join(xdgRuntime, "anvilore-ui.lock");
+    const lockDir = caminhoTravaUi(pasta, { XDG_RUNTIME_DIR: xdgRuntime });
     await mkdir(lockDir, { recursive: true });
 
     const env = {
@@ -1390,7 +1396,7 @@ exit 0
     await chmod(zenity, 0o755);
 
     // Segura a trava externamente via flock por 25s
-    const lockFile = join(xdgRuntime, "anvilore-ui.lock");
+    const lockFile = caminhoTravaUi(pasta, { XDG_RUNTIME_DIR: xdgRuntime });
     const procLock = Bun.spawn(["bash", "-c", `exec 9>"${lockFile}"; flock -x 9; sleep 25`]);
 
     try {
@@ -1465,7 +1471,7 @@ exit 0
     });
 
     try {
-      const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+      const estadoFile = caminhoEstadoUi(pasta, { XDG_RUNTIME_DIR: xdgRuntime });
       await writeFile(estadoFile, JSON.stringify({
         pid: process.pid,
         porta: 49992,
@@ -1538,7 +1544,7 @@ exit 0
     });
 
     try {
-      const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+      const estadoFile = caminhoEstadoUi(pasta, { XDG_RUNTIME_DIR: xdgRuntime });
       await writeFile(estadoFile, JSON.stringify({
         pid: process.pid,
         porta: 49993,
@@ -1590,7 +1596,7 @@ test("Dado estado só-revisão preservado e servidor novo que demora a gravar o 
     await writeFile(join(pasta, "src/cli.ts"), "");
     await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
 
-    const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+    const estadoFile = caminhoEstadoUi(pasta, { XDG_RUNTIME_DIR: xdgRuntime });
     const bun = join(bin, "bun");
     await writeFile(bun, `#!/bin/sh
 if [ "$1" = "-e" ]; then
@@ -1693,8 +1699,8 @@ test("Dado estado de outro pid gravado no arquivo, Quando o lançador aguarda pr
     await writeFile(join(pasta, "src/cli.ts"), "");
     await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
 
-    const estadoFile = join(xdgRuntime, "anvilore-ui.json");
-    const travaFile = join(xdgRuntime, "anvilore-ui.lock");
+    const estadoFile = caminhoEstadoUi(pasta, { XDG_RUNTIME_DIR: xdgRuntime });
+    const travaFile = caminhoTravaUi(pasta, { XDG_RUNTIME_DIR: xdgRuntime });
     const bun = join(bin, "bun");
 
     // O fake bun demora 800ms para sobrescrever o estado com seu próprio PID
@@ -1862,7 +1868,7 @@ test("Dado ANVILORE_PASTA que é symlink para a pasta real, Quando o lançador s
     // Cria o symlink apontando para a pasta real
     await symlink(pastaReal, pastaLink);
 
-    const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+    const estadoFile = caminhoEstadoUi(pastaReal, { XDG_RUNTIME_DIR: xdgRuntime });
     const bun = join(bin, "bun");
 
     // O servidor grava a pasta REAL no estado

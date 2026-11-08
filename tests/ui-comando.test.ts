@@ -144,7 +144,7 @@ test("Dado instância já em execução Quando comandoUi é chamado Então reabr
     expect(c.saida.join(" ")).toContain("Interface do Anvilore aberta no navegador");
   } finally {
     server.stop(true);
-    await removerEstadoUi(process.pid);
+    await removerEstadoUi(process.cwd(), process.pid);
     c.restaurar();
   }
 });
@@ -184,7 +184,7 @@ test("Dado instância em execução no modo só-revisão, Quando comandoUi é ch
     expect(novoServidorIniciado).toBe(true);
   } finally {
     serverRevisao.stop(true);
-    await removerEstadoUi(process.pid);
+    await removerEstadoUi(process.cwd(), process.pid);
     c.restaurar();
   }
 });
