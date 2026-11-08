@@ -11,7 +11,7 @@ import type { EstadoOnboarding } from "../../src/lib/ui-onboarding";
 import { lerRota } from "./navegacao";
 import { Nota } from "./nota";
 import { diffLinhas, ErroApi, indiceVizinho } from "./revisao";
-import { criarControladorBatimento, MENSAGEM_INATIVIDADE } from "./inatividade";
+import { criarControladorBatimento, MENSAGEM_DESCONEXAO } from "./inatividade";
 import { Shell } from "./shell";
 import "./styles.css";
 
@@ -33,7 +33,7 @@ function Aplicacao() {
   const [dadosOnboarding, setDadosOnboarding] = useState<EstadoOnboarding | null>(null);
   const [operandoAtualizador, setOperandoAtualizador] = useState(false);
   const [mensagemAtualizador, setMensagemAtualizador] = useState("");
-  const [encerradoPorInatividade, setEncerradoPorInatividade] = useState(false);
+  const [desconectado, setDesconectado] = useState(false);
 
   const carregarOnboarding = useCallback(async () => {
     try {
@@ -59,8 +59,8 @@ function Aplicacao() {
   useEffect(() => {
     return criarControladorBatimento({
       enviar: () => api("/api/batimento", "POST"),
-      aoFalhar: () => setEncerradoPorInatividade(true),
-      aoRecuperar: () => setEncerradoPorInatividade(false),
+      aoFalhar: () => setDesconectado(true),
+      aoRecuperar: () => setDesconectado(false),
       intervaloMs: 20_000,
     });
   }, []);
@@ -97,24 +97,15 @@ function Aplicacao() {
 
   const atualizador = estado?.atualizador && <PainelDoAtualizador atualizador={estado.atualizador} mensagem={mensagemAtualizador} operando={operandoAtualizador} acionar={acionarAtualizador} />;
 
-  if (encerradoPorInatividade) {
-    return (
-      <main className="main" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
-        <section className="done-state" role="alert" style={{ maxWidth: "560px", textAlign: "center", padding: "2.5rem" }}>
-          <div className="done-icon" style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>!</div>
-          <h2>Interface pausada</h2>
-          <p>{MENSAGEM_INATIVIDADE}</p>
-        </section>
-      </main>
-    );
-  }
+  const avisoDesconexao = desconectado && <div className="connection-warning" role="status">{MENSAGEM_DESCONEXAO}</div>;
 
   if (rota.tela === "onboarding" && dadosOnboarding) {
     if (!dadosOnboarding.precisaOnboarding) {
       window.location.hash = "#/inicio";
       return null;
     }
-    return (
+    return <>
+      {avisoDesconexao}
       <Onboarding
         passo={rota.passo ?? 1}
         tema={tema}
@@ -123,10 +114,10 @@ function Aplicacao() {
         aoAtualizar={carregarOnboarding}
         aoAtualizarIngestao={recarregarEstado}
       />
-    );
+    </>;
   }
 
-  return <Shell rota={rota} conversas={estado?.conversas ?? []} agente={estado?.agente ?? "Agente"} aviso={atualizador}>
+  return <Shell rota={rota} conversas={estado?.conversas ?? []} agente={estado?.agente ?? "Agente"} aviso={<>{avisoDesconexao}{atualizador}</>}>
     {rota.tela === "revisao" ? <Revisao tema={tema} alternarTema={alternarTema} />
       : rota.tela === "chat" ? <Chat id={rota.id} lacuna={rota.lacuna} estado={estado} recarregarEstado={recarregarEstado} abrir={abrir} tema={tema} alternarTema={alternarTema} />
         : rota.tela === "biblioteca" ? <Biblioteca tema={tema} alternarTema={alternarTema} />

@@ -1,4 +1,4 @@
-export const MENSAGEM_INATIVIDADE = "O Anvilore foi fechado por inatividade. Clique no ícone para abrir de novo.";
+export const MENSAGEM_DESCONEXAO = "Conexão com o Anvilore perdida. Tentando reconectar…";
 
 export function criarControladorBatimento(opcoes: {
   enviar: () => Promise<void>;

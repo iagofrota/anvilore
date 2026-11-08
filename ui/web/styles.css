@@ -83,6 +83,7 @@ code, .mono { font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, mo
 .segmented button.selected { background: var(--panel); box-shadow: var(--shadow); color: var(--fg); }
 .icon-button { display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); font-size: 17px; cursor: pointer; }
 .alert { margin: 12px 18px 0; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--danger) 25%, var(--line)); border-radius: 7px; background: var(--danger-soft); color: var(--danger); font-size: 12px; }
+.connection-warning { flex: none; width: 100%; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--draft) 28%, var(--line)); border-radius: 8px; background: var(--draft-soft); color: var(--draft); font-size: 12px; text-align: center; }
 .update-panel { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 16px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--subtle); color: var(--fg-2); font-size: 11px; }
 .update-panel.problem { border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); background: var(--danger-soft); color: var(--danger); }
 .update-copy { display: flex; min-width: 0; flex-direction: column; gap: 3px; }

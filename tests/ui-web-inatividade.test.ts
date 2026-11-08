@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { criarControladorBatimento, MENSAGEM_INATIVIDADE } from "../ui/web/inatividade";
+import { criarControladorBatimento, MENSAGEM_DESCONEXAO } from "../ui/web/inatividade";
 
 test("Dado controlador de batimento ativo, Quando a aba ganha foco ou visibilidade, Então dispara batimento imediatamente", async () => {
   let chamadas = 0;
@@ -49,7 +49,7 @@ test("Dado controlador de batimento ativo, Quando a aba ganha foco ou visibilida
   }
 });
 
-test("Dado servidor desconectado por inatividade, Quando o batimento falha 3 vezes, Então aciona aoFalhar e expõe mensagem amigável de inatividade", async () => {
+test("Dado servidor inacessível, Quando o batimento falha 3 vezes, Então sinaliza desconexão sem afirmar encerramento por inatividade", async () => {
   let falhou = false;
   const limpar = criarControladorBatimento({
     enviar: async () => { throw new Error("Connection refused"); },
@@ -61,7 +61,7 @@ test("Dado servidor desconectado por inatividade, Quando o batimento falha 3 vez
   await new Promise(r => setTimeout(r, 55));
 
   expect(falhou).toBe(true);
-  expect(MENSAGEM_INATIVIDADE).toBe("O Anvilore foi fechado por inatividade. Clique no ícone para abrir de novo.");
+  expect(MENSAGEM_DESCONEXAO).toBe("Conexão com o Anvilore perdida. Tentando reconectar…");
 
   limpar();
 });

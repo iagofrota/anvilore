@@ -22,6 +22,8 @@ desta página. As decisões de fundo (servidor opcional, aprovação pelo servid
 
 Endereço vazio ou desconhecido abre o Início (`lerRota` em `ui/web/navegacao.ts`).
 
+Se três batimentos consecutivos falham, a interface mostra um aviso de conexão e continua tentando. O aviso fica junto da tela atual, incluindo onboarding, sem desmontar o formulário; quando um batimento volta a responder, ele some. A falha de rede não permite concluir que o servidor encerrou por inatividade (`ui/web/main.tsx`, `ui/web/inatividade.ts`).
+
 O Chat consulta a conversa em memória, mas `obter` e `listar` de `IngestaoNaInterface`
 publicam somente o último snapshot cuja gravação atômica terminou. Cada evento captura seu próprio
 conteúdo antes de entrar na fila de gravações. Assim, **Pode seguir** só aparece depois que a parada
