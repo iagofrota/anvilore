@@ -18,6 +18,10 @@ contents:
     dst: /usr/lib/anvilore/instalar.sh
     file_info:
       mode: 0755
+  - src: "${ANVILORE_VERSAO_FILE}"
+    dst: /usr/lib/anvilore/VERSAO
+    file_info:
+      mode: 0644
   - src: /usr/lib/anvilore/anvilore-abrir
     dst: /usr/bin/anvilore-abrir
     type: symlink

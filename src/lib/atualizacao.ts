@@ -38,6 +38,8 @@ export type DependenciasAtualizacao = {
   assinantesDoInstalador?: string;
   // Busca da lista de chaves do site (confianca.json). Padrão: `fetch`. Só os testes trocam; a URL é constante (confianca.ts).
   buscarConfianca?: BuscarConfianca;
+  // Versão solicitada diretamente (`--versao <x.y.z>`).
+  versaoAlvo?: string;
 };
 
 type EstadoAtualizador = "ocioso" | "baixada" | "aplicando" | "revertendo" | "recusada" | "reversao-incompleta" | "migracao-incompleta";
@@ -654,6 +656,8 @@ async function bunExigido(raiz: string, commit: string, tag: string, exec: Exec,
 // TEMPORÁRIO só com as linhas do arquivo acima cuja fingerprint está na lista: a interseção. O site nunca acrescenta uma
 // chave, e uma chave retirada dele deixa de valer mesmo que a assinatura seja válida. Interseção vazia recusa.
 export const OPCAO_ASSINANTES_DO_INSTALADOR = "--assinantes-do-instalador";
+export const OPCAO_VERSAO = "--versao";
+export const REGEX_VERSAO_NUMERICA = /^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})$/;
 export function verificarAssinaturaTag(raiz: string, tag: string, exec: Exec = execPadrao, objeto: string = tag, doInstalador?: string, permitidas?: readonly string[]): string | undefined {
   const allow = doInstalador === undefined ? join(raiz, "seguranca/assinantes") : doInstalador === "" ? "" : resolve(doInstalador);
   let tamanho: number;
@@ -931,6 +935,9 @@ async function recuperar(raiz: string, estado: Estado, exec: Exec, deps: Depende
 }
 
 export async function atualizar(acao: "verificar" | "voltar" | "estado" | "automatico" | "aplicar" = "verificar", deps: DependenciasAtualizacao = {}): Promise<string> {
+  if (deps.versaoAlvo !== undefined && !REGEX_VERSAO_NUMERICA.test(deps.versaoAlvo)) {
+    throw new Error(`a versão informada "${deps.versaoAlvo}" é inválida; informe uma versão numérica válida (ex.: 0.3.3).`);
+  }
   const raiz = resolve(deps.raiz ?? process.env.ANVILORE_DESTINO ?? process.cwd()), exec = deps.executar ?? execPadrao;
   if (acao === "estado") {
     let s: Estado; try { s = await lerEstado(raiz); } catch (e) { return motivo(e); }
@@ -973,23 +980,41 @@ export async function atualizar(acao: "verificar" | "voltar" | "estado" | "autom
     }
     if (acao === "voltar") return await voltar(raiz, state, exec, deps);
     const atual = versaoInstalada;
-    let releases: Release[];
-    try { releases = await (deps.releases ?? releasesGitHub)(state.canal); }
-    catch (e) { state.verificadoEm = new Date().toISOString(); await gravarEstado(raiz, state); throw e; }
-    const release = state.estado === "baixada" && state.tagDisponivel
-      ? releases.flatMap(r => (r.tag_name.startsWith("v") ? r.tag_name.slice(1) : r.tag_name) === state.disponivel ? [{ tag: r.tag_name.startsWith("v") ? r.tag_name : `v${r.tag_name}`, versao: state.disponivel!, url: r.html_url }] : [])[0]
-      : selecionarRelease(atual, releases, state.canal);
-    // Antes de qualquer fetch e em toda ação: só uma versão MAIS NOVA que a instalada é candidata. Uma "baixada"
-    // obsoleta (versão igual ou anterior) é descartada; buscar a tag dela deixaria um espelho sobrescrever a tag
-    // local da versão instalada ou da anterior, e o clone deixaria de ser reconhecido como gerenciado.
-    if (!release || compararSemVer(release.versao, atual) <= 0) {
-      if (state.estado === "baixada") { state.estado = "ocioso"; delete state.disponivel; delete state.tagDisponivel; }
-      state.verificadoEm = new Date().toISOString(); await gravarEstado(raiz, state);
-      return `Anvilore ${atual} já está atualizado.`;
+    let release: { tag: string; versao: string; url?: string } | undefined;
+    let decision: DecisaoAtualizacao = "aplicar";
+    if (deps.versaoAlvo !== undefined) {
+      if (!REGEX_VERSAO_NUMERICA.test(deps.versaoAlvo)) {
+        throw new Error(`a versão informada "${deps.versaoAlvo}" é inválida; informe uma versão numérica válida (ex.: 0.3.3).`);
+      }
+      const cmp = compararSemVer(deps.versaoAlvo, atual);
+      if (cmp === 0) {
+        state.verificadoEm = new Date().toISOString();
+        await gravarEstado(raiz, state);
+        return `Anvilore ${atual} já está atualizado.`;
+      }
+      if (cmp < 0) {
+        throw new Error(`a versão solicitada (${deps.versaoAlvo}) é menor que a instalada (${atual}); o Anvilore não faz downgrade.`);
+      }
+      release = { tag: `v${deps.versaoAlvo}`, versao: deps.versaoAlvo };
+    } else {
+      let releases: Release[];
+      try { releases = await (deps.releases ?? releasesGitHub)(state.canal); }
+      catch (e) { state.verificadoEm = new Date().toISOString(); await gravarEstado(raiz, state); throw e; }
+      release = state.estado === "baixada" && state.tagDisponivel
+        ? releases.flatMap(r => (r.tag_name.startsWith("v") ? r.tag_name.slice(1) : r.tag_name) === state.disponivel ? [{ tag: r.tag_name.startsWith("v") ? r.tag_name : `v${r.tag_name}`, versao: state.disponivel!, url: r.html_url }] : [])[0]
+        : selecionarRelease(atual, releases, state.canal);
+      // Antes de qualquer fetch e em toda ação: só uma versão MAIS NOVA que a instalada é candidata. Uma "baixada"
+      // obsoleta (versão igual ou anterior) é descartada; buscar a tag dela deixaria um espelho sobrescrever a tag
+      // local da versão instalada ou da anterior, e o clone deixaria de ser reconhecido como gerenciado.
+      if (!release || compararSemVer(release.versao, atual) <= 0) {
+        if (state.estado === "baixada") { state.estado = "ocioso"; delete state.disponivel; delete state.tagDisponivel; }
+        state.verificadoEm = new Date().toISOString(); await gravarEstado(raiz, state);
+        return `Anvilore ${atual} já está atualizado.`;
+      }
+      decision = decidirPolitica(atual, release.versao, state.modo, state.canal);
+      if (decision === "ignorar" && acao !== "aplicar") return `Atualização ignorada pela política atual (${state.modo}, canal ${state.canal}).`;
     }
     if ((state.recusadas ?? []).includes(release.versao)) return `Anvilore ${release.versao} já foi recusada; aguardando outra release.`;
-    const decision = decidirPolitica(atual, release.versao, state.modo, state.canal);
-    if (decision === "ignorar" && acao !== "aplicar") return `Atualização ignorada pela política atual (${state.modo}, canal ${state.canal}).`;
     // Estado das chaves no site, ANTES de buscar a tag e de verificá-la, na aplicação comum e na com `--assinantes-do-instalador`
     // (e na verificação): falha da consulta ou versão abaixo da mínima param aqui, sem tocar na tag nem no HEAD.
     let confianca: Awaited<ReturnType<typeof consultarConfianca>>;
@@ -1041,16 +1066,34 @@ export async function atualizar(acao: "verificar" | "voltar" | "estado" | "autom
 
 export async function comandoAtualizar(args: string[], deps: DependenciasAtualizacao = {}): Promise<number> {
   const uso = () => { console.error("Uso: anvilore atualizar [--verificar | --voltar | --estado]"); return 2; };
-  // A opção interna (valor em seguida) sai da lista antes da conferência dos modos; só vale ao aplicar.
+  // As opções internas (valor em seguida) saem da lista antes da conferência dos modos; só valem ao aplicar.
   const resto: string[] = [];
   let assinantes: string | undefined;
+  let versaoAlvo: string | undefined;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] !== OPCAO_ASSINANTES_DO_INSTALADOR) { resto.push(args[i]!); continue; }
-    if (assinantes !== undefined || i + 1 >= args.length || args[i + 1]!.startsWith("--")) return uso();
-    assinantes = args[++i]!;
+    if (args[i] === OPCAO_ASSINANTES_DO_INSTALADOR) {
+      if (assinantes !== undefined || i + 1 >= args.length || args[i + 1]!.startsWith("--")) return uso();
+      assinantes = args[++i]!;
+      continue;
+    }
+    if (args[i] === OPCAO_VERSAO) {
+      if (versaoAlvo !== undefined || i + 1 >= args.length || args[i + 1]!.startsWith("--")) return uso();
+      versaoAlvo = args[++i]!;
+      continue;
+    }
+    resto.push(args[i]!);
   }
   const modos = resto.filter(a => a.startsWith("--"));
-  if (resto.some(a => !["--verificar", "--voltar", "--estado"].includes(a)) || modos.length > 1 || (assinantes !== undefined && modos.length)) return uso();
+  if (resto.some(a => !["--verificar", "--voltar", "--estado"].includes(a)) || modos.length > 1 || (assinantes !== undefined && modos.length) || (versaoAlvo !== undefined && modos.length)) return uso();
   const acao = modos[0] === "--voltar" ? "voltar" : modos[0] === "--estado" ? "estado" : modos[0] === "--verificar" ? "verificar" : "aplicar";
-  try { console.log(await atualizar(acao, assinantes === undefined ? deps : { ...deps, assinantesDoInstalador: assinantes })); return 0; } catch (e) { console.error(`atualizar: ${(e as Error).message}`); return 1; }
+  try {
+    const depsFinal: DependenciasAtualizacao = { ...deps };
+    if (assinantes !== undefined) depsFinal.assinantesDoInstalador = assinantes;
+    if (versaoAlvo !== undefined) depsFinal.versaoAlvo = versaoAlvo;
+    console.log(await atualizar(acao, depsFinal));
+    return 0;
+  } catch (e) {
+    console.error(`atualizar: ${(e as Error).message}`);
+    return 1;
+  }
 }

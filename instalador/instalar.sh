@@ -1179,10 +1179,35 @@ passo_atualizar_existente() {
   # reduzido às chaves que a lista atual do site ainda autoriza.
   assinantes="$TMP_DIR/assinantes-reinstalacao"
   cp "$TMP_DIR/assinantes" "$assinantes" || falhar "não consegui preparar as chaves de assinatura para conferir a atualização."
-  if rodar bash -c 'cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts atualizar --assinantes-do-instalador "$2"' _ "$PASTA" "$assinantes"; then
-    dizer "Atualização: $(printf '%s\n' "$ULTIMA_SAIDA" | tail -n1)"
+  local cmd_atualizar codigo rodou_ok=0
+  if [ -n "${ANVILORE_VERSAO:-}" ]; then
+    cmd_atualizar='cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts atualizar --assinantes-do-instalador "$2" --versao "$3"'
+    if rodar bash -c "$cmd_atualizar" _ "$PASTA" "$assinantes" "${ANVILORE_VERSAO#v}"; then
+      dizer "Atualização: $(printf '%s\n' "$ULTIMA_SAIDA" | tail -n1)"
+      rodou_ok=1
+    else
+      codigo=$?
+      if [ "$codigo" -eq 2 ]; then
+        dizer "O atualizador desta pasta não conhece a opção --versao; tentando atualizar para a release publicada."
+        cmd_atualizar='cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts atualizar --assinantes-do-instalador "$2"'
+        if rodar bash -c "$cmd_atualizar" _ "$PASTA" "$assinantes"; then
+          dizer "Atualização: $(printf '%s\n' "$ULTIMA_SAIDA" | tail -n1)"
+          rodou_ok=1
+        else
+          codigo=$?
+        fi
+      fi
+    fi
   else
-    codigo=$?
+    cmd_atualizar='cd "$1" && ANVILORE_DESTINO="$1" bun src/cli.ts atualizar --assinantes-do-instalador "$2"'
+    if rodar bash -c "$cmd_atualizar" _ "$PASTA" "$assinantes"; then
+      dizer "Atualização: $(printf '%s\n' "$ULTIMA_SAIDA" | tail -n1)"
+      rodou_ok=1
+    else
+      codigo=$?
+    fi
+  fi
+  if [ "$rodou_ok" -eq 0 ]; then
     # Código 2 = uso inválido: o atualizador da pasta é de uma versão que não conhece a opção. Não esconde o erro nem segue
     # como se tivesse conferido (nada foi mudado).
     if [ "$codigo" -eq 2 ]; then

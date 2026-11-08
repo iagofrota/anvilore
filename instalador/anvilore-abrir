@@ -21,7 +21,7 @@ mostrar_erro_e_esperar() {
 if ! instalacao_valida "$PASTA"; then
   INSTALADOR=""
   if [ -f "$ORIGEM/instalar.sh" ]; then INSTALADOR="$ORIGEM/instalar.sh"
-  elif [ -f /usr/lib/anvilore/instalar.sh ]; then INSTALADOR=/usr/lib/anvilore/instalar.sh
+  elif [ -f "${ANVILORE_PACKAGE_DIR:-/usr/lib/anvilore}/instalar.sh" ]; then INSTALADOR="${ANVILORE_PACKAGE_DIR:-/usr/lib/anvilore}/instalar.sh"
   elif [ -f "$PASTA/instalador/instalar.sh" ]; then INSTALADOR="$PASTA/instalador/instalar.sh"
   fi
   if [ -n "$INSTALADOR" ]; then
@@ -43,6 +43,85 @@ fi
 
 export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
 
+registrar_bun() {
+  local bun_caminho="$1" diretorio destino arquivo_temporario
+  [ -n "$bun_caminho" ] || return 0
+  diretorio="${XDG_CONFIG_HOME:-$HOME/.config}/anvilore"
+  destino="$diretorio/bun-path"
+  if [ -L "$diretorio" ] || [ -L "$destino" ]; then return 0; fi
+  if [ -e "$diretorio" ] && [ ! -O "$diretorio" ]; then return 0; fi
+  if [ -e "$destino" ] && [ ! -O "$destino" ]; then return 0; fi
+  mkdir -p "$diretorio" 2>/dev/null || return 0
+  arquivo_temporario="$(mktemp "$diretorio/.bun-path.XXXXXX" 2>/dev/null)" || return 0
+  if (umask 077; printf '%s\n' "$bun_caminho" >"$arquivo_temporario") && chmod 600 "$arquivo_temporario" && mv -f -- "$arquivo_temporario" "$destino"; then
+    :
+  else
+    rm -f -- "$arquivo_temporario"
+  fi
+}
+
+resolver_nvm_diretorio() {
+  local alvo="$1" visitados="${2:-}"
+  local nvm_dir="${NVM_DIR:-$HOME/.nvm}"
+  [ -n "$alvo" ] || return 1
+  [[ " $visitados " =~ " $alvo " ]] && return 1
+  visitados="$visitados $alvo"
+
+  if [ -d "$nvm_dir/versions/node/$alvo" ]; then
+    printf '%s' "$nvm_dir/versions/node/$alvo"
+    return 0
+  fi
+  if [ -d "$nvm_dir/versions/node/v$alvo" ]; then
+    printf '%s' "$nvm_dir/versions/node/v$alvo"
+    return 0
+  fi
+  if [ -d "$alvo" ]; then
+    printf '%s' "$alvo"
+    return 0
+  fi
+  if [ -f "$nvm_dir/alias/$alvo" ]; then
+    local proximo
+    proximo="$(tr -d '[:space:]' <"$nvm_dir/alias/$alvo" 2>/dev/null || true)"
+    resolver_nvm_diretorio "$proximo" "$visitados" && return 0
+  fi
+  return 1
+}
+
+encontrar_bun_nvm() {
+  local nvm_dir="${NVM_DIR:-$HOME/.nvm}"
+  [ -d "$nvm_dir/versions/node" ] || return 1
+
+  local padrao dir_padrao candidato
+  if [ -f "$nvm_dir/alias/default" ]; then
+    padrao="$(tr -d '[:space:]' <"$nvm_dir/alias/default" 2>/dev/null || true)"
+    dir_padrao="$(resolver_nvm_diretorio "$padrao" || true)"
+    if [ -n "$dir_padrao" ] && [ -d "$dir_padrao" ]; then
+      candidato="$dir_padrao/bin/bun"
+      if [[ "$candidato" = /* && -x "$candidato" && -O "$candidato" ]]; then
+        printf '%s' "$candidato"
+        return 0
+      fi
+    fi
+  fi
+
+  local -a candidatos=()
+  local dir c
+  for dir in "$nvm_dir/versions/node/"*/; do
+    [ -d "$dir" ] || continue
+    c="${dir}bin/bun"
+    if [[ "$c" = /* && -x "$c" && -O "$c" ]]; then
+      candidatos+=("$c")
+    fi
+  done
+
+  if [ ${#candidatos[@]} -gt 0 ]; then
+    printf '%s\n' "${candidatos[@]}" | sort -V 2>/dev/null | tail -n1
+    return 0
+  fi
+
+  return 1
+}
+
 encontrar_bun() {
   local candidato registro shell_login
   candidato="$(command -v bun 2>/dev/null || true)"
@@ -58,10 +137,22 @@ encontrar_bun() {
     if [[ "$candidato" = /* && -x "$candidato" && -O "$candidato" ]]; then BUN_BIN="$candidato"; return 0; fi
   fi
 
+  candidato="$(encontrar_bun_nvm || true)"
+  if [[ "$candidato" = /* && -x "$candidato" && -O "$candidato" ]]; then
+    BUN_BIN="$candidato"
+    registrar_bun "$candidato"
+    return 0
+  fi
+
   shell_login="${SHELL:-}"
   if [[ "$shell_login" = /* && -x "$shell_login" ]] && command -v timeout >/dev/null 2>&1; then
-    candidato="$(timeout 3 "$shell_login" -lic 'command -v bun' 2>/dev/null || true)"
-    if [[ "$candidato" = /* && -x "$candidato" ]]; then BUN_BIN="$candidato"; return 0; fi
+    candidato="$(timeout 10 "$shell_login" -lic 'command -v bun' 2>/dev/null || true)"
+    if [[ "$candidato" != /* && -n "$candidato" ]]; then candidato="$(readlink -f -- "$candidato" 2>/dev/null || true)"; fi
+    if [[ "$candidato" = /* && -x "$candidato" && -O "$candidato" ]]; then
+      BUN_BIN="$candidato"
+      registrar_bun "$candidato"
+      return 0
+    fi
   fi
   return 1
 }
@@ -70,6 +161,128 @@ if ! encontrar_bun; then
   mostrar_erro_e_esperar "Bun não encontrado. Instale com 'npm install -g bun' ou siga https://bun.sh e abra o Anvilore novamente."
   exit 2
 fi
+
+versao_numerica_valida() {
+  [[ "$1" =~ ^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]]
+}
+
+versao_maior() {
+  local -a pacote instalada
+  local i
+  IFS=. read -r -a pacote <<<"$1"
+  IFS=. read -r -a instalada <<<"$2"
+  for i in 0 1 2; do
+    [ "${pacote[$i]}" -gt "${instalada[$i]}" ] && return 0
+    [ "${pacote[$i]}" -lt "${instalada[$i]}" ] && return 1
+  done
+  return 1
+}
+
+versao_pelo_menos() {
+  [ "$1" = "$2" ] || versao_maior "$1" "$2"
+}
+
+versao_instalada() {
+  local versao
+  versao="$(sed -nE 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"([^\"]+)"[,]?[[:space:]]*$/\1/p' "$PASTA/package.json" 2>/dev/null | head -n1)"
+  versao_numerica_valida "$versao" || return 1
+  printf '%s' "$versao"
+}
+
+gravar_versao_tentada() {
+  local versao="$1" agora diretorio destino arquivo_temporario
+  [ -n "$versao" ] || return 0
+  agora="$(date +%s 2>/dev/null || echo 0)"
+  diretorio="${XDG_STATE_HOME:-$HOME/.local/state}/anvilore"
+  destino="$diretorio/versao-tentada"
+  if [ -L "$diretorio" ] || [ -L "$destino" ]; then return 0; fi
+  if [ -e "$diretorio" ] && [ ! -O "$diretorio" ]; then return 0; fi
+  if [ -e "$destino" ] && [ ! -O "$destino" ]; then return 0; fi
+  mkdir -p "$diretorio" 2>/dev/null || return 0
+  chmod 700 "$diretorio" 2>/dev/null || true
+  arquivo_temporario="$(mktemp "$diretorio/.versao-tentada.XXXXXX" 2>/dev/null)" || return 0
+  if (umask 077; printf '%s %s\n' "$versao" "$agora" >"$arquivo_temporario") && chmod 600 "$arquivo_temporario" && mv -f -- "$arquivo_temporario" "$destino"; then
+    :
+  else
+    rm -f -- "$arquivo_temporario"
+  fi
+}
+
+limpar_versao_tentada() {
+  local diretorio="${XDG_STATE_HOME:-$HOME/.local/state}/anvilore"
+  local destino="$diretorio/versao-tentada"
+  if [ -f "$destino" ] && [ ! -L "$destino" ] && [ -O "$destino" ]; then
+    rm -f -- "$destino" 2>/dev/null || true
+  fi
+}
+
+versao_ja_tentada() {
+  local versao="$1" diretorio destino tentada gravado agora limite=86400
+  diretorio="${XDG_STATE_HOME:-$HOME/.local/state}/anvilore"
+  destino="$diretorio/versao-tentada"
+  if [ -f "$destino" ] && [ ! -L "$destino" ] && [ -O "$destino" ]; then
+    read -r tentada gravado <"$destino" 2>/dev/null || return 1
+    if [ "$tentada" = "$versao" ]; then
+      if [ -n "${gravado:-}" ] && [[ "$gravado" =~ ^[0-9]+$ ]]; then
+        agora="$(date +%s 2>/dev/null || echo 0)"
+        if [ "$agora" -ge "$gravado" ] && [ $(( agora - gravado )) -ge "$limite" ]; then
+          rm -f -- "$destino" 2>/dev/null || true
+          return 1
+        fi
+      fi
+      return 0
+    fi
+  fi
+  return 1
+}
+
+registrar_abrir_log() {
+  local mensagem="$1" diretorio destino
+  diretorio="${XDG_STATE_HOME:-$HOME/.local/state}/anvilore"
+  destino="$diretorio/abrir.log"
+  if [ -L "$diretorio" ] || [ -L "$destino" ]; then return 0; fi
+  if [ -e "$diretorio" ] && [ ! -O "$diretorio" ]; then return 0; fi
+  if [ -e "$destino" ] && [ ! -O "$destino" ]; then return 0; fi
+  mkdir -p "$diretorio" 2>/dev/null || return 0
+  chmod 700 "$diretorio" 2>/dev/null || true
+  ( umask 077; printf '%s %s\n' "$(date --iso-8601=seconds 2>/dev/null || date)" "$mensagem" >>"$destino" ) 2>/dev/null || true
+  chmod 600 "$destino" 2>/dev/null || true
+}
+
+atualizar_kit_do_pacote() {
+  local arquivo_versao="$ORIGEM/VERSAO" versao_pacote versao_atual versao_original instalador codigo
+  [ -f "$arquivo_versao" ] || return 0
+  IFS= read -r versao_pacote <"$arquivo_versao" || return 0
+  versao_numerica_valida "$versao_pacote" || return 0
+  versao_atual="$(versao_instalada || true)"
+  versao_numerica_valida "$versao_atual" || return 0
+  versao_maior "$versao_pacote" "$versao_atual" || return 0
+  if versao_ja_tentada "$versao_pacote"; then
+    registrar_abrir_log "atualização para $versao_pacote já tentada anteriormente; abrindo versão instalada $versao_atual"
+    return 0
+  fi
+  versao_original="$versao_atual"
+
+  instalador="$ORIGEM/instalar.sh"
+  if [ ! -f "$instalador" ]; then
+    printf 'Não consegui atualizar o Anvilore de %s para %s: o instalador do pacote não está disponível. Vou abrir a versão existente.\n' "$versao_atual" "$versao_pacote" >&2
+    return 0
+  fi
+  printf 'Atualizando o Anvilore de %s para %s…\n' "$versao_atual" "$versao_pacote"
+  PATH="$(dirname "$BUN_BIN"):$PATH" ANVILORE_PASTA="$PASTA" ANVILORE_VERSAO="$versao_pacote" ANVILORE_SEM_PERGUNTAS=1 bash "$instalador"
+  codigo=$?
+  versao_atual="$(versao_instalada || true)"
+  if [ "$codigo" -ne 0 ] || ! versao_numerica_valida "$versao_atual" || ! versao_pelo_menos "$versao_atual" "$versao_pacote"; then
+    gravar_versao_tentada "$versao_pacote"
+    registrar_abrir_log "atualização de $versao_original para $versao_pacote falhou (código $codigo, instalada $versao_atual)"
+    printf 'Não consegui atualizar o Anvilore de %s para %s. Vou abrir a versão existente.\n' "$versao_original" "$versao_pacote" >&2
+  else
+    limpar_versao_tentada
+    registrar_abrir_log "atualização de $versao_original para $versao_pacote concluída com sucesso"
+  fi
+}
+
+atualizar_kit_do_pacote
 
 cd -- "$PASTA" || { mostrar_erro_e_esperar "Não consegui abrir a pasta $PASTA."; exit 1; }
 ANVILORE_DESTINO="$PASTA" "$BUN_BIN" src/cli.ts ui

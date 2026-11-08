@@ -8,6 +8,378 @@ const raiz = join(import.meta.dir, "..");
 const shell = await readFile(join(raiz, "instalador/anvilore-abrir"), "utf8").catch(() => "");
 const ps1 = await readFile(join(raiz, "instalador/abrir.ps1"), "utf8").catch(() => "");
 
+async function criarCenarioAtualizacaoPacote(opcoes: { versaoPacote?: string; jsonInstalado?: string; codigoAtualizador?: number; pularAtualizacao?: boolean }) {
+  const base = await mkdtemp(join(tmpdir(), "anvilore-atualiza-pacote-"));
+  const home = join(base, "home");
+  const pasta = join(home, "Anvilore");
+  const pacote = join(base, "usr/lib/anvilore");
+  const bin = join(base, "bin");
+  const atualizador = join(base, "atualizador-chamado");
+  const versaoRecebida = join(base, "versao-recebida");
+  const ui = join(base, "ui-chamada");
+  await mkdir(join(pasta, ".git"), { recursive: true });
+  await mkdir(join(pasta, "src"), { recursive: true });
+  await mkdir(join(pasta, "skills"), { recursive: true });
+  await mkdir(pacote, { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await writeFile(join(pasta, "AGENTS.md"), "");
+  await writeFile(join(pasta, "src/cli.ts"), "");
+  await writeFile(join(pasta, "package.json"), opcoes.jsonInstalado ?? JSON.stringify({ version: "0.9.0" }, null, 2));
+  const lancador = join(pacote, "anvilore-abrir");
+  await writeFile(lancador, shell);
+  await chmod(lancador, 0o755);
+  if (opcoes.versaoPacote !== undefined) await writeFile(join(pacote, "VERSAO"), `${opcoes.versaoPacote}\n`);
+  await writeFile(join(pacote, "instalar.sh"), [
+    "#!/bin/sh",
+    'printf chamado >"$ANV_TEST_ATUALIZADOR"',
+    'printf \'%s\' "${ANVILORE_VERSAO:-}" >"$ANV_TEST_VERSAO_RECEBIDA"',
+    'if [ "${ANV_TEST_CODIGO_ATUALIZADOR:-0}" -eq 0 ] && [ "${ANV_TEST_PULAR_ATUALIZACAO:-0}" != 1 ]; then sed "s/0[.]9[.]0/${ANV_TEST_VERSAO_PACOTE}/" "$ANVILORE_PASTA/package.json" >"$ANVILORE_PASTA/package.json.tmp"; mv "$ANVILORE_PASTA/package.json.tmp" "$ANVILORE_PASTA/package.json"; fi',
+    'exit "${ANV_TEST_CODIGO_ATUALIZADOR:-0}"',
+  ].join("\n"));
+  const bun = join(bin, "bun");
+  await writeFile(bun, `#!/bin/sh\nprintf '%s\\n' "$*" >>"$ANV_TEST_UI"\n`);
+  await chmod(bun, 0o755);
+  const env = {
+    ...process.env,
+    HOME: home,
+    XDG_STATE_HOME: join(home, ".local/state"),
+    XDG_CONFIG_HOME: join(home, ".config"),
+    PATH: `${bin}:/usr/bin:/bin`,
+    ANVILORE_PASTA: pasta,
+    ANV_TEST_ATUALIZADOR: atualizador,
+    ANV_TEST_VERSAO_RECEBIDA: versaoRecebida,
+    ANV_TEST_CODIGO_ATUALIZADOR: String(opcoes.codigoAtualizador ?? 0),
+    ANV_TEST_PULAR_ATUALIZACAO: opcoes.pularAtualizacao ? "1" : "0",
+    ANV_TEST_VERSAO_PACOTE: opcoes.versaoPacote ?? "",
+    ANV_TEST_UI: ui,
+  };
+  const executar = () => Bun.spawnSync(["bash", lancador], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+  return { base, pasta, atualizador, versaoRecebida, ui, executar };
+}
+
+test("Dado o pacote 0.10.0 e a pasta 0.9.0, Quando abro o atalho do pacote, Então atualizo numericamente antes de abrir a UI", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.10.0" });
+  try {
+    const proc = c.executar();
+    const saida = proc.stdout.toString() + proc.stderr.toString();
+    expect(proc.exitCode, saida).toBe(0);
+    expect(saida).toContain("Atualizando o Anvilore de 0.9.0 para 0.10.0");
+    expect(await Bun.file(c.atualizador).exists()).toBe(true);
+    expect(await readFile(c.versaoRecebida, "utf8")).toBe("0.10.0");
+    expect(JSON.parse(await readFile(join(c.pasta, "package.json"), "utf8")).version).toBe("0.10.0");
+    expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado a pasta na mesma versão do pacote, Quando abro, Então não executo o instalador", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.9.0" });
+  try {
+    const proc = c.executar();
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await Bun.file(c.atualizador).exists()).toBe(false);
+    expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado a pasta mais nova que o pacote, Quando abro, Então não rebaixo nem executo o instalador", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.8.9", jsonInstalado: "{\n  \"version\": \"0.9.0\"\n}" });
+  try {
+    const proc = c.executar();
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await Bun.file(c.atualizador).exists()).toBe(false);
+    expect(JSON.parse(await readFile(join(c.pasta, "package.json"), "utf8")).version).toBe("0.9.0");
+    expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado que o instalador do pacote falha, Quando abro, Então aviso e abro a versão já instalada", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.10.0", codigoAtualizador: 7 });
+  try {
+    const proc = c.executar();
+    const saida = proc.stdout.toString() + proc.stderr.toString();
+    expect(proc.exitCode, saida).toBe(0);
+    expect(saida).toContain("Não consegui atualizar o Anvilore de 0.9.0 para 0.10.0");
+    expect(JSON.parse(await readFile(join(c.pasta, "package.json"), "utf8")).version).toBe("0.9.0");
+    expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado que o instalador não atualiza mas retorna zero, Quando abro, Então aviso e uso o kit existente", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.10.0", pularAtualizacao: true });
+  try {
+    const proc = c.executar();
+    const saida = proc.stdout.toString() + proc.stderr.toString();
+    expect(proc.exitCode, saida).toBe(0);
+    expect(saida).toContain("Não consegui atualizar o Anvilore de 0.9.0 para 0.10.0");
+    expect(JSON.parse(await readFile(join(c.pasta, "package.json"), "utf8")).version).toBe("0.9.0");
+    expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado que a atualização do pacote falha, Quando clico de novo no lançador, Então não repito a tentativa de atualização e abro direto a versão existente", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.10.0", codigoAtualizador: 7 });
+  try {
+    const proc1 = c.executar();
+    const saida1 = proc1.stdout.toString() + proc1.stderr.toString();
+    expect(proc1.exitCode, saida1).toBe(0);
+    expect(saida1).toContain("Atualizando o Anvilore de 0.9.0 para 0.10.0");
+    expect(saida1).toContain("Não consegui atualizar o Anvilore de 0.9.0 para 0.10.0");
+    expect(await Bun.file(c.atualizador).exists()).toBe(true);
+
+    // Remove o marcador de chamada do atualizador para testar se é chamado de novo
+    await rm(c.atualizador, { force: true });
+
+    // Segundo clique: não deve chamar o atualizador nem exibir mensagem de atualização
+    const proc2 = c.executar();
+    const saida2 = proc2.stdout.toString() + proc2.stderr.toString();
+    expect(proc2.exitCode, saida2).toBe(0);
+    expect(await Bun.file(c.atualizador).exists()).toBe(false);
+    expect(saida2).not.toContain("Atualizando o Anvilore de 0.9.0 para 0.10.0");
+    expect(saida2).not.toContain("Não consegui atualizar");
+    expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
+
+    // Novo pacote (versão muda para 0.10.1): deve tentar de novo
+    await writeFile(join(c.base, "usr/lib/anvilore/VERSAO"), "0.10.1\n");
+    const proc3 = c.executar();
+    const saida3 = proc3.stdout.toString() + proc3.stderr.toString();
+    expect(proc3.exitCode, saida3).toBe(0);
+    expect(saida3).toContain("Atualizando o Anvilore de 0.9.0 para 0.10.1");
+    expect(await Bun.file(c.atualizador).exists()).toBe(true);
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado o instalador real em pasta existente e ANVILORE_VERSAO definida, Quando executa passo_atualizar_existente, Então repassa --versao ao comando atualizar", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-instalar-versao-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const chamadasCli = join(base, "cli-chamadas.log");
+    const script = join(raiz, "instalador/instalar.sh");
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.9.0" }, null, 2));
+    await writeFile(join(pasta, "src/cli.ts"), `
+import { appendFileSync } from "node:fs";
+appendFileSync(process.env.CHAMADAS_CLI!, process.argv.slice(2).join(" ") + "\\n");
+if (process.argv[2] === "atualizar") {
+  console.log("atualizado com sucesso");
+  process.exit(0);
+}
+process.exit(0);
+`);
+    const comando = `
+      ANVILORE_INSTALAR_CARREGAR=1
+      source "$1"
+      conferir_estado_das_chaves() { :; }
+      dizer() { :; }
+      avisar() { :; }
+      falhar() { printf '%s\\n' "$1" >&2; exit 1; }
+      CONFIANCA_MINIMA="0.0.0"
+      TMP_DIR="$2"
+      mkdir -p "$TMP_DIR"
+      touch "$TMP_DIR/assinantes"
+      PASTA="$3"
+      ANVILORE_VERSAO="v0.10.0"
+      passo_atualizar_existente
+    `;
+    const proc = Bun.spawnSync(["bash", "-c", comando, "_", script, join(base, "tmp"), pasta], {
+      env: { ...process.env, HOME: home, PATH: process.env.PATH, CHAMADAS_CLI: chamadasCli },
+      stdout: "pipe", stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    const chamadas = await readFile(chamadasCli, "utf8");
+    expect(chamadas).toContain("atualizar");
+    expect(chamadas).toContain("--assinantes-do-instalador");
+    expect(chamadas).toContain("--versao 0.10.0");
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+test("Dado uma pasta cujo atualizador não conhece --versao (exit 2 com uso), Quando o instalador atualiza com ANVILORE_VERSAO, Então repete sem --versao e a atualização conclui", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-instalar-fallback-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const chamadasCli = join(base, "cli-chamadas.log");
+    const script = join(raiz, "instalador/instalar.sh");
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.9.0" }, null, 2));
+    await writeFile(join(pasta, "src/cli.ts"), `
+import { appendFileSync } from "node:fs";
+appendFileSync(process.env.CHAMADAS_CLI!, process.argv.slice(2).join(" ") + "\\n");
+if (process.argv[2] === "atualizar") {
+  if (process.argv.includes("--versao")) {
+    console.error("Uso: anvilore atualizar [--verificar | --voltar | --estado]");
+    process.exit(2);
+  }
+  console.log("atualizado com sucesso");
+  process.exit(0);
+}
+process.exit(0);
+`);
+    const comando = `
+      ANVILORE_INSTALAR_CARREGAR=1
+      source "$1"
+      conferir_estado_das_chaves() { :; }
+      dizer() { printf 'dizer: %s\\n' "$1"; }
+      avisar() { printf 'avisar: %s\\n' "$1"; }
+      falhar() { printf 'falhar: %s\\n' "$1" >&2; exit 1; }
+      CONFIANCA_MINIMA="0.0.0"
+      TMP_DIR="$2"
+      mkdir -p "$TMP_DIR"
+      touch "$TMP_DIR/assinantes"
+      PASTA="$3"
+      ANVILORE_VERSAO="v0.10.0"
+      passo_atualizar_existente
+    `;
+    const proc = Bun.spawnSync(["bash", "-c", comando, "_", script, join(base, "tmp"), pasta], {
+      env: { ...process.env, HOME: home, PATH: process.env.PATH, CHAMADAS_CLI: chamadasCli },
+      stdout: "pipe", stderr: "pipe",
+    });
+    const stdout = proc.stdout.toString();
+    const stderr = proc.stderr.toString();
+    expect(proc.exitCode, `${stdout}\n${stderr}`).toBe(0);
+    const chamadas = (await readFile(chamadasCli, "utf8")).trim().split("\n");
+    expect(chamadas.length).toBe(2);
+    expect(chamadas[0]).toContain("--versao 0.10.0");
+    expect(chamadas[1]).not.toContain("--versao");
+    expect(stdout).toMatch(/não conhece.*--versao|tentando atualizar para a release/i);
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+test("Dado versao-tentada registrada há mais de 24 horas, Quando abro o lançador, Então tenta atualizar novamente", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.10.0", codigoAtualizador: 7 });
+  try {
+    const dirEstado = join(c.base, "home/.local/state/anvilore");
+    await mkdir(dirEstado, { recursive: true });
+    const agora = Math.floor(Date.now() / 1000);
+    // Recente (1 hora atrás): deve pular
+    await writeFile(join(dirEstado, "versao-tentada"), `0.10.0 ${agora - 3600}\n`);
+    const proc1 = c.executar();
+    expect(proc1.stdout.toString() + proc1.stderr.toString()).not.toContain("Atualizando o Anvilore");
+    expect(await Bun.file(c.atualizador).exists()).toBe(false);
+
+    // Antigo (25 horas atrás): deve tentar novamente
+    const epochPassado = agora - (25 * 3600);
+    await writeFile(join(dirEstado, "versao-tentada"), `0.10.0 ${epochPassado}\n`);
+    const proc2 = c.executar();
+    const saida2 = proc2.stdout.toString() + proc2.stderr.toString();
+    expect(proc2.exitCode, saida2).toBe(0);
+    expect(saida2).toContain("Atualizando o Anvilore de 0.9.0 para 0.10.0");
+    expect(await Bun.file(c.atualizador).exists()).toBe(true);
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado que o lançador pula a tentativa por causa do marcador versao-tentada, Quando abro, Então registro em abrir.log", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.10.0", codigoAtualizador: 7 });
+  try {
+    // Primeiro clique: falha e grava o marcador
+    c.executar();
+    // Segundo clique: pula
+    c.executar();
+    const dirEstado = join(c.base, "home/.local/state/anvilore");
+    const logAbrir = join(dirEstado, "abrir.log");
+    expect(await Bun.file(logAbrir).exists()).toBe(true);
+    const conteudoLog = await readFile(logAbrir, "utf8");
+    expect(conteudoLog).toMatch(/já tentada|pula|anteriormente/i);
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado o Bun só no nvm (fora do PATH), Quando o lançador chama o instalador do pacote, Então o instalador vê esse bun no PATH e não baixa outro", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-bun-nvm-instalador-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const pacote = join(base, "usr/lib/anvilore");
+    const nvmBin = join(home, ".nvm/versions/node/v24.15.0/bin");
+    const bunNvm = join(nvmBin, "bun");
+    const bunVisto = join(base, "bun-visto-pelo-instalador");
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(pacote, { recursive: true });
+    await mkdir(nvmBin, { recursive: true });
+    await mkdir(join(home, ".nvm/alias"), { recursive: true });
+    await writeFile(join(home, ".nvm/alias/default"), "v24.15.0\n");
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.9.0" }, null, 2));
+
+    await writeFile(bunNvm, "#!/bin/sh\nexit 0\n");
+    await chmod(bunNvm, 0o755);
+
+    const lancador = join(pacote, "anvilore-abrir");
+    await writeFile(lancador, shell);
+    await chmod(lancador, 0o755);
+    await writeFile(join(pacote, "VERSAO"), "0.10.0\n");
+    await writeFile(join(pacote, "instalar.sh"), [
+      "#!/bin/sh",
+      'command -v bun >"$ANV_TEST_BUN_VISTO" 2>/dev/null || true',
+      'sed "s/0[.]9[.]0/0.10.0/" "$ANVILORE_PASTA/package.json" >"$ANVILORE_PASTA/package.json.tmp"',
+      'mv "$ANVILORE_PASTA/package.json.tmp" "$ANVILORE_PASTA/package.json"',
+      'exit 0',
+    ].join("\n"));
+    await chmod(join(pacote, "instalar.sh"), 0o755);
+
+    const proc = Bun.spawnSync(["bash", lancador], {
+      cwd: base,
+      env: {
+        ...process.env,
+        HOME: home,
+        NVM_DIR: join(home, ".nvm"),
+        XDG_STATE_HOME: join(home, ".local/state"),
+        XDG_CONFIG_HOME: join(home, ".config"),
+        PATH: "/usr/bin:/bin",
+        ANVILORE_PASTA: pasta,
+        ANV_TEST_BUN_VISTO: bunVisto,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await Bun.file(bunVisto).exists()).toBe(true);
+    const visto = (await readFile(bunVisto, "utf8")).trim();
+    expect(visto).toBe(bunNvm);
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+test("Dado que o lançador não tem metadado VERSAO, Quando abro, Então não tento atualizar a pasta", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({});
+  try {
+    const proc = c.executar();
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await Bun.file(c.atualizador).exists()).toBe(false);
+    expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
+test("Dado que a versão instalada é ilegível, Quando abro, Então não atualizo nem deixo de abrir a UI", async () => {
+  if (process.platform !== "linux") return;
+  const c = await criarCenarioAtualizacaoPacote({ versaoPacote: "0.10.0", jsonInstalado: "{quebrado" });
+  try {
+    const proc = c.executar();
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await Bun.file(c.atualizador).exists()).toBe(false);
+    expect(await readFile(c.ui, "utf8")).toContain("src/cli.ts ui");
+  } finally { await rm(c.base, { recursive: true, force: true }); }
+});
+
 test("Dado a distribuição, Quando procuro os lançadores, Então há um shell Linux e um PowerShell UTF-8", () => {
   expect(shell).toMatch(/^#!\/usr\/bin\/env bash/);
   expect(ps1).toContain("Get-Content -Raw");
@@ -215,13 +587,13 @@ test("Dado Bun em nvm fora do PATH e uma shell de login, Quando abro no Linux, E
     await chmod(login, 0o755);
     const proc = Bun.spawnSync(["bash", join(raiz, "instalador/anvilore-abrir")], {
       cwd: base,
-      env: { ...process.env, HOME: home, PATH: "/usr/bin:/bin", SHELL: login, ANVILORE_PASTA: pasta, ANVILORE_TEST_BUN: bun, ANVILORE_TEST_CHAMADAS: chamadas },
+      env: { ...process.env, HOME: home, NVM_DIR: join(home, ".nvm"), PATH: "/usr/bin:/bin", SHELL: login, ANVILORE_PASTA: pasta, ANVILORE_TEST_BUN: bun, ANVILORE_TEST_CHAMADAS: chamadas },
       stdout: "pipe", stderr: "pipe",
     });
     expect(proc.exitCode, proc.stderr.toString()).toBe(0);
     expect(await readFile(chamadas, "utf8")).toContain("src/cli.ts ui");
   } finally { await rm(base, { recursive: true, force: true }); }
-});
+}, 15_000);
 
 test("Dado o caminho do Bun registrado pelo instalador, Quando abro sem PATH e sem ~/.bun, Então uso o registro antes da shell de login", async () => {
   if (process.platform !== "linux") return;
@@ -249,14 +621,14 @@ test("Dado o caminho do Bun registrado pelo instalador, Quando abro sem PATH e s
     await chmod(login, 0o755);
     const proc = Bun.spawnSync(["bash", join(raiz, "instalador/anvilore-abrir")], {
       cwd: base,
-      env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, ".config"), PATH: "/usr/bin:/bin", SHELL: login, ANVILORE_PASTA: pasta, ANVILORE_TEST_CHAMADAS: chamadas, ANVILORE_TEST_LOGIN: loginChamadas },
+      env: { ...process.env, HOME: home, NVM_DIR: join(home, ".nvm"), XDG_CONFIG_HOME: join(home, ".config"), PATH: "/usr/bin:/bin", SHELL: login, ANVILORE_PASTA: pasta, ANVILORE_TEST_CHAMADAS: chamadas, ANVILORE_TEST_LOGIN: loginChamadas },
       stdout: "pipe", stderr: "pipe",
     });
     expect(proc.exitCode, proc.stderr.toString()).toBe(0);
     expect(await readFile(chamadas, "utf8")).toContain("src/cli.ts ui");
     expect(await Bun.file(loginChamadas).exists()).toBe(false);
   } finally { await rm(base, { recursive: true, force: true }); }
-});
+}, 15_000);
 
 test("Dado Bun em ~/.bun e outro caminho registrado, Quando abro sem Bun no PATH, Então priorizo ~/.bun", async () => {
   if (process.platform !== "linux") return;
@@ -283,7 +655,7 @@ test("Dado Bun em ~/.bun e outro caminho registrado, Quando abro sem Bun no PATH
     await writeFile(join(config, "bun-path"), `${bunRegistrado}\n`);
     const proc = Bun.spawnSync(["bash", join(raiz, "instalador/anvilore-abrir")], {
       cwd: base,
-      env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, ".config"), PATH: "/usr/bin:/bin", ANVILORE_PASTA: pasta, ANVILORE_TEST_CHAMADAS: chamadas },
+      env: { ...process.env, HOME: home, NVM_DIR: join(home, ".nvm"), XDG_CONFIG_HOME: join(home, ".config"), PATH: "/usr/bin:/bin", ANVILORE_PASTA: pasta, ANVILORE_TEST_CHAMADAS: chamadas },
       stdout: "pipe", stderr: "pipe",
     });
     expect(proc.exitCode, proc.stderr.toString()).toBe(0);
@@ -322,6 +694,136 @@ test("Dado Bun só em ~/.local/bin e PATH sem ele, Quando abro no Linux, Então 
   } finally { await rm(base, { recursive: true, force: true }); }
 });
 
+test("Dado Bun só em nvm e SHELL que dorme 5 s, Quando abro no Linux com PATH de menu, Então acho o Bun do nvm sem estourar timeout e registro o caminho", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-bun-nvm-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(home, ".nvm/versions/node/v24.15.0/bin");
+    const chamadas = join(base, "chamadas");
+    const shellLenta = join(base, "shell-lenta");
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh\nprintf '%s\\n' "$*" >>"$ANVILORE_TEST_CHAMADAS"\n`);
+    await chmod(bun, 0o755);
+    await writeFile(shellLenta, `#!/bin/sh\nsleep 5\nprintf '%s\\n' "$ANVILORE_TEST_BUN"\n`);
+    await chmod(shellLenta, 0o755);
+    const proc = Bun.spawnSync(["bash", join(raiz, "instalador/anvilore-abrir")], {
+      cwd: base,
+      env: {
+        ...process.env,
+        HOME: home,
+        NVM_DIR: join(home, ".nvm"),
+        XDG_CONFIG_HOME: join(home, ".config"),
+        PATH: "/usr/bin:/bin",
+        SHELL: shellLenta,
+        ANVILORE_PASTA: pasta,
+        ANVILORE_TEST_BUN: bun,
+        ANVILORE_TEST_CHAMADAS: chamadas,
+      },
+      stdout: "pipe", stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await readFile(chamadas, "utf8")).toContain("src/cli.ts ui");
+    const registro = join(home, ".config/anvilore/bun-path");
+    expect(await readFile(registro, "utf8")).toBe(`${bun}\n`);
+    expect((await stat(registro)).mode & 0o777).toBe(0o600);
+  } finally { await rm(base, { recursive: true, force: true }); }
+}, 15_000);
+
+test("Dado múltiplos nós no nvm, Quando há alias/default válido, Então prefiro o default; senão a maior versão", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-bun-nvm-multi-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const nvmDir = join(home, ".nvm");
+    const v18 = join(nvmDir, "versions/node/v18.20.0/bin");
+    const v20 = join(nvmDir, "versions/node/v20.10.0/bin");
+    const v24 = join(nvmDir, "versions/node/v24.15.0/bin");
+    const chamadas = join(base, "chamadas");
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(v18, { recursive: true });
+    await mkdir(v20, { recursive: true });
+    await mkdir(v24, { recursive: true });
+    await mkdir(join(nvmDir, "alias"), { recursive: true });
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+
+    await writeFile(join(v18, "bun"), `#!/bin/sh\nprintf 'v18\\n' >>"$ANVILORE_TEST_CHAMADAS"\n`);
+    await writeFile(join(v20, "bun"), `#!/bin/sh\nprintf 'v20\\n' >>"$ANVILORE_TEST_CHAMADAS"\n`);
+    await writeFile(join(v24, "bun"), `#!/bin/sh\nprintf 'v24\\n' >>"$ANVILORE_TEST_CHAMADAS"\n`);
+    await chmod(join(v18, "bun"), 0o755);
+    await chmod(join(v20, "bun"), 0o755);
+    await chmod(join(v24, "bun"), 0o755);
+
+    // Cenário 1: alias/default aponta para v20.10.0
+    await writeFile(join(nvmDir, "alias/default"), "v20.10.0\n");
+    let proc = Bun.spawnSync(["bash", join(raiz, "instalador/anvilore-abrir")], {
+      cwd: base,
+      env: { ...process.env, HOME: home, NVM_DIR: nvmDir, XDG_CONFIG_HOME: join(home, ".config"), PATH: "/usr/bin:/bin", ANVILORE_PASTA: pasta, ANVILORE_TEST_CHAMADAS: chamadas },
+      stdout: "pipe", stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await readFile(chamadas, "utf8")).toContain("v20");
+
+    // Remove registro para testar fallback para a maior versão
+    await rm(join(home, ".config/anvilore/bun-path"), { force: true });
+    await rm(join(nvmDir, "alias/default"), { force: true });
+    await rm(chamadas, { force: true });
+
+    // Cenário 2: sem alias/default, escolhe a maior versão (v24.15.0)
+    proc = Bun.spawnSync(["bash", join(raiz, "instalador/anvilore-abrir")], {
+      cwd: base,
+      env: { ...process.env, HOME: home, NVM_DIR: nvmDir, XDG_CONFIG_HOME: join(home, ".config"), PATH: "/usr/bin:/bin", ANVILORE_PASTA: pasta, ANVILORE_TEST_CHAMADAS: chamadas },
+      stdout: "pipe", stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await readFile(chamadas, "utf8")).toContain("v24");
+  } finally { await rm(base, { recursive: true, force: true }); }
+}, 15_000);
+
+test("Dado Bun fora do nvm e achado pela shell de login em 4 s, Quando abro, Então não estouro timeout de 10 s e gravo bun-path", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-bun-shell-grava-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "custom-node/bin");
+    const chamadas = join(base, "chamadas");
+    const login = join(base, "login-shell");
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh\nprintf '%s\\n' "$*" >>"$ANVILORE_TEST_CHAMADAS"\n`);
+    await chmod(bun, 0o755);
+    await writeFile(login, `#!/bin/sh\nif [ "$1" = "-lic" ]; then sleep 4; printf '%s\\n' "$ANVILORE_TEST_BUN"; else exec /bin/bash "$@"; fi\n`);
+    await chmod(login, 0o755);
+    const proc = Bun.spawnSync(["bash", join(raiz, "instalador/anvilore-abrir")], {
+      cwd: base,
+      env: { ...process.env, HOME: home, NVM_DIR: join(home, ".nvm"), XDG_CONFIG_HOME: join(home, ".config"), PATH: "/usr/bin:/bin", SHELL: login, ANVILORE_PASTA: pasta, ANVILORE_TEST_BUN: bun, ANVILORE_TEST_CHAMADAS: chamadas },
+      stdout: "pipe", stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(await readFile(chamadas, "utf8")).toContain("src/cli.ts ui");
+    const registro = join(home, ".config/anvilore/bun-path");
+    expect(await readFile(registro, "utf8")).toBe(`${bun}\n`);
+    expect((await stat(registro)).mode & 0o777).toBe(0o600);
+  } finally { await rm(base, { recursive: true, force: true }); }
+}, 15_000);
+
 test("Dado o instalador com Bun em nvm, Quando registra o caminho para o lançador, Então grava em configuração do usuário com permissão privada", async () => {
   if (process.platform !== "linux") return;
   const base = await mkdtemp(join(tmpdir(), "anvilore-registra-bun-"));
@@ -332,7 +834,7 @@ test("Dado o instalador com Bun em nvm, Quando registra o caminho para o lançad
     await writeFile(bun, "#!/bin/sh\nexit 0\n");
     await chmod(bun, 0o755);
     const proc = Bun.spawnSync(["bash", "-c", 'ANVILORE_INSTALAR_CARREGAR=1; source "$1"; registrar_bun_para_lancador "$2"', "_", join(raiz, "instalador/instalar.sh"), bun], {
-      env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, ".config") },
+      env: { ...process.env, HOME: home, NVM_DIR: join(home, ".nvm"), XDG_CONFIG_HOME: join(home, ".config") },
       stdout: "pipe", stderr: "pipe",
     });
     const registro = join(home, ".config/anvilore/bun-path");
@@ -380,7 +882,7 @@ test.skipIf(process.platform !== "linux" || !Bun.which("script") || existsSync("
     const lancador = join(kit, "anvilore-abrir");
     await writeFile(lancador, shell);
     const proc = Bun.spawnSync(["script", "-q", "-e", "-c", `bash '${lancador}'`, "/dev/null"], {
-      env: { ...process.env, HOME: home, ANVILORE_PASTA: pasta },
+      env: { ...process.env, HOME: home, ANVILORE_PASTA: pasta, ANVILORE_PACKAGE_DIR: join(base, "sem-pacote") },
       stdin: new TextEncoder().encode("\n"), stdout: "pipe", stderr: "pipe",
     });
     const saida = proc.stdout.toString() + proc.stderr.toString();

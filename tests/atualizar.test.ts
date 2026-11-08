@@ -1429,3 +1429,44 @@ describe("atualizador: estado das chaves no site (revogação)", () => {
     expect(k.consultas.length).toBe(0);
   });
 });
+
+describe("atualizador: opção --versao", () => {
+  real("Dado uma pasta na versão 0.3.0 e release latest 0.3.2, Quando aplico com --versao 0.3.1, Então atualizo para 0.3.1 e não para a latest", async () => {
+    const k = await kit(tres);
+    const saida = await atualizar("aplicar", { ...k.deps(), versaoAlvo: "0.3.1" });
+    expect(saida).toContain("Atualizado para 0.3.1");
+    expect(k.head()).toBe(k.commits["0.3.1"]!);
+  });
+
+  real("Dado uma pasta na versão 0.3.1, Quando tento aplicar com --versao menor (0.3.0), Então recusa e não faz downgrade", async () => {
+    const k = await kit(tres.slice(1));
+    await expect(atualizar("aplicar", { ...k.deps(), versaoAlvo: "0.3.0" })).rejects.toThrow(/menor que a instalada|não faz downgrade/);
+    expect(k.head()).toBe(k.commits["0.3.1"]!);
+  });
+
+  real("Dado uma pasta na versão 0.3.0, Quando aplico com --versao igual (0.3.0), Então reporta já atualizado com sucesso", async () => {
+    const k = await kit([tres[0]!]);
+    const saida = await atualizar("aplicar", { ...k.deps(), versaoAlvo: "0.3.0" });
+    expect(saida).toContain("já está atualizado");
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+  });
+
+  test("Dado comando atualizar com --versao inválida, Quando executo, Então recusa com erro de versão inválida", async () => {
+    const c = capturarConsole();
+    try {
+      expect(await comandoAtualizar(["--versao", "invalida"])).toBe(1);
+      expect(c.erros.join("\n")).toMatch(/versão.*inválida/i);
+    } finally { c.restaurar(); }
+  });
+
+  real("Dado a versão 0.3.1 em recusadas, Quando aplico com --versao 0.3.1, Então nada é buscado nem aplicado e a mensagem diz que já foi recusada", async () => {
+    const k = await kit(tres);
+    const estado = await k.estado();
+    estado.recusadas = ["0.3.1"];
+    await writeFile(join(k.raiz, ".anvilore/atualizacao.json"), JSON.stringify(estado, null, 2));
+
+    const saida = await atualizar("aplicar", { ...k.deps(), versaoAlvo: "0.3.1" });
+    expect(saida).toBe("Anvilore 0.3.1 já foi recusada; aguardando outra release.");
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+  });
+});
