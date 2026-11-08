@@ -1569,3 +1569,266 @@ exit 0
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test("Dado estado só-revisão preservado e servidor novo que demora a gravar o estado, Quando dois lançadores sem terminal executam em sequência, Então só um servidor completo é iniciado (P2 rodada 2)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-revisao-espera-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "bin");
+    const xdgRuntime = join(base, "run");
+    const chamadas = join(base, "chamadas");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await mkdir(xdgRuntime, { recursive: true });
+
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+    const bun = join(bin, "bun");
+    await writeFile(bun, `#!/bin/sh
+if [ "$1" = "-e" ]; then
+  exec "${process.execPath}" "$@"
+fi
+if [ "$1" = "src/cli.ts" ] && [ "$2" = "ui" ]; then
+  echo "start $$" >>"${chamadas}"
+  sleep 1.5
+  cat <<EOF >"${estadoFile}"
+{
+  "pid": $$,
+  "porta": 45999,
+  "token": "tokNovoCompleto",
+  "pasta": "${pasta}",
+  "soRevisao": false
+}
+EOF
+  sleep 10 &
+  wait $!
+  exit 0
+fi
+exit 0
+`);
+    await chmod(bun, 0o755);
+
+    const xdgOpen = join(bin, "xdg-open");
+    await writeFile(xdgOpen, `#!/bin/sh
+exit 0
+`);
+    await chmod(xdgOpen, 0o755);
+
+    const serverRevisao = Bun.serve({
+      port: 49992,
+      fetch() {
+        return new Response("OK", { status: 200 });
+      },
+    });
+
+    const serverCompleto = Bun.serve({
+      port: 45999,
+      fetch() {
+        return new Response("OK", { status: 200 });
+      },
+    });
+
+    try {
+      await writeFile(estadoFile, JSON.stringify({
+        pid: process.pid,
+        porta: 49992,
+        token: "tokRevisao",
+        pasta,
+        soRevisao: true,
+      }, null, 2), { mode: 0o600 });
+
+      const env = {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:/usr/bin:/bin`,
+        ANVILORE_PASTA: pasta,
+        XDG_RUNTIME_DIR: xdgRuntime,
+        ANVILORE_SEM_DIALOGO: "1",
+      };
+
+      const p1 = Bun.spawn(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+      await new Promise(r => setTimeout(r, 100));
+      const p2 = Bun.spawn(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+
+      const [c1, c2] = await Promise.all([p1.exited, p2.exited]);
+      expect(c1).toBe(0);
+      expect(c2).toBe(0);
+
+      const starts = (await readFile(chamadas, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
+      expect(starts.length).toBe(1);
+    } finally {
+      serverRevisao.stop(true);
+      serverCompleto.stop(true);
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("Dado estado de outro pid gravado no arquivo, Quando o lançador aguarda prontidão, Então não libera a trava prematuramente e aguarda o próprio servidor (P2 unitário prontidão)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-outro-pid-trava-"));
+  try {
+    const home = join(base, "home");
+    const pasta = join(home, "Anvilore");
+    const bin = join(base, "bin");
+    const xdgRuntime = join(base, "run");
+    const chamadas = join(base, "chamadas");
+
+    await mkdir(join(pasta, ".git"), { recursive: true });
+    await mkdir(join(pasta, "src"), { recursive: true });
+    await mkdir(join(pasta, "skills"), { recursive: true });
+    await mkdir(bin, { recursive: true });
+    await mkdir(xdgRuntime, { recursive: true });
+
+    await writeFile(join(pasta, "AGENTS.md"), "");
+    await writeFile(join(pasta, "src/cli.ts"), "");
+    await writeFile(join(pasta, "package.json"), JSON.stringify({ version: "0.10.0" }));
+
+    const estadoFile = join(xdgRuntime, "anvilore-ui.json");
+    const travaFile = join(xdgRuntime, "anvilore-ui.lock");
+    const bun = join(bin, "bun");
+
+    // O fake bun demora 800ms para sobrescrever o estado com seu próprio PID
+    await writeFile(bun, `#!/bin/sh
+if [ "$1" = "-e" ]; then
+  exec "${process.execPath}" "$@"
+fi
+if [ "$1" = "src/cli.ts" ] && [ "$2" = "ui" ]; then
+  echo "start $$" >>"${chamadas}"
+  sleep 0.8
+  cat <<EOF >"${estadoFile}"
+{
+  "pid": $$,
+  "porta": 45999,
+  "token": "tokNovo",
+  "pasta": "${pasta}",
+  "soRevisao": false
+}
+EOF
+  sleep 10 &
+  wait $!
+  exit 0
+fi
+exit 0
+`);
+    await chmod(bun, 0o755);
+
+    const xdgOpen = join(bin, "xdg-open");
+    await writeFile(xdgOpen, `#!/bin/sh
+exit 0
+`);
+    await chmod(xdgOpen, 0o755);
+
+    try {
+      // Estado existente apontando para outro PID
+      await writeFile(estadoFile, JSON.stringify({
+        pid: 999998,
+        porta: 49998,
+        token: "tokOutro",
+        pasta,
+        soRevisao: false,
+      }, null, 2), { mode: 0o600 });
+
+      const env = {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:/usr/bin:/bin`,
+        ANVILORE_PASTA: pasta,
+        XDG_RUNTIME_DIR: xdgRuntime,
+        ANVILORE_SEM_DIALOGO: "1",
+      };
+
+      const proc = Bun.spawn(["bash", lancadorOriginal], { cwd: base, env, stdout: "pipe", stderr: "pipe" });
+
+      // Em 200ms, o servidor novo ainda não gravou seu estado (está no sleep 0.8)
+      // O estado antigo pertence a outro PID (999998).
+      // A trava AINDA DEVE ESTAR RETIDA (o flock não pode ter sido liberado prematuramente)
+      await new Promise(r => setTimeout(r, 200));
+      const testePreso = Bun.spawnSync(["flock", "-n", travaFile, "true"]);
+      expect(testePreso.exitCode).not.toBe(0);
+
+      const codigo = await proc.exited;
+      expect(codigo).toBe(0);
+
+      // Ao final, o flock foi liberado e o servidor próprio foi gravado
+      const testeLivre = Bun.spawnSync(["flock", "-n", travaFile, "true"]);
+      expect(testeLivre.exitCode).toBe(0);
+      const conteudoFinal = JSON.parse(await readFile(estadoFile, "utf8"));
+      expect(conteudoFinal.token).toBe("tokNovo");
+    } finally {
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("Dado estado de outro pid ou só-revisão, Quando estado_pronto_para_servidor é avaliado, Então recusa prontidão (P2 unitário estado_pronto)", async () => {
+  if (process.platform !== "linux") return;
+  const base = await mkdtemp(join(tmpdir(), "anvilore-unit-pronto-"));
+  try {
+    const estadoFile = join(base, "anvilore-ui.json");
+    const script = join(base, "teste-pronto.sh");
+
+    await writeFile(script, `#!/bin/bash
+BUN_BIN="${process.execPath}"
+source <(sed -n '/estado_pronto_para_servidor()/,/^}/p' "${lancadorOriginal}")
+estado_pronto_para_servidor "$1" "$2" "$3"
+`);
+    await chmod(script, 0o755);
+
+    // 1. Estado só-revisão com mesmo PID -> deve recusar
+    await writeFile(estadoFile, JSON.stringify({
+      pid: process.pid,
+      porta: 4173,
+      token: "tok",
+      pasta: base,
+      soRevisao: true,
+    }));
+    const r1 = Bun.spawnSync(["bash", script, estadoFile, String(process.pid), base]);
+    expect(r1.exitCode).not.toBe(0);
+
+    // 2. Estado de outro PID -> deve recusar
+    await writeFile(estadoFile, JSON.stringify({
+      pid: 999999,
+      porta: 4173,
+      token: "tok",
+      pasta: base,
+      soRevisao: false,
+    }));
+    const r2 = Bun.spawnSync(["bash", script, estadoFile, String(process.pid), base]);
+    expect(r2.exitCode).not.toBe(0);
+
+    // 3. Estado com pasta divergente -> deve recusar
+    await writeFile(estadoFile, JSON.stringify({
+      pid: process.pid,
+      porta: 4173,
+      token: "tok",
+      pasta: "/outra/pasta",
+      soRevisao: false,
+    }));
+    const r3 = Bun.spawnSync(["bash", script, estadoFile, String(process.pid), base]);
+    expect(r3.exitCode).not.toBe(0);
+
+    // 4. Estado compatível com mesmo PID e pasta -> deve aceitar
+    await writeFile(estadoFile, JSON.stringify({
+      pid: process.pid,
+      porta: 4173,
+      token: "tok",
+      pasta: base,
+      soRevisao: false,
+    }));
+    const r4 = Bun.spawnSync(["bash", script, estadoFile, String(process.pid), base]);
+    expect(r4.exitCode).toBe(0);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});

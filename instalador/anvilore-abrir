@@ -535,6 +535,53 @@ obter_inicio_processo() {
   return 1
 }
 
+estado_pronto_para_servidor() {
+  local arquivo_estado="$1" server_pid="$2" pasta_alvo="${3:-}"
+  [ -f "$arquivo_estado" ] || return 1
+  [ -n "$server_pid" ] || return 1
+
+  "$BUN_BIN" -e '
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const arquivo = process.argv[1];
+    const serverPid = parseInt(process.argv[2], 10);
+    const pastaAlvo = process.argv[3] ? path.resolve(process.argv[3]) : undefined;
+    try {
+      const est = JSON.parse(fs.readFileSync(arquivo, "utf8"));
+      if (typeof est.pid !== "number" || typeof est.porta !== "number" || typeof est.token !== "string" || typeof est.pasta !== "string") {
+        process.exit(1);
+      }
+      if (est.soRevisao === true) {
+        process.exit(1);
+      }
+      if (pastaAlvo && path.resolve(est.pasta) !== pastaAlvo) {
+        process.exit(1);
+      }
+      if (est.pid === serverPid) {
+        process.exit(0);
+      }
+      let atual = est.pid;
+      while (atual > 1) {
+        try {
+          const s = fs.readFileSync("/proc/" + atual + "/stat", "utf8");
+          const r = s.lastIndexOf(")");
+          if (r === -1) break;
+          const campos = s.slice(r + 2).trim().split(/\s+/);
+          const ppid = parseInt(campos[1], 10);
+          if (ppid === serverPid) process.exit(0);
+          if (ppid === atual || ppid <= 1) break;
+          atual = ppid;
+        } catch {
+          break;
+        }
+      }
+      process.exit(1);
+    } catch {
+      process.exit(1);
+    }
+  ' "$arquivo_estado" "$server_pid" "$pasta_alvo" 2>/dev/null
+}
+
 verificar_instancia_existente() {
   local arquivo_estado
   arquivo_estado="$(obter_caminho_estado)"
@@ -655,7 +702,7 @@ if { [ -t 0 ] || [ -t 1 ]; } && [ -z "${ANVILORE_DESACOPLADO:-}" ]; then
   server_pid=$!
   for _ in $(seq 1 200); do
     if ! kill -0 "$server_pid" 2>/dev/null; then break; fi
-    if [ -e "$(obter_caminho_estado)" ]; then break; fi
+    if estado_pronto_para_servidor "$(obter_caminho_estado)" "$server_pid" "$PASTA"; then break; fi
     sleep 0.1
   done
   liberar_trava_instancia
@@ -717,7 +764,7 @@ for _ in $(seq 1 200); do
     liberar_trava_instancia
     exit 0
   fi
-  if [ -e "$(obter_caminho_estado)" ]; then
+  if estado_pronto_para_servidor "$(obter_caminho_estado)" "$server_pid" "$PASTA"; then
     pronto=1
     break
   fi
