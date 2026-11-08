@@ -103,16 +103,20 @@ describe("instalar.ps1: transporte do git antes da assinatura (A5) e chaves da r
 
   test("Dado uma pasta já instalada, Quando o instalador roda o atualizador dela, Então entrega as chaves embutidas pela opção --assinantes-do-instalador e não pelo ambiente (R1)", () => {
     const trecho = /\$jaInstalado\) \{[\s\S]*?\} else \{/.exec(codigo)?.[0] ?? "";
-    expect(trecho).toMatch(/'atualizar'/);
-    expect(trecho).toMatch(/'--assinantes-do-instalador'\s*,\s*\$assinReinstalacao/);
+    expect(trecho).toContain("AnvExecutarAtualizacaoExistente");
+    expect(funcao("AnvExecutarAtualizacaoExistente")).toMatch(/'atualizar',\s*'--assinantes-do-instalador',\s*\$Assinantes/);
     expect(trecho).not.toContain("AnvExecutarComAmbiente");
     expect(codigo).not.toContain("ANVILORE_ASSINANTES_DO_INSTALADOR");
   });
 
-  test("Dado o atualizador antigo da pasta que devolve 2 (uso) para a opção, Então o instalador para com mensagem simples e não segue como atualizado (R1)", () => {
+  test("Dado o atualizador antigo da pasta que devolve 2 para --versao, Então repete sem a opção antes de falhar (R1)", () => {
     const trecho = /\$jaInstalado\) \{[\s\S]*?\} else \{/.exec(codigo)?.[0] ?? "";
-    expect(trecho).toMatch(/\$at\.Codigo -eq 2/);
+    expect(trecho).toContain("AnvExecutarAtualizacaoExistente");
     expect(trecho).toMatch(/AnvParar 1 \(AnvMensagemBaseMinima[^\n]*'atualizador'/);
+    expect(trecho).toContain("ANVILORE_VERSAO");
+    const atualizador = funcao("AnvExecutarAtualizacaoExistente");
+    expect(atualizador).toMatch(/\$Versao\s+-and\s+\$at\.Codigo\s+-eq\s+2/);
+    expect(atualizador).toMatch(/AnvExecutar\s+-Exe\s+\$Bun\s+-Argumentos\s+\$argsSemVersao\s+-Pasta\s+\$Pasta/);
     const mensagem = funcao("AnvMensagemBaseMinima");
     expect(mensagem).toContain("anterior à primeira versão assinada e não sabe receber as chaves do instalador; nada foi mudado");
     expect(codigo).toContain("numa pasta nova");
@@ -244,7 +248,7 @@ describe("instalar.ps1: estado das chaves no site (decisão 2 do parecer de rele
 
   test("Dado a reinstalação, Quando leio AnvPassos, Então a base mínima vem antes da lista, que vem antes de executar o atualizador da pasta", () => {
     const corpo = funcao("AnvPassos");
-    const base = corpo.indexOf("AnvVerificarBaseMinima -Pasta"), lista = corpo.indexOf("AnvConferirEstadoDasChaves"), atualizar = corpo.indexOf("'atualizar', '--assinantes-do-instalador'");
+    const base = corpo.indexOf("AnvVerificarBaseMinima -Pasta"), lista = corpo.indexOf("AnvConferirEstadoDasChaves"), atualizar = corpo.indexOf("AnvExecutarAtualizacaoExistente");
     expect(base).toBeGreaterThan(-1);
     expect(lista).toBeGreaterThan(base);
     expect(atualizar).toBeGreaterThan(lista);

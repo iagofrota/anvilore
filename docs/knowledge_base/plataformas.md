@@ -430,6 +430,16 @@ processo com Bun, binários locais, PortableGit e os utilitários de `%LOCALAPPD
 sair com erro, mostra a mensagem e aguarda Enter. Como a UI não descobre servidor existente, cada segundo clique cria
 outro na próxima porta livre e abre outra aba.
 
+O setup instala também `VERSAO` ao lado de `abrir.ps1`. O job de build gera esse texto ASCII a partir do `package.json`.
+Ao abrir, o lançador lê `VERSAO` e o campo `version` do `package.json` com `ConvertFrom-Json`; só chama o instalador
+silenciosamente quando o pacote é mais novo. Falha mantém a pasta e a interface disponíveis, registra `abrir.log` e
+marca `versao-tentada` por 24 horas em `%LOCALAPPDATA%\Anvilore` (ou em `USERPROFILE\AppData\Local\Anvilore` se
+`LOCALAPPDATA` não estiver definido). Uma tentativa bem-sucedida remove o marcador; pacote igual ou mais velho não rebaixa.
+Antes da tentativa, o lançador acrescenta ao `PATH` do processo o Bun, npm e PortableGit gerenciados. Ao chamar o instalador
+do pacote, define `ANVILORE_ATALHO_SETUP=1` e `ANVILORE_CONFIG_SETUP` para o arquivo pasta.txt ao lado de `abrir.ps1`, para que
+`AnvCriarAtalho` atualize o destino preservado pelo Inno sem substituir seus atalhos; as variáveis temporárias voltam ao
+valor anterior após sucesso ou falha.
+
 **Limite CLM do lançador.** A prova com Windows PowerShell 5.1 em modo `ConstrainedLanguage` rejeitou
 `[scriptblock]::Create`; portanto, o wrapper atual do atalho não inicia `abrir.ps1` nesse modo, mesmo com o script usando
 fallback UTF-8 por `chcp.com`. `AnvCriarAtalho` já registra o modo restrito e retorna `$false`; o caminho delegado é o
@@ -525,8 +535,9 @@ kit/wiki, seja ela a padrão ou uma personalizada. O ícone versionado contém u
 `instalador/anvilore.svg` com FFmpeg (`ffmpeg -i instalador/anvilore.svg -frames:v 1 -vf scale=48:48 -y /tmp/anvilore.png &&
 ffmpeg -i /tmp/anvilore.png -frames:v 1 instalador/windows/anvilore.ico`). Outros tamanhos/HiDPI não foram validados.
 
-**Interface de build para a release:** ISCC recebe `/DVersao=<versão>` e `/DInstallerPs1=<caminho absoluto do ps1 já
-embutido>`; `/O<pasta>` escolhe a saída, cujo nome é AnviloreSetup.exe. O valor padrão de InstallerPs1 é o modelo do
+**Interface de build para a release:** o job obtém a versão de `package.json`, gera um arquivo de texto `VERSAO` em ASCII e
+passa seu caminho a ISCC por `/DVersaoFile=<caminho>`, junto de `/DVersao=<versão>` e `/DInstallerPs1=<caminho absoluto do ps1 já
+embutido>`. O Inno inclui `VERSAO` ao lado de `abrir.ps1`; `/O<pasta>` escolhe a saída, cujo nome é AnviloreSetup.exe. O valor padrão de InstallerPs1 é o modelo do
 repositório, que recusa instalar sem as chaves e o manifesto embutidos. Nenhuma chave real é necessária para compilar;
 os testes usam exclusivamente uma chave descartável. O build não assina o executável.
 A versão de texto vem de AppVersion. No run 41206479325 a ProductVersion lida do EXE foi `0.3.1` completada com espaços

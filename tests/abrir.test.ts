@@ -860,7 +860,16 @@ test("Dado que não há Bun nos locais conhecidos nem na shell de login, Quando 
     await chmod(login, 0o755);
     const proc = Bun.spawnSync(["bash", join(raiz, "instalador/anvilore-abrir")], {
       cwd: base,
-      env: { ...process.env, HOME: home, PATH: "/usr/bin:/bin", SHELL: login, ANVILORE_PASTA: pasta },
+      env: {
+        ...process.env,
+        HOME: home,
+        NVM_DIR: join(home, ".nvm"),
+        XDG_CONFIG_HOME: join(home, ".config"),
+        XDG_STATE_HOME: join(home, ".local/state"),
+        PATH: "/usr/bin:/bin",
+        SHELL: login,
+        ANVILORE_PASTA: pasta,
+      },
       stdout: "pipe", stderr: "pipe",
     });
     const saida = proc.stdout.toString() + proc.stderr.toString();

@@ -5,6 +5,9 @@
 #ifndef InstallerPs1
   #define InstallerPs1 "..\instalar.ps1"
 #endif
+#ifndef VersaoFile
+  #error VersaoFile precisa apontar para o arquivo de versão gerado pelo build.
+#endif
 
 [Setup]
 AppId={{A8A669A9-B495-4B92-9D54-8770526AFA2A}
@@ -26,6 +29,7 @@ ArchitecturesInstallIn64BitMode=x64
 [Files]
 Source: "{#InstallerPs1}"; DestDir: "{app}"; DestName: "instalar.ps1"; Flags: ignoreversion
 Source: "..\abrir.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#VersaoFile}"; DestDir: "{app}"; DestName: "VERSAO"; Flags: ignoreversion
 Source: "anvilore.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

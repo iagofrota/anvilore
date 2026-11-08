@@ -333,6 +333,24 @@ function AnvExecutar {
   return [pscustomobject]@{ Codigo = $codigo; Saida = $texto }
 }
 
+# Atualiza uma instalação existente. Um atualizador anterior pode rejeitar --versao com código 2;
+# nesse caso conserva a atualização antiga para a última versão publicada, sem rebaixar a pasta.
+function AnvExecutarAtualizacaoExistente {
+  param([string]$Bun, [string]$Pasta, [string]$Assinantes, [string]$Versao = '')
+  $argsSemVersao = @('src/cli.ts', 'atualizar', '--assinantes-do-instalador', $Assinantes)
+  $argsComVersao = @($argsSemVersao)
+  if ($Versao) {
+    $versaoNormalizada = if ($Versao.StartsWith('v')) { $Versao.Substring(1) } else { $Versao }
+    $argsComVersao += @('--versao', $versaoNormalizada)
+  }
+  $at = AnvExecutar -Exe $Bun -Argumentos $argsComVersao -Pasta $Pasta
+  if ($Versao -and $at.Codigo -eq 2) {
+    AnvEscrever 'O atualizador desta pasta ainda não conhece --versao; vou tentar a versão publicada.'
+    $at = AnvExecutar -Exe $Bun -Argumentos $argsSemVersao -Pasta $Pasta
+  }
+  return $at
+}
+
 # Roda o programa com variáveis de ambiente só durante a chamada; ao terminar, cada uma volta ao valor que tinha (ou deixa de
 # existir). `Env:` e não [Environment]:: porque também funciona no Constrained Language Mode.
 function AnvExecutarComAmbiente {
@@ -1185,7 +1203,8 @@ function AnvPassos {
       # `atualizar` manual ou agendado herdaria sem querer): com elas o atualizador confere a tag só contra o que este instalador traz.
       $assinReinstalacao = Join-Path $temp 'assinantes-reinstalacao'
       Set-Content -LiteralPath $assinReinstalacao -Value $estadoChaves.Assinantes -NoNewline -Encoding ASCII
-      $at = AnvExecutar $bun @('src/cli.ts', 'atualizar', '--assinantes-do-instalador', $assinReinstalacao) $pasta
+      $versaoSolicitada = AnvVariavel 'ANVILORE_VERSAO'
+      $at = AnvExecutarAtualizacaoExistente -Bun $bun -Pasta $pasta -Assinantes $assinReinstalacao -Versao $versaoSolicitada
       # Código 2 = uso inválido: o atualizador da pasta é de uma versão que não conhece a opção. Não esconde o erro nem segue
       # como se tivesse conferido (nada foi mudado).
       if ($at.Codigo -eq 2) { AnvParar 1 (AnvMensagemBaseMinima -Pasta $pasta -Resultado @{ Motivo = 'atualizador' } -Base $base) }

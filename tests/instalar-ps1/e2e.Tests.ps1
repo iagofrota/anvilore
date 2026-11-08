@@ -936,8 +936,10 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       if (-not $iscc) { throw 'ISCC.exe não está instalado no runner Windows' }
       $script:SetupSaida = Join-Path $script:Base 'setup-build'
       New-Item -ItemType Directory $script:SetupSaida -Force | Out-Null
+      $script:SetupVersaoFile = Join-Path $script:Base 'VERSAO'
+      [IO.File]::WriteAllText($script:SetupVersaoFile, "$script:VersaoRepo`n", [Text.Encoding]::ASCII)
       $script:SetupIss = Join-Path $script:Raiz 'instalador\windows\anvilore.iss'
-      $out = & $iscc.FullName "/DVersao=$script:VersaoRepo" "/DInstallerPs1=$script:Release" "/O$script:SetupSaida" $script:SetupIss 2>&1 | Out-String
+      $out = & $iscc.FullName "/DVersao=$script:VersaoRepo" "/DInstallerPs1=$script:Release" "/DVersaoFile=$script:SetupVersaoFile" "/O$script:SetupSaida" $script:SetupIss 2>&1 | Out-String
       if ($LASTEXITCODE -ne 0) { throw "ISCC falhou ($LASTEXITCODE): $out" }
       $script:SetupExe = Join-Path $script:SetupSaida 'AnviloreSetup.exe'
       $script:SetupKit = Join-Path $script:Base "perfil setup\a wiki da Lia's"
@@ -957,6 +959,7 @@ Describe 'instalar.ps1 no Windows' -Skip:(-not $script:EhWindows) {
       $env:ANVILORE_SEM_PERGUNTAS = '1'
       $p = Start-Process -FilePath $script:SetupExe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR="' + $script:SetupApp + '"') -Wait -PassThru
       $script:SetupInstallCode = $p.ExitCode
+      (Get-Content -Raw -Encoding ASCII -LiteralPath (Join-Path $script:SetupApp 'VERSAO')).Trim() | Should -Be $script:VersaoRepo
       $script:SetupShortcut = New-Object -ComObject WScript.Shell
       $script:SetupMarca = Join-Path $script:SetupKit 'minha nota pessoal.txt'
       $script:SetupConteudo = 'nota anterior ao setup repetido: ' + [guid]::NewGuid().ToString('N')
