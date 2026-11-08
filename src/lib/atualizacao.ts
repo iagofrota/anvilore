@@ -1011,10 +1011,10 @@ export async function atualizar(acao: "verificar" | "voltar" | "estado" | "autom
         state.verificadoEm = new Date().toISOString(); await gravarEstado(raiz, state);
         return `Anvilore ${atual} já está atualizado.`;
       }
-      if ((state.recusadas ?? []).includes(release.versao)) return `Anvilore ${release.versao} já foi recusada; aguardando outra release.`;
       decision = decidirPolitica(atual, release.versao, state.modo, state.canal);
       if (decision === "ignorar" && acao !== "aplicar") return `Atualização ignorada pela política atual (${state.modo}, canal ${state.canal}).`;
     }
+    if ((state.recusadas ?? []).includes(release.versao)) return `Anvilore ${release.versao} já foi recusada; aguardando outra release.`;
     // Estado das chaves no site, ANTES de buscar a tag e de verificá-la, na aplicação comum e na com `--assinantes-do-instalador`
     // (e na verificação): falha da consulta ou versão abaixo da mínima param aqui, sem tocar na tag nem no HEAD.
     let confianca: Awaited<ReturnType<typeof consultarConfianca>>;

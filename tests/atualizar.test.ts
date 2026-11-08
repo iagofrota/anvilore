@@ -1458,4 +1458,15 @@ describe("atualizador: opção --versao", () => {
       expect(c.erros.join("\n")).toMatch(/versão.*inválida/i);
     } finally { c.restaurar(); }
   });
+
+  real("Dado a versão 0.3.1 em recusadas, Quando aplico com --versao 0.3.1, Então nada é buscado nem aplicado e a mensagem diz que já foi recusada", async () => {
+    const k = await kit(tres);
+    const estado = await k.estado();
+    estado.recusadas = ["0.3.1"];
+    await writeFile(join(k.raiz, ".anvilore/atualizacao.json"), JSON.stringify(estado, null, 2));
+
+    const saida = await atualizar("aplicar", { ...k.deps(), versaoAlvo: "0.3.1" });
+    expect(saida).toBe("Anvilore 0.3.1 já foi recusada; aguardando outra release.");
+    expect(k.head()).toBe(k.commits["0.3.0"]!);
+  });
 });
