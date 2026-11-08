@@ -537,3 +537,81 @@ test("Dado cofre B já aberto por outro servidor, Quando troco o cofre A para B 
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test("Dado o servidor no mesmo cofre por caminho real ou symlink, Quando o onboarding seleciona o outro alias, Então responde 200 e preserva a instância própria", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "anvilore-alias-onboarding-")));
+  try {
+    const { iniciarServidorUi } = await import("../src/ui/servidor/servidor");
+    const { PonteClaudeCode } = await import("../src/lib/ponte-claude-code");
+    class PonteFalsa extends PonteClaudeCode {
+      override async disponibilidade() {
+        return { ok: true as const, binario: "claude", versao: "fake" };
+      }
+    }
+
+    const home = join(base, "home");
+    const pastaReal = join(home, "vault-real");
+    const pastaLink = join(home, "vault-link");
+    const xdgRuntime = join(base, "run");
+    await mkdir(xdgRuntime, { recursive: true });
+    await mkdir(join(pastaReal, "wiki"), { recursive: true });
+    await writeFile(join(pastaReal, "SCHEMA.md"), "# Schema\n");
+    await writeFile(join(pastaReal, "AGENTS.md"), "# Agentes\n");
+    await symlink(pastaReal, pastaLink);
+
+    const ambiente = { ...process.env, HOME: home, XDG_RUNTIME_DIR: xdgRuntime };
+    const casos: Array<[string, string]> = [[pastaLink, pastaReal], [pastaReal, pastaLink]];
+    const resultados: Array<{ status: number; raiz: string; ativa: boolean; token?: string; porta?: number; portaEsperada: number }> = [];
+    for (const [pastaInicial, pastaSelecionada] of casos) {
+      const token = `tok-${pastaInicial === pastaLink ? "link" : "real"}`;
+      const app = await iniciarServidorUi(pastaInicial, {
+        portaInicial: 0,
+        token,
+        abrirNavegador: false,
+        ponte: new PonteFalsa(),
+        ambiente,
+      });
+
+      try {
+        await gravarEstadoUi({
+          pid: process.pid,
+          porta: app.porta!,
+          token: app.token,
+          pasta: pastaInicial,
+          soRevisao: false,
+        }, ambiente);
+
+        const res = await fetch(`http://127.0.0.1:${app.porta}/api/onboarding/pasta?token=${app.token}`, {
+          method: "POST",
+          headers: {
+            origin: `http://127.0.0.1:${app.porta}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ pasta: pastaSelecionada }),
+        });
+
+        const estado = await obterEstadoUi(pastaSelecionada, ambiente);
+        const instancia = await verificarInstanciaExistente(pastaSelecionada, ambiente);
+        resultados.push({
+          status: res.status,
+          raiz: app.obterRaiz(),
+          ativa: instancia.ativa,
+          token: estado?.token ?? instancia.estado?.token,
+          porta: estado?.porta ?? instancia.estado?.porta,
+          portaEsperada: app.porta!,
+        });
+      } finally {
+        await app.encerrar();
+        app.servidor.stop(true);
+      }
+    }
+
+    expect(resultados.map(resultado => resultado.status)).toEqual([200, 200]);
+    expect(resultados.map(resultado => resultado.raiz)).toEqual([resolve(pastaLink), resolve(pastaReal)]);
+    expect(resultados.map(resultado => resultado.ativa)).toEqual([true, true]);
+    expect(resultados.map(resultado => resultado.token)).toEqual(["tok-link", "tok-real"]);
+    expect(resultados.map(resultado => resultado.porta)).toEqual(resultados.map(resultado => resultado.portaEsperada));
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});

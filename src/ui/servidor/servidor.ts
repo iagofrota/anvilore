@@ -1,6 +1,6 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { aprovarPelaInterface } from "../../comandos/aprovar";
 import { isoComOffset } from "../../lib/hora";
@@ -25,7 +25,7 @@ import {
   validarPastaVault,
 } from "../../lib/ui-onboarding";
 import { ambienteComCaminhosAbsolutos } from "../../lib/caminhos";
-import { gravarEstadoUi, obterEstadoUi, removerEstadoUi, verificarInstanciaExistente } from "../../lib/ui-estado";
+import { chaveCofreUi, gravarEstadoUi, obterEstadoUi, removerEstadoUi, verificarInstanciaExistente } from "../../lib/ui-estado";
 
 type Servidor = ReturnType<typeof Bun.serve>;
 type OpcoesServidor = {
@@ -429,9 +429,12 @@ export async function iniciarServidorUi(raizInicial: string, opcoes: OpcoesServi
             try { corpo = await request.json() as { pasta?: unknown }; } catch { return json({ erro: "Pedido inválido." }, 400); }
             if (typeof corpo.pasta !== "string") return json({ erro: "Caminho da pasta obrigatório." }, 400);
             try {
-              const pastaValida = validarPastaVault(corpo.pasta, ambiente);
+              const raizAtualCanonica = chaveCofreUi(raiz);
+              const pastaSolicitada = resolve(corpo.pasta);
+              const mesmaRaiz = chaveCofreUi(pastaSolicitada) === raizAtualCanonica;
+              const pastaValida = validarPastaVault(mesmaRaiz ? await realpath(pastaSolicitada) : corpo.pasta, ambiente);
               const novaRaiz = resolve(pastaValida);
-              if (novaRaiz !== raiz) {
+              if (chaveCofreUi(novaRaiz) !== raizAtualCanonica) {
                 const instNova = await verificarInstanciaExistente(novaRaiz, ambiente);
                 if (instNova.ativa) {
                   return json({ erro: "Esse cofre já está aberto em outra janela." }, 409);
