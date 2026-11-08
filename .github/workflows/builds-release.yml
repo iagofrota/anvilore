@@ -107,13 +107,15 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $versao = (Get-Content -Raw package.json | ConvertFrom-Json).version
           $instalador = (Resolve-Path -LiteralPath release/instalar.ps1).Path
+          $versaoArquivo = Join-Path $env:RUNNER_TEMP 'Anvilore-VERSAO'
+          [IO.File]::WriteAllText($versaoArquivo, "$versao`n", [Text.Encoding]::ASCII)
           bun scripts/conferir-script-release.ts $instalador
           if ($LASTEXITCODE -ne 0) { throw 'Instalador de produção divergente' }
           if (Test-Path -LiteralPath pacotes) { throw 'Use uma saída nova' }
           $saida = Join-Path (Get-Location).Path 'pacotes'
           $iscc = Get-ChildItem 'C:\Program Files*\Inno Setup*\ISCC.exe' | Select-Object -First 1
           if (-not $iscc) { throw 'ISCC ausente; build não será pulado' }
-          & $iscc.FullName "/DVersao=$versao" "/DInstallerPs1=$instalador" "/O$saida" instalador/windows/anvilore.iss
+          & $iscc.FullName "/DVersao=$versao" "/DInstallerPs1=$instalador" "/DVersaoFile=$versaoArquivo" "/O$saida" instalador/windows/anvilore.iss
           if ($LASTEXITCODE -ne 0) { throw 'ISCC falhou' }
           $exe = Join-Path $saida 'AnviloreSetup.exe'
           if (-not (Test-Path -LiteralPath $exe) -or (Get-Item -LiteralPath $exe).Length -lt 1024) { throw 'EXE ausente ou vazio' }

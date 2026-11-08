@@ -10,8 +10,10 @@ Describe 'AnviloreSetup: resultados e pausa' -Skip:(-not $script:WindowsSetup) {
     if (-not $script:IsccSetup) { throw 'ISCC ausente' }
     $script:ModeloSetup = Join-Path $script:BaseSetup 'fixture.ps1'
     Set-Content -LiteralPath $script:ModeloSetup -Encoding UTF8 -Value '$global:LASTEXITCODE = [int]$env:ANVILORE_TEST_CODIGO'
+    $script:VersaoSetup = Join-Path $script:BaseSetup 'VERSAO'
+    [IO.File]::WriteAllText($script:VersaoSetup, "0.0.1`n", [Text.Encoding]::ASCII)
     $script:BuildSetup = Join-Path $script:BaseSetup 'build'
-    & $script:IsccSetup "/DInstallerPs1=$script:ModeloSetup" /DVersao=0.0.1 "/O$script:BuildSetup" $script:IssSetup | Out-Null
+    & $script:IsccSetup "/DInstallerPs1=$script:ModeloSetup" "/DVersaoFile=$script:VersaoSetup" /DVersao=0.0.1 "/O$script:BuildSetup" $script:IssSetup | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'ISCC falhou' }
     $script:ExeSetup = Join-Path $script:BuildSetup 'AnviloreSetup.exe'
     $script:AppSetup = Join-Path $script:BaseSetup 'app'
@@ -90,6 +92,12 @@ Describe 'AnviloreSetup: resultados e pausa' -Skip:(-not $script:WindowsSetup) {
     $env:ANVILORE_TEST_CODIGO = [string]$Codigo
     (ExecutarSetup) | Should -Be $Esperado
   }
+  It 'Dado o setup compilado, Quando instala por usuário, Então copia VERSAO ao lado de abrir.ps1' {
+    $env:ANVILORE_TEST_CODIGO = '0'
+    (ExecutarSetup) | Should -Be 0
+    (Get-Content -Raw -Encoding ASCII -LiteralPath (Join-Path $script:AppSetup 'VERSAO')).Trim() | Should -Be '0.0.1'
+    Test-Path -LiteralPath (Join-Path $script:AppSetup 'abrir.ps1') | Should -BeTrue
+  }
   It 'Dado pacote com script <Caso>, Quando executo o exe silencioso, Então a falha pré-execução reprova o setup' -ForEach @(
     @{ Caso = 'inválido'; Ausente = $false }, @{ Caso = 'ausente'; Ausente = $true }
   ) {
@@ -104,7 +112,7 @@ Describe 'AnviloreSetup: resultados e pausa' -Skip:(-not $script:WindowsSetup) {
     if ($Ausente) { $iss = $iss.Replace('DestName: "instalar.ps1"', 'DestName: "ausente.ps1"') }
     $arquivo = Join-Path $fixture 'fixture.iss'
     Set-Content -LiteralPath $arquivo -Encoding UTF8 -Value $iss
-    & $script:IsccSetup "/DInstallerPs1=$modelo" /DVersao=0.0.1 "/O$fixture" $arquivo | Out-Null
+    & $script:IsccSetup "/DInstallerPs1=$modelo" "/DVersaoFile=$script:VersaoSetup" /DVersao=0.0.1 "/O$fixture" $arquivo | Out-Null
     $LASTEXITCODE | Should -Be 0
     $exeAntes = $script:ExeSetup
     try {

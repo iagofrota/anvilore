@@ -54,6 +54,8 @@ test("Dado montagem de produção, Quando leio os contratos dos builds, Então v
   expect(linux).not.toContain('Version)" = "$versao"');
   expect(windows).toContain("/DVersao=");
   expect(windows).toContain("/DInstallerPs1=");
+  expect(windows).toContain("/DVersaoFile=");
+  expect(windows).toContain("WriteAllText($versaoArquivo");
   expect(windows).toContain("Resolve-Path");
   expect(windows).toContain("conferir-script-release.ts");
   // O Inno grava a ProductVersion de texto completada com espaços; a igualdade continua exata após o Trim.

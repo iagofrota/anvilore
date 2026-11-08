@@ -177,6 +177,16 @@ jobs:
           $c.Run.Path = 'tests/instalar-ps1/instalar.Tests.ps1'
           $c.Run.Exit = $true
           Invoke-Pester -Configuration $c
+      - name: Testes do lançador abrir.ps1 (Windows PowerShell 5.1)
+        if: github.event_name != 'pull_request' || needs.mudancas.outputs.instalar-ps1 == 'true'
+        shell: powershell
+        run: |
+          Import-Module Pester -MinimumVersion 5.5
+          $c = New-PesterConfiguration
+          $c.Run.Path = 'tests/instalar-ps1/abrir.Tests.ps1'
+          $c.Run.Exit = $true
+          $c.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $c
       - name: Resultados e pausa do AnviloreSetup.exe (runtime Inno e PowerShell)
         if: (github.event_name != 'pull_request' || needs.mudancas.outputs.instalar-ps1 == 'true') && !cancelled()
         shell: powershell

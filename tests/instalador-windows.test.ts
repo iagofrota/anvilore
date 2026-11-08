@@ -16,6 +16,15 @@ describe("AnviloreSetup.exe", () => {
     expect(iss).toMatch(/ANVILORE_SEM_PERGUNTAS/);
   });
 
+  test("Dado o setup compilado para uma versão, Quando instala os arquivos, Então inclui VERSAO junto do lançador", () => {
+    const iss = readFileSync(script, "utf8");
+    expect(iss).toMatch(/#ifndef VersaoFile/);
+    expect(iss).toMatch(/Source:\s*"\{#VersaoFile\}";\s*DestDir:\s*"\{app\}";\s*DestName:\s*"VERSAO"/i);
+    const workflow = readFileSync(join(raiz, ".github/workflows/builds-release.yml"), "utf8");
+    expect(workflow).toContain("WriteAllText($versaoArquivo");
+    expect(workflow).toContain("/DVersaoFile=$versaoArquivo");
+  });
+
   test("Dado o desinstalador, Quando verifico os caminhos apagados, Então ele nunca remove a pasta da pessoa", () => {
     const iss = readFileSync(script, "utf8");
     const secao = iss.match(/\[UninstallDelete\]([\s\S]*?)(?:\n\[|$)/i)?.[1] ?? "";

@@ -30,6 +30,37 @@ Describe 'forma do arquivo' {
   }
 }
 
+Describe 'AnvExecutarAtualizacaoExistente' {
+  It 'Dado o atualizador antigo que devolve 2 para --versao, Quando atualizo, Então repito sem --versao' {
+    $script:ChamadasAtualizador = @()
+    Mock AnvExecutar {
+      $script:ChamadasAtualizador += ,@($Argumentos)
+      if ($Argumentos -contains '--versao') { return [pscustomobject]@{ Codigo = 2; Saida = 'Uso: opção desconhecida' } }
+      return [pscustomobject]@{ Codigo = 0; Saida = 'Atualizada' }
+    }
+
+    $resultado = AnvExecutarAtualizacaoExistente -Bun 'bun' -Pasta 'C:\wiki com acento é' -Assinantes 'chaves.txt' -Versao '1.2.3'
+
+    $resultado.Codigo | Should -Be 0
+    $script:ChamadasAtualizador.Count | Should -Be 2
+    $script:ChamadasAtualizador[0] | Should -Contain '--versao'
+    $script:ChamadasAtualizador[1] | Should -Not -Contain '--versao'
+    $script:ChamadasAtualizador[1] | Should -Contain '--assinantes-do-instalador'
+  }
+
+  It 'Dado o atualizador atual, Quando recebe ANVILORE_VERSAO, Então aponta exatamente para a versão solicitada' {
+    $script:ArgumentosAtualizador = @()
+    Mock AnvExecutar {
+      $script:ArgumentosAtualizador = @($Argumentos)
+      return [pscustomobject]@{ Codigo = 0; Saida = 'Atualizada' }
+    }
+
+    (AnvExecutarAtualizacaoExistente -Bun 'bun' -Pasta 'C:\Anvilore' -Assinantes 'chaves.txt' -Versao 'v1.2.3').Codigo | Should -Be 0
+    $script:ArgumentosAtualizador | Should -Contain '--versao'
+    $script:ArgumentosAtualizador | Should -Contain '1.2.3'
+  }
+}
+
 Describe 'AnvPlataforma' {
   # Dado Windows 64 bits; Quando confere o sistema; Então é windows-x64. Windows arm64 e outros sistemas não são suportados.
   It 'reconhece Windows x64'          { AnvPlataforma -Sistema 'Windows_NT' -Arquitetura 'AMD64' | Should -Be 'windows-x64' }
