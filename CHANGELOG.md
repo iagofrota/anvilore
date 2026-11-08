@@ -9,8 +9,6 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
-- Revisão humana registrada nas páginas Interface e Plataformas da base de conhecimento.
-
 ## [0.3.3] - 2026-11-08
 
 ### Added
@@ -19,6 +17,7 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ### Changed
 
+- Revisão humana registrada nas páginas Interface e Plataformas da base de conhecimento.
 - O CI evita execuções duplicadas por push e filtra mudanças no instalador do Windows.
 
 ### Fixed
