@@ -1,4 +1,4 @@
-# Provas em Windows PowerShell 5.1 do lançador do pacote e da atualização silenciosa.
+﻿# Provas em Windows PowerShell 5.1 do lançador do pacote e da atualização silenciosa.
 BeforeDiscovery { $script:EhWindowsAbrir = $env:OS -eq 'Windows_NT' }
 
 Describe 'abrir.ps1: atualização automática do pacote' -Skip:(-not $script:EhWindowsAbrir) {
@@ -131,7 +131,7 @@ $global:LASTEXITCODE = 0
   It 'Dado pacote mais novo, Quando abro o atalho, Então chama o instalador sem perguntas com a versão e a pasta atuais' {
     $saida = ExecutarAbrirTeste
     $saida | Should -Match 'A interface do Anvilore fechou com erro \(código 7\)'
-    (Get-Content -Raw -LiteralPath $script:AbrirRecebidaTeste) | Should -Be ('1.0.0|' + $script:AbrirPastaTeste + '|1')
+    (Get-Content -Raw -Encoding UTF8 -LiteralPath $script:AbrirRecebidaTeste) | Should -Be ('1.0.0|' + $script:AbrirPastaTeste + '|1')
     (Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $script:AbrirPastaTeste 'package.json') | ConvertFrom-Json).version | Should -Be '1.0.0'
   }
 
@@ -178,7 +178,7 @@ $global:LASTEXITCODE = 0
     $saida = ExecutarAbrirTeste
     $saida | Should -Match 'A interface do Anvilore fechou com erro'
     Test-Path -LiteralPath $script:AbrirRecebidaTeste | Should -BeFalse
-    (Get-Content -Raw -LiteralPath (Join-Path $dir 'abrir.log')) | Should -Match 'já tentada anteriormente'
+    (Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $dir 'abrir.log')) | Should -Match 'já tentada anteriormente'
   }
 
   It 'Dado marcador com mais de 24 horas, Quando abro, Então tenta atualizar novamente' {
@@ -187,7 +187,7 @@ $global:LASTEXITCODE = 0
     $ontem = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 86401
     Set-Content -LiteralPath (Join-Path $dir 'versao-tentada') -Encoding ASCII -Value "1.0.0 $ontem"
     $null = ExecutarAbrirTeste
-    (Get-Content -Raw -LiteralPath $script:AbrirRecebidaTeste) | Should -Be ('1.0.0|' + $script:AbrirPastaTeste + '|1')
+    (Get-Content -Raw -Encoding UTF8 -LiteralPath $script:AbrirRecebidaTeste) | Should -Be ('1.0.0|' + $script:AbrirPastaTeste + '|1')
     Test-Path -LiteralPath (Join-Path $dir 'versao-tentada') | Should -BeFalse
   }
 
@@ -197,7 +197,7 @@ $global:LASTEXITCODE = 0
     $futuro = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 86401
     Set-Content -LiteralPath (Join-Path $dir 'versao-tentada') -Encoding ASCII -Value "1.0.0 $futuro"
     $null = ExecutarAbrirTeste
-    (Get-Content -Raw -LiteralPath $script:AbrirRecebidaTeste) | Should -Be ('1.0.0|' + $script:AbrirPastaTeste + '|1')
+    (Get-Content -Raw -Encoding UTF8 -LiteralPath $script:AbrirRecebidaTeste) | Should -Be ('1.0.0|' + $script:AbrirPastaTeste + '|1')
   }
 
   It 'Dado falha de atualização, Quando abro duas vezes, Então registra a falha, abre a versão antiga e não repete' {
@@ -208,10 +208,10 @@ $global:LASTEXITCODE = 0
     $env:ANVILORE_TEST_FALHA = '1'
     $null = ExecutarAbrirTeste
     $null = ExecutarAbrirTeste
-    (Get-Content -Raw -LiteralPath $script:AbrirRecebidaTeste) | Should -Be ('1.0.0|' + $script:AbrirPastaTeste + '|1')
+    (Get-Content -Raw -Encoding UTF8 -LiteralPath $script:AbrirRecebidaTeste) | Should -Be ('1.0.0|' + $script:AbrirPastaTeste + '|1')
     $dir = Join-Path $script:AbrirLocalTeste 'Anvilore'
     (Get-Content -Raw -LiteralPath (Join-Path $dir 'versao-tentada')) | Should -Match '^1\.0\.0 '
-    (Get-Content -Raw -LiteralPath (Join-Path $dir 'abrir.log')) | Should -Match 'falhou'
+    (Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $dir 'abrir.log')) | Should -Match 'falhou'
     $env:ANVILORE_ATALHO_SETUP | Should -Be 'atalho prévio'
     $env:ANVILORE_CONFIG_SETUP | Should -Be 'config prévia'
     $env:ANVILORE_VERSAO | Should -Be 'versão anterior'
@@ -224,6 +224,6 @@ $global:LASTEXITCODE = 0
     $env:ANVILORE_TEST_FALHA = '1'
     $saida = ExecutarAbrirTeste
     $saida | Should -Match 'A interface do Anvilore fechou com erro'
-    (Get-Content -Raw -LiteralPath $script:AbrirRecebidaTeste) | Should -Be ('1.0.0|' + $script:AbrirPastaTeste + '|1')
+    (Get-Content -Raw -Encoding UTF8 -LiteralPath $script:AbrirRecebidaTeste) | Should -Be ('1.0.0|' + $script:AbrirPastaTeste + '|1')
   }
 }
