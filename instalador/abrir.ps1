@@ -134,7 +134,13 @@ function AnvAbrirAtualizarDoPacote([string]$versaoPacote, [string]$versaoAtual) 
   $codigo = 1
   $erro = ''
   $instalador = Join-Path $origem 'instalar.ps1'
-  $variaveis = @('ANVILORE_PASTA', 'ANVILORE_VERSAO', 'ANVILORE_SEM_PERGUNTAS')
+  $variaveis = @(
+    'ANVILORE_PASTA',
+    'ANVILORE_VERSAO',
+    'ANVILORE_SEM_PERGUNTAS',
+    'ANVILORE_ATALHO_SETUP',
+    'ANVILORE_CONFIG_SETUP'
+  )
   $ambienteAntes = @{}
   foreach ($nome in $variaveis) {
     $item = Get-Item -LiteralPath "Env:$nome" -ErrorAction SilentlyContinue
@@ -145,6 +151,8 @@ function AnvAbrirAtualizarDoPacote([string]$versaoPacote, [string]$versaoAtual) 
     $env:ANVILORE_PASTA = $pasta
     $env:ANVILORE_VERSAO = $versaoPacote
     $env:ANVILORE_SEM_PERGUNTAS = '1'
+    $env:ANVILORE_ATALHO_SETUP = '1'
+    $env:ANVILORE_CONFIG_SETUP = Join-Path $origem 'pasta.txt'
     $global:LASTEXITCODE = 0
     & ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 -LiteralPath $instalador -ErrorAction Stop)))
     $codigo = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
@@ -192,10 +200,6 @@ if (-not (AnvAbrirEhInstalacao $pasta)) {
   }
 }
 
-$versaoPacote = AnvAbrirLerVersaoPacote
-$versaoAtual = AnvAbrirLerVersaoInstalada
-AnvAbrirAtualizarDoPacote -versaoPacote $versaoPacote -versaoAtual $versaoAtual
-
 $null = AnvAbrirConfigurarUtf8
 $caminhos = @(
   (Join-Path $perfil '.bun\bin'),
@@ -206,7 +210,15 @@ if ($env:LOCALAPPDATA) {
   $caminhos += Join-Path $env:LOCALAPPDATA 'Anvilore\bin'
   $caminhos += Join-Path $env:LOCALAPPDATA 'Anvilore\git\cmd'
 }
-$env:PATH = (($caminhos | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) }) -join ';') + ';' + $env:PATH
+$caminhosGerenciados = ($caminhos | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) }) -join ';'
+if ($caminhosGerenciados) {
+  $env:PATH = if ($env:PATH) { $caminhosGerenciados + ';' + $env:PATH } else { $caminhosGerenciados }
+}
+
+$versaoPacote = AnvAbrirLerVersaoPacote
+$versaoAtual = AnvAbrirLerVersaoInstalada
+AnvAbrirAtualizarDoPacote -versaoPacote $versaoPacote -versaoAtual $versaoAtual
+
 $bun = Get-Command bun -ErrorAction SilentlyContinue
 if (-not $bun) {
   AnvAbrirErroEEsperar 'Bun não encontrado no PATH. Rode novamente o instalador Windows do Anvilore.'

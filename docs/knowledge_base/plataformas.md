@@ -435,6 +435,10 @@ Ao abrir, o lançador lê `VERSAO` e o campo `version` do `package.json` com `Co
 silenciosamente quando o pacote é mais novo. Falha mantém a pasta e a interface disponíveis, registra `abrir.log` e
 marca `versao-tentada` por 24 horas em `%LOCALAPPDATA%\Anvilore` (ou em `USERPROFILE\AppData\Local\Anvilore` se
 `LOCALAPPDATA` não estiver definido). Uma tentativa bem-sucedida remove o marcador; pacote igual ou mais velho não rebaixa.
+Antes da tentativa, o lançador acrescenta ao `PATH` do processo o Bun, npm e PortableGit gerenciados. Ao chamar o instalador
+do pacote, define `ANVILORE_ATALHO_SETUP=1` e `ANVILORE_CONFIG_SETUP` para o arquivo pasta.txt ao lado de `abrir.ps1`, para que
+`AnvCriarAtalho` atualize o destino preservado pelo Inno sem substituir seus atalhos; as variáveis temporárias voltam ao
+valor anterior após sucesso ou falha.
 
 **Limite CLM do lançador.** A prova com Windows PowerShell 5.1 em modo `ConstrainedLanguage` rejeitou
 `[scriptblock]::Create`; portanto, o wrapper atual do atalho não inicia `abrir.ps1` nesse modo, mesmo com o script usando
