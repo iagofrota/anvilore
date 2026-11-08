@@ -1,4 +1,7 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { comandoUi, esperarEncerramento } from "../src/comandos/ui";
 import { capturarConsole } from "./apoio/console";
 
@@ -186,5 +189,65 @@ test("Dado instância em execução no modo só-revisão, Quando comandoUi é ch
     serverRevisao.stop(true);
     await removerEstadoUi(process.cwd(), process.pid);
     c.restaurar();
+  }
+});
+
+test("Dado ANVILORE_DESTINO que é symlink para cofre já aberto, Quando rodo comandoUi, Então reaproveita o servidor existente", async () => {
+  const c = capturarConsole();
+  let navegadorAberto = "";
+  let novoServidorIniciado = false;
+
+  const base = await mkdtemp(join(tmpdir(), "anvilore-ui-symlink-"));
+  try {
+    const pastaReal = join(base, "real");
+    const pastaLink = join(base, "link");
+    await mkdir(pastaReal, { recursive: true });
+    await symlink(pastaReal, pastaLink);
+
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        if (url.searchParams.get("token") === "token-symlink") return new Response("OK", { status: 200 });
+        return new Response("Forbidden", { status: 403 });
+      },
+    });
+
+    const fake = {
+      servidor: { stop: () => {} },
+      porta: server.port!,
+      token: "token",
+      url: `http://127.0.0.1:${server.port}/?token=token`,
+    } as Awaited<ReturnType<typeof import("../src/ui/servidor/servidor").iniciarServidorUi>>;
+
+    const { gravarEstadoUi, removerEstadoUi } = await import("../src/lib/ui-estado");
+    // O servidor gravou com a pasta REAL
+    const estado = { pid: process.pid, porta: server.port!, token: "token-symlink", pasta: pastaReal };
+
+    const anteriorDestino = process.env.ANVILORE_DESTINO;
+    try {
+      await gravarEstadoUi(estado);
+      // O usuário abre passando o SYMLINK como destino
+      process.env.ANVILORE_DESTINO = pastaLink;
+
+      const codigo = await comandoUi(
+        [],
+        async () => { novoServidorIniciado = true; return fake; },
+        async () => {},
+        url => { navegadorAberto = url; },
+      );
+      expect(codigo).toBe(0);
+      expect(novoServidorIniciado).toBe(false);
+      expect(navegadorAberto).toBe(`http://127.0.0.1:${server.port}/?token=token-symlink`);
+      expect(c.saida.join(" ")).toContain("Interface do Anvilore aberta no navegador");
+    } finally {
+      if (anteriorDestino !== undefined) process.env.ANVILORE_DESTINO = anteriorDestino;
+      else delete process.env.ANVILORE_DESTINO;
+      server.stop(true);
+      await removerEstadoUi(pastaReal, process.pid);
+      c.restaurar();
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
   }
 });
