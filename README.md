@@ -20,7 +20,7 @@ repositório**:
 | `ui/` | telas web da interface local: Início, Biblioteca, Nota, Chat, Revisão e Onboarding |
 | `e2e/` | testes de navegador da interface, com vaults temporários e um Claude Code falso |
 | `instalador/` | instaladores para Linux e Windows e os lançadores dos atalhos |
-| `atualizacao/` | código e arquivos usados para verificar e aplicar atualizações do kit |
+| `atualizacao/` | registro das migrações aplicadas ao atualizar versões do kit |
 | `modelos/` | esqueleto de wiki copiado na primeira instalação |
 | `src/mcp/` | servidor MCP opcional que consulta o índice local da wiki |
 | `scripts/` | a biblioteca do legado e as medições em TypeScript |
