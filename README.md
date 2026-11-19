@@ -11,15 +11,21 @@ repositório**:
 
 | Peça | O que é |
 |---|---|
-| `raw/` | as fontes que você acumula. O agente lê; nunca escreve. |
+| `raw/` | fontes acrescentadas por você ou por `anvilore capturar`; o agente lê, mas não altera nem apaga. |
 | `wiki/` | as páginas markdown que o agente mantém e interliga |
 | `SCHEMA.md` | o contrato de formato das páginas: tipos, frontmatter, wikilinks e callouts |
 | `AGENTS.md` | o contrato do agente: o que ele faz, o que não faz |
 | `skills/ingest`, `skills/query`, `skills/lint` | ingerir uma fonte; responder citando página; varrer a wiki atrás de problemas estruturais |
 | `src/` | o comando `anvilore` em TypeScript, que roda no [Bun](https://bun.sh); traz validação, instalação, áreas, proteção de fontes e manutenção (índice, log, lacunas, auditoria e rejunção de linhas) |
+| `ui/` | telas web da interface local: Início, Biblioteca, Nota, Chat, Revisão e Onboarding |
+| `e2e/` | testes de navegador da interface, com vaults temporários e um Claude Code falso |
+| `instalador/` | instaladores para Linux e Windows e os lançadores dos atalhos |
+| `atualizacao/` | código e arquivos usados para verificar e aplicar atualizações do kit |
+| `modelos/` | esqueleto de wiki copiado na primeira instalação |
+| `src/mcp/` | servidor MCP opcional que consulta o índice local da wiki |
 | `scripts/` | a biblioteca do legado e as medições em TypeScript |
 | `anvilore fechar` | sincroniza índices, reconstrói o log, valida a wiki e cobra o log do dia |
-| `hooks/` | a regra "`raw/` é imutável" na forma de hook; a decisão mora num subcomando só (`anvilore hook proteger-raw`, em `src/comandos/hook-proteger-raw.ts`) |
+| `hooks/` | hooks que impedem o agente de editar `raw/`; a decisão mora em `anvilore hook proteger-raw` (`src/comandos/hook-proteger-raw.ts`) |
 | `anvilore instalar` | configura um clone para o agente que você usa: Claude Code, Codex, Gemini ou Copilot |
 | `anvilore doctor` | diz, em linguagem simples, quais travas estão ligadas (proteção do `raw/`, validação, CI) e como ligar as que faltam |
 | `tests/` | os testes que provam os scripts, o hook e o instalador |
@@ -41,8 +47,9 @@ deliberada de RAG e a neutralidade de provedor de agente — está em
 ## Instalar
 
 **Windows:** baixe [AnviloreSetup.exe](https://github.com/iagofrota/anvilore/releases/latest/download/AnviloreSetup.exe)
-e abra. Se o navegador avisar, clique em **Manter**. Se aparecer "O Windows protegeu o computador",
-clique em **Mais informações → Executar assim mesmo**. Isso acontece porque o instalador ainda não tem assinatura digital.
+e abra. O setup cria atalhos no Menu Iniciar e na Área de Trabalho. Se o navegador avisar, clique em **Manter**.
+O executável e os pacotes não têm assinatura de código; SmartScreen e a abertura por duplo clique ainda não foram
+provados numa máquina Windows real. Os scripts `.sh` e `.ps1` publicados têm hash e assinatura SSH para conferência.
 
 **Linux (Ubuntu, Mint, Debian, Fedora):** baixe [anvilore.deb](https://github.com/iagofrota/anvilore/releases/latest/download/anvilore.deb)
 (ou [anvilore.rpm](https://github.com/iagofrota/anvilore/releases/latest/download/anvilore.rpm) no Fedora).
@@ -53,13 +60,26 @@ e [instalar.ps1](https://github.com/iagofrota/anvilore/releases/latest/download/
 Antes de executá-los, confira o hash e a assinatura SSH pelo [procedimento de verificação](docs/knowledge_base/release.md#conferir-o-instalador-antes-de-executar);
 a chave pública vem do [site do mantenedor](https://anvilore.iagofrota.com.br), fora do GitHub.
 
-Os links de download apontam para a release publicada mais recente.
-macOS usa a configuração do clone abaixo. O Windows é testado no CI; duplo clique e SmartScreen ainda aguardam prova numa máquina real.
+Os links apontam para a release publicada mais recente. Depois da instalação, abra **Anvilore** pelo menu de
+aplicativos no Linux ou pelo Menu Iniciar no Windows. No Linux, o primeiro clique prepara o kit na sua pasta pessoal;
+os seguintes abrem a interface. No macOS, use a configuração do clone descrita abaixo.
+
+## A interface
+
+A interface local reúne o Início, a Biblioteca de páginas, a leitura de uma Nota, o Chat para ingestão e a Revisão
+humana. O Onboarding guia a configuração inicial. No Linux e no Windows, abra pelo atalho **Anvilore**; em um clone,
+rode `anvilore ui`. O Chat pausa nos pontos extraídos para você decidir o que será escrito, e a Revisão é onde se
+aprovam os rascunhos.
+
+![Início: atividade, páginas para revisar e saúde da wiki](docs/imagens/inicio.png)
+
+![Biblioteca: páginas organizadas por tipo e status](docs/imagens/biblioteca.png)
+
+![Chat: pontos extraídos aguardando decisão](docs/imagens/chat.png)
+
+![Revisão: prévia de um rascunho e ação de aprovação](docs/imagens/revisao.png)
 
 ## Desenvolver ou configurar um clone
-
-Linux, Windows e macOS: o CI roda a verificação nos três. No Windows, por enquanto, só o CI testa: o kit ainda não
-foi provado numa máquina Windows de verdade, porque o mantenedor ainda não tem uma.
 
 **O que o Anvilore ainda não resolve:** vazamento de documentos internos. Ele impede que o agente grave em `raw/`, mas
 não impede que o conteúdo da wiki seja copiado, enviado a um serviço externo ou lido por quem não deveria; não o use como

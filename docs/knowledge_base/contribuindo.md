@@ -77,6 +77,9 @@ bun run e2e:ui
 bun run e2e:types
 ```
 
+As imagens de apresentação do README são opt-in e usam um vault temporário próprio. Para regerá-las, rode
+`agentop run --rm -- sh -lc 'bun install --frozen-lockfile && export PLAYWRIGHT_BROWSERS_PATH=e2e/.cache/ms-playwright; node ./node_modules/@playwright/test/cli.js install chromium && bun run build:ui && node ./node_modules/@playwright/test/cli.js test -c e2e/prints.config.ts'`.
+
 `bun run e2e` compila a interface, confere os tipos em `e2e/` e roda os arquivos `*.e2e.ts`; eles não entram em `bun test` nem no `bun run checar`. A suíte usa Chromium, locale `pt-BR`, fuso de São Paulo, viewport padrão 1280×800 e zero retries. Para escolher o cache de navegador, defina `PLAYWRIGHT_BROWSERS_PATH`; no runner descartável `agentop run --rm`, use e2e/.cache/ms-playwright para manter o browser visível fora do HOME temporário.
 
 O workflow do GitHub roda a suíte cinco vezes em jobs Ubuntu independentes, com Node fixado, cache do Chromium e o relatório da falha guardado por 7 dias; o resultado remoto só existe depois que o workflow for publicado e executado.
