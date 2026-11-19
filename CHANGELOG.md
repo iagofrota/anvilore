@@ -9,6 +9,8 @@ aqui no momento em que é feita. A release só sai com a seção da versão pree
 
 ## [Unreleased]
 
+- Atualiza o README com o caminho de instalação e telas da interface, com imagens geradas de um vault sintético.
+
 ## [0.3.3] - 2026-11-08
 
 ### Added
